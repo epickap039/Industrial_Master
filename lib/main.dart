@@ -11,6 +11,7 @@ import 'catalog_screen.dart';
 import 'arbitrator_screen.dart';
 import 'theme_manager.dart';
 import 'package:flutter/services.dart';
+import 'standards_screen.dart'; // v12.0
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -204,6 +205,11 @@ class _MainGlassPageState extends State<MainGlassPage> {
             title: const Text('Automatización'),
             body: const AutomationGlassPage(),
           ),
+          PaneItem(
+            icon: const Icon(FluentIcons.list),
+            title: const Text('Estándares Materiales'),
+            body: const StandardsGlassPage(), // v12.0
+          ),
           PaneItemSeparator(),
           PaneItem(
             icon: const Icon(FluentIcons.settings),
@@ -327,7 +333,7 @@ class _HelpDialogState extends State<HelpDialog> {
   @override
   Widget build(BuildContext context) {
     return ContentDialog(
-      title: const Text('Manual de Usuario v6.5'),
+      title: const Text('Manual de Usuario v12.1 - SMART HOMOLOGATOR'),
       content: SizedBox(
         width: 700,
         height: 500,
@@ -466,6 +472,38 @@ class _HelpDialogState extends State<HelpDialog> {
                     Text('El sistema busca planos PDF en dos ubicaciones:'),
                     Text('1. Ruta de Proyecto: Busca inteligentemente en subcarpetas de la ruta configurada.'),
                     Text('2. Genéricos: Ubicados en Z:\\5. PIEZAS GENERICAS\\JA\'S PDF.'),
+                  ],
+                ),
+              ),
+            ),
+            Tab(
+              text: const Text('Smart Homologator (IA)'),
+              body: Padding(
+                padding: const EdgeInsets.all(12),
+                child: ListView(
+                  children: const [
+                    Text(
+                      'FLUJO DE TRABAJO v12.1',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
+                    SizedBox(height: 10),
+                    Text('Para lograr una integridad total de datos, siga estos pasos:'),
+                    SizedBox(height: 15),
+                    Text(
+                      'PASO 1: Homologación Inteligente',
+                      style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF4CC2FF)),
+                    ),
+                    Text('• Diríjase a "Correcciones Pendientes".'),
+                    Text('• Use el botón ✨ (IA) para ver sugerencias automáticas.'),
+                    Text('• Guarde la corrección para limpiar el dato en el reporte auditado.'),
+                    SizedBox(height: 15),
+                    Text(
+                      'PASO 2: Resolución de Conflictos',
+                      style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF4CC2FF)),
+                    ),
+                    Text('• Vaya al "Tablero Principal" y abra el "Árbitro de Conflictos" (filas rojas).'),
+                    Text('• Notará que el dato de Excel ahora es el que usted corrigió en el Paso 1.'),
+                    Text('• Presione "Aceptar Cambios" para actualizar el Maestro de Materiales permanentemente.'),
                   ],
                 ),
               ),
@@ -1055,6 +1093,55 @@ class _HomologationTasksGlassPageState
     }
   }
 
+  void _showExcelCorrectionDialog(BuildContext context, Map<String, dynamic> item, String? suggestion) {
+    final controller = TextEditingController(text: suggestion ?? item['desc_excel'] ?? '');
+    
+    showDialog(
+      context: context,
+      builder: (context) => ContentDialog(
+        title: const Text('📝 Corregir Entrada de Excel'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Ajuste la descripción para el reporte técnico de correcciones:'),
+            const SizedBox(height: 16),
+            TextBox(
+              controller: controller,
+              placeholder: 'Descripción corregida',
+              maxLines: 3,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              "Original: ${item['desc_excel']}",
+              style: TextStyle(
+                fontSize: 11,
+                color: FluentTheme.of(context).typography.caption?.color?.withOpacity(0.6),
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          Button(
+            child: const Text('Cancelar'),
+            onPressed: () => Navigator.pop(context),
+          ),
+          FilledButton(
+            child: const Text('Guardar Corrección'),
+            onPressed: () async {
+              await db.saveExcelCorrection(item['id'], controller.text);
+              if (mounted) {
+                load();
+                Navigator.pop(context);
+              }
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ScaffoldPage(
@@ -1205,6 +1292,7 @@ class _HomologationTasksGlassPageState
                               initiallyExpanded: true,
                               content: Column(
                                 children: items.map((item) {
+                                  final String dirtyText = item['desc_excel'] ?? '';
                                   return Container(
                                     margin: const EdgeInsets.only(bottom: 8),
                                     padding: const EdgeInsets.all(12),
@@ -1246,12 +1334,50 @@ class _HomologationTasksGlassPageState
                                               ),
                                               const SizedBox(height: 6),
                                               Text(
-                                                "Excel: ${item['desc_excel'] ?? '---'}",
+                                                "Excel: $dirtyText",
                                                 style: TextStyle(
                                                   color: Colors.orange,
                                                   fontFamily: 'Consolas',
                                                   fontSize: 12,
                                                 ),
+                                              ),
+                                              
+                                              // --- v12.1 SMART HOMOLOGATOR AREA ---
+                                              FutureBuilder<Map<String, dynamic>?>(
+                                                future: db.getSuggestion(dirtyText),
+                                                builder: (context, snapshot) {
+                                                  if (!snapshot.hasData || snapshot.data == null) return const SizedBox.shrink();
+                                                  final suggestion = snapshot.data!['suggestion'];
+                                                  final ratio = snapshot.data!['ratio'];
+                                                  
+                                                  return Padding(
+                                                    padding: const EdgeInsets.only(top: 10),
+                                                    child: Column(
+                                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                                      children: [
+                                                        Row(
+                                                          children: [
+                                                            const Icon(FluentIcons.robot, size: 12, color: Color(0xFF4CC2FF)),
+                                                            const SizedBox(width: 6),
+                                                            Text(
+                                                              "INTELIGENCIA ARTIFICIAL (${(ratio * 100).toInt()}%)",
+                                                              style: TextStyle(
+                                                                fontSize: 10,
+                                                                fontWeight: FontWeight.bold,
+                                                                color: FluentTheme.of(context).accentColor,
+                                                              ),
+                                                            ),
+                                                          ],
+                                                        ),
+                                                        const SizedBox(height: 6),
+                                                        Button(
+                                                          onPressed: () => _showExcelCorrectionDialog(context, item, suggestion),
+                                                          child: Text("✨ Sugerencia: $suggestion"),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  );
+                                                },
                                               ),
                                             ],
                                           ),
@@ -1259,11 +1385,8 @@ class _HomologationTasksGlassPageState
                                         const SizedBox(width: 12),
                                         // Action
                                         Button(
-                                          child: const Text("Corregido"),
-                                          onPressed: () async {
-                                            await db.markTaskCorrected(item['id']);
-                                            load();
-                                          },
+                                          child: const Text("Corregir"),
+                                          onPressed: () => _showExcelCorrectionDialog(context, item, null),
                                         ),
                                       ],
                                     ),

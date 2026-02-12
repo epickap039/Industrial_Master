@@ -1,4 +1,3 @@
-// AUTO-GENERATED - DO NOT EDIT MANUALLY
-const String APP_VERSION = "11.0.0";
-const String BUILD_DATE = "2026-02-12";
-const String BUILD_NAME = "v11.0_ENTERPRISE_DESIGN";
+const String APP_VERSION = "12.1";
+const String APP_RELEASE_NAME = "SMART_HOMOLOGATOR";
+const String BUILD_DATE = "12/02/2026";

@@ -9,6 +9,7 @@ import urllib.parse
 import datetime
 import platform
 import base64
+import difflib
 
 # FORZAR SALIDA UTF-8 (Vital para comunicación con Flutter)
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
@@ -334,6 +335,15 @@ def mark_task_solved(id):
         conn.execute(q, {"id": id})
     return {"status": "success"}
 
+def save_excel_correction(id, new_desc):
+    try:
+        engine = get_engine()
+        with engine.begin() as conn:
+            conn.execute(text("UPDATE Tbl_Auditoria_Conflictos SET Estado = 'CORREGIDO', Desc_Excel = :d WHERE ID = :id"), {"d": new_desc, "id": id})
+        return {"status": "success"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 def find_blueprint(code):
     try:
         cfg = load_config()
@@ -551,6 +561,339 @@ if __name__ == '__main__':
             result = export_master()
         elif cmd == 'diagnostic':
             result = run_full_diagnostics()
+        # --- COMMANDS v12.0 STANDARDS ---
+        elif cmd in ['standards', 'get_standards']:
+            result = get_standards()
+        elif cmd == 'add_standard':
+            desc = payload.get('Descripcion') if payload else args.code # Fallback to code arg if simple text
+            cat = payload.get('Categoria', 'GENERAL') if payload else 'GENERAL'
+            result = add_standard(desc, cat)
+        elif cmd == 'edit_standard':
+            new_desc = payload.get('Descripcion') if payload else args.code
+            result = edit_standard(args.id, new_desc)
+        elif cmd == 'delete_standard':
+            result = delete_standard(args.id)
+        else:
+            result = {"status": "error", "message": f"Comando desconocido: {cmd}"}
+            
+        print(json.dumps(result, default=str))
+    except Exception as e:
+        print(json.dumps({"status": "error", "message": str(e)}, default=str))
+
+# --- ESTÁNDARES DE MATERIALES (v12.0) ---
+
+DEFAULT_STANDARDS = [
+    {"Descripcion": "ACERO ASTM A36 1/8\"", "Categoria": "ACERO"},
+    {"Descripcion": "ACERO ASTM A36 3/16\"", "Categoria": "ACERO"},
+    {"Descripcion": "ACERO ASTM A36 C.10", "Categoria": "ACERO"},
+    {"Descripcion": "ACERO ASTM A36 C.14", "Categoria": "ACERO"},
+    {"Descripcion": "ACERO ASTM A36 C.16", "Categoria": "ACERO"},
+    {"Descripcion": "ACERO ASTM A572 G50 1/2\"", "Categoria": "ACERO"},
+    {"Descripcion": "ACERO ASTM A572 G50 1/4\"", "Categoria": "ACERO"},
+    {"Descripcion": "ACERO ASTM A572 G50 3/4\"", "Categoria": "ACERO"},
+    {"Descripcion": "ACERO ASTM A572 G50 3/8\"", "Categoria": "ACERO"},
+    {"Descripcion": "ACERO ASTM A572 G50 5/16\"", "Categoria": "ACERO"},
+    {"Descripcion": "ACERO INOXIDABLE 304 CAL.16", "Categoria": "ACERO INOXIDABLE"},
+    {"Descripcion": "ACERO INOXIDABLE C.11", "Categoria": "ACERO INOXIDABLE"},
+    {"Descripcion": "ALUMINIO 3003 C.11", "Categoria": "ALUMINIO"},
+    {"Descripcion": "ALUMINIO 3003 C.14", "Categoria": "ALUMINIO"},
+    {"Descripcion": "ALUMINIO 5052 1/4\"", "Categoria": "ALUMINIO"},
+    {"Descripcion": "ALUMINIO NEGRO 3003 C.19", "Categoria": "ALUMINIO"},
+    {"Descripcion": "ALUMINIO MACIZO 6026 Ø 1 1/2\"", "Categoria": "ALUMINIO MACIZO"},
+    {"Descripcion": "ALUMINIO MACIZO 6026 Ø 1/2\"", "Categoria": "ALUMINIO MACIZO"},
+    {"Descripcion": "ALUMINIO MACIZO 6026 Ø 2 1/2\"", "Categoria": "ALUMINIO MACIZO"},
+    {"Descripcion": "ALUMINIO MACIZO 6026 Ø 2\"", "Categoria": "ALUMINIO MACIZO"},
+    {"Descripcion": "ALUMINIO MACIZO 6026 Ø 3 1/2\"", "Categoria": "ALUMINIO MACIZO"},
+    {"Descripcion": "ALUMINIO MACIZO 6026 Ø 3\"", "Categoria": "ALUMINIO MACIZO"},
+    {"Descripcion": "ALUMINIO MACIZO 6026 Ø 4\"", "Categoria": "ALUMINIO MACIZO"},
+    {"Descripcion": "ALUMINIO MACIZO 6026 Ø 7/8\"", "Categoria": "ALUMINIO MACIZO"},
+    {"Descripcion": "ANGULO ASTM A36 1 1/2\" x 1 1/2\" x 3/16\"", "Categoria": "ANGULO ASTM A36"},
+    {"Descripcion": "ANGULO ASTM A36 1\" x 1\" x 3/16\"", "Categoria": "ANGULO ASTM A36"},
+    {"Descripcion": "ANGULO ASTM A36 2\" x 2\" x 3/16\"", "Categoria": "ANGULO ASTM A36"},
+    {"Descripcion": "BARRA HUECA AISI 1018 Ø 33mm x 14mm", "Categoria": "BARRA HUECA AISI 1018"},
+    {"Descripcion": "BARRA HUECA AISI 1018 Ø 40mm x 25mm", "Categoria": "BARRA HUECA AISI 1018"},
+    {"Descripcion": "BARRA HUECA AISI 1018 Ø 40mm x 28mm", "Categoria": "BARRA HUECA AISI 1018"},
+    {"Descripcion": "BARRA HUECA AISI 1018 Ø 50mm x 35mm", "Categoria": "BARRA HUECA AISI 1018"},
+    {"Descripcion": "BARRA HUECA AISI 1018 Ø 76mm x 38mm", "Categoria": "BARRA HUECA AISI 1018"},
+    {"Descripcion": "BARRA CROMADA AISI 1045 Ø 28mm", "Categoria": "BARRA CROMADA AISI 1045"},
+    {"Descripcion": "BARRA CROMADA AISI 1045 Ø 45mm", "Categoria": "BARRA CROMADA AISI 1045"},
+    {"Descripcion": "TUBO HONEADO AISI 1018 Ø 60mm x 50mm", "Categoria": "TUBO HONEADO AISI 1018"},
+    {"Descripcion": "TUBO HONEADO AISI 1018 Ø 73mm x 63mm", "Categoria": "TUBO HONEADO AISI 1018"},
+    {"Descripcion": "BARRA HUECA CROMADA AISI 1018 Ø 38.1mm X 25.4mm", "Categoria": "BARRA HUECA CROMADA"},
+    {"Descripcion": "BARRA HUECA DE ALUMINIO B241 6026 Ø 101.6mm X 50.5mm", "Categoria": "BARRA HUECA DE ALUMINIO"},
+    {"Descripcion": "BARRA HUECA DE ALUMINIO B241 6026 Ø 63.5mm X 29.7mm", "Categoria": "BARRA HUECA DE ALUMINIO"},
+    {"Descripcion": "BARRA HUECA DE ALUMINIO B241 6026 Ø 76.2mm X 29.7mm", "Categoria": "BARRA HUECA DE ALUMINIO"},
+    {"Descripcion": "BARRA HUECA DE ALUMINIO B241 6026 Ø 88.9mm X 24.7mm", "Categoria": "BARRA HUECA DE ALUMINIO"},
+    {"Descripcion": "CAJA DE TENSADO DE LONA", "Categoria": "ACCESORIOS"},
+    {"Descripcion": "CANAL C A36 4\"", "Categoria": "PERFIL"},
+    {"Descripcion": "COMERCIAL BISAGRA DE LIBRO", "Categoria": "COMERCIAL"},
+    {"Descripcion": "COMERCIAL BISAGRA DE PIANO", "Categoria": "COMERCIAL"},
+    {"Descripcion": "MATRACA DE LONA", "Categoria": "ACCESORIOS"},
+    {"Descripcion": "PERFIL ALUMINIO PELDAÑO 688 6061 T6", "Categoria": "ALUMINIO"},
+    {"Descripcion": "PERNO REY COMERCIAL", "Categoria": "COMERCIAL"},
+    {"Descripcion": "SEGURO DE FUNDICION -", "Categoria": "COMERCIAL"},
+    {"Descripcion": "SEGURO DE RESORTE CORTO", "Categoria": "COMERCIAL"},
+    {"Descripcion": "SEGURO DE RESORTE LARGO", "Categoria": "COMERCIAL"},
+    {"Descripcion": "HSS ASTM A500 °B 2 1/2\" x 2 1/2\" x 1/4\"", "Categoria": "HSS ASTM A500"},
+    {"Descripcion": "HSS ASTM A500 °B 2 1/2\" x 2 1/2\" x 3/16\"", "Categoria": "HSS ASTM A500"},
+    {"Descripcion": "HSS ASTM A500 °B 2\" x 2\" x 1/4\"", "Categoria": "HSS ASTM A500"},
+    {"Descripcion": "HSS ASTM A500 °B 2\" x 2\" x 3/16\"", "Categoria": "HSS ASTM A500"},
+    {"Descripcion": "HSS ASTM A500 °B 3 1/2\" X 3 1/2\" X 3/16\"", "Categoria": "HSS ASTM A500"},
+    {"Descripcion": "HSS ASTM A500 °B 3\" x 2\" x 1/4\"", "Categoria": "HSS ASTM A500"},
+    {"Descripcion": "HSS ASTM A500 °B 3\" x 2\" x 3/16\"", "Categoria": "HSS ASTM A500"},
+    {"Descripcion": "HSS ASTM A500 °B 3\" x 3\" x 1/4\"", "Categoria": "HSS ASTM A500"},
+    {"Descripcion": "HSS ASTM A500 °B 3\" x 3\" x 3/16\"", "Categoria": "HSS ASTM A500"},
+    {"Descripcion": "HSS ASTM A500 °B 4 1/2\" x 3 1/2\" x 3/16\"", "Categoria": "HSS ASTM A500"},
+    {"Descripcion": "HSS ASTM A500 °B 4\" x 2\" x 1/4\"", "Categoria": "HSS ASTM A500"},
+    {"Descripcion": "HSS ASTM A500 °B 4\" x 2\" x 3/16\"", "Categoria": "HSS ASTM A500"},
+    {"Descripcion": "HSS ASTM A500 °B 4\" x 3\" x 1/4\"", "Categoria": "HSS ASTM A500"},
+    {"Descripcion": "HSS ASTM A500 °B 4\" x 3\" x 3/16\"", "Categoria": "HSS ASTM A500"},
+    {"Descripcion": "HSS ASTM A500 °B 4\" x 3\" x 3/8\"", "Categoria": "HSS ASTM A500"},
+    {"Descripcion": "HSS ASTM A500 °B 4\" x 4\" x 3/8\"", "Categoria": "HSS ASTM A500"},
+    {"Descripcion": "HSS ASTM A500 °B 6\" x 2\" x 1/4\"", "Categoria": "HSS ASTM A500"},
+    {"Descripcion": "HSS ASTM A500 °B 6\" x 2\" x 3/16\"", "Categoria": "HSS ASTM A500"},
+    {"Descripcion": "HSS ASTM A500 °B 6\" x 3\" x 1/4\"", "Categoria": "HSS ASTM A500"},
+    {"Descripcion": "HSS ASTM A500 °B 6\" x 3\" x 3/16\"", "Categoria": "HSS ASTM A500"},
+    {"Descripcion": "HSS ASTM A500 °B 6\" x 4\" x 1/4\"", "Categoria": "HSS ASTM A500"},
+    {"Descripcion": "HSS ASTM A500 °B 6\" x 4\" x 3/8\"", "Categoria": "HSS ASTM A500"},
+    {"Descripcion": "HSS ASTM A500 °B 6\" X 6\" X 1/4\"", "Categoria": "HSS ASTM A500"},
+    {"Descripcion": "HSS ASTM A500 °B 6\" x 6\" x 3/8\"", "Categoria": "HSS ASTM A500"},
+    {"Descripcion": "PLACA HARDOX 1/4\"", "Categoria": "PLACA"},
+    {"Descripcion": "PLACA STRENX 110 XF 3/16\"", "Categoria": "PLACA"},
+    {"Descripcion": "PLACA STRENX 110XF 1/2\"", "Categoria": "PLACA"},
+    {"Descripcion": "PTR ASTM A36 1 1/2\" x 1 1/2 \" x 3/16\"", "Categoria": "PTR ASTM A36"},
+    {"Descripcion": "PTR ASTM A36 1\" x 1\" x C.11", "Categoria": "PTR ASTM A36"},
+    {"Descripcion": "REDONDO AISI 1018 Ø 1 1/2\"", "Categoria": "REDONDO AISI 1018"},
+    {"Descripcion": "REDONDO AISI 1018 Ø 1 1/4\"", "Categoria": "REDONDO AISI 1018"},
+    {"Descripcion": "REDONDO AISI 1018 Ø 1 3/8\"", "Categoria": "REDONDO AISI 1018"},
+    {"Descripcion": "REDONDO AISI 1018 Ø 1\"", "Categoria": "REDONDO AISI 1018"},
+    {"Descripcion": "REDONDO AISI 1018 Ø 1/2\"", "Categoria": "REDONDO AISI 1018"},
+    {"Descripcion": "REDONDO AISI 1018 Ø 2 1/2\"", "Categoria": "REDONDO AISI 1018"},
+    {"Descripcion": "REDONDO AISI 1018 Ø 2 5/8\"", "Categoria": "REDONDO AISI 1018"},
+    {"Descripcion": "REDONDO AISI 1018 Ø 2\"", "Categoria": "REDONDO AISI 1018"},
+    {"Descripcion": "REDONDO AISI 1018 Ø 3\"", "Categoria": "REDONDO AISI 1018"},
+    {"Descripcion": "REDONDO AISI 1018 Ø 3/4\"", "Categoria": "REDONDO AISI 1018"},
+    {"Descripcion": "REDONDO AISI 1018 Ø 7/8\"", "Categoria": "REDONDO AISI 1018"},
+    {"Descripcion": "REDONDO NEGRO Ø 5/16\"", "Categoria": "REDONDO NEGRO"},
+    {"Descripcion": "REDONDO NEGRO Ø 5/8\"", "Categoria": "REDONDO NEGRO"},
+    {"Descripcion": "RIEL DE ACERO A36 1500", "Categoria": "PERFIL"},
+    {"Descripcion": "SOLERA ASTM A36 1 1/2\" x 1/2\"", "Categoria": "SOLERA ASTM A36"},
+    {"Descripcion": "SOLERA ASTM A36 1 1/4\" x 1/4\"", "Categoria": "SOLERA ASTM A36"},
+    {"Descripcion": "SOLERA ASTM A36 1\" x 1/2\"", "Categoria": "SOLERA ASTM A36"},
+    {"Descripcion": "SOLERA ASTM A36 2\" x 1\"", "Categoria": "SOLERA ASTM A36"},
+    {"Descripcion": "SOLERA ASTM A36 4\" x 1\"", "Categoria": "SOLERA ASTM A36"},
+    {"Descripcion": "SOLERA ASTM A36 6\" x 1\"", "Categoria": "SOLERA ASTM A36"},
+    {"Descripcion": "SOLERA DE ALUMINIO ASTM A36 2\" X 1\"", "Categoria": "SOLERA DE ALUMINIO"},
+    {"Descripcion": "TOLDO ALUMINIO C.19", "Categoria": "TOLDO ALUMINIO"},
+    {"Descripcion": "TUBO DE ACERO A500 °B Ø 1 1/2\" CED. 80", "Categoria": "TUBO DE ACERO A500"},
+    {"Descripcion": "TUBO DE ACERO A500 °B Ø 1 1/2\" CED. 80 SIN/COS", "Categoria": "TUBO DE ACERO A500"},
+    {"Descripcion": "TUBO DE ACERO A500 °B Ø 1\" CED. 40 C/COS", "Categoria": "TUBO DE ACERO A500"},
+    {"Descripcion": "TUBO DE ACERO A500 °B Ø 1\" CED. 40 SIN/COS", "Categoria": "TUBO DE ACERO A500"},
+    {"Descripcion": "TUBO DE ALUMINIO B241 Ø  2\" x  1\" x 1/8\"", "Categoria": "TUBO DE ALUMINIO B241"},
+    {"Descripcion": "TUBO DE ALUMINIO B241 Ø 2 1/2\"", "Categoria": "TUBO DE ALUMINIO B241"},
+    {"Descripcion": "TUBO DE ALUMINIO B241 Ø 2\"", "Categoria": "TUBO DE ALUMINIO B241"},
+    {"Descripcion": "TUBO DE ALUMINIO B241 Ø 2\" x  1\" x 1/8\"", "Categoria": "TUBO DE ALUMINIO B241"},
+    {"Descripcion": "TUBO DE ALUMINIO B241 Ø 3 1/2\"", "Categoria": "TUBO DE ALUMINIO B241"},
+    {"Descripcion": "TUBO DE ALUMINIO NEGRO B241 Ø 2 1/2\"", "Categoria": "TUBO DE ALUMINIO B241"},
+    {"Descripcion": "TUBO STROCK CROMADO ASTM 1045 Ø 70mm X 63mm", "Categoria": "TUBO STROCK CROMADO"},
+    {"Descripcion": "PERFIL ALUMINIO CUERNO EA 685 6061T6", "Categoria": "PERFIL ALUMINIO"},
+    {"Descripcion": "PERFIL ALUMINIO PRINCIPAL EXT 684 6061T6", "Categoria": "PERFIL ALUMINIO"},
+    {"Descripcion": "PERFIL ALUMINIO ANGULO VISTA 686", "Categoria": "PERFIL ALUMINIO"},
+    {"Descripcion": "PERFIL ALUMINIO REFUERZO INT 683", "Categoria": "PERFIL ALUMINIO"},
+    {"Descripcion": "BORDA LATERAL BASCULANTE 4.9 6061", "Categoria": "BORDA LATERAL"},
+    {"Descripcion": "BORDA LATERAL BASCULANTE 3.5 6061", "Categoria": "BORDA LATERAL"},
+    {"Descripcion": "PERFIL DE ALUMINIO TIPO BISAGRA ABATIBLE 3.10 MT 6061-T6", "Categoria": "ALUMINIO"},
+    {"Descripcion": "PERFIL DE ALUMINIO TIPO ESCALON ABATIBLE 3.10 MT 6061-T6", "Categoria": "ALUMINIO"}
+]
+
+def ensure_standards_table():
+    engine = get_engine()
+    
+    # 1. Crear tabla si no existe
+    create_table_query = """
+    IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Tbl_Estandares_Materiales' AND xtype='U')
+    BEGIN
+        CREATE TABLE Tbl_Estandares_Materiales (
+            ID INT IDENTITY(1,1) PRIMARY KEY, 
+            Descripcion NVARCHAR(400) UNIQUE NOT NULL, 
+            Categoria NVARCHAR(100)
+        )
+    END
+    """
+    
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(create_table_query))
+            
+            # 2. Verificar si está vacía para sembrar datos
+            res = conn.execute(text("SELECT COUNT(*) FROM Tbl_Estandares_Materiales")).fetchone()
+            count = res[0] if res else 0
+            
+            if count == 0:
+                print("Sembrando Tbl_Estandares_Materiales con datos por defecto...")
+                insert_query = text("INSERT INTO Tbl_Estandares_Materiales (Descripcion, Categoria) VALUES (:d, :c)")
+                for item in DEFAULT_STANDARDS:
+                    try:
+                        conn.execute(insert_query, {"d": item["Descripcion"], "c": item["Categoria"]})
+                    except:
+                        pass # Ignorar duplicados si por alguna razón fallara la lógica de conteo
+    except Exception as e:
+        print(f"Error inicializando tabla de estándares: {e}")
+
+def get_standards():
+    ensure_standards_table() # Asegurar existencia antes de leer
+    engine = get_engine()
+    with engine.connect() as conn:
+        df = pd.read_sql("SELECT * FROM Tbl_Estandares_Materiales ORDER BY Descripcion ASC", conn)
+    return sanitize(df).to_dict(orient='records')
+
+def add_standard(desc, cat="GENERAL"):
+    engine = get_engine()
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("INSERT INTO Tbl_Estandares_Materiales (Descripcion, Categoria) VALUES (:d, :c)"), {"d": desc, "c": cat})
+        return {"status": "success"}
+    except Exception as e:
+        if "UNIQUE constraint" in str(e) or "2627" in str(e):
+            return {"status": "error", "message": "El material ya existe en la biblioteca."}
+        return {"status": "error", "message": str(e)}
+
+def edit_standard(id, new_desc):
+    engine = get_engine()
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("UPDATE Tbl_Estandares_Materiales SET Descripcion = :d WHERE ID = :id"), {"d": new_desc, "id": id})
+        return {"status": "success"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+def delete_standard(id):
+    engine = get_engine()
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM Tbl_Estandares_Materiales WHERE ID = :id"), {"id": id})
+        return {"status": "success"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+# --- SMART HOMOLOGATOR (v12.1) ---
+
+_STANDARDS_CACHE = None
+
+def get_match_suggestion(dirty_text):
+    global _STANDARDS_CACHE
+    if not dirty_text:
+        return None
+        
+    try:
+        # 1. Cargar estándares si no están en cache (Optimización sugerida)
+        if _STANDARDS_CACHE is None:
+            engine = get_engine()
+            with engine.connect() as conn:
+                df = pd.read_sql("SELECT Descripcion FROM Tbl_Estandares_Materiales", conn)
+                _STANDARDS_CACHE = df['Descripcion'].tolist()
+        
+        if not _STANDARDS_CACHE:
+            return None
+            
+        best_match = None
+        highest_ratio = 0.0
+        
+        dirty_clean = dirty_text.strip().upper()
+        
+        # 2. Lógica Fuzzy con SequenceMatcher
+        for standard in _STANDARDS_CACHE:
+            ratio = difflib.SequenceMatcher(None, dirty_clean, standard.upper()).ratio()
+            if ratio > highest_ratio:
+                highest_ratio = ratio
+                best_match = standard
+                
+        # 3. Retornar solo si supera el 60% (Umbral CRÍTICO)
+        if highest_ratio >= 0.60:
+            return {"suggestion": best_match, "ratio": round(highest_ratio, 2)}
+        else:
+            return None
+            
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+# --- EXECUTION ---
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('command', help='API Command')
+    parser.add_argument('--code', help='Part code')
+    parser.add_argument('--id', help='Task ID')
+    parser.add_argument('--stdin', action='store_true', help='Read payload from stdin (base64)')
+    parser.add_argument('--force_resolve', action='store_true', help='Force resolution')
+    parser.add_argument('--status', help='Custom resolution status')
+    
+    args = parser.parse_known_args()[0]
+    
+    payload = None
+    if args.stdin:
+        try:
+            stdin_data = sys.stdin.read().strip()
+            if stdin_data:
+                try:
+                    payload = json.loads(base64.b64decode(stdin_data).decode('utf-8'))
+                except:
+                    payload = json.loads(stdin_data)
+        except:
+            pass
+
+    cmd = args.command
+    
+    try:
+        result = None
+        if cmd == 'test_connection':
+            result = test_connection()
+        elif cmd in ['get_all', 'catalog']:
+            result = get_master_catalog()
+        elif cmd in ['conflicts', 'get_conflicts']:
+            result = get_conflicts()
+        elif cmd in ['history', 'get_history']:
+            result = get_history(args.code)
+        elif cmd == 'update':
+            result = update_master(args.code, payload, args.force_resolve, args.status)
+        elif cmd == 'delete':
+            result = delete_master(args.code)
+        elif cmd == 'insert':
+            result = insert_master(payload)
+        elif cmd in ['fetch', 'fetch_part']:
+            result = fetch_part(args.code)
+        elif cmd in ['homologation', 'get_homologation']:
+            result = get_homologation(args.code)
+        elif cmd == 'get_resolved':
+            result = get_resolved_tasks()
+        elif cmd == 'get_pending':
+            result = get_pending_tasks()
+        elif cmd in ['mark_corrected', 'mark_solved']:
+            result = mark_task_solved(args.id or args.code)
+        elif cmd == 'find_blueprint':
+            result = find_blueprint(args.code)
+        elif cmd == 'export_master':
+            result = export_master()
+        elif cmd == 'diagnostic':
+            result = run_full_diagnostics()
+        # --- COMMANDS v12.0 STANDARDS ---
+        elif cmd in ['standards', 'get_standards']:
+            result = get_standards()
+        elif cmd == 'add_standard':
+            desc = payload.get('Descripcion') if payload else args.code # Fallback to code arg if simple text
+            cat = payload.get('Categoria', 'GENERAL') if payload else 'GENERAL'
+            result = add_standard(desc, cat)
+        elif cmd == 'edit_standard':
+            new_desc = payload.get('Descripcion') if payload else args.code
+            result = edit_standard(args.id, new_desc)
+        elif cmd == 'delete_standard':
+            result = delete_standard(args.id)
+        # --- COMMANDS v12.1 SMART HOMOLOGATOR ---
+        elif cmd == 'get_suggestion':
+            dirty = args.code or (payload.get('text') if payload else None)
+            result = get_match_suggestion(dirty)
+        elif cmd == 'save_correction':
+            result = save_excel_correction(args.id, payload.get('text'))
         else:
             result = {"status": "error", "message": f"Comando desconocido: {cmd}"}
             

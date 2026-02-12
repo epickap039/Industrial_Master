@@ -353,4 +353,54 @@ class DatabaseHelper {
       };
     }
   }
+
+  // --- STANDARD KEEPER v12.0 API ---
+
+  Future<List<Map<String, dynamic>>> getStandards() async {
+    final res = await _runScript('data_bridge.py', ['get_standards']);
+    if (res is List) return List<Map<String, dynamic>>.from(res);
+    return [];
+  }
+
+  Future<Map<String, dynamic>> addStandard(String descripcion, {String categoria = "GENERAL"}) async {
+    final jsonString = jsonEncode({"Descripcion": descripcion, "Categoria": categoria});
+    final base64Payload = base64Encode(utf8.encode(jsonString));
+
+    final res = await _runScript('data_bridge.py', ['add_standard', '--stdin'], stdinInput: base64Payload);
+    if (res != null) return Map<String, dynamic>.from(res);
+    return {"status": "error", "message": "Unknown backend error"};
+  }
+
+  Future<Map<String, dynamic>> editStandard(int id, String newDescripcion) async {
+    final jsonString = jsonEncode({"Descripcion": newDescripcion});
+    final base64Payload = base64Encode(utf8.encode(jsonString));
+
+    final res = await _runScript('data_bridge.py', ['edit_standard', '--id', id.toString(), '--stdin'], stdinInput: base64Payload);
+    if (res != null) return Map<String, dynamic>.from(res);
+    return {"status": "error", "message": "Unknown backend error"};
+  }
+
+  Future<Map<String, dynamic>> deleteStandard(int id) async {
+    final res = await _runScript('data_bridge.py', ['delete_standard', '--id', id.toString()]);
+    if (res != null) return Map<String, dynamic>.from(res);
+    return {"status": "error", "message": "Unknown backend error"};
+  }
+
+  // --- SMART HOMOLOGATOR v12.1 ---
+  Future<Map<String, dynamic>?> getSuggestion(String dirtyText) async {
+    try {
+      final res = await _runScript('data_bridge.py', ['get_suggestion', '--code', dirtyText]);
+      if (res != null && res is Map) return Map<String, dynamic>.from(res);
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>> saveExcelCorrection(int id, String text) async {
+    final payload = base64Encode(utf8.encode(jsonEncode({"text": text})));
+    final res = await _runScript('data_bridge.py', ['save_correction', '--id', id.toString(), '--stdin'], stdinInput: payload);
+    if (res != null) return Map<String, dynamic>.from(res);
+    return {"status": "error", "message": "Unknown backend error"};
+  }
 }
