@@ -1,16 +1,22 @@
-# industrial_manager
+# Industrial Master v11.0 ENTERPRISE
 
-A new Flutter project.
+Este es el repositorio oficial del proyecto **Industrial Master**, una herramienta de gestión y auditoría industrial.
 
-## Getting Started
+## Versión Actual: v11.0_ENTERPRISE_DESIGN
 
-This project is a starting point for a Flutter application.
+### Características Principales
 
-A few resources to get you started if this is your first Flutter project:
+- **Dashboard de Control:** Vista general de métricas clave.
+- **Auditoría de Conflictos:** Herramienta para resolver discrepancias entre Excel y SQL.
+- **Diseño Enterprise:** Nueva interfaz gráfica con modo claro/oscuro profesional.
+- **Smart Detective Data:** Lógica avanzada de mapeo de datos SQL.
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+### Requisitos
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- Windows 10/11
+- Conexión a Base de Datos SQL Server
+- Archivos Excel de insumos
+
+### Instalación
+
+El proyecto incluye scripts de construcción automatizada en Python para generar instaladores `.exe`.
