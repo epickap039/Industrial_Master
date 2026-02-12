@@ -1,0 +1,9 @@
+{
+    "server": "localhost\\SQLEXPRESS",
+    "database": "DB_Materiales_Industrial",
+    "driver": "ODBC Driver 17 for SQL Server",
+    "trusted_connection": "yes",
+    "username": "",
+    "password": "",
+    "blueprints_path": ""
+}
