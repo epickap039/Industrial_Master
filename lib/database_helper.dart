@@ -403,4 +403,42 @@ class DatabaseHelper {
     if (res != null) return Map<String, dynamic>.from(res);
     return {"status": "error", "message": "Unknown backend error"};
   }
+
+  // --- EXCEL PATH MANAGER (v13.1) ---
+
+  Future<Map<String, dynamic>> registerPath(String filename, String path) async {
+    final payload = base64Encode(utf8.encode(jsonEncode({
+      "filename": filename,
+      "path": path,
+    })));
+    final res = await _runScript('data_bridge.py', ['register_path', '--stdin'], stdinInput: payload);
+    if (res != null) return Map<String, dynamic>.from(res);
+    return {"status": "error", "message": "Backend error"};
+  }
+
+  Future<Map<String, dynamic>> getPaths() async {
+    final res = await _runScript('data_bridge.py', ['get_paths']);
+    if (res != null && res is Map) return Map<String, dynamic>.from(res);
+    return {};
+  }
+
+  Future<Map<String, dynamic>> writeExcel(int id, String newValue, String filename, String sheet, int row) async {
+    final payload = base64Encode(utf8.encode(jsonEncode({
+      "id": id,
+      "value": newValue,
+      "filename": filename,
+      "sheet": sheet,
+      "row": row,
+    })));
+    
+    // Using stdin for complex payload
+    final res = await _runScript(
+      'data_bridge.py', 
+      ['write_excel', '--stdin'], 
+      stdinInput: payload
+    );
+    
+    if (res != null) return Map<String, dynamic>.from(res);
+    return {"status": "error", "message": "Backend error"};
+  }
 }

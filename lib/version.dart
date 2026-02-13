@@ -1,3 +1,3 @@
-const String APP_VERSION = "13.0";
-const String APP_RELEASE_NAME = "USER_CENTRIC";
-const String BUILD_DATE = "12/02/2026";
+const String APP_VERSION = "13.1";
+const String APP_RELEASE_NAME = "LIVE_WRITER_PRO";
+const String BUILD_DATE = "13/02/2026";

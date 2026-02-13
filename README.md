@@ -1,17 +1,25 @@
-# Industrial Master v13.0 - USER CENTRIC
+# Industrial Master v13.1 - LIVE WRITER PRO
 
 Este es el repositorio oficial del proyecto **Industrial Master**, una herramienta de gestión y auditoría industrial avanzada.
 
-## Versión Actual: v13.0_USER_CENTRIC
+## Versión Actual: v13.1_LIVE_WRITER_PRO
 
-Esta versión se centra en optimizar la experiencia del usuario (UX), mejorar la seguridad en la edición de datos y proporcionar ayuda contextual en tiempo real.
+Esta versión introduce la **Escritura Inteligente en Excel**, permitiendo correcciones directas sobre los archivos fuente.
 
-### 🌟 Novedades V13.0 (User Centric Update)
+### 🌟 Novedades V13.1 (Live Writer)
 
-- **Edición Protegida en Catálogo Maestro:**
-  - Sistema de cambios diferidos: edite múltiples celdas y guarde todo al final.
-  - Indicadores visuales de "cambios pendientes" (celdas azules y contador global).
-  - Protección de navegación: alerta si intenta salir con cambios sin guardar.
+- **Escritura Directa en Archivos Excel:**
+  - El sistema ahora abre, edita y guarda cambios directamente en los archivos `.xlsx` originales.
+  - **Soporte de Celdas Combinadas (Merge):** Algoritmo inteligente que detecta rangos combinados y escribe en la celda correcta.
+  - **Detección de Archivos en Uso:** Alerta si el archivo está abierto por otro usuario (Permission Lock).
+
+- **Gestor de Rutas Dinámico (Path Manager):**
+  - Nueva pestaña **"📍 Fuentes de Datos"** en el menú Sistema.
+  - Permite "relocalizar" archivos si fueron movidos de carpeta.
+  - Mapeo persistente de rutas para futuros accesos.
+
+- **Integridad de Datos:**
+  - Actualización simultánea: Se corrige el Excel y se marca el registro en SQL al mismo tiempo.
 
 - **Ayuda Contextual Inteligente:**
   - Botones de ayuda (`?`) en cada módulo principal.

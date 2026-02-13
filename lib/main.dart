@@ -11,7 +11,8 @@ import 'catalog_screen.dart';
 import 'arbitrator_screen.dart';
 import 'theme_manager.dart';
 import 'package:flutter/services.dart';
-import 'standards_screen.dart'; // v12.0
+import 'standards_screen.dart';
+import 'sources_screen.dart'; // v13.1
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -233,6 +234,11 @@ class _MainGlassPageState extends State<MainGlassPage> {
             icon: Icon(FluentIcons.history),
             title: Text('📜 Auditoría'),
             body: ResolvedHistoryGlassPage(),
+          ),
+          PaneItem(
+            icon: Icon(FluentIcons.folder_open),
+            title: Text('📍 Fuentes de Datos'),
+            body: const SourcesPage(),
           ),
           PaneItem(
             icon: Icon(FluentIcons.settings),
@@ -1314,14 +1320,35 @@ class _HomologationTasksGlassPageState
             onPressed: processing ? null : () async {
               setState(() => processing = true);
               try {
-                await db.saveExcelCorrection(item['id'], controller.text);
-                _showSuccess("Descripción corregida en el registro.");
+                // v13.1: Write directly to Excel if path is known
+                final filename = item['archivo']?.toString() ?? '';
+                final sheet = item['hoja']?.toString() ?? '';
+                final row = int.tryParse(item['fila']?.toString() ?? '0') ?? 0;
+                
+                // If we have file info, try writing to Excel first
+                if (filename.isNotEmpty && sheet.isNotEmpty && row > 0) {
+                   final res = await db.writeExcel(item['id'], controller.text, filename, sheet, row);
+                   if (res['status'] != 'success') throw Exception(res['message']);
+                   _showSuccess("Excel y Base de Datos actualizados correctamente.");
+                } else {
+                   // Fallback for logic-only correction (should not happen in v13.1)
+                   final res = await db.saveExcelCorrection(item['id'], controller.text);
+                   if (res['status'] != 'success') throw Exception(res['message']);
+                   _showSuccess("Descripción corregida (Solo SQL).");
+                }
+                
                 if (mounted) {
-                  load();
+                  await load(); // Reload to reflect changes
                   Navigator.pop(context);
                 }
               } catch (e) {
-                _showErrorDialog("Error al guardar", e.toString());
+                // Determine if it's a path error to show accurate help
+                final msg = e.toString();
+                if (msg.contains("Ruta no encontrada")) {
+                    _showErrorDialog("Archivo No Localizado", "Vaya a la pestaña 'Fuentes de Datos' y localice el archivo:\n${item['archivo']}");
+                } else {
+                    _showErrorDialog("Error al guardar", msg);
+                }
               } finally {
                 if (mounted) setState(() => processing = false);
               }

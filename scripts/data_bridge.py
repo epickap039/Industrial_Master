@@ -10,6 +10,30 @@ import datetime
 import platform
 import base64
 import difflib
+import openpyxl
+from openpyxl.utils.cell import coordinate_from_string, column_index_from_string
+
+PATH_MAP_FILE = "file_paths_map.json"
+
+def load_path_map():
+    base = get_base_path()
+    path = os.path.join(base, PATH_MAP_FILE)
+    if os.path.exists(path):
+        try:
+            with open(path, 'r') as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+
+def save_path_map(data):
+    base = get_base_path()
+    path = os.path.join(base, PATH_MAP_FILE)
+    try:
+        with open(path, 'w') as f:
+            json.dump(data, f, indent=4)
+    except:
+        pass
 
 # FORZAR SALIDA UTF-8 (Vital para comunicación con Flutter)
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
@@ -335,6 +359,84 @@ def mark_task_solved(id):
         conn.execute(q, {"id": id})
     return {"status": "success"}
 
+def register_file_path(filename, full_path):
+    pmap = load_path_map()
+    pmap[filename] = full_path
+    save_path_map(pmap)
+    return {"status": "success", "message": f"Ruta actualizada para {filename}"}
+
+def write_excel_correction(id, new_value, filename, sheet_name, row_idx, col_name):
+    # 1. Resolver Ruta
+    pmap = load_path_map()
+    full_path = pmap.get(filename)
+    
+    if not full_path or not os.path.exists(full_path):
+        return {"status": "error", "message": f"Ruta no encontrada para '{filename}'. Vaya a 'Fuentes de Datos' y relocalice el archivo."}
+        
+    try:
+        # 2. Abrir Excel
+        wb = openpyxl.load_workbook(full_path)
+        
+        if sheet_name not in wb.sheetnames:
+             return {"status": "error", "message": f"Hoja '{sheet_name}' no existe en {filename}"}
+             
+        ws = wb[sheet_name]
+        
+        # 3. Calcular Coordenada
+        # Asumimos que col_name es una letra (ej: 'C') o buscamos por encabezado si fuera necesario.
+        # En v13.1, asumiremos que el frontend o la configuración nos dice qué columna es 'Descripcion'. 
+        # Si no, por defecto intentaremos buscar la columna 'Descripcion' en la fila 1.
+        
+        target_col_idx = None
+        
+        # Estrategia de búsqueda de columna (Simplificada para v13.1)
+        # Buscamos en la fila 1 headers como 'Descripcion', 'Desc', 'Description'
+        for cell in ws[1]:
+            if cell.value and str(cell.value).lower() in ['descripcion', 'descripción', 'desc', 'description']:
+                target_col_idx = cell.column
+                break
+        
+        if not target_col_idx:
+             # Fallback: Usar columna C (3) como estándar si no se encuentra header
+             target_col_idx = 3 
+             
+        # Fila: openpyxl es 1-based. Si row_idx viene de dataframe (0-based) o SQL, ajustar.
+        # Generalmente SQL almacena la fila real de Excel. Asumimos row_idx es el número visual de fila.
+        try:
+            r = int(row_idx)
+        except:
+            return {"status": "error", "message": f"Índice de fila inválido: {row_idx}"}
+
+        # 4. Manejo de MERGED CELLS
+        target_cell = ws.cell(row=r, column=target_col_idx)
+        final_target = target_cell
+        
+        for merged_range in ws.merged_cells.ranges:
+            if target_cell.coordinate in merged_range:
+                # Si está combinada, escribir en la celda superior izquierda del rango
+                # bounds devuelve (min_col, min_row, max_col, max_row)
+                min_col, min_row, max_col, max_row = merged_range.bounds
+                final_target = ws.cell(row=min_row, column=min_col)
+                break
+        
+        # 5. Escribir Valor
+        final_target.value = new_value
+        
+        # 6. Guardar (Manejo de Permisos)
+        wb.save(full_path)
+        wb.close()
+        
+        # 7. Actualizar SQL para reflejar que se corrigió en Excel
+        # Opcional: Marcar como 'CORREGIDO_EN_EXCEL' o simplemente 'CORREGIDO'
+        save_excel_correction(id, new_value) 
+        
+        return {"status": "success", "message": "Excel actualizado correctamente."}
+        
+    except PermissionError:
+        return {"status": "error", "message": f"El archivo '{filename}' está ABIERTO por otro usuario. Ciérrelo e intente de nuevo."}
+    except Exception as e:
+        return {"status": "error", "message": f"Error escribiendo Excel: {str(e)}"}
+
 def save_excel_correction(id, new_desc):
     try:
         engine = get_engine()
@@ -573,6 +675,21 @@ if __name__ == '__main__':
             result = edit_standard(args.id, new_desc)
         elif cmd == 'delete_standard':
             result = delete_standard(args.id)
+        elif cmd == 'write_excel':
+            # Args: id, new_value, filename, sheet, row
+            # Payload JSON esperado para params complejos
+            fn = payload.get('filename')
+            sh = payload.get('sheet')
+            row = payload.get('row')
+            val = payload.get('value')
+            res_id = payload.get('id')
+            result = write_excel_correction(res_id, val, fn, sh, row, None)
+        elif cmd == 'register_path':
+            fn = payload.get('filename')
+            path = payload.get('path')
+            result = register_file_path(fn, path)
+        elif cmd == 'get_paths':
+            result = load_path_map()
         else:
             result = {"status": "error", "message": f"Comando desconocido: {cmd}"}
             
