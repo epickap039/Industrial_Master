@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import 'database_helper.dart';
 
 class StandardsGlassPage extends StatefulWidget {
-  const StandardsGlassPage({super.key});
+  StandardsGlassPage({Key? key}) : super(key: key);
 
   @override
   State<StandardsGlassPage> createState() => _StandardsGlassPageState();
@@ -63,13 +63,13 @@ class _StandardsGlassPageState extends State<StandardsGlassPage> {
     await showDialog(
       context: context,
       builder: (context) => ContentDialog(
-        title: const Text('Nuevo Estándar de Material'),
+        title: Text('Nuevo Estándar de Material'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Descripción del Material:'),
-            const SizedBox(height: 8),
+            Text('Descripción del Material:'),
+            SizedBox(height: 8),
             TextBox(
               controller: controller,
               placeholder: 'Ej: ACERO A36 1/2"',
@@ -79,11 +79,11 @@ class _StandardsGlassPageState extends State<StandardsGlassPage> {
         ),
         actions: [
           Button(
-            child: const Text('Cancelar'),
+            child: Text('Cancelar'),
             onPressed: () => Navigator.pop(context),
           ),
           FilledButton(
-            child: const Text('Guardar'),
+            child: Text('Guardar'),
             onPressed: () async {
               if (controller.text.trim().isNotEmpty) {
                 Navigator.pop(context);
@@ -103,13 +103,13 @@ class _StandardsGlassPageState extends State<StandardsGlassPage> {
     await showDialog(
       context: context,
       builder: (context) => ContentDialog(
-        title: const Text('Editar Estándar'),
+        title: Text('Editar Estándar'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Descripción del Material:'),
-            const SizedBox(height: 8),
+            Text('Descripción del Material:'),
+            SizedBox(height: 8),
             TextBox(
               controller: controller,
               autofocus: true,
@@ -118,11 +118,11 @@ class _StandardsGlassPageState extends State<StandardsGlassPage> {
         ),
         actions: [
           Button(
-            child: const Text('Cancelar'),
+            child: Text('Cancelar'),
             onPressed: () => Navigator.pop(context),
           ),
           FilledButton(
-            child: const Text('Actualizar'),
+            child: Text('Actualizar'),
             onPressed: () async {
               if (controller.text.trim().isNotEmpty) {
                 Navigator.pop(context);
@@ -141,18 +141,18 @@ class _StandardsGlassPageState extends State<StandardsGlassPage> {
     await showDialog(
       context: context,
       builder: (context) => ContentDialog(
-        title: const Text('Eliminar Estándar'),
+        title: Text('Eliminar Estándar'),
         content: Text('¿Está seguro de eliminar "$desc" de la biblioteca?'),
         actions: [
           Button(
-            child: const Text('Cancelar'),
+            child: Text('Cancelar'),
             onPressed: () => Navigator.pop(context),
           ),
           FilledButton(
             style: ButtonStyle(
               backgroundColor: ButtonState.all(Colors.red),
             ),
-            child: const Text('Eliminar'),
+            child: Text('Eliminar'),
             onPressed: () async {
               Navigator.pop(context);
               setState(() => _loading = true);
@@ -165,38 +165,69 @@ class _StandardsGlassPageState extends State<StandardsGlassPage> {
     );
   }
 
+  void _showHelp(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (c) => ContentDialog(
+        title: Text('📘 Ayuda: Biblioteca de Estándares'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('¿Qué hago en esta pantalla?', style: TextStyle(fontWeight: FontWeight.bold)),
+            Text('Gestione el diccionario oficial de descripciones técnicas de la empresa.'),
+            SizedBox(height: 10),
+            Text('¿Cómo afecta al sistema?', style: TextStyle(fontWeight: FontWeight.bold)),
+            Text('Cualquier nombre aquí registrado será el que la IA use para sugerir correcciones.'),
+            SizedBox(height: 10),
+            Text('¿Qué paso sigue?', style: TextStyle(fontWeight: FontWeight.bold)),
+            Text('Mantenga esta lista actualizada con los nombres exactos que desea ver en su inventario.'),
+          ],
+        ),
+        actions: [
+          Button(child: Text('OK'), onPressed: () => Navigator.pop(c)),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
     
     return ScaffoldPage(
       header: PageHeader(
-        title: const Text('Biblioteca de Estándares'),
+        title: Text('📘 Estándares Materiales'),
         commandBar: Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
             SizedBox(
-              width: 250,
+              width: 180,
               child: TextBox(
                 controller: _searchController,
-                placeholder: 'Buscar estándares...',
+                placeholder: 'Filtrar...',
                 onChanged: _filter,
-                prefix: const Padding(
+                prefix: Padding(
                   padding: EdgeInsets.only(left: 8.0),
                   child: Icon(FluentIcons.search),
                 ),
               ),
             ),
-            const SizedBox(width: 8),
+            SizedBox(width: 8),
             IconButton(
-              icon: const Icon(FluentIcons.refresh),
+              icon: Icon(FluentIcons.refresh),
               onPressed: _loadStandards,
+            ),
+            SizedBox(width: 8),
+            IconButton(
+              icon: Icon(FluentIcons.help, size: 20),
+              onPressed: () => _showHelp(context),
             ),
           ],
         ),
       ),
       content: _loading
-          ? const Center(child: ProgressRing())
+          ? Center(child: ProgressRing())
           : Stack(
               children: [
                 if (_filteredStandards.isEmpty)
@@ -205,15 +236,15 @@ class _StandardsGlassPageState extends State<StandardsGlassPage> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(FluentIcons.dictionary, size: 64, color: theme.accentColor.withOpacity(0.5)),
-                        const SizedBox(height: 16),
-                        const Text('No se encontraron materiales'),
+                        SizedBox(height: 16),
+                        Text('No se encontraron materiales'),
                       ],
                     ),
                   )
                 else
                   ListView.builder(
                     itemCount: _filteredStandards.length,
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                    padding: EdgeInsets.symmetric(horizontal: 24, vertical: 8),
                     itemBuilder: (context, index) {
                       final item = _filteredStandards[index];
                       final id = item['ID'] ?? 0;
@@ -221,10 +252,10 @@ class _StandardsGlassPageState extends State<StandardsGlassPage> {
                       final cat = (item['Categoria'] ?? 'GENERAL').toString();
 
                       return Padding(
-                        padding: const EdgeInsets.only(bottom: 8.0),
+                        padding: EdgeInsets.only(bottom: 8.0),
                         child: Card(
                           borderRadius: BorderRadius.circular(8),
-                          padding: const EdgeInsets.all(12),
+                          padding: EdgeInsets.all(12),
                           child: Row(
                             children: [
                               Container(
@@ -240,7 +271,7 @@ class _StandardsGlassPageState extends State<StandardsGlassPage> {
                                   size: 20,
                                 ),
                               ),
-                              const SizedBox(width: 16),
+                              SizedBox(width: 16),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -263,12 +294,12 @@ class _StandardsGlassPageState extends State<StandardsGlassPage> {
                                   Tooltip(
                                     message: 'Copiar al portapapeles',
                                     child: IconButton(
-                                      icon: const Icon(FluentIcons.copy),
+                                      icon: Icon(FluentIcons.copy),
                                       onPressed: () {
                                         Clipboard.setData(ClipboardData(text: desc));
                                         displayInfoBar(context, builder: (context, close) {
                                           return InfoBar(
-                                            title: const Text('Copiado'),
+                                            title: Text('Copiado'),
                                             content: Text('"$desc" copiado al portapapeles'),
                                             severity: InfoBarSeverity.success,
                                           );
@@ -277,11 +308,11 @@ class _StandardsGlassPageState extends State<StandardsGlassPage> {
                                     ),
                                   ),
                                   IconButton(
-                                    icon: const Icon(FluentIcons.edit),
+                                    icon: Icon(FluentIcons.edit),
                                     onPressed: () => _showEditDialog(id, desc),
                                   ),
                                   IconButton(
-                                    icon: const Icon(FluentIcons.delete),
+                                    icon: Icon(FluentIcons.delete),
                                     onPressed: () => _confirmDelete(id, desc),
                                   ),
                                 ],
@@ -298,9 +329,9 @@ class _StandardsGlassPageState extends State<StandardsGlassPage> {
                   child: FilledButton(
                     onPressed: _showAddDialog,
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       child: Row(
-                        children: const [
+                        children: [
                           Icon(FluentIcons.add),
                           SizedBox(width: 8),
                           Text('Nuevo Estándar'),

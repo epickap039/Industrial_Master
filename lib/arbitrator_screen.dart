@@ -57,11 +57,11 @@ void showResolveDialog(
               : Colors.black.withOpacity(0.7);
 
           final inputTextColor = isDifferent
-              ? const Color(0xFFFFA500)
+              ? Color(0xFFFFA500)
               : (theme.brightness == Brightness.dark ? Colors.white : Colors.black);
 
           return Padding(
-            padding: const EdgeInsets.only(bottom: 20),
+            padding: EdgeInsets.only(bottom: 20),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -69,26 +69,26 @@ void showResolveDialog(
                   children: [
                     Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: labelColor)),
                     if (isDifferent) ...[
-                      const SizedBox(width: 8),
-                      const Icon(FluentIcons.warning, color: Color(0xFFFFA500), size: 14),
-                      const SizedBox(width: 4),
+                      SizedBox(width: 8),
+                      Icon(FluentIcons.warning, color: Color(0xFFFFA500), size: 14),
+                      SizedBox(width: 4),
                       Text("⚠️ DIFERENCIA", style: TextStyle(fontSize: 10, color: Color(0xFFFFA500), fontWeight: FontWeight.w600)),
                     ],
                   ],
                 ),
-                const SizedBox(height: 8),
+                SizedBox(height: 8),
                 Row(
                   children: [
                     Expanded(
                       child: Container(
                         height: 40,
                         alignment: Alignment.centerLeft,
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        padding: EdgeInsets.symmetric(horizontal: 12),
                         decoration: BoxDecoration(color: containerBg, border: Border.all(color: containerBorder), borderRadius: BorderRadius.circular(4)),
                         child: Text(mStr.isEmpty ? '(Vacío)' : mStr, style: TextStyle(fontSize: 12, color: masterTextColor), overflow: TextOverflow.ellipsis),
                       ),
                     ),
-                    const Padding(padding: EdgeInsets.symmetric(horizontal: 8), child: Icon(FluentIcons.chevron_right, size: 12, color: Colors.grey)),
+                    Padding(padding: EdgeInsets.symmetric(horizontal: 8), child: Icon(FluentIcons.chevron_right, size: 12, color: Colors.grey)),
                     Expanded(
                       child: TextBox(
                         controller: ctrl,
@@ -109,15 +109,15 @@ void showResolveDialog(
         }
 
         return ContentDialog(
-          constraints: const BoxConstraints(maxWidth: 800),
+          constraints: BoxConstraints(maxWidth: 800),
           title: Row(
             children: [
               Text("Árbitro: ${conflict['Codigo_Pieza']}"),
-              const Spacer(),
+              Spacer(),
               Tooltip(
                 message: 'Cerrar sin guardar',
                 child: IconButton(
-                  icon: const Icon(FluentIcons.chrome_close, size: 20),
+                  icon: Icon(FluentIcons.chrome_close, size: 20),
                   onPressed: () => Navigator.pop(context),
                 ),
               ),
@@ -143,7 +143,7 @@ void showResolveDialog(
                     ),
                   ),
                 ),
-                if (_isLoading) const Center(child: ProgressRing()),
+                if (_isLoading) Center(child: ProgressRing()),
               ],
             ),
           ),
@@ -160,7 +160,7 @@ void showResolveDialog(
                   }
                 } catch (e) { setDialogState(() => _isLoading = false); }
               },
-              child: const Text("❌ IGNORAR"),
+              child: Text("❌ IGNORAR"),
             ),
             FilledButton(
               onPressed: _isLoading ? null : () async {
@@ -185,7 +185,7 @@ void showResolveDialog(
                   }
                 } catch (e) { setDialogState(() => _isLoading = false); }
               },
-              child: const Text("✅ ACEPTAR CAMBIOS"),
+              child: Text("✅ ACEPTAR CAMBIOS"),
             ),
           ],
         );
@@ -198,17 +198,17 @@ void showHomologationDialog(BuildContext context, List<Map<String, dynamic>> rep
   showDialog(
     context: context,
     builder: (c) => ContentDialog(
-      title: const Text('⚠️ Alerta de Homologación'),
+      title: Text('⚠️ Alerta de Homologación'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text('Se detectaron otros proyectos que usan esta misma pieza. ¿Desea actualizarlos también?'),
-          const SizedBox(height: 10),
-          ...report.take(5).map((r) => Text('• ${r['Proyecto']} (Fila ${r['Fila']})', style: const TextStyle(fontSize: 12))),
+          Text('Se detectaron otros proyectos que usan esta misma pieza. ¿Desea actualizarlos también?'),
+          SizedBox(height: 10),
+          ...report.take(5).map((r) => Text('• ${r['Proyecto']} (Fila ${r['Fila']})', style: TextStyle(fontSize: 12))),
         ],
       ),
       actions: [
-        Button(child: const Text('Cerrar'), onPressed: () => Navigator.pop(c)),
+        Button(child: Text('Cerrar'), onPressed: () => Navigator.pop(c)),
       ],
     ),
   );

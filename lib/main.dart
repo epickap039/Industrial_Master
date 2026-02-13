@@ -15,11 +15,11 @@ import 'standards_screen.dart'; // v12.0
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const MyApp());
+  runApp(MyApp());
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  MyApp({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -31,7 +31,7 @@ class MyApp extends StatelessWidget {
           themeMode: themeManager.themeMode,
           theme: themeManager.lightTheme,
           darkTheme: themeManager.darkTheme,
-          home: const KeyboardInterceptor(child: MainGlassPage()),
+          home: KeyboardInterceptor(child: MainGlassPage()),
         );
       },
     );
@@ -40,7 +40,7 @@ class MyApp extends StatelessWidget {
 
 class KeyboardInterceptor extends StatelessWidget {
   final Widget child;
-  const KeyboardInterceptor({super.key, required this.child});
+  KeyboardInterceptor({Key? key, required this.child}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -73,7 +73,7 @@ class KeyboardInterceptor extends StatelessWidget {
 }
 
 class MainGlassPage extends StatefulWidget {
-  const MainGlassPage({super.key});
+  MainGlassPage({super.key});
 
   @override
   State<MainGlassPage> createState() => _MainGlassPageState();
@@ -94,13 +94,13 @@ class _MainGlassPageState extends State<MainGlassPage> {
     // VALIDACIÓN CRÍTICA: Verificar existencia de data_bridge.exe (NON-BLOCKING)
     if (!DatabaseHelper.validateCriticalFiles()) {
       if (mounted) {
-        setState(() => topIndex = 6);
+        setState(() => topIndex = 9); // Configuración
         displayInfoBar(
           context,
           builder: (context, close) {
             return InfoBar(
-              title: const Text('⚠️ Backend No Detectado'),
-              content: const Text(
+              title: Text('⚠️ Backend No Detectado'),
+              content: Text(
                 'No se encontró data_bridge.exe. Algunas funciones no estarán disponibles.\n'
                 'Vaya a Diagnóstico SENTINEL para más detalles.',
               ),
@@ -108,7 +108,7 @@ class _MainGlassPageState extends State<MainGlassPage> {
               isLong: true,
             );
           },
-          duration: const Duration(seconds: 10),
+          duration: Duration(seconds: 10),
         );
       }
       return;
@@ -116,13 +116,13 @@ class _MainGlassPageState extends State<MainGlassPage> {
 
     final res = await db.testConnection();
     if (res['status'] != 'success') {
-      setState(() => topIndex = 6);
+      setState(() => topIndex = 9); // Configuración
       if (mounted) {
         displayInfoBar(
           context,
           builder: (context, close) {
             return InfoBar(
-              title: const Text('Error de Conexión'),
+              title: Text('Error de Conexión'),
               content: Text('No se pudo establecer conexión con el servidor: ${res['message']}'),
               severity: InfoBarSeverity.error,
             );
@@ -138,17 +138,17 @@ class _MainGlassPageState extends State<MainGlassPage> {
       appBar: NavigationAppBar(
         title: Text(
           'INDUSTRIAL MASTER v$APP_VERSION',
-          style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
+          style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
         ),
         leading: Padding(
-          padding: const EdgeInsets.all(8.0),
+          padding: EdgeInsets.all(8.0),
           child: Image.asset(
             'assets/logo.png',
             errorBuilder: (c, o, s) => Icon(FluentIcons.app_icon_default, size: 24, color: Colors.blue),
           ),
         ),
         actions: Padding(
-          padding: const EdgeInsets.only(right: 12.0),
+          padding: EdgeInsets.only(right: 12.0),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
@@ -169,52 +169,75 @@ class _MainGlassPageState extends State<MainGlassPage> {
       ),
       pane: NavigationPane(
         selected: topIndex,
-        onChanged: (index) => setState(() => topIndex = index),
+        onChanged: (index) async {
+          if (hasUnsavedChanges) {
+            final bool? proceed = await showDialog<bool>(
+              context: context,
+              builder: (c) => ContentDialog(
+                title: Text('⚠️ Cambios sin guardar'),
+                content: Text('Tiene cambios en el Catálogo Maestro que no se han guardado. ¿Desea salir de todos modos? Se perderán los cambios.'),
+                actions: [
+                  Button(
+                    child: Text('Continuar Editando'),
+                    onPressed: () => Navigator.pop(c, false),
+                  ),
+                  FilledButton(
+                    style: ButtonStyle(backgroundColor: WidgetStateProperty.all(Colors.red)),
+                    child: Text('Salir y Perder Cambios'),
+                    onPressed: () => Navigator.pop(c, true),
+                  ),
+                ],
+              ),
+            );
+            if (proceed == true) {
+              hasUnsavedChanges = false;
+              setState(() => topIndex = index);
+            }
+          } else {
+            setState(() => topIndex = index);
+          }
+        },
         displayMode: isCollapsed ? PaneDisplayMode.compact : PaneDisplayMode.open,
         items: [
           PaneItem(
-            icon: const Icon(FluentIcons.home),
-            title: const Text('Inicio'),
+            icon: Icon(FluentIcons.home),
+            title: Text('Inicio'),
             body: HomeGlassPage(
-              onGoToConfig: () => setState(() => topIndex = 6),
+              onGoToConfig: () => setState(() => topIndex = 9),
             ),
           ),
+          PaneItemHeader(header: Text('OPERACIÓN DIARIA')),
           PaneItem(
-            icon: const Icon(FluentIcons.clipboard_list),
-            title: const Text('Pendientes de Excel'),
-            body: const HomologationTasksGlassPage(),
+            icon: Icon(FluentIcons.clipboard_list),
+            title: Text('📝 Corrección de Excel'),
+            body: HomologationTasksGlassPage(),
           ),
           PaneItem(
-            icon: const Icon(FluentIcons.database),
-            title: const Text('Catálogo Maestro'),
-            body: const MasterCatalogGlassPage(),
+            icon: Icon(FluentIcons.warning),
+            title: Text('⚖️ Validación de Conflictos'),
+            body: AuditGlassPage(),
           ),
-
+          PaneItemHeader(header: Text('BIBLIOTECA')),
           PaneItem(
-            icon: const Icon(FluentIcons.warning),
-            title: const Text('Árbitro de Conflictos'),
-            body: const AuditGlassPage(),
-          ),
-          PaneItem(
-            icon: const Icon(FluentIcons.history),
-            title: const Text('Historial Resoluciones'),
-            body: const ResolvedHistoryGlassPage(),
+            icon: Icon(FluentIcons.database),
+            title: Text('📦 Catálogo Maestro'),
+            body: MasterCatalogGlassPage(),
           ),
           PaneItem(
-            icon: const Icon(FluentIcons.sync_occurence),
-            title: const Text('Automatización'),
-            body: const AutomationGlassPage(),
+            icon: Icon(FluentIcons.list),
+            title: Text('📘 Estándares Materiales'),
+            body: StandardsGlassPage(),
+          ),
+          PaneItemHeader(header: Text('SISTEMA')),
+          PaneItem(
+            icon: Icon(FluentIcons.history),
+            title: Text('📜 Auditoría'),
+            body: ResolvedHistoryGlassPage(),
           ),
           PaneItem(
-            icon: const Icon(FluentIcons.list),
-            title: const Text('Estándares Materiales'),
-            body: const StandardsGlassPage(), // v12.0
-          ),
-          PaneItemSeparator(),
-          PaneItem(
-            icon: const Icon(FluentIcons.settings),
-            title: const Text('Configuración'),
-            body: const ServerConfigGlassPage(),
+            icon: Icon(FluentIcons.settings),
+            title: Text('⚙️ Configuración'),
+            body: ServerConfigGlassPage(),
           ),
         ],
         footerItems: [
@@ -223,17 +246,17 @@ class _MainGlassPageState extends State<MainGlassPage> {
               isCollapsed ? FluentIcons.open_pane : FluentIcons.close_pane,
             ),
             onTap: () => setState(() => isCollapsed = !isCollapsed),
-            title: const Text('Colapsar Menú'),
+            title: Text('Colapsar Menú'),
           ),
           PaneItemAction(
             icon: Icon(FluentIcons.help),
             onTap: () {
               showDialog(
                 context: context,
-                builder: (context) => const HelpDialog(),
+                builder: (context) => HelpDialog(),
               );
             },
-            title: const Text('Manual de Usuario'),
+            title: Text('Manual de Usuario'),
           ),
         ],
       ),
@@ -243,25 +266,63 @@ class _MainGlassPageState extends State<MainGlassPage> {
 
 class HomeGlassPage extends StatelessWidget {
   final VoidCallback onGoToConfig;
-  const HomeGlassPage({super.key, required this.onGoToConfig});
+  HomeGlassPage({Key? key, required this.onGoToConfig}) : super(key: key);
+
+  void _showHelp(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (c) => ContentDialog(
+        title: Text('🏠 Ayuda: Inicio'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Bienvenido a Industrial Master v13.0',
+                style: TextStyle(fontWeight: FontWeight.bold)),
+            SizedBox(height: 10),
+            Text(
+                'Esta es su área de resumen. Desde aquí puede acceder a las configuraciones rápidas y ver el estado general del sistema.'),
+            Text(
+                '\nUse el menú lateral para navegar entre las herramientas de Corrección, Validación y Biblioteca.'),
+          ],
+        ),
+        actions: [
+          Button(
+              child: Text('Entendido'),
+              onPressed: () => Navigator.pop(c)),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final titleColor = isDark ? Colors.white.withOpacity(0.9) : Colors.black.withOpacity(0.87);
-    final subtitleColor = isDark ? Colors.white.withOpacity(0.5) : Colors.black.withOpacity(0.54);
+    final titleColor =
+        isDark ? Colors.white.withOpacity(0.9) : Colors.black.withOpacity(0.87);
+    final subtitleColor = isDark
+        ? Colors.white.withOpacity(0.5)
+        : Colors.black.withOpacity(0.54);
 
-    return Center(
+    return ScaffoldPage(
+      header: PageHeader(
+        title: Text('Inicio'),
+        commandBar: IconButton(
+          icon: Icon(FluentIcons.help, size: 20),
+          onPressed: () => _showHelp(context),
+        ),
+      ),
+      content: Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
             decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF1E1E1E) : Colors.black.withOpacity(0.03),
+              color: isDark ? Color(0xFF1E1E1E) : Colors.black.withOpacity(0.03),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: isDark ? const Color(0xFF333333) : Colors.black.withOpacity(0.05)),
+              border: Border.all(color: isDark ? Color(0xFF333333) : Colors.black.withOpacity(0.05)),
             ),
             child: Column(
               children: [
@@ -287,7 +348,7 @@ class HomeGlassPage extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(height: 30),
+          SizedBox(height: 30),
           Text(
             "Versión $APP_VERSION | Build: $BUILD_DATE",
             style: TextStyle(
@@ -297,9 +358,9 @@ class HomeGlassPage extends StatelessWidget {
               letterSpacing: 2,
             ),
           ),
-          const SizedBox(height: 40),
+          SizedBox(height: 40),
           Button(
-            child: const Padding(
+            child: Padding(
               padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -317,12 +378,12 @@ class HomeGlassPage extends StatelessWidget {
           ),
         ],
       ),
-    );
+    ));
   }
 }
 
 class HelpDialog extends StatefulWidget {
-  const HelpDialog({super.key});
+  HelpDialog({super.key});
   @override
   State<HelpDialog> createState() => _HelpDialogState();
 }
@@ -333,7 +394,7 @@ class _HelpDialogState extends State<HelpDialog> {
   @override
   Widget build(BuildContext context) {
     return ContentDialog(
-      title: const Text('Manual de Usuario v12.1 - SMART HOMOLOGATOR'),
+      title: Text('Manual de Usuario v13.0 - USER CENTRIC'),
       content: SizedBox(
         width: 700,
         height: 500,
@@ -342,11 +403,11 @@ class _HelpDialogState extends State<HelpDialog> {
           onChanged: (i) => setState(() => index = i),
           tabs: [
             Tab(
-              text: const Text('Inicio y Conexión'),
+              text: Text('Inicio y Conexión'),
               body: Padding(
-                padding: const EdgeInsets.all(12),
+                padding: EdgeInsets.all(12),
                 child: ListView(
-                  children: const [
+                  children: [
                     Text(
                       'CONFIGURACIÓN INICIAL',
                       style: TextStyle(
@@ -378,11 +439,11 @@ class _HelpDialogState extends State<HelpDialog> {
               ),
             ),
             Tab(
-              text: const Text('Tablero Principal'),
+              text: Text('Tablero Principal'),
               body: Padding(
-                padding: const EdgeInsets.all(12),
+                padding: EdgeInsets.all(12),
                 child: ListView(
-                  children: const [
+                  children: [
                     Text(
                       'LECTURA DEL TABLERO',
                       style: TextStyle(
@@ -415,11 +476,11 @@ class _HelpDialogState extends State<HelpDialog> {
               ),
             ),
             Tab(
-              text: const Text('Resolución de Conflictos'),
+              text: Text('Resolución de Conflictos'),
               body: Padding(
-                padding: const EdgeInsets.all(12),
+                padding: EdgeInsets.all(12),
                 child: ListView(
-                  children: const [
+                  children: [
                     Text(
                       '¿CÓMO USAR EL ÁRBITRO?',
                       style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
@@ -441,11 +502,11 @@ class _HelpDialogState extends State<HelpDialog> {
               ),
             ),
             Tab(
-              text: const Text('Conexión y Red'),
+              text: Text('Conexión y Red'),
               body: Padding(
-                padding: const EdgeInsets.all(12),
+                padding: EdgeInsets.all(12),
                 child: ListView(
-                  children: const [
+                  children: [
                     Text(
                       'CONFIGURACIÓN SIMPLIFICADA',
                       style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
@@ -459,11 +520,11 @@ class _HelpDialogState extends State<HelpDialog> {
               ),
             ),
             Tab(
-              text: const Text('Búsqueda de Planos'),
+              text: Text('Búsqueda de Planos'),
               body: Padding(
-                padding: const EdgeInsets.all(12),
+                padding: EdgeInsets.all(12),
                 child: ListView(
-                  children: const [
+                  children: [
                     Text(
                       'SISTEMA INTELIGENTE DE PLANOS',
                       style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
@@ -477,11 +538,11 @@ class _HelpDialogState extends State<HelpDialog> {
               ),
             ),
             Tab(
-              text: const Text('Smart Homologator (IA)'),
+              text: Text('Smart Homologator (IA)'),
               body: Padding(
-                padding: const EdgeInsets.all(12),
+                padding: EdgeInsets.all(12),
                 child: ListView(
-                  children: const [
+                  children: [
                     Text(
                       'FLUJO DE TRABAJO v12.1',
                       style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
@@ -513,7 +574,7 @@ class _HelpDialogState extends State<HelpDialog> {
       ),
       actions: [
         Button(
-          child: const Text('Entendido'),
+          child: Text('Entendido'),
           onPressed: () => Navigator.pop(context),
         ),
       ],
@@ -533,7 +594,7 @@ class GlassCard extends StatelessWidget {
   final double opacity;
   final Color? color;
 
-  const GlassCard({
+  GlassCard({
     super.key,
     required this.child,
     this.blur = 10,
@@ -557,14 +618,14 @@ class GlassCard extends StatelessWidget {
           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
           child: Container(
             decoration: BoxDecoration(
-              color: const Color(0xFF1E1E1E).withOpacity(0.7),
+              color: Color(0xFF1E1E1E).withOpacity(0.7),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFF4CC2FF).withOpacity(0.2)),
+              border: Border.all(color: Color(0xFF4CC2FF).withOpacity(0.2)),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withOpacity(0.3),
                   blurRadius: 20,
-                  offset: const Offset(0, 10),
+                  offset: Offset(0, 10),
                 ),
               ],
             ),
@@ -584,7 +645,7 @@ class GlassCard extends StatelessWidget {
             BoxShadow(
               color: Colors.black.withOpacity(0.05),
               blurRadius: 10,
-              offset: const Offset(0, 4),
+              offset: Offset(0, 4),
             ),
           ],
           border: Border.all(color: Colors.black.withOpacity(0.05)),
@@ -614,7 +675,7 @@ class GlassCard extends StatelessWidget {
 
 
 class AuditGlassPage extends StatefulWidget {
-  const AuditGlassPage({super.key});
+  AuditGlassPage({Key? key}) : super(key: key);
 
   @override
   State<AuditGlassPage> createState() => _AuditGlassPageState();
@@ -661,14 +722,63 @@ class _AuditGlassPageState extends State<AuditGlassPage> {
     }
   }
 
+  void _showHelp(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (c) => ContentDialog(
+        title: Text('📘 Ayuda: Validación de Conflictos'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('¿Qué hago en esta pantalla?', style: TextStyle(fontWeight: FontWeight.bold)),
+            Text('Autorice los cambios que se escribirán en la base de datos maestra.'),
+            SizedBox(height: 10),
+            Text('¿Qué significan los colores?', style: TextStyle(fontWeight: FontWeight.bold)),
+            Text('• Naranja: Piezas que tienen discrepancias con el Excel.'),
+            Text('• Verde (al guardar): Confirmación de escritura exitosa.'),
+            SizedBox(height: 10),
+            Text('¿Qué paso sigue?', style: TextStyle(fontWeight: FontWeight.bold)),
+            Text('Presione "Resolver" y compare. Si el dato es correcto, dele "Aceptar Cambios".'),
+          ],
+        ),
+        actions: [
+          Button(child: Text('OK'), onPressed: () => Navigator.pop(c)),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ScaffoldPage(
-      header: const PageHeader(title: Text('Árbitro de Conflictos')),
+      header: PageHeader(
+        title: Text('⚖️ Validación de Conflictos (Árbitro)'),
+        commandBar: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Button(
+              onPressed: loading ? null : load,
+              child: Row(
+                children: [
+                  Icon(FluentIcons.refresh),
+                  SizedBox(width: 8),
+                  Text('Recargar'),
+                ],
+              ),
+            ),
+            SizedBox(width: 8),
+            IconButton(
+              icon: Icon(FluentIcons.help, size: 20),
+              onPressed: () => _showHelp(context),
+            ),
+          ],
+        ),
+      ),
 
       content:
           loading
-              ? const Center(child: ProgressRing())
+              ? Center(child: ProgressRing())
               : error != null
               ? Center(
                 child: GlassCard(
@@ -677,7 +787,7 @@ class _AuditGlassPageState extends State<AuditGlassPage> {
                   opacity: 0.1,
 
                   child: Padding(
-                    padding: const EdgeInsets.all(24),
+                    padding: EdgeInsets.all(24),
 
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -685,18 +795,18 @@ class _AuditGlassPageState extends State<AuditGlassPage> {
                       children: [
                         Icon(FluentIcons.error, color: Colors.red, size: 40),
 
-                        const SizedBox(height: 16),
+                        SizedBox(height: 16),
 
                         Text(
                           'Error en Árbitro: $error',
                           style: TextStyle(color: Colors.red),
                         ),
 
-                        const SizedBox(height: 16),
+                        SizedBox(height: 16),
 
                         Button(
                           onPressed: load,
-                          child: const Text('Reintentar'),
+                          child: Text('Reintentar'),
                         ),
                       ],
                     ),
@@ -704,13 +814,13 @@ class _AuditGlassPageState extends State<AuditGlassPage> {
                 ),
               )
               : ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
+                padding: EdgeInsets.symmetric(horizontal: 24),
 
                 itemCount: conflicts.length,
 
                 itemBuilder:
                     (c, i) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
+                      padding: EdgeInsets.only(bottom: 12),
 
                       child: GlassCard(
                         child: ListTile(
@@ -728,7 +838,7 @@ class _AuditGlassPageState extends State<AuditGlassPage> {
                           ),
 
                           trailing: FilledButton(
-                            child: const Text('Resolver'),
+                            child: Text('Resolver'),
 
                             onPressed:
                                 () => showResolveDialog(
@@ -755,7 +865,7 @@ class _AuditGlassPageState extends State<AuditGlassPage> {
 
 
 class ListCreatorGlassPage extends StatefulWidget {
-  const ListCreatorGlassPage({super.key});
+  ListCreatorGlassPage({Key? key}) : super(key: key);
 
   @override
   State<ListCreatorGlassPage> createState() => _ListCreatorGlassPageState();
@@ -782,10 +892,10 @@ class _ListCreatorGlassPageState extends State<ListCreatorGlassPage> {
   @override
   Widget build(BuildContext context) {
     return ScaffoldPage(
-      header: const PageHeader(title: Text('Creador de Listas v5.5')),
+      header: PageHeader(title: Text('Creador de Listas v5.5')),
 
       content: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: EdgeInsets.all(24),
 
         child: Column(
           children: [
@@ -795,15 +905,15 @@ class _ListCreatorGlassPageState extends State<ListCreatorGlassPage> {
               opacity: 0.15,
 
               child: Padding(
-                padding: const EdgeInsets.all(16),
+                padding: EdgeInsets.all(16),
 
                 child: Row(
                   children: [
                     Icon(FluentIcons.info, color: Colors.blue),
 
-                    const SizedBox(width: 12),
+                    SizedBox(width: 12),
 
-                    const Expanded(
+                    Expanded(
                       child: Text(
                         "GUÍA RÁPIDA: 1. Ingresa el Código. 2. Presiona ENTER para completar. 3. Define Cantidad y Exporta.",
 
@@ -818,7 +928,7 @@ class _ListCreatorGlassPageState extends State<ListCreatorGlassPage> {
               ),
             ),
 
-            const SizedBox(height: 20),
+            SizedBox(height: 20),
 
             Expanded(
               child: ListView.builder(
@@ -826,11 +936,11 @@ class _ListCreatorGlassPageState extends State<ListCreatorGlassPage> {
 
                 itemBuilder:
                     (c, i) => Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
+                      padding: EdgeInsets.only(bottom: 8),
 
                       child: GlassCard(
                         child: Padding(
-                          padding: const EdgeInsets.all(8),
+                          padding: EdgeInsets.all(8),
 
                           child: Row(
                             children: [
@@ -842,7 +952,7 @@ class _ListCreatorGlassPageState extends State<ListCreatorGlassPage> {
                                 ),
                               ),
 
-                              const SizedBox(width: 10),
+                              SizedBox(width: 10),
 
                               Expanded(
                                 flex: 4,
@@ -853,7 +963,7 @@ class _ListCreatorGlassPageState extends State<ListCreatorGlassPage> {
                                 ),
                               ),
 
-                              const SizedBox(width: 10),
+                              SizedBox(width: 10),
 
                               Expanded(
                                 flex: 1,
@@ -874,7 +984,7 @@ class _ListCreatorGlassPageState extends State<ListCreatorGlassPage> {
 }
 
 class AutomationGlassPage extends StatefulWidget {
-  const AutomationGlassPage({super.key});
+  AutomationGlassPage({Key? key}) : super(key: key);
 
   @override
   State<AutomationGlassPage> createState() => _AutomationGlassPageState();
@@ -942,30 +1052,30 @@ class _AutomationGlassPageState extends State<AutomationGlassPage>
     super.build(context);
 
     return ScaffoldPage(
-      header: const PageHeader(
+      header: PageHeader(
         title: Text('Automatización Industrial (Masiva)'),
       ),
       content: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: EdgeInsets.all(24),
         child: Column(
           children: [
             // Control Panel
             GlassCard(
               child: Padding(
-                padding: const EdgeInsets.all(16),
+                padding: EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       "Paso 1: Seleccionar Origen de Datos",
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
-                    const SizedBox(height: 10),
+                    SizedBox(height: 10),
                     Row(
                       children: [
                         Button(
                           onPressed: running ? null : pickFolder,
-                          child: const Row(
+                          child: Row(
                             children: [
                               Icon(FluentIcons.folder_open),
                               SizedBox(width: 8),
@@ -973,7 +1083,7 @@ class _AutomationGlassPageState extends State<AutomationGlassPage>
                             ],
                           ),
                         ),
-                        const SizedBox(width: 12),
+                        SizedBox(width: 12),
                         Expanded(
                           child: TextBox(
                             readOnly: true,
@@ -989,28 +1099,38 @@ class _AutomationGlassPageState extends State<AutomationGlassPage>
               ),
             ),
 
-            const SizedBox(height: 20),
+            SizedBox(height: 20),
 
             SizedBox(
               width: double.infinity,
               height: 50,
               child: FilledButton(
                 onPressed: running || selectedFolder == null ? null : runCarga,
-                child: Text(
-                  running ? 'PROCESANDO ARCHIVOS...' : 'INICIAR CARGA MASIVA',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (running)
+                      Padding(
+                        padding: EdgeInsets.only(right: 12),
+                        child: ProgressRing(strokeWidth: 2),
+                      ),
+                    Text(
+                      running ? 'PROCESANDO ARCHIVOS...' : 'INICIAR CARGA MASIVA',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ],
                 ),
               ),
             ),
 
             if (running)
               Padding(
-                padding: const EdgeInsets.only(top: 10),
+                padding: EdgeInsets.only(top: 10),
 
                 child: ProgressBar(),
               ),
 
-            const SizedBox(height: 20),
+            SizedBox(height: 20),
 
             Expanded(
               child: GlassCard(
@@ -1021,7 +1141,7 @@ class _AutomationGlassPageState extends State<AutomationGlassPage>
                 child: Container(
                   width: double.infinity,
 
-                  padding: const EdgeInsets.all(16),
+                  padding: EdgeInsets.all(16),
 
                   child: SingleChildScrollView(
                     child: SelectionArea(
@@ -1047,7 +1167,7 @@ class _AutomationGlassPageState extends State<AutomationGlassPage>
 }
 
 class HomologationTasksGlassPage extends StatefulWidget {
-  const HomologationTasksGlassPage({super.key});
+  HomologationTasksGlassPage({Key? key}) : super(key: key);
 
   @override
   State<HomologationTasksGlassPage> createState() =>
@@ -1061,6 +1181,7 @@ class _HomologationTasksGlassPageState
   List<Map<String, dynamic>> tasks = [];
 
   bool loading = true;
+  bool processing = false;
 
   @override
   void initState() {
@@ -1086,11 +1207,62 @@ class _HomologationTasksGlassPageState
           loading = false;
         });
     } catch (e) {
-      if (mounted)
-        setState(() {
-          loading = false;
-        });
+      if (mounted) {
+        setState(() => loading = false);
+        _showErrorDialog("Error al cargar tareas", e.toString());
+      }
     }
+  }
+
+  void _showErrorDialog(String title, String message) {
+    showDialog(
+      context: context,
+      builder: (c) => ContentDialog(
+        title: Text(title, style: TextStyle(color: Colors.red)),
+        content: Text("No se pudo completar la acción.\nCausa: $message"),
+        actions: [
+          Button(child: Text('Entendido'), onPressed: () => Navigator.pop(c)),
+        ],
+      ),
+    );
+  }
+
+  void _showSuccess(String msg) {
+    displayInfoBar(
+      context,
+      builder: (context, close) => InfoBar(
+        title: Text('✅ Operación Exitosa'),
+        content: Text(msg),
+        severity: InfoBarSeverity.success,
+      ),
+    );
+  }
+
+  void _showHelp(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (c) => ContentDialog(
+        title: Text('📘 Ayuda: Corrección de Excel'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('¿Qué hago en esta pantalla?', style: TextStyle(fontWeight: FontWeight.bold)),
+            Text('Limpie las descripciones de los archivos de Excel detectados con errores.'),
+            SizedBox(height: 10),
+            Text('¿Qué significan los colores?', style: TextStyle(fontWeight: FontWeight.bold)),
+            Text('• Naranja: Nombre detectado en el archivo XLS.'),
+            Text('• Azul (v12.1 IA): Sugerencia automática del estándar más cercano.'),
+            SizedBox(height: 10),
+            Text('¿Qué paso sigue?', style: TextStyle(fontWeight: FontWeight.bold)),
+            Text('Corrija todos los errores para que aparezcan limpios en el Árbitro de Conflictos.'),
+          ],
+        ),
+        actions: [
+          Button(child: Text('Entendido'), onPressed: () => Navigator.pop(c)),
+        ],
+      ),
+    );
   }
 
   void _showExcelCorrectionDialog(BuildContext context, Map<String, dynamic> item, String? suggestion) {
@@ -1099,19 +1271,19 @@ class _HomologationTasksGlassPageState
     showDialog(
       context: context,
       builder: (context) => ContentDialog(
-        title: const Text('📝 Corregir Entrada de Excel'),
+        title: Text('📝 Corregir Entrada de Excel'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Ajuste la descripción para el reporte técnico de correcciones:'),
-            const SizedBox(height: 16),
+            Text('Ajuste la descripción para el reporte técnico de correcciones:'),
+            SizedBox(height: 16),
             TextBox(
               controller: controller,
               placeholder: 'Descripción corregida',
               maxLines: 3,
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             Text(
               "Original: ${item['desc_excel']}",
               style: TextStyle(
@@ -1124,16 +1296,34 @@ class _HomologationTasksGlassPageState
         ),
         actions: [
           Button(
-            child: const Text('Cancelar'),
+            child: Text('Cancelar'),
             onPressed: () => Navigator.pop(context),
           ),
           FilledButton(
-            child: const Text('Guardar Corrección'),
-            onPressed: () async {
-              await db.saveExcelCorrection(item['id'], controller.text);
-              if (mounted) {
-                load();
-                Navigator.pop(context);
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (processing)
+                  Padding(
+                    padding: EdgeInsets.only(right: 8),
+                    child: ProgressRing(strokeWidth: 2),
+                  ),
+                Text('Guardar Corrección'),
+              ],
+            ),
+            onPressed: processing ? null : () async {
+              setState(() => processing = true);
+              try {
+                await db.saveExcelCorrection(item['id'], controller.text);
+                _showSuccess("Descripción corregida en el registro.");
+                if (mounted) {
+                  load();
+                  Navigator.pop(context);
+                }
+              } catch (e) {
+                _showErrorDialog("Error al guardar", e.toString());
+              } finally {
+                if (mounted) setState(() => processing = false);
               }
             },
           ),
@@ -1146,27 +1336,35 @@ class _HomologationTasksGlassPageState
   Widget build(BuildContext context) {
     return ScaffoldPage(
       header: PageHeader(
-        title: const Text('Correcciones Pendientes en Excel'),
-
-        commandBar: Button(
-          child: const Row(
-            children: [
-              Icon(FluentIcons.refresh),
-              SizedBox(width: 8),
-              Text('Recargar'),
-            ],
-          ),
-
-          onPressed: load,
+        title: Text('📝 Corrección de Excel (Limpieza)'),
+        commandBar: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Button(
+              onPressed: loading ? null : load,
+              child: Row(
+                children: [
+                   Icon(FluentIcons.refresh),
+                   SizedBox(width: 8),
+                   Text('Recargar'),
+                ],
+              ),
+            ),
+            SizedBox(width: 8),
+            IconButton(
+              icon: Icon(FluentIcons.help, size: 20),
+              onPressed: () => _showHelp(context),
+            ),
+          ],
         ),
       ),
 
       content: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24),
+        padding: EdgeInsets.symmetric(horizontal: 24),
 
         child:
             loading
-                ? const Center(child: ProgressRing())
+                ? Center(child: ProgressRing())
                 : tasks.isEmpty
                 ? Center(
                   child: Column(
@@ -1179,9 +1377,9 @@ class _HomologationTasksGlassPageState
                         color: Colors.green,
                       ),
 
-                      const SizedBox(height: 16),
+                      SizedBox(height: 16),
 
-                      const Text(
+                      Text(
                         "¡Todo al día! No hay correcciones pendientes.",
                         style: TextStyle(
                           fontSize: 16,
@@ -1208,7 +1406,7 @@ class _HomologationTasksGlassPageState
                     final keys = grouped.keys.toList()..sort();
 
                     return ListView.builder(
-                      padding: const EdgeInsets.only(bottom: 24),
+                      padding: EdgeInsets.only(bottom: 24),
 
                       itemCount: keys.length,
 
@@ -1224,15 +1422,15 @@ class _HomologationTasksGlassPageState
                             'Sin Descripción en BD';
 
                         return Padding(
-                          padding: const EdgeInsets.only(bottom: 16),
+                          padding: EdgeInsets.only(bottom: 16),
                           child: Card(
-                            padding: const EdgeInsets.all(12),
+                            padding: EdgeInsets.all(12),
                             borderRadius: BorderRadius.circular(12),
                             child: Expander(
                               header: Row(
                                 children: [
                                   Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                    padding: EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                                     decoration: BoxDecoration(
                                       color: Colors.orange,
                                       borderRadius: BorderRadius.circular(6),
@@ -1240,20 +1438,20 @@ class _HomologationTasksGlassPageState
                                         BoxShadow(
                                           color: Colors.orange.withOpacity(0.3),
                                           blurRadius: 4,
-                                          offset: const Offset(0, 2),
+                                          offset: Offset(0, 2),
                                         ),
                                       ],
                                     ),
                                     child: Text(
                                       code,
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         fontWeight: FontWeight.bold,
                                         color: Colors.white,
                                         fontSize: 13,
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(width: 16),
+                                  SizedBox(width: 16),
                                   Expanded(
                                     child: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1277,14 +1475,14 @@ class _HomologationTasksGlassPageState
                                     ),
                                   ),
                                   Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                     decoration: BoxDecoration(
                                       color: Colors.red.withOpacity(0.9),
                                       borderRadius: BorderRadius.circular(20),
                                     ),
                                     child: Text(
                                       "${items.length} errores",
-                                      style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                                      style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
                                     ),
                                   ),
                                 ],
@@ -1294,8 +1492,8 @@ class _HomologationTasksGlassPageState
                                 children: items.map((item) {
                                   final String dirtyText = item['desc_excel'] ?? '';
                                   return Container(
-                                    margin: const EdgeInsets.only(bottom: 8),
-                                    padding: const EdgeInsets.all(12),
+                                    margin: EdgeInsets.only(bottom: 8),
+                                    padding: EdgeInsets.all(12),
                                     decoration: BoxDecoration(
                                       color: FluentTheme.of(context).cardColor,
                                       borderRadius: BorderRadius.circular(8),
@@ -1310,14 +1508,14 @@ class _HomologationTasksGlassPageState
                                       children: [
                                         // Icono File
                                         Container(
-                                          padding: const EdgeInsets.all(8),
+                                          padding: EdgeInsets.all(8),
                                           decoration: BoxDecoration(
                                             color: Colors.green.withOpacity(0.1),
                                             shape: BoxShape.circle,
                                           ),
                                           child: Icon(FluentIcons.excel_document, size: 16, color: Colors.green),
                                         ),
-                                        const SizedBox(width: 14),
+                                        SizedBox(width: 14),
                                         // Info
                                         Expanded(
                                           child: Column(
@@ -1327,12 +1525,12 @@ class _HomologationTasksGlassPageState
                                                 item['archivo'] ?? 'Desconocido',
                                                 style: FluentTheme.of(context).typography.bodyStrong,
                                               ),
-                                              const SizedBox(height: 2),
+                                              SizedBox(height: 2),
                                               Text(
                                                 "Fila: ${item['fila']} • Hoja: ${item['hoja']}",
                                                 style: FluentTheme.of(context).typography.caption,
                                               ),
-                                              const SizedBox(height: 6),
+                                              SizedBox(height: 6),
                                               Text(
                                                 "Excel: $dirtyText",
                                                 style: TextStyle(
@@ -1346,19 +1544,19 @@ class _HomologationTasksGlassPageState
                                               FutureBuilder<Map<String, dynamic>?>(
                                                 future: db.getSuggestion(dirtyText),
                                                 builder: (context, snapshot) {
-                                                  if (!snapshot.hasData || snapshot.data == null) return const SizedBox.shrink();
+                                                  if (!snapshot.hasData || snapshot.data == null) return SizedBox.shrink();
                                                   final suggestion = snapshot.data!['suggestion'];
                                                   final ratio = snapshot.data!['ratio'];
                                                   
                                                   return Padding(
-                                                    padding: const EdgeInsets.only(top: 10),
+                                                    padding: EdgeInsets.only(top: 10),
                                                     child: Column(
                                                       crossAxisAlignment: CrossAxisAlignment.start,
                                                       children: [
                                                         Row(
                                                           children: [
-                                                            const Icon(FluentIcons.robot, size: 12, color: Color(0xFF4CC2FF)),
-                                                            const SizedBox(width: 6),
+                                                            Icon(FluentIcons.robot, size: 12, color: Color(0xFF4CC2FF)),
+                                                            SizedBox(width: 6),
                                                             Text(
                                                               "INTELIGENCIA ARTIFICIAL (${(ratio * 100).toInt()}%)",
                                                               style: TextStyle(
@@ -1369,7 +1567,7 @@ class _HomologationTasksGlassPageState
                                                             ),
                                                           ],
                                                         ),
-                                                        const SizedBox(height: 6),
+                                                        SizedBox(height: 6),
                                                         Button(
                                                           onPressed: () => _showExcelCorrectionDialog(context, item, suggestion),
                                                           child: Text("✨ Sugerencia: $suggestion"),
@@ -1382,10 +1580,10 @@ class _HomologationTasksGlassPageState
                                             ],
                                           ),
                                         ),
-                                        const SizedBox(width: 12),
+                                        SizedBox(width: 12),
                                         // Action
                                         Button(
-                                          child: const Text("Corregir"),
+                                          child: Text("Corregir"),
                                           onPressed: () => _showExcelCorrectionDialog(context, item, null),
                                         ),
                                       ],
@@ -1406,7 +1604,7 @@ class _HomologationTasksGlassPageState
 }
 
 class ResolvedHistoryGlassPage extends StatefulWidget {
-  const ResolvedHistoryGlassPage({super.key});
+  ResolvedHistoryGlassPage({Key? key}) : super(key: key);
   @override
   State<ResolvedHistoryGlassPage> createState() =>
       _ResolvedHistoryGlassPageState();
@@ -1433,36 +1631,72 @@ class _ResolvedHistoryGlassPageState extends State<ResolvedHistoryGlassPage> {
       });
   }
 
+  void _showHelp(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (c) => ContentDialog(
+        title: Text('📘 Ayuda: Auditoría de Resoluciones'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('¿Qué hago en esta pantalla?', style: TextStyle(fontWeight: FontWeight.bold)),
+            Text('Consulte el registro histórico de todas las piezas que han sido homologadas y resueltas.'),
+            SizedBox(height: 10),
+            Text('¿Qué significan los registros?', style: TextStyle(fontWeight: FontWeight.bold)),
+            Text('Muestran el código, la descripción original del Excel y la descripción final que se guardó en el Maestro.'),
+            SizedBox(height: 10),
+            Text('¿Qué paso sigue?', style: TextStyle(fontWeight: FontWeight.bold)),
+            Text('Puede usar esta pantalla para verificar quién y cuándo autorizó un cambio específico.'),
+          ],
+        ),
+        actions: [
+          Button(child: Text('OK'), onPressed: () => Navigator.pop(c)),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = FluentTheme.of(context).brightness == Brightness.dark;
     return ScaffoldPage(
       header: PageHeader(
-        title: const Text('Historial de Resoluciones'),
-        commandBar: Button(
-          child: const Icon(FluentIcons.refresh),
-          onPressed: load,
+        title: Text('📜 Auditoría de Resoluciones'),
+        commandBar: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Button(
+              child: Icon(FluentIcons.refresh),
+              onPressed: load,
+            ),
+            SizedBox(width: 8),
+            IconButton(
+              icon: Icon(FluentIcons.help, size: 20),
+              onPressed: () => _showHelp(context),
+            ),
+          ],
         ),
       ),
       content:
           loading
-              ? const Center(child: ProgressRing())
+              ? Center(child: ProgressRing())
               : tasks.isEmpty
               ? Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Text("No hay historial de resoluciones."),
-                    const SizedBox(height: 16),
+                    Text("No hay historial de resoluciones."),
+                    SizedBox(height: 16),
                     Button(
-                      child: const Text("Forzar Recarga"),
+                      child: Text("Forzar Recarga"),
                       onPressed: () => load(),
                     ),
                   ],
                 ),
               )
               : ListView.builder(
-                padding: const EdgeInsets.only(bottom: 24, left: 24, right: 24),
+                padding: EdgeInsets.only(bottom: 24, left: 24, right: 24),
                 itemCount: tasks.length,
                 itemBuilder: (context, index) {
                   final item = tasks[index];
@@ -1471,7 +1705,7 @@ class _ResolvedHistoryGlassPageState extends State<ResolvedHistoryGlassPage> {
                       status == 'CORREGIDO' ? Colors.green : Colors.orange;
 
                   return Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
+                    padding: EdgeInsets.only(bottom: 8),
                     child: GlassCard(
                       child: ListTile(
                         leading: Icon(
@@ -1519,7 +1753,7 @@ class _ResolvedHistoryGlassPageState extends State<ResolvedHistoryGlassPage> {
 }
 
 class ServerConfigGlassPage extends StatefulWidget {
-  const ServerConfigGlassPage({super.key});
+  ServerConfigGlassPage({Key? key}) : super(key: key);
 
   @override
   State<ServerConfigGlassPage> createState() => _ServerConfigGlassPageState();
@@ -1582,7 +1816,7 @@ class _ServerConfigGlassPageState extends State<ServerConfigGlassPage> {
     };
     await db.saveConfig(config);
     if (mounted) {
-      displayInfoBar(context, builder: (context, close) => const InfoBar(
+      displayInfoBar(context, builder: (context, close) => InfoBar(
         title: Text('Éxito'),
         content: Text('Configuración guardada correctamente.'),
         severity: InfoBarSeverity.success,
@@ -1600,7 +1834,7 @@ class _ServerConfigGlassPageState extends State<ServerConfigGlassPage> {
           title: Text(res['status'] == 'success' ? 'Conexión Exitosa' : 'Error de Servidor'),
           content: SelectableText(res['message'] ?? 'Sin respuesta'),
           severity: res['status'] == 'success' ? InfoBarSeverity.success : InfoBarSeverity.error,
-          action: IconButton(icon: const Icon(FluentIcons.clear), onPressed: close),
+          action: IconButton(icon: Icon(FluentIcons.clear), onPressed: close),
         ));
       }
     } finally {
@@ -1616,14 +1850,14 @@ class _ServerConfigGlassPageState extends State<ServerConfigGlassPage> {
         await showDialog(
           context: context,
           builder: (ctx) => ContentDialog(
-            title: const Text('Diagnóstico SENTINEL'),
+            title: Text('Diagnóstico SENTINEL'),
             content: SelectableText(
               'Backend: ${result['backend'] == true ? '✅ OK' : '❌ FALTA'}\n'
               'Conexión BD: ${result['connection'] == true ? '✅ OK' : '❌ ERROR'}\n'
               'Mensaje: ${result['message']}\n'
               'Path: ${result['path'] ?? 'N/A'}'
             ),
-            actions: [Button(child: const Text('Cerrar'), onPressed: () => Navigator.pop(ctx))],
+            actions: [Button(child: Text('Cerrar'), onPressed: () => Navigator.pop(ctx))],
           ),
         );
       }
@@ -1632,18 +1866,56 @@ class _ServerConfigGlassPageState extends State<ServerConfigGlassPage> {
     }
   }
 
+  void _showHelp(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (c) => ContentDialog(
+        title: Text('📘 Ayuda: Configuración'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('¿Qué hago en esta pantalla?', style: TextStyle(fontWeight: FontWeight.bold)),
+            Text('Configure los parámetros de conexión al servidor SQL y las rutas de los planos.'),
+            SizedBox(height: 10),
+            Text('¿Qué significan los campos?', style: TextStyle(fontWeight: FontWeight.bold)),
+            Text('• Servidor: IP y puerto del servidor de base de datos.'),
+            Text('• Diagnóstico SENTINEL: Herramienta para verificar si el sistema tiene acceso a sus componentes críticos.'),
+            SizedBox(height: 10),
+            Text('¿Qué paso sigue?', style: TextStyle(fontWeight: FontWeight.bold)),
+            Text('Asegúrese de que el botón de "Conectar" se ponga en verde antes de empezar a trabajar.'),
+          ],
+        ),
+        actions: [
+          Button(child: Text('Entendido'), onPressed: () => Navigator.pop(c)),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ScaffoldPage(
-      header: const PageHeader(title: Text('Configuración del Sistema')),
+      header: PageHeader(
+        title: Text('⚙️ Configuración del Sistema'),
+        commandBar: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: Icon(FluentIcons.help, size: 20),
+              onPressed: () => _showHelp(context),
+            ),
+          ],
+        ),
+      ),
       content: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
+        padding: EdgeInsets.all(24),
         child: Center(
           child: Container(
-            constraints: const BoxConstraints(maxWidth: 600),
+            constraints: BoxConstraints(maxWidth: 600),
             child: Column(
               children: [
-                const SizedBox(height: 40),
+                SizedBox(height: 40),
                 Row(
                   children: [
                     Expanded(
@@ -1655,21 +1927,21 @@ class _ServerConfigGlassPageState extends State<ServerConfigGlassPage> {
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              if (testing) const SizedBox(width: 20, height: 20, child: ProgressRing())
-                              else const Icon(FluentIcons.plug_connected, size: 24),
-                              const SizedBox(width: 15),
-                              const Text("Conectar a Base de Datos", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                              if (testing) SizedBox(width: 20, height: 20, child: ProgressRing())
+                              else Icon(FluentIcons.plug_connected, size: 24),
+                              SizedBox(width: 15),
+                              Text("Conectar a Base de Datos", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                             ],
                           ),
                         ),
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    SizedBox(width: 12),
                     Expanded(
                       child: SizedBox(
                         height: 80,
                         child: Button(
-                          onPressed: testing ? null : runSentinel,
+                          onPressed: testing ? null : diagnoseSystem,
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
@@ -1684,9 +1956,9 @@ class _ServerConfigGlassPageState extends State<ServerConfigGlassPage> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 24),
+                SizedBox(height: 24),
                 Expander(
-                  header: const Text("⚙️ Opciones Avanzadas (Técnico)", style: TextStyle(fontWeight: FontWeight.bold)),
+                  header: Text("⚙️ Opciones Avanzadas (Técnico)", style: TextStyle(fontWeight: FontWeight.bold)),
                   content: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1695,10 +1967,10 @@ class _ServerConfigGlassPageState extends State<ServerConfigGlassPage> {
                         child: Row(
                           children: [
                             Expanded(child: TextBox(controller: serverController)),
-                            const SizedBox(width: 8),
+                            SizedBox(width: 8),
                             Button(
                               onPressed: () => setState(() => serverController.text = r"localhost\SQLEXPRESS"),
-                              child: const Row(
+                              child: Row(
                                 children: [
                                   Icon(FluentIcons.server, size: 16),
                                   SizedBox(width: 8),
@@ -1709,43 +1981,43 @@ class _ServerConfigGlassPageState extends State<ServerConfigGlassPage> {
                           ],
                         ),
                       ),
-                      const SizedBox(height: 12),
+                      SizedBox(height: 12),
                       InfoLabel(label: 'Base de Datos', child: TextBox(controller: dbController)),
-                      const SizedBox(height: 12),
+                      SizedBox(height: 12),
                       Row(
                         children: [
                           Expanded(child: InfoLabel(label: 'Usuario SQL', child: TextBox(controller: userController))),
-                          const SizedBox(width: 12),
+                          SizedBox(width: 12),
                           Expanded(child: InfoLabel(label: 'Password SQL', child: TextBox(controller: passController, obscureText: true))),
                         ],
                       ),
-                      const SizedBox(height: 20),
-                      const Divider(),
-                      const SizedBox(height: 10),
-                      const Text("Rutas de Archivos", style: TextStyle(fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 12),
+                      SizedBox(height: 20),
+                      Divider(),
+                      SizedBox(height: 10),
+                      Text("Rutas de Archivos", style: TextStyle(fontWeight: FontWeight.bold)),
+                      SizedBox(height: 12),
                       InfoLabel(
                         label: 'Carpeta de Planos PDF (Red)',
                         child: Row(
                           children: [
                             Expanded(child: TextBox(controller: blueprintsController)),
-                            const SizedBox(width: 8),
-                            Button(onPressed: pickBlueprintsFolder, child: const Icon(FluentIcons.folder_open)),
+                            SizedBox(width: 8),
+                            Button(onPressed: pickBlueprintsFolder, child: Icon(FluentIcons.folder_open)),
                           ],
                         ),
                       ),
-                      const SizedBox(height: 12),
+                      SizedBox(height: 12),
                       InfoLabel(label: 'Carpeta de Genéricos', child: TextBox(controller: genericsController)),
-                      const SizedBox(height: 20),
+                      SizedBox(height: 20),
                       SizedBox(
                         width: double.infinity,
-                        child: Button(onPressed: save, child: const Text("Guardar Configuración Técnica")),
+                        child: Button(onPressed: save, child: Text("Guardar Configuración Técnica")),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 40),
-                const Opacity(
+                SizedBox(height: 40),
+                Opacity(
                   opacity: 0.6,
                   child: Text(
                     "Las credenciales 'jaes_admin' son necesarias para la integridad de datos.\nSi necesita cambiar el servidor, consulte con el administrador.",
@@ -1780,8 +2052,8 @@ class _ServerConfigGlassPageState extends State<ServerConfigGlassPage> {
         context: context,
         builder: (context) {
           return ContentDialog(
-            constraints: const BoxConstraints(maxWidth: 700, maxHeight: 800),
-            title: const Text("🛡️ Diagnóstico SENTINEL PRO v10.5"),
+            constraints: BoxConstraints(maxWidth: 700, maxHeight: 800),
+            title: Text("🛡️ Diagnóstico SENTINEL PRO v10.5"),
             content: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1789,19 +2061,19 @@ class _ServerConfigGlassPageState extends State<ServerConfigGlassPage> {
                 _buildCheckItem("Integridad de Tablas/Columnas", integStatus, false),
                 _buildCheckItem("Lógica de Negocio (Excel)", logicStatus, false),
                 _buildCheckItem("Ruta de Planos", pathStatus, false),
-                const SizedBox(height: 20),
+                SizedBox(height: 20),
                 Row(
                   children: [
-                    const Text("Log del Sistema:", style: TextStyle(fontWeight: FontWeight.bold)),
+                    Text("Log del Sistema:", style: TextStyle(fontWeight: FontWeight.bold)),
                     if (hasCriticalError)
                       Text(" (ERRORES DETECTADOS)", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
                   ],
                 ),
-                const SizedBox(height: 8),
+                SizedBox(height: 8),
                 Expanded(
                   child: Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.all(12),
+                    padding: EdgeInsets.all(12),
                     decoration: BoxDecoration(
                       color: Colors.black.withOpacity(0.05),
                       border: Border.all(color: hasCriticalError ? Colors.red.withOpacity(0.5) : Colors.grey.withOpacity(0.3)),
@@ -1823,11 +2095,11 @@ class _ServerConfigGlassPageState extends State<ServerConfigGlassPage> {
             ),
             actions: [
               Button(
-                child: const Text("Cerrar"),
+                child: Text("Cerrar"),
                 onPressed: () => Navigator.pop(context),
               ),
               FilledButton(
-                child: const Text("Copiar Log"),
+                child: Text("Copiar Log"),
                 onPressed: () {
                    Navigator.pop(context);
                 },
@@ -1837,7 +2109,7 @@ class _ServerConfigGlassPageState extends State<ServerConfigGlassPage> {
         }
       );
     } catch (e) {
-      if (mounted) displayInfoBar(context, builder: (c, close) => InfoBar(title: const Text('Error'), content: Text(e.toString()), severity: InfoBarSeverity.error));
+      if (mounted) displayInfoBar(context, builder: (c, close) => InfoBar(title: Text('Error'), content: Text(e.toString()), severity: InfoBarSeverity.error));
     } finally {
       if (mounted) setState(() => testing = false);
     }
@@ -1859,14 +2131,14 @@ class _ServerConfigGlassPageState extends State<ServerConfigGlassPage> {
     }
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      padding: EdgeInsets.symmetric(vertical: 8.0),
       child: Row(
         children: [
           Icon(icon, color: color, size: 20),
-          const SizedBox(width: 12),
-          Text(label, style: const TextStyle(fontSize: 16)),
+          SizedBox(width: 12),
+          Text(label, style: TextStyle(fontSize: 16)),
           if (isWarning) ...[
-            const SizedBox(width: 8),
+            SizedBox(width: 8),
             Text("(Advertencia)", style: TextStyle(fontSize: 12, color: Colors.orange)),
           ]
         ],
