@@ -187,21 +187,55 @@ def get_connection_string():
     database = config.get('database', 'DB_Materiales_Industrial')
     is_windows_auth = config.get('is_windows_auth', True)
     
-    # Force ODBC Driver 18
-    driver = 'ODBC Driver 18 for SQL Server'
+    # Intento de Driver (ODBC 17 es más compatible con Windows 10/Servers viejos)
+    driver = 'ODBC Driver 17 for SQL Server'
+    
+    # Si se requiere 18, se podría hacer configurable, pero por defecto 17 como pide el usuario
     
     if is_windows_auth:
         params = urllib.parse.quote_plus(
-            f'DRIVER={{{driver}}};SERVER={server};DATABASE={database};Trusted_Connection=yes;TrustServerCertificate=yes;'
+            f'DRIVER={{{driver}}};SERVER={server};DATABASE={database};Trusted_Connection=yes;Encrypt=no;TrustServerCertificate=yes;'
         )
     else:
         user = config.get('user', '')
         password = config.get('password', '')
         params = urllib.parse.quote_plus(
-            f'DRIVER={{{driver}}};SERVER={server};DATABASE={database};UID={user};PWD={password};TrustServerCertificate=yes;'
+            f'DRIVER={{{driver}}};SERVER={server};DATABASE={database};UID={user};PWD={password};Encrypt=no;TrustServerCertificate=yes;'
         )
     
     return f'mssql+pyodbc:///?odbc_connect={params}'
+
+def save_sys_config(payload):
+    try:
+        config_path = "config.json"
+        # Si estamos en frozen, guardar junto al ejecutable o en ruta estable
+        if hasattr(sys, '_MEIPASS'):
+             config_path = os.path.join(os.path.dirname(sys.executable), "config.json")
+        
+        current = load_config()
+        
+        # Merge safe keys
+        valid_keys = ['server', 'database', 'user', 'password', 'blueprints_path', 'generics_path', 'trusted_connection']
+        for k, v in payload.items():
+            if k in valid_keys:
+                current[k] = v
+        
+        # Logic for auth mode
+        # Si 'trusted_connection' es explícito 'no' O hay user/pass, usar SQL Auth
+        is_trusted = True
+        if payload.get('trusted_connection') == 'no':
+            is_trusted = False
+        elif payload.get('user') and payload.get('password'):
+            is_trusted = False
+            
+        current['is_windows_auth'] = is_trusted
+
+        with open(config_path, 'w') as f:
+            json.dump(current, f, indent=4)
+            
+        return {"status": "success", "message": "Configuración guardada"}
+    except Exception as e:
+        return {"status": "error", "message": f"Error guardando config: {str(e)}"}
 
 def get_engine():
     return create_engine(get_connection_string())
@@ -826,6 +860,10 @@ if __name__ == '__main__':
             result = update_source(payload.get('id'), payload.get('path'))
         elif cmd == 'scan_source':
             result = scan_and_ingest(payload.get('id'))
+        elif cmd == 'save_config':
+            result = save_sys_config(payload)
+        elif cmd == 'get_config':
+            result = load_config()
         else:
             result = {"status": "error", "message": f"Comando desconocido: {cmd}"}
             

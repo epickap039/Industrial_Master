@@ -293,34 +293,6 @@ class DatabaseHelper {
     return res != null && res['status'] == 'success';
   }
 
-  Future<Map<String, dynamic>> getConfig() async {
-    try {
-      final String baseDir = File(Platform.resolvedExecutable).parent.path;
-      final String configPath = '$baseDir\\scripts\\config.json';
-      final file =
-          File(configPath).existsSync()
-              ? File(configPath)
-              : File('scripts\\config.json');
-
-      if (!file.existsSync()) return {};
-      return jsonDecode(await file.readAsString());
-    } catch (e) {
-      return {};
-    }
-  }
-
-  Future<void> saveConfig(Map<String, dynamic> config) async {
-    final String baseDir = File(Platform.resolvedExecutable).parent.path;
-    final String releasePath = '$baseDir\\scripts\\config.json';
-    final file =
-        File(releasePath).existsSync()
-            ? File(releasePath)
-            : File('scripts\\config.json');
-
-    await file.writeAsString(
-      const JsonEncoder.withIndent('  ').convert(config),
-    );
-  }
 
   Future<Map<String, dynamic>> testConnection() async {
     final res = await _runScript('data_bridge.py', ['test_connection']);
@@ -475,6 +447,20 @@ class DatabaseHelper {
       "id": id,
     })));
     final res = await _runScript('data_bridge.py', ['scan_source', '--stdin'], stdinInput: payload);
+    if (res != null) return Map<String, dynamic>.from(res);
+    return {"status": "error", "message": "Backend error"};
+  }
+
+  // --- CONFIGURATION (v13.2) ---
+  Future<Map<String, dynamic>> getConfig() async {
+     final res = await _runScript('data_bridge.py', ['get_config']);
+     if (res != null) return Map<String, dynamic>.from(res);
+     return {};
+  }
+
+  Future<Map<String, dynamic>> saveConfig(Map<String, dynamic> config) async {
+    final payload = base64Encode(utf8.encode(jsonEncode(config)));
+    final res = await _runScript('data_bridge.py', ['save_config', '--stdin'], stdinInput: payload);
     if (res != null) return Map<String, dynamic>.from(res);
     return {"status": "error", "message": "Backend error"};
   }
