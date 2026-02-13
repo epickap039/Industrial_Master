@@ -291,7 +291,10 @@ class _SourcesPageState extends State<SourcesPage> {
                                     Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16), overflow: TextOverflow.ellipsis),
                                     Text(
                                       lastSync != null ? 'Sincronizado: ${_formatDate(lastSync)}' : 'Nunca sincronizado',
-                                      style: TextStyle(fontSize: 10, color: Colors.grey),
+                                      style: TextStyle(
+                                        fontSize: 10, 
+                                        color: FluentTheme.of(context).brightness == Brightness.dark ? Colors.grey[300] : Colors.grey[800]
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -299,7 +302,15 @@ class _SourcesPageState extends State<SourcesPage> {
                             ],
                           ),
                           const Spacer(),
-                          Text(path, style: TextStyle(fontSize: 11, color: Colors.grey), maxLines: 2, overflow: TextOverflow.ellipsis),
+                          Text(
+                            path, 
+                            style: TextStyle(
+                              fontSize: 11, 
+                              color: FluentTheme.of(context).brightness == Brightness.dark ? Colors.grey[300] : Colors.grey[800]
+                            ), 
+                            maxLines: 2, 
+                            overflow: TextOverflow.ellipsis
+                          ),
                           const SizedBox(height: 12),
                           Row(
                             children: [

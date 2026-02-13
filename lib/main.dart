@@ -115,7 +115,7 @@ class _MainGlassPageState extends State<MainGlassPage> {
     // Si NO hay configuración, no intentamos conectar (evita error 18456 loop)
     if (!hasServer) {
        if (mounted) {
-        setState(() => topIndex = 9); // Ir directo a Config
+        setState(() => topIndex = 7); // Ir directo a Config (índice 7)
         displayInfoBar(
           context,
           builder: (context, close) => InfoBar(
@@ -132,7 +132,7 @@ class _MainGlassPageState extends State<MainGlassPage> {
     final res = await db.testConnection();
     if (res['status'] != 'success') {
       if (mounted) {
-        setState(() => topIndex = 9); // Redirigir a Config si falla
+        setState(() => topIndex = 7); // Redirigir a Config (índice 7) si falla
         displayInfoBar(
           context,
           builder: (context, close) {
@@ -222,7 +222,7 @@ class _MainGlassPageState extends State<MainGlassPage> {
             icon: Icon(FluentIcons.home),
             title: Text('Inicio'),
             body: HomeGlassPage(
-              onGoToConfig: () => setState(() => topIndex = 9),
+              onNavigate: (index) => setState(() => topIndex = index),
             ),
           ),
           PaneItemHeader(header: Text('OPERACIÓN DIARIA')),
@@ -289,120 +289,185 @@ class _MainGlassPageState extends State<MainGlassPage> {
 }
 
 class HomeGlassPage extends StatelessWidget {
-  final VoidCallback onGoToConfig;
-  HomeGlassPage({Key? key, required this.onGoToConfig}) : super(key: key);
-
-  void _showHelp(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (c) => ContentDialog(
-        title: Text('🏠 Ayuda: Inicio'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Bienvenido a Industrial Master v13.0',
-                style: TextStyle(fontWeight: FontWeight.bold)),
-            SizedBox(height: 10),
-            Text(
-                'Esta es su área de resumen. Desde aquí puede acceder a las configuraciones rápidas y ver el estado general del sistema.'),
-            Text(
-                '\nUse el menú lateral para navegar entre las herramientas de Corrección, Validación y Biblioteca.'),
-          ],
-        ),
-        actions: [
-          Button(
-              child: Text('Entendido'),
-              onPressed: () => Navigator.pop(c)),
-        ],
-      ),
-    );
-  }
+  final Function(int) onNavigate;
+  HomeGlassPage({Key? key, required this.onNavigate}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final titleColor =
-        isDark ? Colors.white.withOpacity(0.9) : Colors.black.withOpacity(0.87);
-    final subtitleColor = isDark
-        ? Colors.white.withOpacity(0.5)
-        : Colors.black.withOpacity(0.54);
 
     return ScaffoldPage(
       header: PageHeader(
-        title: Text('Inicio'),
-        commandBar: IconButton(
-          icon: Icon(FluentIcons.help, size: 20),
-          onPressed: () => _showHelp(context),
+        title: Text('Panel de Control Principal'),
+      ),
+      content: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Flujo de Trabajo Industrial',
+                style: theme.typography.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Siga el proceso secuencial para garantizar la integridad del Catálogo Maestro.',
+                style: theme.typography.body?.copyWith(color: theme.typography.body?.color?.withOpacity(0.6)),
+              ),
+              const SizedBox(height: 40),
+              
+              // FLUJO HORIZONTAL
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  return Wrap(
+                    spacing: 20,
+                    runSpacing: 20,
+                    alignment: WrapAlignment.center,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      _buildFlowCard(
+                        context,
+                        index: 6, // Fuentes
+                        icon: FluentIcons.folder_open,
+                        title: '1. Fuentes de Datos',
+                        subtitle: 'Cargar Archivos Excel',
+                        color: Colors.blue,
+                      ),
+                      _buildChevron(context),
+                      _buildFlowCard(
+                        context,
+                        index: 1, // Corrección
+                        icon: FluentIcons.edit,
+                        title: '2. Corrección',
+                        subtitle: 'Limpiar Errores de Data',
+                        color: Colors.orange,
+                      ),
+                      _buildChevron(context),
+                      _buildFlowCard(
+                        context,
+                        index: 2, // Conflictos
+                        icon: FluentIcons.warning,
+                        title: '3. Validación',
+                        subtitle: 'Autorizar Cambios',
+                        color: Colors.magenta,
+                      ),
+                      _buildChevron(context),
+                      _buildFlowCard(
+                        context,
+                        index: 3, // Catálogo
+                        icon: FluentIcons.database,
+                        title: '4. Catálogo',
+                        subtitle: 'Consultar Maestro',
+                        color: Colors.green,
+                      ),
+                    ],
+                  );
+                },
+              ),
+              
+              const SizedBox(height: 60),
+              // BRANDING INFERIOR
+              Center(
+                child: Column(
+                  children: [
+                    Text(
+                      "JAES",
+                      style: TextStyle(
+                        fontSize: 40,
+                        fontWeight: FontWeight.w900,
+                        color: isDark ? Colors.white.withOpacity(0.2) : Colors.black.withOpacity(0.05),
+                        letterSpacing: 10,
+                      ),
+                    ),
+                    Text(
+                      "INTEGRITY SUITE",
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.blue.withOpacity(0.5),
+                        letterSpacing: 4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-      content: Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+    );
+  }
+
+  Widget _buildFlowCard(BuildContext context, {
+    required int index,
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color color,
+  }) {
+    final isDark = FluentTheme.of(context).brightness == Brightness.dark;
+
+    return GestureDetector(
+      onTap: () => onNavigate(index),
+      child: HoverButton(
+        onPressed: () => onNavigate(index),
+        builder: (context, states) {
+          final isHovered = states.isHovering;
+          return AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: 220,
+            height: 180,
+            padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: isDark ? Color(0xFF1E1E1E) : Colors.black.withOpacity(0.03),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: isDark ? Color(0xFF333333) : Colors.black.withOpacity(0.05)),
+              color: isHovered 
+                ? color.withOpacity(isDark ? 0.2 : 0.1) 
+                : (isDark ? Color(0xFF202020) : Colors.white),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isHovered ? color : (isDark ? Color(0xFF333333) : Colors.grey[40]),
+                width: isHovered ? 2 : 1,
+              ),
+              boxShadow: isHovered ? [
+                BoxShadow(color: color.withOpacity(0.2), blurRadius: 10, offset: Offset(0, 4))
+              ] : [],
             ),
             child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
+                Icon(icon, size: 40, color: color),
+                const SizedBox(height: 16),
                 Text(
-                  "JAES",
-                  style: TextStyle(
-                    fontSize: 100,
-                    fontWeight: FontWeight.w900,
-                    color: titleColor,
-                    letterSpacing: 10,
-                    fontFamily: 'Segoe UI Black',
-                  ),
+                  title,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  textAlign: TextAlign.center,
                 ),
+                const SizedBox(height: 4),
                 Text(
-                  "BASE DE DATOS INGENIERÍA",
+                  subtitle,
                   style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w300,
-                    color: Colors.blue,
-                    letterSpacing: 5,
+                    fontSize: 12, 
+                    color: isDark ? Colors.grey[400] : Colors.grey[600]
                   ),
+                  textAlign: TextAlign.center,
                 ),
               ],
             ),
-          ),
-          SizedBox(height: 30),
-          Text(
-            "Versión $APP_VERSION | Build: $BUILD_DATE",
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w400,
-              color: subtitleColor,
-              letterSpacing: 2,
-            ),
-          ),
-          SizedBox(height: 40),
-          Button(
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(FluentIcons.settings, size: 18),
-                  SizedBox(width: 8),
-                  Text(
-                    "Configurar Servidor",
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ],
-              ),
-            ),
-            onPressed: onGoToConfig,
-          ),
-        ],
+          );
+        },
       ),
-    ));
+    );
+  }
+
+  Widget _buildChevron(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8.0),
+      child: Icon(
+        FluentIcons.chevron_right_med,
+        color: Colors.grey[100],
+        size: 20,
+      ),
+    );
   }
 }
 

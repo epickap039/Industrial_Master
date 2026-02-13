@@ -1,14 +1,15 @@
 # 📘 DOCUMENTACIÓN MAESTRA DE RECUPERACIÓN - INDUSTRIAL MASTER (INTEGRITY SUITE)
 
-**Versión:** 13.4 (STABLE_BOOT)
+**Versión:** 13.5 (POLISHED_FLOW)
 **Fecha:** 13/02/2026
 **Propósito:** Guía definitiva para reconstruir, mantener y operar el sistema en caso de pérdida total de conocimiento o datos.
 
-## 🚀 NOVEDADES v13.4_STABLE_BOOT (CRÍTICO)
+## 🚀 NOVEDADES v13.5_FLOW (ESTABILIDAD Y UX)
 
-- **Arranque Seguro:** La App ya no intenta conectarse si no hay configuración cargada, evitando el error `Login failed for user ''`.
-- **Sincronización de Comandos:** Se reparó el comando `register_path` en el Backend para compatibilidad total con el Frontend.
-- **Redirección de Configuración:** Si la conexión falla en el arranque, el sistema redirige automáticamente a la pantalla de Configuración en lugar de quedar en gris.
+- **Home Dashboard:** Nuevo diseño basado en flujo de proceso horizontal para guiar al usuario.
+- **Backend Blindado:** El sincronizador ahora valida la existencia de fuentes en la base de datos antes de procesarlas, evitando cierres inesperados.
+- **Correcciones UI:** Texto de rutas en Modo Oscuro ahora es perfectamente legible.
+- **Navegación Corregida:** El botón de configuración en errores de arranque ahora redirige correctamente a la pantalla de parámetros (índice 7).
 
 ---
 

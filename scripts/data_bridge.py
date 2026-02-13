@@ -77,10 +77,13 @@ def scan_and_ingest(source_id):
     path = None
     with engine.connect() as conn:
         res = conn.execute(text("SELECT Ruta_Actual FROM Tbl_Fuentes_Datos WHERE ID = :id"), {"id": source_id}).fetchone()
-        if res: path = res[0]
+        if res:
+            path = res[0]
+        else:
+            return {"status": "error", "message": "Origen de datos no encontrado en la Base de Datos. Intente recargar la lista."}
         
     if not path or not os.path.exists(path):
-        return {"status": "error", "message": "Archivo no encontrado o ruta inválida."}
+        return {"status": "error", "message": f"Archivo no encontrado o ruta inválida: {path}"}
         
     # 2. Leer Excel (Data Only)
     try:
