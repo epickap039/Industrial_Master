@@ -4,7 +4,7 @@ import sys
 
 def create_installer():
     # 1. Rutas
-    VERSION = "13.2_NETWORK"
+    VERSION = "13.3_SMART_DRIVER"
     SOURCE_BIN = r"build\windows\x64\runner\Release"
     SOURCE_SCRIPTS = r"scripts"
     DEST_DIR = f"INSTALADOR_JAES_v{VERSION}"

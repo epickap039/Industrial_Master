@@ -181,26 +181,53 @@ def get_base_path():
         return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
 
+def get_best_driver():
+    """Selecciona el mejor driver ODBC disponible en el sistema."""
+    try:
+        drivers = pyodbc.drivers()
+        # Lista de prioridad según recomendación de Microsoft y compatibilidad
+        candidates = [
+            'ODBC Driver 18 for SQL Server',
+            'ODBC Driver 17 for SQL Server',
+            'ODBC Driver 13 for SQL Server',
+            'SQL Server Native Client 11.0',
+            'SQL Server' # Fallback legacy (menos seguro, pero funcional)
+        ]
+        
+        for candidate in candidates:
+            if candidate in drivers:
+                return candidate
+                
+        raise Exception("No se encontró ningún driver ODBC compatible (17, 18, 13, Native Client). Instale 'ODBC Driver 17 for SQL Server'.")
+    except Exception as e:
+        # En caso de error obteniendo lista, intentar forzar el 17 que es el estándar actual
+        return 'ODBC Driver 17 for SQL Server'
+
 def get_connection_string():
     config = load_config()
     server = config.get('server', '192.168.1.73,1433')
     database = config.get('database', 'DB_Materiales_Industrial')
     is_windows_auth = config.get('is_windows_auth', True)
     
-    # Intento de Driver (ODBC 17 es más compatible con Windows 10/Servers viejos)
-    driver = 'ODBC Driver 17 for SQL Server'
+    # Selección Dinámica del Driver (v13.3)
+    driver = get_best_driver()
     
-    # Si se requiere 18, se podría hacer configurable, pero por defecto 17 como pide el usuario
+    # Parámetros adicionales según el driver
+    # ODBC 18 requiere TrustServerCertificate=yes por defecto si no hay certificado válido
+    extra_params = ""
+    if '18' in driver or '17' in driver:
+        extra_params = "TrustServerCertificate=yes;"
     
     if is_windows_auth:
         params = urllib.parse.quote_plus(
-            f'DRIVER={{{driver}}};SERVER={server};DATABASE={database};Trusted_Connection=yes;Encrypt=no;TrustServerCertificate=yes;'
+            f'DRIVER={{{driver}}};SERVER={server};DATABASE={database};Trusted_Connection=yes;Encrypt=no;{extra_params}'
         )
     else:
         user = config.get('user', '')
         password = config.get('password', '')
+        # Si trusted_connection es FALSE, usamos UID/PWD
         params = urllib.parse.quote_plus(
-            f'DRIVER={{{driver}}};SERVER={server};DATABASE={database};UID={user};PWD={password};Encrypt=no;TrustServerCertificate=yes;'
+            f'DRIVER={{{driver}}};SERVER={server};DATABASE={database};UID={user};PWD={password};Encrypt=no;{extra_params}'
         )
     
     return f'mssql+pyodbc:///?odbc_connect={params}'
@@ -260,9 +287,10 @@ def sanitize(df):
 def test_connection():
     try:
         engine = get_engine()
+        driver_used = get_best_driver()
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
-        return {"status": "success", "message": "Conexión Exitosa con ODBC Driver 18"}
+        return {"status": "success", "message": f"Conectado exitosamente usando: {driver_used}"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
