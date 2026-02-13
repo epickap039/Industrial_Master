@@ -92,40 +92,58 @@ class _MainGlassPageState extends State<MainGlassPage> {
   }
 
   Future<void> _checkInitialConnection() async {
-    // VALIDACIÓN CRÍTICA: Verificar existencia de data_bridge.exe (NON-BLOCKING)
+    // 1. VALIDACIÓN CRÍTICA: data_bridge.exe
     if (!DatabaseHelper.validateCriticalFiles()) {
       if (mounted) {
         setState(() => topIndex = 9); // Configuración
         displayInfoBar(
           context,
-          builder: (context, close) {
-            return InfoBar(
-              title: Text('⚠️ Backend No Detectado'),
-              content: Text(
-                'No se encontró data_bridge.exe. Algunas funciones no estarán disponibles.\n'
-                'Vaya a Diagnóstico SENTINEL para más detalles.',
-              ),
-              severity: InfoBarSeverity.error,
-              isLong: true,
-            );
-          },
-          duration: Duration(seconds: 10),
+          builder: (context, close) => InfoBar(
+            title: Text('⚠️ Backend No Detectado'),
+            content: Text('No se encontró data_bridge.exe. Reinstale la aplicación.'),
+            severity: InfoBarSeverity.error,
+          ),
         );
       }
       return;
     }
 
+    // 2. VALIDACIÓN CONFIGURACIÓN: ¿Existe config.json?
+    final config = await db.getConfig();
+    final hasServer = config['server']?.toString().isNotEmpty ?? false;
+    
+    // Si NO hay configuración, no intentamos conectar (evita error 18456 loop)
+    if (!hasServer) {
+       if (mounted) {
+        setState(() => topIndex = 9); // Ir directo a Config
+        displayInfoBar(
+          context,
+          builder: (context, close) => InfoBar(
+            title: Text('Bienvenido a Industrial Master'),
+            content: Text('Por favor, configure la conexión al servidor para comenzar.'),
+            severity: InfoBarSeverity.info,
+          ),
+        );
+      }
+      return;
+    }
+
+    // 3. INTENTO DE CONEXIÓN
     final res = await db.testConnection();
     if (res['status'] != 'success') {
-      setState(() => topIndex = 9); // Configuración
       if (mounted) {
+        setState(() => topIndex = 9); // Redirigir a Config si falla
         displayInfoBar(
           context,
           builder: (context, close) {
             return InfoBar(
               title: Text('Error de Conexión'),
-              content: Text('No se pudo establecer conexión con el servidor: ${res['message']}'),
+              content: Text('No se pudo establecer conexión: ${res['message']}'),
               severity: InfoBarSeverity.error,
+              action: Button(
+                child: Text('Reintentar'),
+                onPressed: _checkInitialConnection,
+              ),
             );
           },
         );

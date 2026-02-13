@@ -60,6 +60,10 @@ def add_source(name, path):
         conn.execute(text("INSERT INTO Tbl_Fuentes_Datos (Nombre_Logico, Ruta_Actual) VALUES (:n, :r)"), {"n": name, "r": path})
     return {"status": "success"}
 
+def register_path(name, path):
+    """Alias para mantener compatibilidad, llama al nuevo método add_source"""
+    return add_source(name, path)
+
 def update_source(id, path):
     engine = get_engine()
     with engine.begin() as conn:
@@ -1199,7 +1203,7 @@ if __name__ == "__main__":
         elif cmd in ['standards', 'get_standards']:
             result = get_standards()
         elif cmd == 'add_standard':
-            desc = payload.get('Descripcion') if payload else args.code # Fallback to code arg if simple text
+            desc = payload.get('Descripcion') if payload else args.code
             cat = payload.get('Categoria', 'GENERAL') if payload else 'GENERAL'
             result = add_standard(desc, cat)
         elif cmd == 'edit_standard':
@@ -1213,6 +1217,32 @@ if __name__ == "__main__":
             result = get_match_suggestion(dirty)
         elif cmd == 'save_correction':
             result = save_excel_correction(args.id, payload.get('text'))
+        # --- COMMANDS v13.x DATA MANAGER & CONFIG ---
+        elif cmd == 'get_config':
+            result = load_config()
+        elif cmd == 'save_config':
+            result = save_sys_config(payload)
+        elif cmd in ['get_sources', 'get_paths']:
+            result = get_sources()
+        elif cmd in ['add_source', 'register_path']:
+            # Normalizar nombres de llaves (puede venir como 'name' o 'filename')
+            name = payload.get('name') or payload.get('filename') or "Archivo Nuevo"
+            path = payload.get('path')
+            result = add_source(name, path)
+        elif cmd == 'update_source':
+            result = update_source(payload.get('id'), payload.get('path'))
+        elif cmd == 'scan_source':
+            # Alias scan_source a scan_and_ingest
+            result = scan_and_ingest(payload.get('id'))
+        elif cmd == 'write_excel':
+            result = write_excel_correction(
+                payload.get('id'), 
+                payload.get('value'), 
+                payload.get('filename'), 
+                payload.get('sheet'), 
+                payload.get('row'),
+                'D' # Default col if needed
+            )
         else:
             result = {"status": "error", "message": f"Comando desconocido: {cmd}"}
             
