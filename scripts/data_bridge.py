@@ -12,28 +12,155 @@ import base64
 import difflib
 import openpyxl
 from openpyxl.utils.cell import coordinate_from_string, column_index_from_string
+import time
 
 PATH_MAP_FILE = "file_paths_map.json"
 
-def load_path_map():
-    base = get_base_path()
-    path = os.path.join(base, PATH_MAP_FILE)
-    if os.path.exists(path):
+def ensure_v13_1_schema():
+    engine = get_engine()
+    with engine.begin() as conn:
+        # 1. Tabla de Fuentes de Datos
+        conn.execute(text("""
+            IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Tbl_Fuentes_Datos' AND xtype='U')
+            BEGIN
+                CREATE TABLE Tbl_Fuentes_Datos (
+                    ID INT IDENTITY(1,1) PRIMARY KEY,
+                    Nombre_Logico NVARCHAR(255),
+                    Ruta_Actual NVARCHAR(MAX),
+                    Ultima_Sincronizacion DATETIME,
+                    Estado NVARCHAR(50) DEFAULT 'ACTIVO'
+                )
+            END
+        """))
+        
+        # 2. Columna Simetria en Maestro
         try:
-            with open(path, 'r') as f:
-                return json.load(f)
+            conn.execute(text("ALTER TABLE Tbl_Maestro_Piezas ADD Simetria NVARCHAR(100)"))
         except:
-            return {}
-    return {}
+            pass # Ya existe
+            
+        # 3. Columnas de Auditoría Extendida
+        try:
+           conn.execute(text("ALTER TABLE Tbl_Auditoria_Conflictos ADD Simetria_Excel NVARCHAR(100)"))
+           conn.execute(text("ALTER TABLE Tbl_Auditoria_Conflictos ADD Proceso_Primario_Excel NVARCHAR(100)"))
+           conn.execute(text("ALTER TABLE Tbl_Auditoria_Conflictos ADD Tipo_Conflicto NVARCHAR(50)"))
+        except:
+            pass
 
-def save_path_map(data):
-    base = get_base_path()
-    path = os.path.join(base, PATH_MAP_FILE)
+def get_sources():
+    ensure_v13_1_schema()
+    engine = get_engine()
+    with engine.connect() as conn:
+        return sanitize(pd.read_sql("SELECT * FROM Tbl_Fuentes_Datos WHERE Estado = 'ACTIVO'", conn)).to_dict(orient='records')
+
+def add_source(name, path):
+    ensure_v13_1_schema()
+    engine = get_engine()
+    with engine.begin() as conn:
+        conn.execute(text("INSERT INTO Tbl_Fuentes_Datos (Nombre_Logico, Ruta_Actual) VALUES (:n, :r)"), {"n": name, "r": path})
+    return {"status": "success"}
+
+def update_source(id, path):
+    engine = get_engine()
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE Tbl_Fuentes_Datos SET Ruta_Actual = :r WHERE ID = :id"), {"r": path, "id": id})
+    return {"status": "success"}
+
+def scan_and_ingest(source_id):
+    engine = get_engine()
+    
+    # 1. Obtener Ruta
+    path = None
+    with engine.connect() as conn:
+        res = conn.execute(text("SELECT Ruta_Actual FROM Tbl_Fuentes_Datos WHERE ID = :id"), {"id": source_id}).fetchone()
+        if res: path = res[0]
+        
+    if not path or not os.path.exists(path):
+        return {"status": "error", "message": "Archivo no encontrado o ruta inválida."}
+        
+    # 2. Leer Excel (Data Only)
     try:
-        with open(path, 'w') as f:
-            json.dump(data, f, indent=4)
-    except:
-        pass
+        wb = openpyxl.load_workbook(path, data_only=True)
+        ws = wb.active # Asumimos hoja activa o primera
+        
+        # Mapeo Columnas (0-based en iter_rows, pero Excel es 1-based)
+        # D=4, E=5, F=6, H=8, I=9, J-L=10-12
+        # openpyxl col idx: A=1, B=2 ... D=4
+        
+        new_count = 0
+        conflict_count = 0
+        
+        with engine.begin() as conn:
+            # Cache de códigos existentes para evitar miles de SELECTs
+            existing_codes = set(pd.read_sql("SELECT Codigo_Pieza FROM Tbl_Maestro_Piezas", conn)['Codigo_Pieza'].str.upper().tolist())
+            
+            for row in ws.iter_rows(min_row=6, values_only=True):
+                # row es tupla (0..N). Index 3 es Col D (Codigo).
+                if not row or len(row) < 5: continue
+                
+                code = str(row[3]).strip().upper() if row[3] else ""
+                if not code or code in ["NONE", "CODIGO", "CODE"]: continue
+                
+                # Extraer Data
+                desc = str(row[4]).strip() if len(row) > 4 and row[4] else ""
+                medida = str(row[5]).strip() if len(row) > 5 and row[5] else ""
+                simetria = str(row[7]).strip() if len(row) > 7 and row[7] else "" # Col H (Index 7)
+                proc_prim = str(row[8]).strip() if len(row) > 8 and row[8] else "" # Col I (Index 8)
+                
+                # Procesos Secundarios (Concat J, K, L)
+                procs = []
+                if len(row) > 9 and row[9]: procs.append(str(row[9]).strip())
+                if len(row) > 10 and row[10]: procs.append(str(row[10]).strip())
+                if len(row) > 11 and row[11]: procs.append(str(row[11]).strip())
+                
+                p1 = procs[0] if len(procs) > 0 else ""
+                p2 = procs[1] if len(procs) > 1 else ""
+                p3 = procs[2] if len(procs) > 2 else ""
+                
+                # CASO 1: NO EXISTE -> INSERTAR
+                if code not in existing_codes:
+                    conn.execute(text("""
+                        INSERT INTO Tbl_Maestro_Piezas 
+                        (Codigo_Pieza, Descripcion, Medida, Simetria, Proceso_Primario, Proceso_1, Proceso_2, Proceso_3, Ultima_Actualizacion)
+                        VALUES (:c, :d, :m, :s, :p0, :p1, :p2, :p3, GETDATE())
+                    """), {
+                        'c': code, 'd': desc, 'm': medida, 's': simetria,
+                        'p0': proc_prim, 'p1': p1, 'p2': p2, 'p3': p3
+                    })
+                    existing_codes.add(code)
+                    new_count += 1
+                else:
+                    # CASO 2: YA EXISTE -> COMPARAR (Simplificado a Descripción para MVP, extendible)
+                    # En v13.1 DATA MANAGER se pide auditar MULTIPLES columnas.
+                    # Hacemos una validación rápida. Si difiere, lanzamos a conflicto.
+                    
+                    # Traer data actual (Optimizacion: Podriamos cachear todo, pero memoria...)
+                    curr = conn.execute(text("SELECT Descripcion FROM Tbl_Maestro_Piezas WHERE Codigo_Pieza = :c"), {'c': code}).fetchone()
+                    curr_desc = curr[0] if curr else ""
+                    
+                    if curr_desc != desc:
+                        # Registrar Conflicto
+                        # Upsert en Auditoria
+                        conn.execute(text("""
+                            MERGE Tbl_Auditoria_Conflictos AS target
+                            USING (SELECT :code AS Codigo) AS source
+                            ON (target.Codigo_Pieza = source.Codigo AND target.Estado = 'PENDIENTE')
+                            WHEN MATCHED THEN
+                                UPDATE SET Desc_Excel = :desc, Fecha_Deteccion = GETDATE()
+                            WHEN NOT MATCHED THEN
+                                INSERT (Codigo_Pieza, Desc_Excel, Desc_Master, Estado, Fecha_Deteccion, Tipo_Conflicto)
+                                VALUES (:code, :desc, :master, 'PENDIENTE', GETDATE(), 'DATOS_DIFERENTES');
+                        """), {'code': code, 'desc': desc, 'master': curr_desc})
+                        conflict_count += 1
+
+            # Actualizar timestamp fuente
+            conn.execute(text("UPDATE Tbl_Fuentes_Datos SET Ultima_Sincronizacion = GETDATE() WHERE ID = :id"), {'id': source_id})
+            
+        return {"status": "success", "new_items": new_count, "conflicts": conflict_count}
+        
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 
 # FORZAR SALIDA UTF-8 (Vital para comunicación con Flutter)
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
@@ -690,6 +817,15 @@ if __name__ == '__main__':
             result = register_file_path(fn, path)
         elif cmd == 'get_paths':
             result = load_path_map()
+        # --- v13.1 DATA MANAGER ---
+        elif cmd == 'get_sources':
+            result = get_sources()
+        elif cmd == 'add_source':
+            result = add_source(payload.get('name'), payload.get('path'))
+        elif cmd == 'update_source':
+            result = update_source(payload.get('id'), payload.get('path'))
+        elif cmd == 'scan_source':
+            result = scan_and_ingest(payload.get('id'))
         else:
             result = {"status": "error", "message": f"Comando desconocido: {cmd}"}
             

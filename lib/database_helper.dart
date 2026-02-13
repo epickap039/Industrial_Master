@@ -441,4 +441,41 @@ class DatabaseHelper {
     if (res != null) return Map<String, dynamic>.from(res);
     return {"status": "error", "message": "Backend error"};
   }
+
+  // --- SOURCES MANAGER (v13.1) ---
+  
+  Future<List<Map<String, dynamic>>> getSources() async {
+    final res = await _runScript('data_bridge.py', ['get_sources']);
+    if (res is List) return List<Map<String, dynamic>>.from(res);
+    return [];
+  }
+
+  Future<Map<String, dynamic>> addSource(String name, String path) async {
+    final payload = base64Encode(utf8.encode(jsonEncode({
+      "name": name,
+      "path": path,
+    })));
+    final res = await _runScript('data_bridge.py', ['add_source', '--stdin'], stdinInput: payload);
+    if (res != null) return Map<String, dynamic>.from(res);
+    return {"status": "error", "message": "Backend error"};
+  }
+
+  Future<Map<String, dynamic>> updateSource(int id, String path) async {
+    final payload = base64Encode(utf8.encode(jsonEncode({
+      "id": id,
+      "path": path,
+    })));
+    final res = await _runScript('data_bridge.py', ['update_source', '--stdin'], stdinInput: payload);
+    if (res != null) return Map<String, dynamic>.from(res);
+    return {"status": "error", "message": "Backend error"};
+  }
+
+  Future<Map<String, dynamic>> scanSource(int id) async {
+    final payload = base64Encode(utf8.encode(jsonEncode({
+      "id": id,
+    })));
+    final res = await _runScript('data_bridge.py', ['scan_source', '--stdin'], stdinInput: payload);
+    if (res != null) return Map<String, dynamic>.from(res);
+    return {"status": "error", "message": "Backend error"};
+  }
 }
