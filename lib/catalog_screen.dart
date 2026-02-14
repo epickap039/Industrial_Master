@@ -3,6 +3,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:syncfusion_flutter_datagrid/datagrid.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'database_helper.dart';
+import 'server_config_glass.dart';
 
 bool hasUnsavedChanges = false;
 
@@ -387,7 +388,19 @@ class _MasterCatalogGlassPageState
         SizedBox(height: 16),
         Text('Error: ${error ?? "Desconocido"}', style: TextStyle(color: Colors.red)),
         SizedBox(height: 16),
-        Button(onPressed: load, child: Text('Reintentar')),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Button(onPressed: load, child: Text('Reintentar')),
+            SizedBox(width: 8),
+            Button(
+              onPressed: () {
+                Navigator.push(context, FluentPageRoute(builder: (c) => ServerConfigGlassPage()));
+              },
+              child: Text('Ir a Configuración'),
+            ),
+          ],
+        ),
       ],
     ),
   );

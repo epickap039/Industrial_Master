@@ -13,6 +13,8 @@ import 'theme_manager.dart';
 import 'package:flutter/services.dart';
 import 'standards_screen.dart';
 import 'sources_screen.dart'; // v13.1
+import 'home_screen.dart';
+import 'server_config_glass.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -80,7 +82,7 @@ class MainGlassPage extends StatefulWidget {
   State<MainGlassPage> createState() => _MainGlassPageState();
 }
 
-class _MainGlassPageState extends State<MainGlassPage> {
+class _MainGlassPageState extends State<MainGlassPage> with WidgetsBindingObserver {
   int topIndex = 0;
   bool isCollapsed = false;
   final DatabaseHelper db = DatabaseHelper();
@@ -88,14 +90,30 @@ class _MainGlassPageState extends State<MainGlassPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _checkInitialConnection();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    db.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.detached) {
+      db.dispose();
+    }
   }
 
   Future<void> _checkInitialConnection() async {
     // 1. VALIDACIÓN CRÍTICA: data_bridge.exe
     if (!DatabaseHelper.validateCriticalFiles()) {
       if (mounted) {
-        setState(() => topIndex = 9); // Configuración
+        // Redirigir a Config de forma limpia
+        Navigator.push(context, FluentPageRoute(builder: (c) => ServerConfigGlassPage()));
         displayInfoBar(
           context,
           builder: (context, close) => InfoBar(
@@ -115,7 +133,7 @@ class _MainGlassPageState extends State<MainGlassPage> {
     // Si NO hay configuración, no intentamos conectar (evita error 18456 loop)
     if (!hasServer) {
        if (mounted) {
-        setState(() => topIndex = 7); // Ir directo a Config (índice 7)
+        Navigator.push(context, FluentPageRoute(builder: (c) => ServerConfigGlassPage()));
         displayInfoBar(
           context,
           builder: (context, close) => InfoBar(
@@ -132,7 +150,6 @@ class _MainGlassPageState extends State<MainGlassPage> {
     final res = await db.testConnection();
     if (res['status'] != 'success') {
       if (mounted) {
-        setState(() => topIndex = 7); // Redirigir a Config (índice 7) si falla
         displayInfoBar(
           context,
           builder: (context, close) {
@@ -140,9 +157,21 @@ class _MainGlassPageState extends State<MainGlassPage> {
               title: Text('Error de Conexión'),
               content: Text('No se pudo establecer conexión: ${res['message']}'),
               severity: InfoBarSeverity.error,
-              action: Button(
-                child: Text('Reintentar'),
-                onPressed: _checkInitialConnection,
+              action: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Button(
+                    child: Text('Reintentar'),
+                    onPressed: _checkInitialConnection,
+                  ),
+                  SizedBox(width: 8),
+                  Button(
+                    child: Text('Ir a Configuración'),
+                    onPressed: () {
+                      Navigator.push(context, FluentPageRoute(builder: (c) => ServerConfigGlassPage()));
+                    },
+                  ),
+                ],
               ),
             );
           },
@@ -288,188 +317,6 @@ class _MainGlassPageState extends State<MainGlassPage> {
   }
 }
 
-class HomeGlassPage extends StatelessWidget {
-  final Function(int) onNavigate;
-  HomeGlassPage({Key? key, required this.onNavigate}) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = FluentTheme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
-    return ScaffoldPage(
-      header: PageHeader(
-        title: Text('Panel de Control Principal'),
-      ),
-      content: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Flujo de Trabajo Industrial',
-                style: theme.typography.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Siga el proceso secuencial para garantizar la integridad del Catálogo Maestro.',
-                style: theme.typography.body?.copyWith(color: theme.typography.body?.color?.withOpacity(0.6)),
-              ),
-              const SizedBox(height: 40),
-              
-              // FLUJO HORIZONTAL
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  return Wrap(
-                    spacing: 20,
-                    runSpacing: 20,
-                    alignment: WrapAlignment.center,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      _buildFlowCard(
-                        context,
-                        index: 6, // Fuentes
-                        icon: FluentIcons.folder_open,
-                        title: '1. Fuentes de Datos',
-                        subtitle: 'Cargar Archivos Excel',
-                        color: Colors.blue,
-                      ),
-                      _buildChevron(context),
-                      _buildFlowCard(
-                        context,
-                        index: 1, // Corrección
-                        icon: FluentIcons.edit,
-                        title: '2. Corrección',
-                        subtitle: 'Limpiar Errores de Data',
-                        color: Colors.orange,
-                      ),
-                      _buildChevron(context),
-                      _buildFlowCard(
-                        context,
-                        index: 2, // Conflictos
-                        icon: FluentIcons.warning,
-                        title: '3. Validación',
-                        subtitle: 'Autorizar Cambios',
-                        color: Colors.magenta,
-                      ),
-                      _buildChevron(context),
-                      _buildFlowCard(
-                        context,
-                        index: 3, // Catálogo
-                        icon: FluentIcons.database,
-                        title: '4. Catálogo',
-                        subtitle: 'Consultar Maestro',
-                        color: Colors.green,
-                      ),
-                    ],
-                  );
-                },
-              ),
-              
-              const SizedBox(height: 60),
-              // BRANDING INFERIOR
-              Center(
-                child: Column(
-                  children: [
-                    Text(
-                      "JAES",
-                      style: TextStyle(
-                        fontSize: 40,
-                        fontWeight: FontWeight.w900,
-                        color: isDark ? Colors.white.withOpacity(0.2) : Colors.black.withOpacity(0.05),
-                        letterSpacing: 10,
-                      ),
-                    ),
-                    Text(
-                      "INTEGRITY SUITE",
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.blue.withOpacity(0.5),
-                        letterSpacing: 4,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFlowCard(BuildContext context, {
-    required int index,
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required Color color,
-  }) {
-    final isDark = FluentTheme.of(context).brightness == Brightness.dark;
-
-    return GestureDetector(
-      onTap: () => onNavigate(index),
-      child: HoverButton(
-        onPressed: () => onNavigate(index),
-        builder: (context, states) {
-          final isHovered = states.isHovering;
-          return AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            width: 220,
-            height: 180,
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: isHovered 
-                ? color.withOpacity(isDark ? 0.2 : 0.1) 
-                : (isDark ? Color(0xFF202020) : Colors.white),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: isHovered ? color : (isDark ? Color(0xFF333333) : Colors.grey[40]),
-                width: isHovered ? 2 : 1,
-              ),
-              boxShadow: isHovered ? [
-                BoxShadow(color: color.withOpacity(0.2), blurRadius: 10, offset: Offset(0, 4))
-              ] : [],
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(icon, size: 40, color: color),
-                const SizedBox(height: 16),
-                Text(
-                  title,
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    fontSize: 12, 
-                    color: isDark ? Colors.grey[400] : Colors.grey[600]
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildChevron(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8.0),
-      child: Icon(
-        FluentIcons.chevron_right_med,
-        color: Colors.grey[100],
-        size: 20,
-      ),
-    );
-  }
-}
 
 class HelpDialog extends StatefulWidget {
   HelpDialog({super.key});
@@ -893,9 +740,21 @@ class _AuditGlassPageState extends State<AuditGlassPage> {
 
                         SizedBox(height: 16),
 
-                        Button(
-                          onPressed: load,
-                          child: Text('Reintentar'),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Button(
+                              onPressed: load,
+                              child: Text('Reintentar'),
+                            ),
+                            SizedBox(width: 8),
+                            Button(
+                              onPressed: () {
+                                Navigator.push(context, FluentPageRoute(builder: (c) => ServerConfigGlassPage()));
+                              },
+                              child: Text('Ir a Configuración'),
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -1862,397 +1721,3 @@ class _ResolvedHistoryGlassPageState extends State<ResolvedHistoryGlassPage> {
   }
 }
 
-class ServerConfigGlassPage extends StatefulWidget {
-  ServerConfigGlassPage({Key? key}) : super(key: key);
-
-  @override
-  State<ServerConfigGlassPage> createState() => _ServerConfigGlassPageState();
-}
-
-class _ServerConfigGlassPageState extends State<ServerConfigGlassPage> {
-  final db = DatabaseHelper();
-  final serverController = TextEditingController(text: "192.168.1.73,1433");
-  final dbController = TextEditingController(text: "DB_Materiales_Industrial");
-  final userController = TextEditingController(text: "jaes_admin");
-  final passController = TextEditingController(text: "Jaes2026*");
-  final blueprintsController = TextEditingController();
-  final genericsController = TextEditingController();
-  bool isWindowsAuth = false;
-  bool testing = false;
-
-  @override
-  void initState() {
-    super.initState();
-    load();
-    if (genericsController.text.isEmpty) {
-      genericsController.text = r"Z:\5. PIEZAS GENERICAS\JA'S PDF";
-    }
-  }
-
-  Future<void> load() async {
-    final cfg = await db.getConfig();
-    setState(() {
-      if (cfg['server']?.toString().isNotEmpty ?? false) serverController.text = cfg['server'];
-      if (cfg['database']?.toString().isNotEmpty ?? false) dbController.text = cfg['database'];
-      if (cfg['trusted_connection'] != null) {
-        isWindowsAuth = cfg['trusted_connection'].toString().toLowerCase() == 'yes';
-      }
-      if (cfg['username']?.toString().isNotEmpty ?? false) userController.text = cfg['username'];
-      if (cfg['password']?.toString().isNotEmpty ?? false) passController.text = cfg['password'];
-      if (cfg['blueprints_path']?.toString().isNotEmpty ?? false) blueprintsController.text = cfg['blueprints_path'];
-      if (cfg['generics_path']?.toString().isNotEmpty ?? false) {
-        genericsController.text = cfg['generics_path'];
-      } else {
-        genericsController.text = r"Z:\5. PIEZAS GENERICAS\JA'S PDF";
-      }
-    });
-  }
-
-  Future<void> pickBlueprintsFolder() async {
-    String? result = await FilePicker.platform.getDirectoryPath();
-    if (result != null) setState(() => blueprintsController.text = result);
-  }
-
-  Future<void> save() async {
-    final config = {
-      "server": serverController.text,
-      "database": dbController.text,
-      "driver": "ODBC Driver 18 for SQL Server",
-      "trusted_connection": isWindowsAuth ? "yes" : "no",
-      "username": userController.text,
-      "password": passController.text,
-      "blueprints_path": blueprintsController.text,
-      "generics_path": genericsController.text,
-    };
-    await db.saveConfig(config);
-    if (mounted) {
-      displayInfoBar(context, builder: (context, close) => InfoBar(
-        title: Text('Éxito'),
-        content: Text('Configuración guardada correctamente.'),
-        severity: InfoBarSeverity.success,
-      ));
-    }
-  }
-
-  Future<void> test() async {
-    await save();
-    setState(() => testing = true);
-    try {
-      final res = await db.testConnection();
-      if (mounted) {
-        displayInfoBar(context, builder: (context, close) => InfoBar(
-          title: Text(res['status'] == 'success' ? 'Conexión Exitosa' : 'Error de Servidor'),
-          content: SelectableText(res['message'] ?? 'Sin respuesta'),
-          severity: res['status'] == 'success' ? InfoBarSeverity.success : InfoBarSeverity.error,
-          action: IconButton(icon: Icon(FluentIcons.clear), onPressed: close),
-        ));
-      }
-    } finally {
-      if (mounted) setState(() => testing = false);
-    }
-  }
-
-  Future<void> diagnoseSystem() async {
-    setState(() => testing = true);
-    try {
-      final result = await db.runDiagnostics();
-      if (mounted) {
-        await showDialog(
-          context: context,
-          builder: (ctx) => ContentDialog(
-            title: Text('Diagnóstico SENTINEL'),
-            content: SelectableText(
-              'Backend: ${result['backend'] == true ? '✅ OK' : '❌ FALTA'}\n'
-              'Conexión BD: ${result['connection'] == true ? '✅ OK' : '❌ ERROR'}\n'
-              'Mensaje: ${result['message']}\n'
-              'Path: ${result['path'] ?? 'N/A'}'
-            ),
-            actions: [Button(child: Text('Cerrar'), onPressed: () => Navigator.pop(ctx))],
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => testing = false);
-    }
-  }
-
-  void _showHelp(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (c) => ContentDialog(
-        title: Text('📘 Ayuda: Configuración'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('¿Qué hago en esta pantalla?', style: TextStyle(fontWeight: FontWeight.bold)),
-            Text('Configure los parámetros de conexión al servidor SQL y las rutas de los planos.'),
-            SizedBox(height: 10),
-            Text('¿Qué significan los campos?', style: TextStyle(fontWeight: FontWeight.bold)),
-            Text('• Servidor: IP y puerto del servidor de base de datos.'),
-            Text('• Diagnóstico SENTINEL: Herramienta para verificar si el sistema tiene acceso a sus componentes críticos.'),
-            SizedBox(height: 10),
-            Text('¿Qué paso sigue?', style: TextStyle(fontWeight: FontWeight.bold)),
-            Text('Asegúrese de que el botón de "Conectar" se ponga en verde antes de empezar a trabajar.'),
-          ],
-        ),
-        actions: [
-          Button(child: Text('Entendido'), onPressed: () => Navigator.pop(c)),
-        ],
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ScaffoldPage(
-      header: PageHeader(
-        title: Text('⚙️ Configuración del Sistema'),
-        commandBar: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              icon: Icon(FluentIcons.help, size: 20),
-              onPressed: () => _showHelp(context),
-            ),
-          ],
-        ),
-      ),
-      content: SingleChildScrollView(
-        padding: EdgeInsets.all(24),
-        child: Center(
-          child: Container(
-            constraints: BoxConstraints(maxWidth: 600),
-            child: Column(
-              children: [
-                SizedBox(height: 40),
-                Row(
-                  children: [
-                    Expanded(
-                      flex: 2,
-                      child: SizedBox(
-                        height: 80,
-                        child: FilledButton(
-                          onPressed: testing ? null : test,
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              if (testing) SizedBox(width: 20, height: 20, child: ProgressRing())
-                              else Icon(FluentIcons.plug_connected, size: 24),
-                              SizedBox(width: 15),
-                              Text("Conectar a Base de Datos", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    SizedBox(width: 12),
-                    Expanded(
-                      child: SizedBox(
-                        height: 80,
-                        child: Button(
-                          onPressed: testing ? null : diagnoseSystem,
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(FluentIcons.health, size: 20, color: Colors.orange),
-                              SizedBox(height: 4),
-                              Text("Diagnóstico", style: TextStyle(fontSize: 12)),
-                              Text("SENTINEL", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10)),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                SizedBox(height: 24),
-                Expander(
-                  header: Text("⚙️ Opciones Avanzadas (Técnico)", style: TextStyle(fontWeight: FontWeight.bold)),
-                  content: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      InfoLabel(
-                        label: 'Servidor (IP, Puerto)',
-                        child: Row(
-                          children: [
-                            Expanded(child: TextBox(controller: serverController)),
-                            SizedBox(width: 8),
-                            Button(
-                              onPressed: () => setState(() => serverController.text = r"localhost\SQLEXPRESS"),
-                              child: Row(
-                                children: [
-                                  Icon(FluentIcons.server, size: 16),
-                                  SizedBox(width: 8),
-                                  Text("Usar Localhost"),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      SizedBox(height: 12),
-                      InfoLabel(label: 'Base de Datos', child: TextBox(controller: dbController)),
-                      SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(child: InfoLabel(label: 'Usuario SQL', child: TextBox(controller: userController))),
-                          SizedBox(width: 12),
-                          Expanded(child: InfoLabel(label: 'Password SQL', child: TextBox(controller: passController, obscureText: true))),
-                        ],
-                      ),
-                      SizedBox(height: 20),
-                      Divider(),
-                      SizedBox(height: 10),
-                      Text("Rutas de Archivos", style: TextStyle(fontWeight: FontWeight.bold)),
-                      SizedBox(height: 12),
-                      InfoLabel(
-                        label: 'Carpeta de Planos PDF (Red)',
-                        child: Row(
-                          children: [
-                            Expanded(child: TextBox(controller: blueprintsController)),
-                            SizedBox(width: 8),
-                            Button(onPressed: pickBlueprintsFolder, child: Icon(FluentIcons.folder_open)),
-                          ],
-                        ),
-                      ),
-                      SizedBox(height: 12),
-                      InfoLabel(label: 'Carpeta de Genéricos', child: TextBox(controller: genericsController)),
-                      SizedBox(height: 20),
-                      SizedBox(
-                        width: double.infinity,
-                        child: Button(onPressed: save, child: Text("Guardar Configuración Técnica")),
-                      ),
-                    ],
-                  ),
-                ),
-                SizedBox(height: 40),
-                Opacity(
-                  opacity: 0.6,
-                  child: Text(
-                    "Las credenciales 'jaes_admin' son necesarias para la integridad de datos.\nSi necesita cambiar el servidor, consulte con el administrador.",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 11),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> runSentinel() async {
-    setState(() => testing = true);
-    try {
-      final report = await db.runSentinelDiagnostics();
-      if (!mounted) return;
-      
-      // Adapt to new v10.5 flat structure if keys exist, else fallback (safe migration)
-      final dbStatus = report['db_status'] ?? (report['steps']?['connection'] == 'ok') ?? false;
-      final integStatus = report['integrity_status'] ?? (report['steps']?['tables'] == 'ok') ?? false;
-      final logicStatus = report['logic_status'] ?? (report['steps']?['logic'] == 'ok') ?? false;
-      final pathStatus = report['path_status'] ?? (report['steps']?['path'] == 'ok') ?? false;
-      
-      final rawLog = report['log'] ?? report['raw_log'] ?? 'Error: No se recibió respuesta del Backend (data_bridge.exe)';
-      final bool hasCriticalError = rawLog.contains('❌') || rawLog.contains('Excepción') || rawLog.contains('Error');
-
-      showDialog(
-        context: context,
-        builder: (context) {
-          return ContentDialog(
-            constraints: BoxConstraints(maxWidth: 700, maxHeight: 800),
-            title: Text("🛡️ Diagnóstico SENTINEL PRO v10.5"),
-            content: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildCheckItem("Conexión Base de Datos", dbStatus, false),
-                _buildCheckItem("Integridad de Tablas/Columnas", integStatus, false),
-                _buildCheckItem("Lógica de Negocio (Excel)", logicStatus, false),
-                _buildCheckItem("Ruta de Planos", pathStatus, false),
-                SizedBox(height: 20),
-                Row(
-                  children: [
-                    Text("Log del Sistema:", style: TextStyle(fontWeight: FontWeight.bold)),
-                    if (hasCriticalError)
-                      Text(" (ERRORES DETECTADOS)", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-                  ],
-                ),
-                SizedBox(height: 8),
-                Expanded(
-                  child: Container(
-                    width: double.infinity,
-                    padding: EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.05),
-                      border: Border.all(color: hasCriticalError ? Colors.red.withOpacity(0.5) : Colors.grey.withOpacity(0.3)),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: SingleChildScrollView(
-                      child: SelectableText( // Changed to SelectableText for better UX
-                        rawLog,
-                        style: TextStyle(
-                            fontFamily: 'Consolas', 
-                            fontSize: 11,
-                            color: hasCriticalError ? Colors.red : null
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              Button(
-                child: Text("Cerrar"),
-                onPressed: () => Navigator.pop(context),
-              ),
-              FilledButton(
-                child: Text("Copiar Log"),
-                onPressed: () {
-                   Navigator.pop(context);
-                },
-              ),
-            ],
-          );
-        }
-      );
-    } catch (e) {
-      if (mounted) displayInfoBar(context, builder: (c, close) => InfoBar(title: Text('Error'), content: Text(e.toString()), severity: InfoBarSeverity.error));
-    } finally {
-      if (mounted) setState(() => testing = false);
-    }
-  }
-
-  Widget _buildCheckItem(String label, bool isOk, bool isWarning) {
-    IconData icon;
-    Color color;
-    
-    if (isOk) {
-      icon = FluentIcons.check_mark;
-      color = Colors.green;
-    } else if (isWarning) {
-      icon = FluentIcons.warning;
-      color = Colors.orange;
-    } else {
-      icon = FluentIcons.error;
-      color = Colors.red;
-    }
-
-    return Padding(
-      padding: EdgeInsets.symmetric(vertical: 8.0),
-      child: Row(
-        children: [
-          Icon(icon, color: color, size: 20),
-          SizedBox(width: 12),
-          Text(label, style: TextStyle(fontSize: 16)),
-          if (isWarning) ...[
-            SizedBox(width: 8),
-            Text("(Advertencia)", style: TextStyle(fontSize: 12, color: Colors.orange)),
-          ]
-        ],
-      ),
-    );
-  }
-}

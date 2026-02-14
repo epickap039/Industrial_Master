@@ -227,14 +227,14 @@ def get_connection_string():
     
     if is_windows_auth:
         params = urllib.parse.quote_plus(
-            f'DRIVER={{{driver}}};SERVER={server};DATABASE={database};Trusted_Connection=yes;Encrypt=no;{extra_params}'
+            f'DRIVER={{{driver}}};SERVER={server};DATABASE={database};Trusted_Connection=yes;Encrypt=no;LoginTimeout=15;{extra_params}'
         )
     else:
         user = config.get('user', '')
         password = config.get('password', '')
         # Si trusted_connection es FALSE, usamos UID/PWD
         params = urllib.parse.quote_plus(
-            f'DRIVER={{{driver}}};SERVER={server};DATABASE={database};UID={user};PWD={password};Encrypt=no;{extra_params}'
+            f'DRIVER={{{driver}}};SERVER={server};DATABASE={database};UID={user};PWD={password};Encrypt=no;LoginTimeout=15;{extra_params}'
         )
     
     return f'mssql+pyodbc:///?odbc_connect={params}'
@@ -801,110 +801,189 @@ def run_full_diagnostics():
 
         return response
 
-if __name__ == '__main__':
+# --- EXECUTION ---
+if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('command', help='Command to execute')
+    parser.add_argument('command', nargs='?', help='API Command') # Optional for loop mode
     parser.add_argument('--code', help='Part code')
     parser.add_argument('--id', help='Task ID')
     parser.add_argument('--stdin', action='store_true', help='Read payload from stdin (base64)')
     parser.add_argument('--force_resolve', action='store_true', help='Force resolution')
     parser.add_argument('--status', help='Custom resolution status')
+    parser.add_argument('--listen', action='store_true', help='Start in persistent listener mode')
     
     args = parser.parse_known_args()[0]
-    
-    payload = None
-    if args.stdin:
-        try:
-            stdin_data = sys.stdin.read().strip()
-            if stdin_data:
-                try:
-                    payload = json.loads(base64.b64decode(stdin_data).decode('utf-8'))
-                except:
-                    payload = json.loads(stdin_data)
-        except:
-            pass
 
-    cmd = args.command
-    
-    try:
-        result = None
-        if cmd == 'test_connection':
-            result = test_connection()
-        elif cmd in ['get_all', 'catalog']:
-            result = get_master_catalog()
-        elif cmd in ['conflicts', 'get_conflicts']:
-            result = get_conflicts()
-        elif cmd in ['history', 'get_history']:
-            result = get_history(args.code)
-        elif cmd == 'update':
-            result = update_master(args.code, payload, args.force_resolve, args.status)
-        elif cmd == 'delete':
-            result = delete_master(args.code)
-        elif cmd == 'insert':
-            result = insert_master(payload)
-        elif cmd in ['fetch', 'fetch_part']:
-            result = fetch_part(args.code)
-        elif cmd in ['homologation', 'get_homologation']:
-            result = get_homologation(args.code)
-        elif cmd == 'get_resolved':
-            result = get_resolved_tasks()
-        elif cmd == 'get_pending':
-            result = get_pending_tasks()
-        elif cmd in ['mark_corrected', 'mark_solved']:
-            result = mark_task_solved(args.id or args.code)
-        elif cmd == 'find_blueprint':
-            result = find_blueprint(args.code)
-        elif cmd == 'export_master':
-            result = export_master()
-        elif cmd == 'diagnostic':
-            result = run_full_diagnostics()
-        # --- COMMANDS v12.0 STANDARDS ---
-        elif cmd in ['standards', 'get_standards']:
-            result = get_standards()
-        elif cmd == 'add_standard':
-            desc = payload.get('Descripcion') if payload else args.code # Fallback to code arg if simple text
-            cat = payload.get('Categoria', 'GENERAL') if payload else 'GENERAL'
-            result = add_standard(desc, cat)
-        elif cmd == 'edit_standard':
-            new_desc = payload.get('Descripcion') if payload else args.code
-            result = edit_standard(args.id, new_desc)
-        elif cmd == 'delete_standard':
-            result = delete_standard(args.id)
-        elif cmd == 'write_excel':
-            # Args: id, new_value, filename, sheet, row
-            # Payload JSON esperado para params complejos
-            fn = payload.get('filename')
-            sh = payload.get('sheet')
-            row = payload.get('row')
-            val = payload.get('value')
-            res_id = payload.get('id')
-            result = write_excel_correction(res_id, val, fn, sh, row, None)
-        elif cmd == 'register_path':
-            fn = payload.get('filename')
-            path = payload.get('path')
-            result = register_file_path(fn, path)
-        elif cmd == 'get_paths':
-            result = load_path_map()
-        # --- v13.1 DATA MANAGER ---
-        elif cmd == 'get_sources':
-            result = get_sources()
-        elif cmd == 'add_source':
-            result = add_source(payload.get('name'), payload.get('path'))
-        elif cmd == 'update_source':
-            result = update_source(payload.get('id'), payload.get('path'))
-        elif cmd == 'scan_source':
-            result = scan_and_ingest(payload.get('id'))
-        elif cmd == 'save_config':
-            result = save_sys_config(payload)
-        elif cmd == 'get_config':
-            result = load_config()
-        else:
-            result = {"status": "error", "message": f"Comando desconocido: {cmd}"}
-            
-        print(json.dumps(result, default=str))
-    except Exception as e:
-        print(json.dumps({"status": "error", "message": str(e)}, default=str))
+    def process_command(cmd, payload, args_obj):
+        try:
+            result = None
+            if cmd == 'test_connection':
+                result = test_connection()
+            elif cmd in ['get_all', 'catalog']:
+                result = get_master_catalog()
+            elif cmd in ['conflicts', 'get_conflicts']:
+                result = get_conflicts()
+            elif cmd in ['history', 'get_history']:
+                code_val = args_obj.code if args_obj else payload.get('code')
+                result = get_history(code_val)
+            elif cmd == 'update':
+                code_val = args_obj.code if args_obj else payload.get('code')
+                force = args_obj.force_resolve if args_obj else payload.get('force_resolve')
+                status = args_obj.status if args_obj else payload.get('status')
+                result = update_master(code_val, payload, force, status)
+            elif cmd == 'delete':
+                code_val = args_obj.code if args_obj else payload.get('code')
+                result = delete_master(code_val)
+            elif cmd == 'insert':
+                result = insert_master(payload)
+            elif cmd in ['fetch', 'fetch_part']:
+                code_val = args_obj.code if args_obj else payload.get('code')
+                result = fetch_part(code_val)
+            elif cmd in ['homologation', 'get_homologation']:
+                code_val = args_obj.code if args_obj else payload.get('code')
+                result = get_homologation(code_val)
+            elif cmd == 'get_resolved':
+                result = get_resolved_tasks()
+            elif cmd == 'get_pending':
+                result = get_pending_tasks()
+            elif cmd in ['mark_corrected', 'mark_solved']:
+                id_val = args_obj.id if args_obj and args_obj.id else (args_obj.code if args_obj else payload.get('id'))
+                result = mark_task_solved(id_val)
+            elif cmd == 'find_blueprint':
+                code_val = args_obj.code if args_obj else payload.get('code')
+                result = find_blueprint(code_val)
+            elif cmd == 'export_master':
+                result = export_master()
+            elif cmd == 'diagnostic':
+                result = run_full_diagnostics()
+            # --- COMMANDS v12.0 STANDARDS ---
+            elif cmd in ['standards', 'get_standards']:
+                result = get_standards()
+            elif cmd == 'add_standard':
+                desc = payload.get('Descripcion') if payload else (args_obj.code if args_obj else '')
+                cat = payload.get('Categoria', 'GENERAL') if payload else 'GENERAL'
+                result = add_standard(desc, cat)
+            elif cmd == 'edit_standard':
+                id_val = args_obj.id if args_obj else payload.get('id')
+                new_desc = payload.get('Descripcion') if payload else (args_obj.code if args_obj else '')
+                result = edit_standard(id_val, new_desc)
+            elif cmd == 'delete_standard':
+                id_val = args_obj.id if args_obj else payload.get('id')
+                result = delete_standard(id_val)
+            # --- COMMANDS v12.1 SMART HOMOLOGATOR ---
+            elif cmd == 'get_suggestion':
+                dirty = (args_obj.code if args_obj else None) or (payload.get('text') if payload else None)
+                result = get_match_suggestion(dirty)
+            elif cmd == 'save_correction':
+                id_val = args_obj.id if args_obj else payload.get('id')
+                txt = payload.get('text')
+                result = save_excel_correction(id_val, txt)
+            # --- COMMANDS v13.x DATA MANAGER & CONFIG ---
+            elif cmd == 'get_config':
+                result = load_config()
+            elif cmd == 'save_config':
+                result = save_sys_config(payload)
+            elif cmd in ['get_sources', 'get_paths']:
+                result = get_sources()
+            elif cmd in ['add_source', 'register_path']:
+                name = payload.get('name') or payload.get('filename') or "Archivo Nuevo"
+                path = payload.get('path')
+                result = add_source(name, path)
+            elif cmd == 'update_source':
+                result = update_source(payload.get('id'), payload.get('path'))
+            elif cmd == 'scan_source':
+                result = scan_and_ingest(payload.get('id'))
+            elif cmd == 'write_excel':
+                result = write_excel_correction(
+                    payload.get('id'), 
+                    payload.get('value'), 
+                    payload.get('filename'), 
+                    payload.get('sheet'), 
+                    payload.get('row'),
+                    'D' 
+                )
+            elif cmd == 'kill':
+                sys.exit(0)
+            else:
+                result = {"status": "error", "message": f"Comando desconocido: {cmd}"}
+                
+            return result
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    # --- MODE 1: PERSISTENT LISTENER (OPTIMIZATION v14.1) ---
+    if args.listen:
+        # Optimización: Mantener proceso vivo para evitar carga repetitiva de Python/Librerías
+        while True:
+            try:
+                # 1. FRENO DE MANO: Pausa obligatoria
+                time.sleep(0.05) # 50ms es suficiente para respuesta rápida sin quemar CPU
+
+                # 2. DETECCIÓN DE PADRE MUERTO (Suicide Protocol)
+                if sys.stdin.closed:
+                    sys.exit(0)
+
+                # Leer línea de stdin
+                line = sys.stdin.readline()
+                if not line:
+                    # EOF recibido (padre cerró el stream)
+                    sys.exit(0)
+                
+                line = line.strip()
+                if not line:
+                    continue
+
+                # Procesar Request
+                try:
+                    req = json.loads(line)
+                    cmd = req.get('command')
+                    payload = req.get('payload', {})
+                    
+                    # Logica de args (shim para compatibilidad con funcion process_command)
+                    # En modo listen, todo viene en payload
+                    
+                    result = process_command(cmd, payload, None)
+                    
+                    # Responder
+                    print(json.dumps(result, default=str))
+                    sys.stdout.flush() # CRITICO: Enviar inmediatamente
+
+                except json.JSONDecodeError:
+                    print(json.dumps({"status": "error", "message": "JSON invalido"}, default=str))
+                    sys.stdout.flush()
+                    
+            except KeyboardInterrupt:
+                sys.exit(0)
+            except Exception as e:
+                # 3. LOGGING CONTROLADO Y WAIT
+                # Si falla el bucle (ej. stdin roto), esperar antes de reintentar o morir
+                try:
+                    print(json.dumps({"status": "error", "message": f"Loop Error: {str(e)}"}, default=str))
+                    sys.stdout.flush()
+                except:
+                    pass
+                time.sleep(1.0) # Espera larga si hay error grave
+
+    # --- MODE 2: ONE-SHOT (LEGACY) ---
+    else:
+        payload = None
+        if args.stdin:
+            try:
+                stdin_data = sys.stdin.read().strip()
+                if stdin_data:
+                    try:
+                        payload = json.loads(base64.b64decode(stdin_data).decode('utf-8'))
+                    except:
+                        payload = json.loads(stdin_data)
+            except:
+                pass
+        
+        # Shim para process_command con CLI args
+        # Convertimos args a objeto compatible o usamos payload
+        # process_command usa args_obj para .code, .id, etc.
+        res = process_command(args.command, payload, args)
+        print(json.dumps(res, default=str))
 
 # --- ESTÁNDARES DE MATERIALES (v12.0) ---
 

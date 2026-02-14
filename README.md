@@ -1,54 +1,64 @@
-# Industrial Master v13.1 - LIVE WRITER PRO
+# Industrial Master v14.1 - PERFORMANCE & STABILITY
 
 Este es el repositorio oficial del proyecto **Industrial Master**, una herramienta de gestión y auditoría industrial avanzada.
 
-## Versión Actual: v13.1_LIVE_WRITER_PRO
+## Versión Actual: v14.1_PERFORMANCE
 
-Esta versión introduce la **Escritura Inteligente en Excel**, permitiendo correcciones directas sobre los archivos fuente.
+Esta versión se centra en la estabilidad crítica del sistema backend y la experiencia de usuario fluda.
 
-### 🌟 Novedades V13.1 (Live Writer)
+### 🚀 Novedades V14.1 (Performance Update)
+
+- **Optimización Crítica del Data Bridge:**
+  - **Suicide Protocol:** El backend Python ahora se autodestruye si pierde conexión con la interfaz Flutter, eliminando procesos "zombies".
+  - **Uso de Recursos:** Implementación de `sleep` en bucles infinitos para reducir el uso de CPU de 30% a <1%.
+  - **Gestión de Logs:** Prevención de desbordamiento de disco mediante control de errores repetivos.
+
+- **Nueva Interfaz "Workflow":**
+  - Pantalla de inicio rediseñada con un flujo visual de procesos (Fuentes -> Corrección -> Validación -> Catálogo).
+  - Tarjetas interactivas con indicadores visuales de estado.
+  - Diseño responsivo mediante `LayoutBuilder` para adaptarse a diferentes resoluciones.
+
+- **Configuración Refinada:**
+  - Nueva pantalla **Server Config Glass** con diseño moderno traslúcido.
+  - Validación de conexión SQL más robusta con timeouts ajustados (15s) para redes lentas.
+  - Indicadores de estado de carga independientes para "Guardar" y "Conectar".
+
+### 🌟 Características Principales (Live Writer Pro)
 
 - **Escritura Directa en Archivos Excel:**
-  - El sistema ahora abre, edita y guarda cambios directamente en los archivos `.xlsx` originales.
-  - **Soporte de Celdas Combinadas (Merge):** Algoritmo inteligente que detecta rangos combinados y escribe en la celda correcta.
-  - **Detección de Archivos en Uso:** Alerta si el archivo está abierto por otro usuario (Permission Lock).
+  - Edición y guardado directo en archivos `.xlsx` originales.
+  - Algoritmo inteligente para celdas combinadas.
+  - Bloqueo de permisos para archivos en uso.
 
-- **Gestor de Rutas Dinámico (Path Manager):**
-  - Nueva pestaña **"📍 Fuentes de Datos"** en el menú Sistema.
-  - Permite "relocalizar" archivos si fueron movidos de carpeta.
-  - Mapeo persistente de rutas para futuros accesos.
+- **Gestor de Rutas Dinámico:**
+  - Relocalización de fuentes de datos movidas.
+  - Persistencia de rutas.
 
 - **Integridad de Datos:**
-  - Actualización simultánea: Se corrige el Excel y se marca el registro en SQL al mismo tiempo.
-
-- **Ayuda Contextual Inteligente:**
-  - Botones de ayuda (`?`) en cada módulo principal.
-  - Guías rápidas sobre colores de estado y flujos de trabajo.
-  - Manual de Usuario integrado y actualizado.
-
-- **Feedback Visual Mejorado:**
-  - Indicadores de carga (`ProgressRing`) en todos los botones de acción crítica.
-  - Notificaciones flotantes (`InfoBar`) para confirmar éxito o reportar errores.
-  - Manejo robusto de errores de red y base de datos con mensajes amigables.
-
-- **Refinamiento Estético:**
-  - Mejoras en el tema Oscuro/Claro con paletas de colores industriales (Slate/Cool Gray).
-  - Efectos de glassmorfismo optimizados y consistentes.
-  - Nueva organización del menú de navegación para un flujo de trabajo lógico.
-
-### Características Principales Anteriores
-
-- **Dashboard de Control:** Vista general de métricas clave.
-- **Auditoría de Conflictos:** Herramienta para resolver discrepancias entre Excel y SQL.
-- **Smart Detective Data:** Lógica avanzada de mapeo de datos SQL.
-- **Búsqueda Automática de Planos:** Vinculación directa con archivos PDF/DWG en red.
+  - Sincronización atómica entre Excel y SQL.
 
 ### Requisitos
 
 - Windows 10/11
-- Conexión a Base de Datos SQL Server
-- Archivos Excel de insumos
+- Conexión a Base de Datos SQL Server (ODBC Driver 17/18 recommended)
+- Python 3.x (para desarrollo/construcción)
+- Dart/Flutter SDK
 
-### Instalación
+### Instalación y Construcción
 
-El proyecto incluye scripts de construcción automatizada en Python para generar instaladores `.exe`. Ejecute `python scripts/build_installer.py` para generar la carpeta de distribución.
+El proyecto incluye scripts de automatización para generar el instalador portátil.
+
+1. **Construir Backend:**
+
+    ```bash
+    pyinstaller scripts/data_bridge.py --onefile
+    ```
+
+2. **Construir Instalador Completo:**
+    Ejecute el script de construcción para empaquetar todo (Flutter + Python + DLLs):
+
+    ```bash
+    python scripts/build_installer.py
+    ```
+
+    Esto generará la carpeta `INSTALADOR_JAES_v14.1_PERFORMANCE` lista para distribuir.

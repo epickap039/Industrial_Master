@@ -306,7 +306,9 @@ class _SourcesPageState extends State<SourcesPage> {
                             path, 
                             style: TextStyle(
                               fontSize: 11, 
-                              color: FluentTheme.of(context).brightness == Brightness.dark ? Colors.grey[300] : Colors.grey[800]
+                              color: FluentTheme.of(context).brightness == Brightness.dark 
+                                  ? Colors.white.withOpacity(0.7) 
+                                  : Colors.black.withOpacity(0.54)
                             ), 
                             maxLines: 2, 
                             overflow: TextOverflow.ellipsis

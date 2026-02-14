@@ -4,7 +4,7 @@ import sys
 
 def create_installer():
     # 1. Rutas
-    VERSION = "13.5_FLOW"
+    VERSION = "14.1_PERFORMANCE"
     SOURCE_BIN = r"build\windows\x64\runner\Release"
     SOURCE_SCRIPTS = r"scripts"
     DEST_DIR = f"INSTALADOR_JAES_v{VERSION}"
