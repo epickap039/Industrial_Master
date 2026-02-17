@@ -135,6 +135,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
       }).toList();
     });
     
+    // Solo resetear scroll si hubo un cambio drástico o limpieza
     if (resetScroll && _filteredData.isNotEmpty && _verticalScrollController.hasClients) {
        _verticalScrollController.jumpTo(0);
     }
@@ -292,6 +293,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
       padding: const EdgeInsets.all(8.0),
       child: LayoutBuilder(
         builder: (context, constraints) {
+          // LayoutBuilder gives us the full available size (100% width/height of content area)
           final minWidth = (activeCols.length * 180.0) + 60.0;
           final viewWidth = minWidth > constraints.maxWidth ? minWidth : constraints.maxWidth;
 
@@ -303,19 +305,20 @@ class _CatalogScreenState extends State<CatalogScreen> {
               scrollDirection: Axis.horizontal,
               child: SizedBox(
                 width: viewWidth,
-                height: constraints.maxHeight, // Constrain height to viewport
+                height: constraints.maxHeight, // Force full height to allow Expanded to work
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _buildHeaderRow(activeCols),
                     const Divider(),
+                    // Expanded here pushes the ListView to take all remaining vertical space
                     Expanded(
                       child: Scrollbar(
                         controller: _verticalScrollController,
                         thumbVisibility: true,
                         child: ListView.builder(
                           controller: _verticalScrollController,
-                          // Physics defaults to AlwaysScrollableScrollPhysics
+                          // Default physics ensures performance
                           itemCount: _filteredData.length,
                           itemBuilder: (context, index) {
                             return _buildDataRow(_filteredData[index], index, activeCols);
