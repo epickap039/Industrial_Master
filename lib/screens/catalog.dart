@@ -233,7 +233,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
         'Proceso_Primario': row['Proceso_Primario'],
         'Proceso_1': row['Proceso_1'],
         'Proceso_2': row['Proceso_2'],
-        'Proceso_3': row['Proceso_3'], // Nuevo Campo
+        'Proceso_3': row['Proceso_3'], 
         // Auditoría
         'usuario': username,
         'Modificado_Por': username
@@ -521,9 +521,14 @@ class _CatalogScreenState extends State<CatalogScreen> {
   @override
   Widget build(BuildContext context) {
     return ScaffoldPage(
-      header: PageHeader(
-        title: const Text('Catálogo Maestro'),
-        commandBar: _buildCommandBar(),
+      // Padding compactado en header
+      padding: EdgeInsets.zero,
+      header: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.0), // Compactado
+        child: PageHeader(
+          title: const Text('Catálogo Maestro'),
+          commandBar: _buildCommandBar(),
+        ),
       ),
       content: _buildContent(),
       bottomBar: Container(
@@ -598,35 +603,37 @@ class _CatalogScreenState extends State<CatalogScreen> {
           final minWidth = (activeCols.length * 200.0) + actionsWidth; 
           final viewWidth = minWidth > constraints.maxWidth ? minWidth : constraints.maxWidth;
 
-          // Scrollbar Industrial Horizontal (Thickness 15.0)
+          // SOLUCIÓN SCROLLBAR: Scrollbar vertical envuelve al Horizontal
+          // Esto asegura que la barra vertical esté siempre visible a la derecha de la pantalla
           return Scrollbar(
-            controller: _horizontalScrollController,
+            controller: _verticalScrollController,
             thumbVisibility: true,
             interactive: true,
             style: const ScrollbarThemeData(
-              thickness: 15.0, // MEGA GRUESA (15.0)
+              thickness: 14.0, // Industrial
               radius: Radius.circular(4),
             ),
-            child: SingleChildScrollView(
+            child: Scrollbar(
               controller: _horizontalScrollController,
-              scrollDirection: Axis.horizontal,
-              child: SizedBox(
-                width: viewWidth,
-                height: constraints.maxHeight,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildHeaderRow(activeCols, actionsWidth),
-                    const Divider(),
-                    Expanded(
-                      child: Scrollbar(
-                        controller: _verticalScrollController,
-                        thumbVisibility: true,
-                         interactive: true,
-                         style: const ScrollbarThemeData(
-                           thickness: 15.0, // MEGA GRUESA (15.0)
-                           radius: Radius.circular(4),
-                         ),
+              thumbVisibility: true,
+              interactive: true,
+              style: const ScrollbarThemeData(
+                thickness: 14.0, // Industrial
+                radius: Radius.circular(4),
+              ),
+              child: SingleChildScrollView(
+                controller: _horizontalScrollController,
+                scrollDirection: Axis.horizontal,
+                child: SizedBox(
+                  width: viewWidth,
+                  height: constraints.maxHeight,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildHeaderRow(activeCols, actionsWidth),
+                      const SizedBox(height: 8), // Separación justa (8px)
+                      const Divider(),
+                      Expanded(
                         child: ListView.builder(
                           controller: _verticalScrollController,
                           itemCount: _filteredData.length,
@@ -635,8 +642,8 @@ class _CatalogScreenState extends State<CatalogScreen> {
                           },
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -649,7 +656,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
   Widget _buildHeaderRow(List<String> activeCols, double actionsWidth) {
     return Row(
       children: [
-        // Sin Icono de Engrane
+         // Espacio acciones (Sin Settings Icon)
          SizedBox(width: actionsWidth, child: Container()), 
         ...activeCols.map((col) {
           return SizedBox(
@@ -660,7 +667,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(col.replaceAll('_', ' '), style: TextStyle(fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 4), // Compacto
                   InfoLabel( 
                     label: '',
                     child: SizedBox(
@@ -698,14 +705,14 @@ class _CatalogScreenState extends State<CatalogScreen> {
                 Tooltip(
                   message: 'Información',
                   child: IconButton(
-                    icon: const Icon(FluentIcons.info, size: 14),
+                    icon: Icon(FluentIcons.info, size: 14, color: Colors.blue), // AZUL
                     onPressed: () => _showInfoDetails(row),
                   ),
                 ),
                 Tooltip(
                   message: 'Editar',
                   child: IconButton(
-                    icon: const Icon(FluentIcons.edit, size: 14),
+                    icon: Icon(FluentIcons.edit, size: 14, color: Colors.warningPrimaryColor), // NARANJA/AMARILLO
                     onPressed: () => _showEditDialog(row),
                   ),
                 ),
@@ -714,7 +721,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                    Tooltip(
                     message: 'Abrir Drive/Plano',
                     child: IconButton(
-                      icon: const Icon(FluentIcons.cloud, size: 14),
+                      icon: Icon(FluentIcons.cloud, size: 14, color: Colors.successPrimaryColor), // VERDE
                       onPressed: () => _launchDriveLink(row['Link_Drive']?.toString()),
                     ),
                   )
@@ -724,7 +731,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                 Tooltip(
                   message: 'Copiar Código',
                   child: IconButton(
-                    icon: const Icon(FluentIcons.copy, size: 14),
+                    icon: Icon(FluentIcons.copy, size: 14, color: Colors.grey), // GRIS
                     onPressed: () => _copyToClipboard(row['Codigo']?.toString() ?? ''),
                   ),
                 ),
