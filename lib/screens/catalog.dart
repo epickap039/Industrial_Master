@@ -53,9 +53,10 @@ class _CatalogScreenState extends State<CatalogScreen> {
     super.dispose();
   }
 
+  /// Carga datos del backend
   Future<void> _fetchData({bool showLoading = true}) async {
     if (showLoading) {
-      setState(() {
+      if (mounted) setState(() {
         _isLoading = true;
         _errorMessage = null;
       });
@@ -122,6 +123,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
     }
   }
 
+  /// Aplica filtros locales
   void _applyFilters({bool resetScroll = true}) {
     setState(() {
       _filteredData = _allData.where((row) {
@@ -140,7 +142,8 @@ class _CatalogScreenState extends State<CatalogScreen> {
       }).toList();
     });
     
-    // MANTENER POSICIÓN DE SCROLL: Solo resetear si es explícito (ej. nueva carga)
+    // Solo reseteamos el scroll si es explicitamente solicitado (ej. carga inicial)
+    // Para filtros, mantenemos posición si es posible, o reset si cambia longitud drasticamente
     if (resetScroll && _filteredData.isNotEmpty && _verticalScrollController.hasClients) {
        _verticalScrollController.jumpTo(0);
     }
@@ -156,6 +159,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
     _applyFilters();
   }
 
+  /// Exporta a Excel
   Future<void> _exportToExcel() async {
     if (_filteredData.isEmpty) return;
 
@@ -202,12 +206,13 @@ class _CatalogScreenState extends State<CatalogScreen> {
     }
   }
 
+  /// Guarda cambios en Backend
   Future<void> _updateMaterial(Map<String, dynamic> row, Map<String, dynamic> updates) async {
     final prefs = await SharedPreferences.getInstance();
     final username = prefs.getString('username') ?? 'Usuario_Desconocido';
 
     try {
-      // Aplicar updates optimísticamente
+      // Optimistic Update
       setState(() {
          updates.forEach((key, value) {
            row[key] = value;
@@ -218,13 +223,14 @@ class _CatalogScreenState extends State<CatalogScreen> {
 
       // Enviar al backend
       for (var entry in updates.entries) {
-        // FIX DE GUARDADO: Incluir Codigo_Pieza si existe, o Codigo
+        // payload con Codigo_Pieza para evitar error 500
         final body = {
           'Codigo': row['Codigo'],
-          'Codigo_Pieza': row['Codigo_Pieza'] ?? row['Codigo'], // FIX CRITICO
+          'Codigo_Pieza': row['Codigo_Pieza'] ?? row['Codigo'], 
           'Campo': entry.key,
           'Valor': entry.value,
-          'Modificado_Por': username
+          'Modificado_Por': username,
+          'usuario': username // Backup field
         };
         
         final response = await http.put(
@@ -261,11 +267,12 @@ class _CatalogScreenState extends State<CatalogScreen> {
            );
          });
       }
-      // Revertir
+      // Revertir cambios recargando
       _fetchData(showLoading: false);
     }
   }
 
+  /// Diálogo de Edición
   void _showEditDialog(Map<String, dynamic> row) {
     final descController = TextEditingController(text: row['Descripcion']?.toString() ?? '');
     final medidaController = TextEditingController(text: row['Medida']?.toString() ?? '');
@@ -323,6 +330,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
     );
   }
 
+  /// Detalles (Solo lectura)
   void _showInfoDetails(Map<String, dynamic> row) {
     showDialog(
       context: context,
@@ -360,10 +368,9 @@ class _CatalogScreenState extends State<CatalogScreen> {
     );
   }
 
+  /// Abrir link
   void _launchDriveLink(String? url) async {
-    if (url == null || url.isEmpty || url == '-') {
-      return; // No hacer nada si no hay link (el botón estará deshabilitado visualmente o mostrará mensaje)
-    }
+    if (url == null || url.isEmpty || url == '-') return;
     
     final uri = Uri.parse(url);
     if (await canLaunchUrl(uri)) {
@@ -380,6 +387,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
     }
   }
 
+  /// Copiar al portapapeles
   void _copyToClipboard(String text) {
     Clipboard.setData(ClipboardData(text: text));
     displayInfoBar(context, builder: (context, close) {
@@ -392,6 +400,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
     });
   }
 
+  /// Selector de Columnas
   void _showColumnSelector() {
     showDialog(
       context: context,
@@ -402,16 +411,25 @@ class _CatalogScreenState extends State<CatalogScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: List<Widget>.from(_columns.map((col) {
-                return CheckboxListTile(
-                  title: Text(col.replaceAll('_', ' ')),
-                  checked: _visibleColumns[col] == true,
-                  onChanged: (v) {
-                    setState(() {
-                      _visibleColumns[col] = v ?? false;
-                    });
-                    Navigator.pop(context);
-                    _showColumnSelector(); // Reabrir para refrescar estado visual rápido
-                  },
+                // Usamos Row con Checkbox nativo de fluent_ui
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4.0),
+                  child: Row(
+                    children: [
+                      Checkbox(
+                        checked: _visibleColumns[col] == true,
+                        onChanged: (v) {
+                          setState(() {
+                            _visibleColumns[col] = v ?? false;
+                          });
+                          Navigator.pop(context);
+                          _showColumnSelector(); // Refrescar diálogo
+                        },
+                      ),
+                      const SizedBox(width: 8),
+                      Text(col.replaceAll('_', ' ')),
+                    ],
+                  ),
                 );
               })),
             ),
@@ -427,17 +445,17 @@ class _CatalogScreenState extends State<CatalogScreen> {
     );
   }
 
+  /// Helper para labels
   Widget _buildLabelValue(String label, dynamic value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Removed const from TextStyle as requested
           Text(label.toUpperCase(), style: TextStyle(fontSize: 10, color: Colors.blue, fontWeight: FontWeight.bold)),
           SelectableText(
             value?.toString() ?? '-',
-            style: TextStyle(fontSize: 13), // Removed const
+            style: TextStyle(fontSize: 13),
           ),
         ],
       ),
@@ -520,7 +538,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
           return Scrollbar(
             controller: _horizontalScrollController,
             thumbVisibility: true,
-            style: const ScrollbarThemeData(thickness: 8.0), // MEJORA DE SCROLLBAR
+            style: const ScrollbarThemeData(thickness: 10.0), // Scrollbar grueso
             child: SingleChildScrollView(
               controller: _horizontalScrollController,
               scrollDirection: Axis.horizontal,
@@ -536,7 +554,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                       child: Scrollbar(
                         controller: _verticalScrollController,
                         thumbVisibility: true,
-                        style: const ScrollbarThemeData(thickness: 8.0), // MEJORA DE SCROLLBAR
+                         style: const ScrollbarThemeData(thickness: 10.0), // Scrollbar grueso
                         child: ListView.builder(
                           controller: _verticalScrollController,
                           itemCount: _filteredData.length,
@@ -571,15 +589,14 @@ class _CatalogScreenState extends State<CatalogScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Removed const from TextStyle
                   Text(col.replaceAll('_', ' '), style: TextStyle(fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
                   const SizedBox(height: 4),
-                  InfoLabel( // FIX DE COMPILACIÓN: InfoLabel en lugar de TextBox(header)
+                  InfoLabel( // Fix para evitar error de compilación (TextBox no tiene header)
                     label: '',
                     child: TextBox(
                       controller: _filterControllers[col],
                       placeholder: 'Buscar',
-                      style: TextStyle(fontSize: 12), // Removed const
+                      style: TextStyle(fontSize: 12),
                       onChanged: (v) => _applyFilters(resetScroll: true),
                     ),
                   ),
@@ -606,30 +623,30 @@ class _CatalogScreenState extends State<CatalogScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
                 Tooltip(
-                  message: 'Ver Detalles',
+                  message: 'Información',
                   child: IconButton(
                     icon: const Icon(FluentIcons.info, size: 14),
                     onPressed: () => _showInfoDetails(row),
                   ),
                 ),
                 Tooltip(
-                  message: 'Editar Item',
+                  message: 'Editar',
                   child: IconButton(
                     icon: const Icon(FluentIcons.edit, size: 14),
                     onPressed: () => _showEditDialog(row),
                   ),
                 ),
-                // ESTÉTICA DE ICONOS CONDICIONALES: Solo mostrar nube si hay link
+                // Icono Condicional: Nube solo si hay link
                 if (hasLink)
-                  Tooltip(
-                    message: 'Abrir Plano/Drive',
+                   Tooltip(
+                    message: 'Abrir Drive/Plano',
                     child: IconButton(
                       icon: const Icon(FluentIcons.cloud, size: 14),
                       onPressed: () => _launchDriveLink(row['Link_Drive']?.toString()),
                     ),
                   )
                 else
-                  const SizedBox(width: 30), // Espacio vacío para mantener alineación
+                   const SizedBox(width: 30), // Espacio para alineación
 
                 Tooltip(
                   message: 'Copiar Código',
@@ -648,7 +665,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 8.0),
                 child: Text(
                   row[col]?.toString() ?? '',
-                  style: TextStyle(fontSize: 12), // Removed const
+                  style: TextStyle(fontSize: 12),
                   overflow: TextOverflow.ellipsis,
                   maxLines: 1,
                 ),
