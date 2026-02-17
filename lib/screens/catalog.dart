@@ -75,7 +75,12 @@ class _CatalogScreenState extends State<CatalogScreen> {
           
           if (_visibleColumns.isEmpty) {
             for (var col in _columns) {
-              _visibleColumns[col] = true;
+              // Por defecto ocultar columnas de auditoría para ahorrar espacio
+              if (['Modificado_Por', 'Ultima_Actualizacion', 'Fecha_Creacion'].contains(col)) {
+                _visibleColumns[col] = false;
+              } else {
+                _visibleColumns[col] = true;
+              }
             }
           } else {
              for (var col in _columns) {
@@ -135,7 +140,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
       }).toList();
     });
     
-    // Solo resetear scroll si hubo un cambio drástico o limpieza
+    // MANTENER POSICIÓN DE SCROLL: Solo resetear si es explícito (ej. nueva carga)
     if (resetScroll && _filteredData.isNotEmpty && _verticalScrollController.hasClients) {
        _verticalScrollController.jumpTo(0);
     }
@@ -197,6 +202,127 @@ class _CatalogScreenState extends State<CatalogScreen> {
     }
   }
 
+  Future<void> _updateMaterial(Map<String, dynamic> row, Map<String, dynamic> updates) async {
+    final prefs = await SharedPreferences.getInstance();
+    final username = prefs.getString('username') ?? 'Usuario_Desconocido';
+
+    try {
+      // Aplicar updates optimísticamente
+      setState(() {
+         updates.forEach((key, value) {
+           row[key] = value;
+         });
+         row['Modificado_Por'] = username;
+         row['Ultima_Actualizacion'] = DateTime.now().toIso8601String(); 
+      });
+
+      // Enviar al backend
+      for (var entry in updates.entries) {
+        // FIX DE GUARDADO: Incluir Codigo_Pieza si existe, o Codigo
+        final body = {
+          'Codigo': row['Codigo'],
+          'Codigo_Pieza': row['Codigo_Pieza'] ?? row['Codigo'], // FIX CRITICO
+          'Campo': entry.key,
+          'Valor': entry.value,
+          'Modificado_Por': username
+        };
+        
+        final response = await http.put(
+          Uri.parse('http://192.168.1.73:8001/api/material/update'),
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode(body),
+        );
+
+        if (response.statusCode != 200) {
+          throw Exception('Error actualizando ${entry.key}: ${response.body}');
+        }
+      }
+
+      if (mounted) {
+        displayInfoBar(context, builder: (context, close) {
+          return InfoBar(
+            title: const Text('Guardado'),
+            content: const Text('Cambios registrados correctamente'),
+            severity: InfoBarSeverity.success,
+            onClose: close,
+          );
+        });
+      }
+
+    } catch (e) {
+      if (mounted) {
+         showDialog(context: context, builder: (context) {
+           return ContentDialog(
+             title: const Text('Error al Guardar'),
+             content: Text(e.toString()),
+             actions: [
+               Button(child: const Text('Ok'), onPressed: () => Navigator.pop(context))
+             ],
+           );
+         });
+      }
+      // Revertir
+      _fetchData(showLoading: false);
+    }
+  }
+
+  void _showEditDialog(Map<String, dynamic> row) {
+    final descController = TextEditingController(text: row['Descripcion']?.toString() ?? '');
+    final medidaController = TextEditingController(text: row['Medida']?.toString() ?? '');
+    final materialController = TextEditingController(text: row['Material']?.toString() ?? '');
+    final linkController = TextEditingController(text: row['Link_Drive']?.toString() ?? '');
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return ContentDialog(
+          title: Text("Editar: ${row['Codigo_Pieza'] ?? row['Codigo']}"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              InfoLabel(label: 'Descripción', child: TextBox(controller: descController, maxLines: 3)),
+              const SizedBox(height: 8),
+              InfoLabel(label: 'Medida', child: TextBox(controller: medidaController)),
+              const SizedBox(height: 8),
+              InfoLabel(label: 'Material', child: TextBox(controller: materialController)),
+               const SizedBox(height: 8),
+              InfoLabel(label: 'Link Drive', child: TextBox(controller: linkController)),
+            ],
+          ),
+          actions: [
+            Button(
+              child: const Text('Cancelar'),
+              onPressed: () => Navigator.pop(context),
+            ),
+            FilledButton(
+              child: const Text('Guardar'),
+              onPressed: () {
+                Navigator.pop(context);
+                final updates = <String, dynamic>{};
+                if (descController.text != (row['Descripcion']?.toString() ?? '')) {
+                  updates['Descripcion'] = descController.text;
+                }
+                 if (medidaController.text != (row['Medida']?.toString() ?? '')) {
+                  updates['Medida'] = medidaController.text;
+                }
+                 if (materialController.text != (row['Material']?.toString() ?? '')) {
+                  updates['Material'] = materialController.text;
+                }
+                 if (linkController.text != (row['Link_Drive']?.toString() ?? '')) {
+                  updates['Link_Drive'] = linkController.text;
+                }
+
+                if (updates.isNotEmpty) {
+                  _updateMaterial(row, updates);
+                }
+              },
+            ),
+          ],
+        );
+      }
+    );
+  }
+
   void _showInfoDetails(Map<String, dynamic> row) {
     showDialog(
       context: context,
@@ -208,14 +334,86 @@ class _CatalogScreenState extends State<CatalogScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                _buildLabelValue("Codigo", row['Codigo']),
+                _buildLabelValue("Codigo Pieza", row['Codigo_Pieza']),
+                const Divider(),
                 _buildLabelValue("Descripción", row['Descripcion']),
                 const SizedBox(height: 10),
                 _buildLabelValue("Medida", row['Medida']),
                 _buildLabelValue("Material", row['Material']),
                 const Divider(),
+                _buildLabelValue("Link Drive", row['Link_Drive']),
+                 const Divider(),
                 _buildLabelValue("Modificado Por", row['Modificado_Por']),
                 _buildLabelValue("Última Actualización", row['Ultima_Actualizacion']),
               ],
+            ),
+          ),
+          actions: [
+            Button(
+              child: const Text('Cerrar'),
+              onPressed: () => Navigator.pop(context),
+            ),
+          ],
+        );
+      }
+    );
+  }
+
+  void _launchDriveLink(String? url) async {
+    if (url == null || url.isEmpty || url == '-') {
+      return; // No hacer nada si no hay link (el botón estará deshabilitado visualmente o mostrará mensaje)
+    }
+    
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    } else {
+       displayInfoBar(context, builder: (context, close) {
+        return InfoBar(
+          title: const Text('Error'),
+          content: const Text('No se pudo abrir el link.'),
+          severity: InfoBarSeverity.error,
+          onClose: close,
+        );
+      });
+    }
+  }
+
+  void _copyToClipboard(String text) {
+    Clipboard.setData(ClipboardData(text: text));
+    displayInfoBar(context, builder: (context, close) {
+      return InfoBar(
+        title: const Text('Copiado'),
+        content: Text(text),
+        severity: InfoBarSeverity.info,
+        onClose: close,
+      );
+    });
+  }
+
+  void _showColumnSelector() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return ContentDialog(
+          title: const Text('Seleccionar Columnas'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: List<Widget>.from(_columns.map((col) {
+                return CheckboxListTile(
+                  title: Text(col.replaceAll('_', ' ')),
+                  checked: _visibleColumns[col] == true,
+                  onChanged: (v) {
+                    setState(() {
+                      _visibleColumns[col] = v ?? false;
+                    });
+                    Navigator.pop(context);
+                    _showColumnSelector(); // Reabrir para refrescar estado visual rápido
+                  },
+                );
+              })),
             ),
           ),
           actions: [
@@ -261,23 +459,44 @@ class _CatalogScreenState extends State<CatalogScreen> {
     );
   }
 
-  CommandBar _buildCommandBar() {
-    return CommandBar(
-      primaryItems: [
-        CommandBarButton(
-          icon: const Icon(FluentIcons.refresh),
-          label: const Text('Refrescar'),
-          onPressed: _fetchData,
+  Widget _buildCommandBar() {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ToggleSwitch(
+          checked: _onlyWithPlano,
+          content: Text(_onlyWithPlano ? 'Con Plano/Drive' : 'Todos'),
+          onChanged: (v) {
+            setState(() {
+              _onlyWithPlano = v;
+              _applyFilters();
+            });
+          },
         ),
-        CommandBarButton(
-          icon: const Icon(FluentIcons.clear_filter),
-          label: const Text('Limpiar'),
-          onPressed: _clearFilters,
-        ),
-        CommandBarButton(
-          icon: const Icon(FluentIcons.excel_logo),
-          label: const Text('Exportar'),
-          onPressed: _filteredData.isNotEmpty ? _exportToExcel : null,
+        const SizedBox(width: 20),
+        CommandBar(
+          primaryItems: [
+            CommandBarButton(
+              icon: const Icon(FluentIcons.column_options),
+              label: const Text('Columnas'),
+              onPressed: _showColumnSelector,
+            ),
+            CommandBarButton(
+              icon: const Icon(FluentIcons.refresh),
+              label: const Text('Refrescar'),
+              onPressed: _fetchData,
+            ),
+            CommandBarButton(
+              icon: const Icon(FluentIcons.clear_filter),
+              label: const Text('Limpiar'),
+              onPressed: _clearFilters,
+            ),
+            CommandBarButton(
+              icon: const Icon(FluentIcons.excel_logo),
+              label: const Text('Exportar'),
+              onPressed: _filteredData.isNotEmpty ? _exportToExcel : null,
+            ),
+          ],
         ),
       ],
     );
@@ -294,12 +513,14 @@ class _CatalogScreenState extends State<CatalogScreen> {
       padding: const EdgeInsets.all(8.0),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final minWidth = (activeCols.length * 180.0) + 60.0;
+          final double actionsWidth = 160.0;
+          final minWidth = (activeCols.length * 180.0) + actionsWidth;
           final viewWidth = minWidth > constraints.maxWidth ? minWidth : constraints.maxWidth;
 
           return Scrollbar(
             controller: _horizontalScrollController,
             thumbVisibility: true,
+            style: const ScrollbarThemeData(thickness: 8.0), // MEJORA DE SCROLLBAR
             child: SingleChildScrollView(
               controller: _horizontalScrollController,
               scrollDirection: Axis.horizontal,
@@ -309,17 +530,18 @@ class _CatalogScreenState extends State<CatalogScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildHeaderRow(activeCols),
+                    _buildHeaderRow(activeCols, actionsWidth),
                     const Divider(),
                     Expanded(
                       child: Scrollbar(
                         controller: _verticalScrollController,
                         thumbVisibility: true,
+                        style: const ScrollbarThemeData(thickness: 8.0), // MEJORA DE SCROLLBAR
                         child: ListView.builder(
                           controller: _verticalScrollController,
                           itemCount: _filteredData.length,
                           itemBuilder: (context, index) {
-                            return _buildDataRow(_filteredData[index], index, activeCols);
+                            return _buildDataRow(_filteredData[index], index, activeCols, actionsWidth);
                           },
                         ),
                       ),
@@ -334,11 +556,11 @@ class _CatalogScreenState extends State<CatalogScreen> {
     );
   }
 
-  Widget _buildHeaderRow(List<String> activeCols) {
+  Widget _buildHeaderRow(List<String> activeCols, double actionsWidth) {
     return Row(
       children: [
         SizedBox(
-          width: 60,
+          width: actionsWidth,
           child: const Center(child: Icon(FluentIcons.settings, size: 14)),
         ),
         ...activeCols.map((col) {
@@ -352,11 +574,14 @@ class _CatalogScreenState extends State<CatalogScreen> {
                   // Removed const from TextStyle
                   Text(col.replaceAll('_', ' '), style: TextStyle(fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
                   const SizedBox(height: 4),
-                  TextBox(
-                    controller: _filterControllers[col],
-                    placeholder: 'Buscar',
-                    style: TextStyle(fontSize: 12), // Removed const
-                    onChanged: (v) => _applyFilters(),
+                  InfoLabel( // FIX DE COMPILACIÓN: InfoLabel en lugar de TextBox(header)
+                    label: '',
+                    child: TextBox(
+                      controller: _filterControllers[col],
+                      placeholder: 'Buscar',
+                      style: TextStyle(fontSize: 12), // Removed const
+                      onChanged: (v) => _applyFilters(resetScroll: true),
+                    ),
                   ),
                 ],
               ),
@@ -367,19 +592,53 @@ class _CatalogScreenState extends State<CatalogScreen> {
     );
   }
 
-  Widget _buildDataRow(Map<String, dynamic> row, int index, List<String> activeCols) {
+  Widget _buildDataRow(Map<String, dynamic> row, int index, List<String> activeCols, double actionsWidth) {
+    final hasLink = row['Link_Drive'] != null && row['Link_Drive'].toString().isNotEmpty && row['Link_Drive'].toString() != '-';
+
     return Container(
       color: index % 2 == 0 ? Colors.transparent : Colors.black.withOpacity(0.03),
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         children: [
           SizedBox(
-            width: 60,
-            child: Center(
-              child: IconButton(
-                icon: const Icon(FluentIcons.info, size: 16),
-                onPressed: () => _showInfoDetails(row),
-              ),
+            width: actionsWidth,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                Tooltip(
+                  message: 'Ver Detalles',
+                  child: IconButton(
+                    icon: const Icon(FluentIcons.info, size: 14),
+                    onPressed: () => _showInfoDetails(row),
+                  ),
+                ),
+                Tooltip(
+                  message: 'Editar Item',
+                  child: IconButton(
+                    icon: const Icon(FluentIcons.edit, size: 14),
+                    onPressed: () => _showEditDialog(row),
+                  ),
+                ),
+                // ESTÉTICA DE ICONOS CONDICIONALES: Solo mostrar nube si hay link
+                if (hasLink)
+                  Tooltip(
+                    message: 'Abrir Plano/Drive',
+                    child: IconButton(
+                      icon: const Icon(FluentIcons.cloud, size: 14),
+                      onPressed: () => _launchDriveLink(row['Link_Drive']?.toString()),
+                    ),
+                  )
+                else
+                  const SizedBox(width: 30), // Espacio vacío para mantener alineación
+
+                Tooltip(
+                  message: 'Copiar Código',
+                  child: IconButton(
+                    icon: const Icon(FluentIcons.copy, size: 14),
+                    onPressed: () => _copyToClipboard(row['Codigo']?.toString() ?? ''),
+                  ),
+                ),
+              ],
             ),
           ),
           ...activeCols.map((col) {
