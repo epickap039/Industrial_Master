@@ -134,27 +134,26 @@ async def get_catalog():
     finally:
         conn.close()
 
-# 6. EDICIÓN DE MATERIALES (ESPECÍFICA)
-# Endpoint para actualizar: Descripcion, Medida, Material, Link_Drive, Modificado_Por
+# 6. EDICIÓN DE MATERIALES (ESPECÍFICA + CAMPOS NUEVOS)
 @app.put("/api/material/update")
 async def update_material(request: Request, payload: Dict[str, Any]):
-    print(f"--- UPDATE MATERIAL (SQL UPDATE SET) ---")
+    print(f"--- UPDATE MATERIAL FULL EDITOR ---")
     print(f"Payload: {payload}")
 
-    # Extraer campos obligatorios/opcionales
+    # Extraer ID
     codigo_pieza = payload.get('Codigo_Pieza')
-    # Fallback para Codigo si Codigo_Pieza falla (legacy logic support)
     codigo_legacy = payload.get('Codigo')
-    
     id_param = codigo_pieza if codigo_pieza else codigo_legacy
 
     if not id_param:
         raise HTTPException(status_code=400, detail="Falta Codigo_Pieza o Codigo")
 
-    descripcion = payload.get('Descripcion')
-    medida = payload.get('Medida')
-    material = payload.get('Material')
-    link_drive = payload.get('Link_Drive')
+    # Campos Permitidos (Whitelist)
+    allowed_fields = [
+        'Descripcion', 'Medida', 'Material', 'Link_Drive', 
+        'Simetria', 'Proceso_Primario', 'Proceso_1', 'Proceso_2'
+    ]
+    
     usuario = payload.get('usuario') or payload.get('Modificado_Por') or 'Sistema'
 
     conn = get_db_connection()
@@ -169,47 +168,45 @@ async def update_material(request: Request, payload: Dict[str, Any]):
              cursor.execute("ALTER TABLE Tbl_Maestro_Piezas ADD Modificado_Por NVARCHAR(50)")
              conn.commit()
 
-        # Query Específica solicitada
-        # "UPDATE MiTabla SET Descripcion=?, Medida=?, Material=?, Link_Drive=?, Modificado_Por=?, Fecha_Modificacion=GETDATE() WHERE Codigo_Pieza=?"
-        # Usamos Tbl_Maestro_Piezas en lugar de MiTabla
-        # Fecha_Modificacion -> Ultima_Actualizacion en mi esquema actual
-        query = """
-            UPDATE Tbl_Maestro_Piezas 
-            SET Descripcion = ?, 
-                Medida = ?, 
-                Material = ?, 
-                Link_Drive = ?, 
-                Modificado_Por = ?, 
-                Ultima_Actualizacion = GETDATE() 
-            WHERE Codigo_Pieza = ?
-        """
+        # Construcción Dinámica Segura de la Query
+        set_clauses = []
+        values = []
         
-        values = (descripcion, medida, material, link_drive, usuario, id_param)
-        print(f"Ejecutando SQL: {query}")
-        print(f"Valores: {values}")
+        for field in allowed_fields:
+            if field in payload:
+               set_clauses.append(f"{field} = ?")
+               values.append(payload[field])
+        
+        if not set_clauses:
+             return {"status": "ignored", "message": "No hay campos válidos para actualizar"}
+
+        # Agregar Auditoría
+        set_clauses.append("Modificado_Por = ?")
+        values.append(usuario)
+        
+        set_clauses.append("Ultima_Actualizacion = GETDATE()")
+        
+        query_set = ", ".join(set_clauses)
+        
+        # Query Principal
+        query = f"UPDATE Tbl_Maestro_Piezas SET {query_set} WHERE Codigo_Pieza = ?"
+        values.append(id_param)
+        
+        print(f"SQL GENERADO: {query}")
         
         cursor.execute(query, values)
         
         if cursor.rowcount == 0:
-            print("No se encontró Codigo_Pieza. Intentando fallback por Codigo...")
-            query_fallback = """
-                UPDATE Tbl_Maestro_Piezas 
-                SET Descripcion = ?, 
-                    Medida = ?, 
-                    Material = ?, 
-                    Link_Drive = ?, 
-                    Modificado_Por = ?, 
-                    Ultima_Actualizacion = GETDATE() 
-                WHERE Codigo = ?
-            """
+            print("Fallback: Actualizando por Codigo...")
+            query_fallback = f"UPDATE Tbl_Maestro_Piezas SET {query_set} WHERE Codigo = ?"
             cursor.execute(query_fallback, values)
 
         conn.commit()
         
         if cursor.rowcount > 0:
-            return {"status": "success", "message": "Actualizado correctamente"}
+             return {"status": "success", "message": "Actualizado correctamente"}
         else:
-            raise HTTPException(status_code=404, detail="No se encontró registro para actualizar")
+             raise HTTPException(status_code=404, detail="No se encontró registro (Codigo/Codigo_Pieza)")
 
     except Exception as e:
         conn.rollback()

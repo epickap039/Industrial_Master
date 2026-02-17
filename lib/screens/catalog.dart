@@ -71,7 +71,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
 
         if (data.isNotEmpty) {
           List<String> allKeys = data.first.keys.toList();
-          allKeys.remove('Link_Drive'); // Se maneja internamente
+          allKeys.remove('Link_Drive'); // Metadata interna
           _columns = allKeys;
           
           if (_visibleColumns.isEmpty) {
@@ -141,7 +141,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
       }).toList();
     });
     
-    // Si reseteamos scroll, ir arriba. Si no, mantenemos posición (útil para edición)
+    // Mantenemos posición de scroll al filtrar/editar, solo reset en carga inicial
     if (resetScroll && _filteredData.isNotEmpty && _verticalScrollController.hasClients) {
        _verticalScrollController.jumpTo(0);
     }
@@ -204,13 +204,13 @@ class _CatalogScreenState extends State<CatalogScreen> {
     }
   }
 
-  /// Guarda cambios en Backend (Payload Completo)
+  /// Guarda cambios - Payload Completo
   Future<void> _updateMaterial(Map<String, dynamic> row, Map<String, dynamic> updates) async {
     final prefs = await SharedPreferences.getInstance();
     final username = prefs.getString('username') ?? 'Usuario_Desconocido';
 
     try {
-      // Aplicar updates optimísticamente en Frontend
+      // 1. Optimistic Update (UI)
       setState(() {
          updates.forEach((key, value) {
            row[key] = value;
@@ -219,19 +219,26 @@ class _CatalogScreenState extends State<CatalogScreen> {
          row['Ultima_Actualizacion'] = DateTime.now().toIso8601String(); 
       });
 
-      // Construir Payload JSON ÚNICO con todos los campos reales
+      // 2. Construir Payload COMPLETO
+      // Enviamos TODOS los campos editables para asegurar consistencia
       final body = {
-        'Codigo_Pieza': row['Codigo_Pieza'] ?? row['Codigo'], // ID Principal
+        'Codigo_Pieza': row['Codigo_Pieza'] ?? row['Codigo'],
         'Codigo': row['Codigo'],
-        'Descripcion': row['Descripcion'], // Campo real
-        'Medida': row['Medida'],           // Campo real
-        'Material': row['Material'],       // Campo real
-        'Link_Drive': row['Link_Drive'],   // Campo real
-        'usuario': username,               // Auditoría
-        'Modificado_Por': username         // Auditoría
+        'Descripcion': row['Descripcion'],
+        'Medida': row['Medida'],
+        'Material': row['Material'],
+        'Link_Drive': row['Link_Drive'],
+        // Campos Nuevos del Full Editor
+        'Simetria': row['Simetria'],
+        'Proceso_Primario': row['Proceso_Primario'],
+        'Proceso_1': row['Proceso_1'],
+        'Proceso_2': row['Proceso_2'],
+        // Auditoría
+        'usuario': username,
+        'Modificado_Por': username
       };
       
-      // Enviar una sola petición PUT
+      // 3. Enviar al Backend
       final response = await http.put(
         Uri.parse('http://192.168.1.73:8001/api/material/update'),
         headers: {'Content-Type': 'application/json'},
@@ -245,8 +252,8 @@ class _CatalogScreenState extends State<CatalogScreen> {
       if (mounted) {
         displayInfoBar(context, builder: (context, close) {
           return InfoBar(
-            title: const Text('Guardado'),
-            content: const Text('Cambios registrados correctamente'),
+            title: const Text('Guardado Exitoso'),
+            content: const Text('Registro actualizado correctamente.'),
             severity: InfoBarSeverity.success,
             onClose: close,
           );
@@ -265,35 +272,64 @@ class _CatalogScreenState extends State<CatalogScreen> {
            );
          });
       }
-      // Revertir cambios recargando desde servidor (SIN resetear scroll)
+      // Revertir cambios (sin mover scroll)
       _fetchData(showLoading: false);
     }
   }
 
-  /// Diálogo de Edición
+  /// Diálogo de Edición COMPLETO
   void _showEditDialog(Map<String, dynamic> row) {
-    final descController = TextEditingController(text: row['Descripcion']?.toString() ?? '');
-    final medidaController = TextEditingController(text: row['Medida']?.toString() ?? '');
-    final materialController = TextEditingController(text: row['Material']?.toString() ?? '');
-    final linkController = TextEditingController(text: row['Link_Drive']?.toString() ?? '');
+    // Controladores para todos los campos
+    final descCtrl = TextEditingController(text: row['Descripcion']?.toString() ?? '');
+    final medCtrl = TextEditingController(text: row['Medida']?.toString() ?? '');
+    final matCtrl = TextEditingController(text: row['Material']?.toString() ?? '');
+    final linkCtrl = TextEditingController(text: row['Link_Drive']?.toString() ?? '');
+    // Nuevos Campos
+    final simetriaCtrl = TextEditingController(text: row['Simetria']?.toString() ?? '');
+    final procPrimCtrl = TextEditingController(text: row['Proceso_Primario']?.toString() ?? '');
+    final proc1Ctrl = TextEditingController(text: row['Proceso_1']?.toString() ?? '');
+    final proc2Ctrl = TextEditingController(text: row['Proceso_2']?.toString() ?? '');
 
     showDialog(
       context: context,
       builder: (context) {
         return ContentDialog(
-          title: Text("Editar: ${row['Codigo_Pieza'] ?? row['Codigo']}"),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Usamos InfoLabel como solicitado
-              InfoLabel(label: 'Descripción', child: TextBox(controller: descController, maxLines: 3)),
-              const SizedBox(height: 8),
-              InfoLabel(label: 'Medida', child: TextBox(controller: medidaController)),
-              const SizedBox(height: 8),
-              InfoLabel(label: 'Material', child: TextBox(controller: materialController)),
-               const SizedBox(height: 8),
-              InfoLabel(label: 'Link Drive', child: TextBox(controller: linkController)),
-            ],
+          constraints: const BoxConstraints(maxWidth: 600), // Diálogo más ancho
+          title: Text("Editor Maestro: ${row['Codigo_Pieza'] ?? row['Codigo']}"),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                InfoLabel(label: 'Descripción', child: TextBox(controller: descCtrl, maxLines: 2)),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(child: InfoLabel(label: 'Medida', child: TextBox(controller: medCtrl))),
+                    const SizedBox(width: 10),
+                    Expanded(child: InfoLabel(label: 'Material', child: TextBox(controller: matCtrl))),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(child: InfoLabel(label: 'Simetría', child: TextBox(controller: simetriaCtrl))),
+                    const SizedBox(width: 10),
+                    Expanded(child: InfoLabel(label: 'Proceso Primario', child: TextBox(controller: procPrimCtrl))),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(child: InfoLabel(label: 'Proceso 1', child: TextBox(controller: proc1Ctrl))),
+                    const SizedBox(width: 10),
+                    Expanded(child: InfoLabel(label: 'Proceso 2', child: TextBox(controller: proc2Ctrl))),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                InfoLabel(label: 'Link Drive / Plano', child: TextBox(controller: linkCtrl)),
+              ],
+            ),
           ),
           actions: [
             Button(
@@ -301,26 +337,27 @@ class _CatalogScreenState extends State<CatalogScreen> {
               onPressed: () => Navigator.pop(context),
             ),
             FilledButton(
-              child: const Text('Guardar'),
+              child: const Text('Guardar Cambios'),
               onPressed: () {
                 Navigator.pop(context);
                 final updates = <String, dynamic>{};
                 
-                // Detectar cambios
-                if (descController.text != (row['Descripcion']?.toString() ?? '')) {
-                  updates['Descripcion'] = descController.text;
-                }
-                 if (medidaController.text != (row['Medida']?.toString() ?? '')) {
-                  updates['Medida'] = medidaController.text;
-                }
-                 if (materialController.text != (row['Material']?.toString() ?? '')) {
-                  updates['Material'] = materialController.text;
-                }
-                 if (linkController.text != (row['Link_Drive']?.toString() ?? '')) {
-                  updates['Link_Drive'] = linkController.text;
+                // Helper para chequear cambios
+                void check(String key, TextEditingController ctrl) {
+                   if (ctrl.text != (row[key]?.toString() ?? '')) {
+                     updates[key] = ctrl.text;
+                   }
                 }
 
-                // Llamar a update si hay cambios (enviará el payload completo igual)
+                check('Descripcion', descCtrl);
+                check('Medida', medCtrl);
+                check('Material', matCtrl);
+                check('Link_Drive', linkCtrl);
+                check('Simetria', simetriaCtrl);
+                check('Proceso_Primario', procPrimCtrl);
+                check('Proceso_1', proc1Ctrl);
+                check('Proceso_2', proc2Ctrl);
+
                 if (updates.isNotEmpty) {
                   _updateMaterial(row, updates);
                 }
@@ -332,26 +369,37 @@ class _CatalogScreenState extends State<CatalogScreen> {
     );
   }
 
+  /// Detalles (Limpiado: Sin "CODIGO" vacio)
   void _showInfoDetails(Map<String, dynamic> row) {
     showDialog(
       context: context,
       builder: (context) {
         return ContentDialog(
-          title: Text("Detalle: ${row['Codigo_Pieza'] ?? row['Codigo'] ?? '?'}"),
+          title: Text("Detalle de Pieza"),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildLabelValue("Codigo", row['Codigo']),
-                _buildLabelValue("Codigo Pieza", row['Codigo_Pieza']),
+                // Eliminado campo "Codigo" redundante, solo Codigo Pieza
+                _buildLabelValue("CODIGO PIEZA", row['Codigo_Pieza'] ?? row['Codigo']),
                 const Divider(),
-                _buildLabelValue("Descripción", row['Descripcion']),
+                _buildLabelValue("DESCRIPCIÓN", row['Descripcion']),
                 const SizedBox(height: 10),
-                _buildLabelValue("Medida", row['Medida']),
-                _buildLabelValue("Material", row['Material']),
+                Row(
+                  children: [
+                    Expanded(child: _buildLabelValue("MEDIDA", row['Medida'])),
+                     Expanded(child: _buildLabelValue("MATERIAL", row['Material'])),
+                  ],
+                ),
+                 Row(
+                  children: [
+                    Expanded(child: _buildLabelValue("SIMETRÍA", row['Simetria'])),
+                     Expanded(child: _buildLabelValue("PROC. PRIMARIO", row['Proceso_Primario'])),
+                  ],
+                ),
                 const Divider(),
-                _buildLabelValue("Link Drive", row['Link_Drive']),
+                _buildLabelValue("LINK PLANO", row['Link_Drive']),
                  const Divider(),
                 _buildLabelValue("Modificado Por", row['Modificado_Por']),
                 _buildLabelValue("Última Actualización", row['Ultima_Actualizacion']),
@@ -379,7 +427,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
        displayInfoBar(context, builder: (context, close) {
         return InfoBar(
           title: const Text('Error'),
-          content: const Text('No se pudo abrir el link.'),
+          content: const Text('Link inválido o inaccesible.'),
           severity: InfoBarSeverity.error,
           onClose: close,
         );
@@ -409,7 +457,6 @@ class _CatalogScreenState extends State<CatalogScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: List<Widget>.from(_columns.map((col) {
-                // Checkbox nativo (Fluent)
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 4.0),
                   child: Row(
@@ -449,7 +496,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label.toUpperCase(), style: TextStyle(fontSize: 10, color: Colors.blue, fontWeight: FontWeight.bold)),
+          Text(label, style: TextStyle(fontSize: 10, color: Colors.blue, fontWeight: FontWeight.bold)),
           SelectableText(
             value?.toString() ?? '-',
             style: TextStyle(fontSize: 13),
@@ -539,13 +586,13 @@ class _CatalogScreenState extends State<CatalogScreen> {
           final minWidth = (activeCols.length * 200.0) + actionsWidth; 
           final viewWidth = minWidth > constraints.maxWidth ? minWidth : constraints.maxWidth;
 
-          // Scrollbar Industrial Horizontal
+          // Scrollbar Industrial Horizontal (Thickness 14.0)
           return Scrollbar(
             controller: _horizontalScrollController,
             thumbVisibility: true,
             interactive: true,
             style: const ScrollbarThemeData(
-              thickness: 12.0, // Solicitado: 12.0
+              thickness: 14.0, // SUPER GRUESA
               radius: Radius.circular(4),
             ),
             child: SingleChildScrollView(
@@ -565,7 +612,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                         thumbVisibility: true,
                          interactive: true,
                          style: const ScrollbarThemeData(
-                           thickness: 12.0, // Solicitado: 12.0
+                           thickness: 14.0, // SUPER GRUESA
                            radius: Radius.circular(4),
                          ),
                         child: ListView.builder(
@@ -590,10 +637,8 @@ class _CatalogScreenState extends State<CatalogScreen> {
   Widget _buildHeaderRow(List<String> activeCols, double actionsWidth) {
     return Row(
       children: [
-        SizedBox(
-          width: actionsWidth,
-          child: const Center(child: Icon(FluentIcons.settings, size: 14)),
-        ),
+        // Eliminado icono de Engrane (Settings)
+        SizedBox(width: actionsWidth, child: Container()), 
         ...activeCols.map((col) {
           return SizedBox(
             width: 200,
@@ -626,7 +671,6 @@ class _CatalogScreenState extends State<CatalogScreen> {
   }
 
   Widget _buildDataRow(Map<String, dynamic> row, int index, List<String> activeCols, double actionsWidth) {
-    // Icono Condicional
     final hasLink = row['Link_Drive'] != null && row['Link_Drive'].toString().isNotEmpty && row['Link_Drive'].toString() != '-';
 
     return Container(
