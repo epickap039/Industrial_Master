@@ -63,7 +63,7 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
       }
 
       final response = await http.post(
-        Uri.parse('http://192.168.1.73:8001/api/excel/sincronizar'),
+        Uri.parse('http://127.0.0.1:8001/api/excel/sincronizar'),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({'updates': updatesToSend}),
       );
@@ -111,6 +111,14 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
         commandBar: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            IconButton(
+              icon: const Icon(FluentIcons.back, size: 20),
+              onPressed: () {
+                // Confirmación simple antes de salir si hay pendientes
+                Navigator.pop(context);
+              },
+            ),
+            const SizedBox(width: 20),
             InfoLabel(
               label: 'Registros Procesados',
               child: Text('${widget.totalProcessed}', style: const TextStyle(fontWeight: FontWeight.bold)),
@@ -148,18 +156,22 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
                   final detalles = item['Detalles'] ?? '';
 
                   return Card(
-                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8), // Compacto
+                    margin: const EdgeInsets.only(bottom: 4), // Compacto
                     backgroundColor: isMarked ? Colors.successPrimaryColor.withOpacity(0.1) : null,
                     child: ListTile(
-                      leading: const Icon(FluentIcons.warning, color: Colors.warningPrimaryColor),
-                      title: Text("${item['Codigo_Pieza']} - ${item['Estado']}"),
+                      leading: Icon(FluentIcons.warning, color: Colors.warningPrimaryColor),
+                      title: Text(
+                        "${item['Codigo_Pieza']}", 
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)
+                      ),
                       subtitle: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(detalles, style: const TextStyle(color: Colors.red)), // Diferencias en Rojo
+                          Text(detalles, style: TextStyle(color: Colors.red)), // Diferencias en Rojo
                           const SizedBox(height: 4),
                           Text("Excel: ${item['Excel_Data']['Descripcion_Excel']} | ${item['Excel_Data']['Medida_Excel']}", 
-                            style: const TextStyle(fontSize: 11, color: Colors.grey),
+                            style: TextStyle(fontSize: 11, color: Colors.grey),
                           ),
                         ],
                       ),

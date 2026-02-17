@@ -236,35 +236,39 @@ async def procesar_excel(file: UploadFile = File(...)):
         start_row = 7 
         for row in ws.iter_rows(min_row=start_row, values_only=True):
             # Mapeo por índice (Asumiendo estructura estándar del BOM de Ingeniería)
-            # Col 0: Estacion (Merged)
-            # Col 1: Ensamble (Merged)
-            # Col 2: Codigo_Pieza (Clave)
-            # Col 3: Cantidad
-            # Col 4: Descripcion
-            # Col 5: Medida
-            # Col 6: Material
+            # Col 0 (A): N/A
+            # Col 1 (B): Estacion
+            # Col 2 (C): Ensamble
+            # Col 3 (D): CODIGO_PIEZA (Clave)
+            # Col 4 (E): DESCRIPCION
+            # Col 5 (F): MEDIDA
+            # Col 6 (G): MATERIAL
             
-            if not row or all(c is None for c in row): continue
+            if not row: continue
 
             # Forward Fill Logic (Herencia de valores padre)
-            estacion = row[0] if row[0] is not None else last_estacion
-            ensamble = row[1] if row[1] is not None else last_ensamble
+            estacion = row[1] if row[1] is not None else last_estacion
+            ensamble = row[2] if row[2] is not None else last_ensamble
             
             if estacion: last_estacion = estacion
             if ensamble: last_ensamble = ensamble
 
-            codigo_pieza = str(row[2]).strip() if row[2] else None
+            # Validar Codigo Pieza (Columna D - Index 3)
+            raw_codigo = row[3]
+            codigo_pieza = str(raw_codigo).strip() if raw_codigo else None
             
-            if codigo_pieza and codigo_pieza.lower() not in ['none', 'codigo', '']:
-                scan_data.append({
-                    'Estacion': last_estacion,
-                    'Ensamble': last_ensamble,
-                    'Codigo_Pieza': codigo_pieza,
-                    'Cantidad': row[3],
-                    'Descripcion_Excel': str(row[4]).strip() if row[4] else "",
-                    'Medida_Excel': str(row[5]).strip() if row[5] else "",
-                    'Material_Excel': str(row[6]).strip() if row[6] else ""
-                })
+            if not codigo_pieza or codigo_pieza.lower() in ['none', 'codigo', 'codigo_pieza', '']:
+                continue
+
+            scan_data.append({
+                'Estacion': last_estacion,
+                'Ensamble': last_ensamble,
+                'Codigo_Pieza': codigo_pieza,
+                'Cantidad': row[7] if len(row) > 7 else 0, # Asumiendo Cantidad en H
+                'Descripcion_Excel': str(row[4]).strip() if row[4] else "",
+                'Medida_Excel': str(row[5]).strip() if row[5] else "",
+                'Material_Excel': str(row[6]).strip() if row[6] else ""
+            })
 
         # 3. Comparar contra SQL
         conn = get_db_connection()

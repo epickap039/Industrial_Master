@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'screens/catalog.dart';
 import 'screens/configuration.dart';
+import 'screens/arbitration.dart';
 import 'screens/editor.dart';
 import 'screens/settings.dart';
 import 'screens/login.dart';
@@ -124,9 +125,9 @@ class _MyAppState extends State<MyApp> {
                     body: const CatalogScreen(),
                   ),
                   PaneItem(
-                    icon: const Icon(FluentIcons.edit),
-                    title: const Text('Editor de Datos'),
-                    body: const EditorScreen(),
+                    icon: const Icon(FluentIcons.excel_document),
+                    title: const Text('Importar Excel'),
+                    body: const ArbitrationScreen(conflicts: [], totalProcessed: 0), // Estado inicial vacío
                   ),
                 ],
                 footerItems: [
