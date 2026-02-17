@@ -297,8 +297,7 @@ async def update_material(request: Request, payload: Dict[str, Any]):
     
     try:
         # 2. Construir Query Dinámica
-        # Excluimos identidad y tambien Ultima_Actualizacion del payload directo
-        forbidden_fields = ['ID', 'Codigo', 'Codigo_Pieza', 'Ultima_Actualizacion'] 
+        forbidden_fields = ['ID', 'Codigo', 'Codigo_Pieza', 'Ultima_Actualizacion', 'Modificado_Por', 'usuario'] 
         fields_to_update = []
         values = []
         
@@ -311,11 +310,22 @@ async def update_material(request: Request, payload: Dict[str, Any]):
             print("AVISO: No hay campos para actualizar.")
             return {"status": "ignored", "message": "No hay campos para actualizar"}
             
-        # 3. Ejecutar Update (Agregando GETDATE())
-        # Usamos Codigo_Pieza como prioritario en el WHERE
-        # AQUI ESTA EL FIX 22007: Usamos SQL GETDATE() en lugar de enviar string de fecha
+        # 3. Verificar Columna Modificado_Por (Migración al vuelo)
+        try:
+            cursor.execute("SELECT Modificado_Por FROM Tbl_Maestro_Piezas WHERE 1=0")
+        except pyodbc.ProgrammingError:
+            print("Columna Modificado_Por no existe. Creándola...")
+            conn.rollback()
+            cursor.execute("ALTER TABLE Tbl_Maestro_Piezas ADD Modificado_Por NVARCHAR(50)")
+            conn.commit()
+            print("Columna Modificado_Por creada.")
+
+        # 4. Ejecutar Update (Con GETDATE() y Modificado_Por)
+        usuario = payload.get('usuario') or 'Sistema'
+        
         set_clause = ', '.join(fields_to_update)
-        set_clause += ", Ultima_Actualizacion = GETDATE()"
+        set_clause += ", Ultima_Actualizacion = GETDATE(), Modificado_Por = ?"
+        values.append(usuario)
         
         query = f"UPDATE Tbl_Maestro_Piezas SET {set_clause} WHERE Codigo_Pieza = ?"
         values.append(codigo) 
@@ -330,6 +340,7 @@ async def update_material(request: Request, payload: Dict[str, Any]):
              print("AVISO: No se actualizó ninguna fila con Codigo_Pieza. Intentando con Codigo...")
              query_fallback = f"UPDATE Tbl_Maestro_Piezas SET {set_clause} WHERE Codigo = ?"
              # Reusamos values
+             # values: [campo1, campo2, ..., usuario, codigo] - codigo está al final
              print(f"QUERY FALLBACK: {query_fallback}")
              cursor.execute(query_fallback, values)
              

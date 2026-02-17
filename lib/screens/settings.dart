@@ -30,7 +30,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _checkConnection() async {
     try {
-      final response = await http.get(Uri.parse('http://127.0.0.1:8001/docs'));
+      final response = await http.get(Uri.parse('http://192.168.1.73:8001/docs'));
       if (response.statusCode == 200) {
         if (mounted) {
           setState(() {
@@ -70,7 +70,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         String filePath = result.files.single.path!;
         
         final response = await http.post(
-          Uri.parse('http://127.0.0.1:8001/api/sync/drive'),
+          Uri.parse('http://192.168.1.73:8001/api/sync/drive'),
           headers: {'Content-Type': 'application/json'},
           body: json.encode({'excel_path': filePath}),
         );

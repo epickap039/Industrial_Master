@@ -5,11 +5,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart'; // Clipboard
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
-import 'package:excel/excel.dart';
+import 'package:excel/excel.dart' as ex;
 import 'package:file_picker/file_picker.dart';
 
 class CatalogScreen extends StatefulWidget {
-  const CatalogScreen({super.key});
+  CatalogScreen({super.key});
 
   @override
   State<CatalogScreen> createState() => _CatalogScreenState();
@@ -30,7 +30,10 @@ class _CatalogScreenState extends State<CatalogScreen> {
   // Controllers
   final Map<String, TextEditingController> _filterControllers = {};
   final ScrollController _horizontalScrollController = ScrollController();
-  final FlyoutController _flyoutController = FlyoutController();
+  final ScrollController _verticalScrollController = ScrollController();
+
+  
+
   
   // Estado
   bool _isLoading = true;
@@ -46,21 +49,23 @@ class _CatalogScreenState extends State<CatalogScreen> {
   @override
   void dispose() {
     _horizontalScrollController.dispose();
-    _flyoutController.dispose();
+
     for (var controller in _filterControllers.values) {
       controller.dispose();
     }
     super.dispose();
   }
 
-  Future<void> _fetchData() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+  Future<void> _fetchData({bool showLoading = true}) async {
+    if (showLoading) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+    }
 
     try {
-      final response = await http.get(Uri.parse('http://127.0.0.1:8001/api/catalog'));
+      final response = await http.get(Uri.parse('http://192.168.1.73:8001/api/catalog'));
 
       if (response.statusCode == 200) {
         final List<dynamic> jsonList = json.decode(response.body);
@@ -97,11 +102,13 @@ class _CatalogScreenState extends State<CatalogScreen> {
           }
         }
 
-        setState(() {
-          _allData = data;
-          _applyFilters();
-          _isLoading = false;
-        });
+        if (mounted) {
+          setState(() {
+            _allData = data;
+            _applyFilters(resetScroll: showLoading);
+            _isLoading = false;
+          });
+        }
       } else {
          if (mounted) {
            setState(() {
@@ -120,7 +127,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
     }
   }
 
-  void _applyFilters() {
+  void _applyFilters({bool resetScroll = true}) {
     setState(() {
       _filteredData = _allData.where((row) {
         // Filtro "Solo con Plano"
@@ -135,16 +142,19 @@ class _CatalogScreenState extends State<CatalogScreen> {
           String col = entry.key;
           String filterText = entry.value.text.toLowerCase();
           
-          if (_visibleColumns[col] == true && filterText.isNotEmpty) {
-            String cellValue = row[col]?.toString().toLowerCase() ?? '';
-            if (!cellValue.contains(filterText)) {
-              return false;
-            }
+          String cellValue = row[col]?.toString().toLowerCase() ?? '';
+          if (!cellValue.contains(filterText)) {
+            return false;
           }
         }
         return true;
       }).toList();
     });
+    
+    // Reset Scroll on filter change
+    if (resetScroll && _filteredData.isNotEmpty && _verticalScrollController.hasClients) {
+       _verticalScrollController.jumpTo(0);
+    }
   }
 
   void _clearFilters() {
@@ -160,21 +170,21 @@ class _CatalogScreenState extends State<CatalogScreen> {
   Future<void> _exportToExcel() async {
     if (_filteredData.isEmpty) return;
 
-    var excel = Excel.createExcel();
-    Sheet sheetObject = excel['Catálogo'];
+    var excel = ex.Excel.createExcel();
+    ex.Sheet sheetObject = excel['Catálogo'];
     excel.delete('Sheet1'); 
 
     // Solo exportar columnas visibles
     final exportCols = _columns.where((c) => _visibleColumns[c] == true).toList();
 
     // Encabezados
-    List<CellValue> headers = exportCols.map((c) => TextCellValue(c)).toList();
+    List<ex.CellValue> headers = exportCols.map((c) => ex.TextCellValue(c)).toList();
     sheetObject.appendRow(headers);
 
     // Datos
     for (var row in _filteredData) {
-      List<CellValue> rowData = exportCols.map((col) {
-        return TextCellValue(row[col]?.toString() ?? '-');
+      List<ex.CellValue> rowData = exportCols.map((col) {
+        return ex.TextCellValue(row[col]?.toString() ?? '-');
       }).toList();
       sheetObject.appendRow(rowData);
     }
@@ -257,10 +267,15 @@ class _CatalogScreenState extends State<CatalogScreen> {
       context: context,
       builder: (c) => const Center(child: ProgressRing()),
     );
+    
+    // Obtener Usuario para Auditoría
+    final prefs = await SharedPreferences.getInstance();
+    final username = prefs.getString('username') ?? 'Usuario_Desconocido';
+    updatedData['usuario'] = username;
 
     try {
       final response = await http.put(
-        Uri.parse('http://127.0.0.1:8001/api/material/update'),
+        Uri.parse('http://192.168.1.73:8001/api/material/update'),
         headers: {'Content-Type': 'application/json'},
         body: json.encode(updatedData),
       );
@@ -269,7 +284,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
 
       if (response.statusCode == 200) {
         _showInfoBar('Actualización Exitosa', 'Registro guardado correctamente.', InfoBarSeverity.success);
-        _fetchData(); // Refrescar tabla
+        _fetchData(showLoading: false); // Refrescar tabla silenciosamente (mantiene scroll)
       } else {
         _showInfoBar('Error al Guardar', 'Backend respondió: ${response.statusCode}', InfoBarSeverity.error);
       }
@@ -365,7 +380,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
     return CommandBar(
       primaryItems: [
         CommandBarButton(
-          icon: const Icon(FluentIcons.refresh),
+          icon: Icon(FluentIcons.refresh),
           label: const Text('Refrescar'),
           onPressed: _fetchData,
         ),
@@ -391,82 +406,63 @@ class _CatalogScreenState extends State<CatalogScreen> {
         ),
          // Botón Columnas (Flyout)
         CommandBarButton(
-          icon: FlyoutTarget(
-            controller: _flyoutController,
-            child: const Icon(FluentIcons.column_options),
-          ),
+          icon: Icon(FluentIcons.column_options),
           label: const Text('Columnas'),
           onPressed: () {
-            _flyoutController.showFlyout(
-              autoModeConfiguration: FlyoutAutoConfiguration(
-                preferredMode: FlyoutPlacementMode.bottomCenter,
-              ),
-              barrierDismissible: true,
-              dismissOnPointerMoveAway: false,
+            showDialog(
+              context: context,
               builder: (context) {
-                return FlyoutContent(
-                  child: SizedBox(
-                    width: 250,
-                    height: 300,
+                return ContentDialog(
+                  title: const Text('Mostrar Columnas'),
+                  content: SizedBox(
+                    width: 300,
+                    height: 400,
                     child: StatefulBuilder(
-                      builder: (context, setFlyoutState) {
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Padding(
-                              padding: EdgeInsets.all(8.0),
-                              child: Text('Mostrar Columnas', style: TextStyle(fontWeight: FontWeight.bold)),
-                            ),
-                            const Divider(),
-                            Expanded(
-                              child: ListView.builder(
-                                itemCount: _columns.length,
-                                itemBuilder: (context, index) {
-                                  final col = _columns[index];
-                                  final isChecked = _visibleColumns[col] ?? false;
-                                  
-                                  return Padding(
-                                    padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-                                    child: Row(
-                                      children: [
-                                        Checkbox(
-                                          checked: isChecked,
-                                          onChanged: (v) {
-                                            // Actualizar estado global
-                                            setState(() {
-                                              _visibleColumns[col] = v ?? false;
-                                            });
-                                            // Actualizar estado local del Flyout
-                                            setFlyoutState(() {});
-                                          },
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Expanded(
-                                          child: Text(col.replaceAll('_', ' ')),
-                                        ),
-                                      ],
-                                    ),
-                                  );
+                      builder: (context, setDialogState) {
+                        return ListView.builder(
+                          itemCount: _columns.length,
+                          itemBuilder: (context, index) {
+                            final col = _columns[index];
+                            final isChecked = _visibleColumns[col] ?? false;
+                            
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              child: Checkbox(
+                                checked: isChecked,
+                                content: Text(col.replaceAll('_', ' ')),
+                                onChanged: (v) {
+                                  // Actualizar estado global
+                                  setState(() {
+                                    _visibleColumns[col] = v ?? false;
+                                  });
+                                  // Actualizar estado local del Diálogo
+                                  setDialogState(() {});
                                 },
                               ),
-                            ),
-                          ],
+                            );
+                          },
                         );
                       }
                     ),
                   ),
+                  actions: [
+                    Button(
+                      child: const Text('Cerrar'),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
                 );
               },
             );
           },
         ),
         CommandBarButton(
-          icon: const Icon(FluentIcons.clear_filter),
+          icon: Icon(FluentIcons.clear_filter),
           label: const Text('Limpiar Filtros'),
           onPressed: _clearFilters,
         ),
         CommandBarButton(
-          icon: const Icon(FluentIcons.excel_logo),
+          icon: Icon(FluentIcons.excel_logo),
           label: const Text('Exportar Vista'),
           onPressed: _filteredData.isNotEmpty ? _exportToExcel : null,
         ),
@@ -501,64 +497,86 @@ class _CatalogScreenState extends State<CatalogScreen> {
       return const Center(child: Text('Seleccione al menos una columna para visualizar.'));
     }
 
-    return Padding(
-      padding: const EdgeInsets.all(10.0),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          // Ancho estimado: columas * 180 + 120 (Acciones mejoradas)
-          final minWidth = (activeCols.length * 180.0) + 120.0;
-          final viewWidth = minWidth > constraints.maxWidth ? minWidth : constraints.maxWidth;
-          
-          return Scrollbar(
-            controller: _horizontalScrollController,
-            thumbVisibility: true,
-            style: const ScrollbarThemeData(thickness: 10),
-            child: SingleChildScrollView(
-              controller: _horizontalScrollController,
-              scrollDirection: Axis.horizontal,
-              child: SizedBox(
-                width: viewWidth,
-                child: Column(
-                  children: [
-                    _buildHeaderRow(activeCols),
-                    const Divider(),
-                    Expanded(
-                      child: ListView.builder(
-                        itemCount: _filteredData.length,
-                        itemBuilder: (context, index) {
-                          final row = _filteredData[index];
-                          return _buildDataRow(row, index, activeCols);
-                        },
+    return Stack(
+      children: [
+        // --- TABLA (Ancho Completo) ---
+        Padding(
+          padding: const EdgeInsets.all(10.0),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final minWidth = (activeCols.length * 180.0) + 120.0;
+              final viewWidth = minWidth > constraints.maxWidth ? minWidth : constraints.maxWidth;
+              
+              return Scrollbar(
+                controller: _verticalScrollController, // Scroll Vertical
+                thumbVisibility: true,
+                child: SingleChildScrollView(
+                  controller: _verticalScrollController,
+                  scrollDirection: Axis.vertical,
+                  child: Scrollbar(
+                    controller: _horizontalScrollController, // Scroll Horizontal
+                    thumbVisibility: true,
+                    style: const ScrollbarThemeData(thickness: 10),
+                    child: SingleChildScrollView(
+                      controller: _horizontalScrollController,
+                      scrollDirection: Axis.horizontal,
+                      child: SizedBox(
+                        width: viewWidth,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildHeaderRow(activeCols),
+                            const Divider(),
+                            ListView.builder(
+                              shrinkWrap: true, // Importante dentro de SingleChildScrollView
+                              physics: const NeverScrollableScrollPhysics(), // Scroll manejado por el padre
+                              itemCount: _filteredData.length,
+                              itemBuilder: (context, index) {
+                                final row = _filteredData[index];
+                                return _buildDataRow(row, index, activeCols);
+                              },
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ],
+                  ),
                 ),
-              ),
-            ),
-          );
-        }
+              );
+            }
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDetailItem(String label, dynamic value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label.toUpperCase(), style: TextStyle(fontSize: 11, color: Colors.blue, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 2),
+          SelectableText(
+            value?.toString() ?? '-', 
+            style: TextStyle(fontSize: 14),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildHeaderRow(List<String> activeCols) {
     return Container(
-      color: Colors.blue.withValues(alpha: 0.1),
+      color: Colors.blue.withOpacity(0.1),
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
-          // Columna Fija: Acciones
-          const SizedBox(
-            width: 120, // Más ancha para Edit + Link + Copy
-            child: Center(
-              child: Text(
-                'Acciones',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-          ), 
-          
-          // Columnas Visibles
+          SizedBox(
+            width: 120,
+            child: const Center(child: Text('Acciones', style: TextStyle(fontWeight: FontWeight.bold))),
+          ),
           ...activeCols.map((col) {
             return SizedBox(
               width: 180,
@@ -566,18 +584,13 @@ class _CatalogScreenState extends State<CatalogScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 8.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      col.replaceAll('_', ' '),
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                    Text(col.replaceAll('_', ' '), style: TextStyle(fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
                     const SizedBox(height: 5),
                     TextBox(
                       controller: _filterControllers[col],
                       placeholder: 'Filtrar...',
-                      style: const TextStyle(fontSize: 12),
+                      style: TextStyle(fontSize: 12),
                       onChanged: (value) => _applyFilters(),
                     ),
                   ],
@@ -591,84 +604,137 @@ class _CatalogScreenState extends State<CatalogScreen> {
   }
 
   Widget _buildDataRow(Map<String, dynamic> row, int index, List<String> activeCols) {
-    final color = index % 2 == 0 ? Colors.transparent : Colors.grey.withValues(alpha: 0.03);
-    
+    final color = index % 2 == 0 ? Colors.transparent : Colors.grey.withValues(alpha: 0.05);
     final codigo = row['Codigo_Pieza']?.toString() ?? row['Codigo']?.toString() ?? '?';
-    
-    // Check Drive Link
     final linkDrive = row.containsKey('Link_Drive') ? row['Link_Drive']?.toString() : null;
     final hasLink = linkDrive != null && linkDrive.isNotEmpty && linkDrive != '-';
 
-    return GestureDetector(
-      onDoubleTap: () => _openPlano(codigo),
-      child: Container(
-        color: color,
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Row(
-          children: [
-            // Columna Fija: Acciones (Copiar + Edit + Drive)
-            SizedBox(
-              width: 120,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  // Copiar
-                  Tooltip(
-                    message: 'Copiar Código',
-                    child: IconButton(
-                      icon: const Icon(FluentIcons.copy, size: 14),
-                      onPressed: () => _copyToClipboard(codigo),
-                    ),
-                  ),
-
-                  // Edit
-                   Tooltip(
-                    message: 'Editar Registro',
-                    child: IconButton(
-                      icon: const Icon(FluentIcons.edit, size: 14),
-                      onPressed: () => _showEditDialog(row),
-                    ),
-                  ),
-
-                  // Drive (Condicional)
-                  if (hasLink)
-                    Tooltip(
-                      message: 'Ver en Drive',
-                      child: IconButton(
-                        icon: Icon(FluentIcons.cloud_link, size: 18, color: Colors.blue),
-                        onPressed: () async {
-                           if (await canLaunchUrl(Uri.parse(linkDrive))) {
-                             await launchUrl(Uri.parse(linkDrive));
-                           } else {
-                             _showInfoBar('Error', 'Link inválido', InfoBarSeverity.error);
-                           }
-                        },
-                      ),
-                    )
-                  else
-                    const SizedBox(width: 25), // Espaciador para alinear
-                ],
-              ),
-            ),
-            
-            // Datos
-            ...activeCols.map((col) {
-              return SizedBox(
-                width: 180,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                  child: Text(
-                    row[col]?.toString() ?? '-',
-                    style: const TextStyle(fontSize: 13),
-                    overflow: TextOverflow.ellipsis,
-                    maxLines: 1,
+    return Container(
+      color: color,
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 150, // Aumentado para acomodar 4 botones
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                Tooltip(
+                  message: 'Información',
+                  child: IconButton(
+                    icon: Icon(FluentIcons.info, size: 14),
+                    onPressed: () => _showDetailsDialog(row),
                   ),
                 ),
-              );
-            }),
-          ],
-        ),
+                Tooltip(
+                  message: 'Copiar',
+                  child: IconButton(
+                    icon: Icon(FluentIcons.copy, size: 14),
+                    onPressed: () => _copyToClipboard(codigo),
+                  ),
+                ),
+                Tooltip(
+                  message: 'Editar',
+                  child: IconButton(
+                    icon: Icon(FluentIcons.edit, size: 14),
+                    onPressed: () => _showEditDialog(row),
+                  ),
+                ),
+                if (hasLink)
+                  Tooltip(
+                    message: 'Drive',
+                    child: IconButton(
+                      icon: Icon(FluentIcons.cloud_link, size: 18, color: Colors.blue),
+                      onPressed: () async {
+                         if (await canLaunchUrl(Uri.parse(linkDrive))) {
+                           await launchUrl(Uri.parse(linkDrive));
+                         }
+                      },
+                    ),
+                  )
+                else
+                  const SizedBox(width: 25),
+              ],
+            ),
+          ),
+          ...activeCols.map((col) {
+            return SizedBox(
+              width: 180,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                child: Text(
+                  row[col]?.toString() ?? '-',
+                  style: TextStyle(fontSize: 13),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                ),
+              ),
+            );
+          }),
+        ],
       ),
     );
   }
-}
+
+  void _showDetailsDialog(Map<String, dynamic> row) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return ContentDialog(
+          title: Text("Detalle de Pieza"),
+          content: SizedBox(
+            width: 400,
+            child: ListView( // Changed to ListView to allow scrolling if content is long
+              shrinkWrap: true,
+              children: [
+                _buildSimpleItem("Código", row['Codigo_Pieza'] ?? row['Codigo']),
+                
+                Text("DESCRIPCIÓN", style: TextStyle(fontSize: 11, color: Colors.blue, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 2),
+                SelectableText(
+                  row['Descripcion']?.toString() ?? '-',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 12),
+
+                _buildSimpleItem("Medida", row['Medida']),
+                _buildSimpleItem("Material", row['Material']),
+                
+                const Divider(),
+                const SizedBox(height: 10),
+                
+                if (row.containsKey('Modificado_Por'))
+                   _buildSimpleItem("Última Modificación Por", row['Modificado_Por']),
+                
+                if (row.containsKey('Ultima_Actualizacion'))
+                   _buildSimpleItem("Fecha Actualización", row['Ultima_Actualizacion']),
+              ],
+            ),
+          ),
+          actions: [
+            Button(
+              child: Text('Cerrar'),
+              onPressed: () => Navigator.pop(context),
+            ),
+          ],
+        );
+      }
+    );
+  }
+
+  Widget _buildSimpleItem(String label, dynamic value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label.toUpperCase(), style: TextStyle(fontSize: 11, color: Colors.blue, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 2),
+          SelectableText(
+            value?.toString() ?? '-', 
+            style: TextStyle(fontSize: 14),
+          ),
+        ],
+      ),
+    );
+  }

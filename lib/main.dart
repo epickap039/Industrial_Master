@@ -126,7 +126,7 @@ class _MyAppState extends State<MyApp> {
                   PaneItem(
                     icon: const Icon(FluentIcons.database),
                     title: const Text('Catálogo Maestro'),
-                    body: const CatalogScreen(),
+                    body: CatalogScreen(),
                   ),
                   PaneItem(
                     icon: const Icon(FluentIcons.edit),
