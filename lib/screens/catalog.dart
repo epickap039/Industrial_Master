@@ -296,35 +296,34 @@ class _CatalogScreenState extends State<CatalogScreen> {
           final viewWidth = minWidth > constraints.maxWidth ? minWidth : constraints.maxWidth;
 
           return Scrollbar(
-            controller: _verticalScrollController,
+            controller: _horizontalScrollController,
             thumbVisibility: true,
             child: SingleChildScrollView(
-              controller: _verticalScrollController,
-              scrollDirection: Axis.vertical,
-              child: Scrollbar(
-                controller: _horizontalScrollController,
-                thumbVisibility: true,
-                child: SingleChildScrollView(
-                  controller: _horizontalScrollController,
-                  scrollDirection: Axis.horizontal,
-                  child: SizedBox(
-                    width: viewWidth,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _buildHeaderRow(activeCols),
-                        const Divider(),
-                         ListView.builder(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            itemCount: _filteredData.length,
-                            itemBuilder: (context, index) {
-                              return _buildDataRow(_filteredData[index], index, activeCols);
-                            },
-                          ),
-                      ],
+              controller: _horizontalScrollController,
+              scrollDirection: Axis.horizontal,
+              child: SizedBox(
+                width: viewWidth,
+                height: constraints.maxHeight, // Constrain height to viewport
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildHeaderRow(activeCols),
+                    const Divider(),
+                    Expanded(
+                      child: Scrollbar(
+                        controller: _verticalScrollController,
+                        thumbVisibility: true,
+                        child: ListView.builder(
+                          controller: _verticalScrollController,
+                          // Physics defaults to AlwaysScrollableScrollPhysics
+                          itemCount: _filteredData.length,
+                          itemBuilder: (context, index) {
+                            return _buildDataRow(_filteredData[index], index, activeCols);
+                          },
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ),
             ),
