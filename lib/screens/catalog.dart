@@ -76,7 +76,6 @@ class _CatalogScreenState extends State<CatalogScreen> {
           
           if (_visibleColumns.isEmpty) {
             for (var col in _columns) {
-              // Por defecto ocultar columnas de auditoría para ahorrar espacio
               if (['Modificado_Por', 'Ultima_Actualizacion', 'Fecha_Creacion'].contains(col)) {
                 _visibleColumns[col] = false;
               } else {
@@ -142,7 +141,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
       }).toList();
     });
     
-    // Mantenemos posición de scroll salvo que se pida reset explícito
+    // Si reseteamos scroll, ir arriba. Si no, mantenemos posición (útil para edición)
     if (resetScroll && _filteredData.isNotEmpty && _verticalScrollController.hasClients) {
        _verticalScrollController.jumpTo(0);
     }
@@ -205,13 +204,13 @@ class _CatalogScreenState extends State<CatalogScreen> {
     }
   }
 
-  /// Guarda cambios en Backend con auditoría
+  /// Guarda cambios en Backend (Payload Completo)
   Future<void> _updateMaterial(Map<String, dynamic> row, Map<String, dynamic> updates) async {
     final prefs = await SharedPreferences.getInstance();
     final username = prefs.getString('username') ?? 'Usuario_Desconocido';
 
     try {
-      // Aplicación optimista en UI
+      // Aplicar updates optimísticamente en Frontend
       setState(() {
          updates.forEach((key, value) {
            row[key] = value;
@@ -220,27 +219,27 @@ class _CatalogScreenState extends State<CatalogScreen> {
          row['Ultima_Actualizacion'] = DateTime.now().toIso8601String(); 
       });
 
-      // Enviar cada campo al backend
-      for (var entry in updates.entries) {
-        // payload con Codigo_Pieza para evitar error 500 y usuario para log
-        final body = {
-          'Codigo': row['Codigo'],
-          'Codigo_Pieza': row['Codigo_Pieza'] ?? row['Codigo'], 
-          'Campo': entry.key,
-          'Valor': entry.value,
-          'Modificado_Por': username,
-          'usuario': username 
-        };
-        
-        final response = await http.put(
-          Uri.parse('http://192.168.1.73:8001/api/material/update'),
-          headers: {'Content-Type': 'application/json'},
-          body: json.encode(body),
-        );
+      // Construir Payload JSON ÚNICO con todos los campos reales
+      final body = {
+        'Codigo_Pieza': row['Codigo_Pieza'] ?? row['Codigo'], // ID Principal
+        'Codigo': row['Codigo'],
+        'Descripcion': row['Descripcion'], // Campo real
+        'Medida': row['Medida'],           // Campo real
+        'Material': row['Material'],       // Campo real
+        'Link_Drive': row['Link_Drive'],   // Campo real
+        'usuario': username,               // Auditoría
+        'Modificado_Por': username         // Auditoría
+      };
+      
+      // Enviar una sola petición PUT
+      final response = await http.put(
+        Uri.parse('http://192.168.1.73:8001/api/material/update'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode(body),
+      );
 
-        if (response.statusCode != 200) {
-          throw Exception('Error actualizando ${entry.key}: ${response.body}');
-        }
+      if (response.statusCode != 200) {
+        throw Exception('Server Error: ${response.body}');
       }
 
       if (mounted) {
@@ -266,7 +265,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
            );
          });
       }
-      // Revertir cambios recargando sin perder contexto de UI (no movemos scroll)
+      // Revertir cambios recargando desde servidor (SIN resetear scroll)
       _fetchData(showLoading: false);
     }
   }
@@ -286,6 +285,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // Usamos InfoLabel como solicitado
               InfoLabel(label: 'Descripción', child: TextBox(controller: descController, maxLines: 3)),
               const SizedBox(height: 8),
               InfoLabel(label: 'Medida', child: TextBox(controller: medidaController)),
@@ -305,6 +305,8 @@ class _CatalogScreenState extends State<CatalogScreen> {
               onPressed: () {
                 Navigator.pop(context);
                 final updates = <String, dynamic>{};
+                
+                // Detectar cambios
                 if (descController.text != (row['Descripcion']?.toString() ?? '')) {
                   updates['Descripcion'] = descController.text;
                 }
@@ -318,6 +320,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                   updates['Link_Drive'] = linkController.text;
                 }
 
+                // Llamar a update si hay cambios (enviará el payload completo igual)
                 if (updates.isNotEmpty) {
                   _updateMaterial(row, updates);
                 }
@@ -329,7 +332,6 @@ class _CatalogScreenState extends State<CatalogScreen> {
     );
   }
 
-  /// Detalles (Solo lectura)
   void _showInfoDetails(Map<String, dynamic> row) {
     showDialog(
       context: context,
@@ -367,7 +369,6 @@ class _CatalogScreenState extends State<CatalogScreen> {
     );
   }
 
-  /// Abrir link
   void _launchDriveLink(String? url) async {
     if (url == null || url.isEmpty || url == '-') return;
     
@@ -386,7 +387,6 @@ class _CatalogScreenState extends State<CatalogScreen> {
     }
   }
 
-  /// Copiar al portapapeles
   void _copyToClipboard(String text) {
     Clipboard.setData(ClipboardData(text: text));
     displayInfoBar(context, builder: (context, close) {
@@ -399,7 +399,6 @@ class _CatalogScreenState extends State<CatalogScreen> {
     });
   }
 
-  /// Selector de Columnas - Usando Checkboxes nativos en lista vertical
   void _showColumnSelector() {
     showDialog(
       context: context,
@@ -410,7 +409,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: List<Widget>.from(_columns.map((col) {
-                // Usamos Row con Checkbox nativo de fluent_ui
+                // Checkbox nativo (Fluent)
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 4.0),
                   child: Row(
@@ -422,7 +421,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                             _visibleColumns[col] = v ?? false;
                           });
                           Navigator.pop(context);
-                          _showColumnSelector(); // Refrescar diálogo
+                          _showColumnSelector(); 
                         },
                       ),
                       const SizedBox(width: 8),
@@ -444,7 +443,6 @@ class _CatalogScreenState extends State<CatalogScreen> {
     );
   }
 
-  /// Helper para mostrar etiqueta y valor
   Widget _buildLabelValue(String label, dynamic value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4.0),
@@ -466,9 +464,9 @@ class _CatalogScreenState extends State<CatalogScreen> {
     return ScaffoldPage(
       header: PageHeader(
         title: const Text('Catálogo Maestro'),
-        commandBar: _buildCommandBar(), // Barra de herramientas superior
+        commandBar: _buildCommandBar(),
       ),
-      content: _buildContent(), // Contenido principal
+      content: _buildContent(),
       bottomBar: Container(
         padding: const EdgeInsets.all(10),
         child: Text('Registros: ${_filteredData.length} / ${_allData.length}'),
@@ -476,10 +474,9 @@ class _CatalogScreenState extends State<CatalogScreen> {
     );
   }
 
-  /// Barra de Comandos (Toggle, Filtros, Exportar)
   Widget _buildCommandBar() {
     return Row(
-      mainAxisSize: MainAxisSize.min, // Evita expansión infinita
+      mainAxisSize: MainAxisSize.min,
       children: [
         ToggleSwitch(
           checked: _onlyWithPlano,
@@ -492,7 +489,6 @@ class _CatalogScreenState extends State<CatalogScreen> {
           },
         ),
         const SizedBox(width: 20),
-        // Botones de acción manuales en lugar de CommandBar para evitar problemas de layout
         Tooltip(
           message: "Seleccionar Columnas",
           child: IconButton(
@@ -540,16 +536,16 @@ class _CatalogScreenState extends State<CatalogScreen> {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final double actionsWidth = 160.0;
-          // Usamos 200 de ancho por columna como solicitado
           final minWidth = (activeCols.length * 200.0) + actionsWidth; 
           final viewWidth = minWidth > constraints.maxWidth ? minWidth : constraints.maxWidth;
 
-          // Scrollbar Industrial
+          // Scrollbar Industrial Horizontal
           return Scrollbar(
             controller: _horizontalScrollController,
             thumbVisibility: true,
+            interactive: true,
             style: const ScrollbarThemeData(
-              thickness: 10.0,
+              thickness: 12.0, // Solicitado: 12.0
               radius: Radius.circular(4),
             ),
             child: SingleChildScrollView(
@@ -567,8 +563,9 @@ class _CatalogScreenState extends State<CatalogScreen> {
                       child: Scrollbar(
                         controller: _verticalScrollController,
                         thumbVisibility: true,
+                         interactive: true,
                          style: const ScrollbarThemeData(
-                           thickness: 10.0,
+                           thickness: 12.0, // Solicitado: 12.0
                            radius: Radius.circular(4),
                          ),
                         child: ListView.builder(
@@ -599,7 +596,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
         ),
         ...activeCols.map((col) {
           return SizedBox(
-            width: 200, // Ancho fijo solicitado
+            width: 200,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8.0),
               child: Column(
@@ -609,8 +606,8 @@ class _CatalogScreenState extends State<CatalogScreen> {
                   const SizedBox(height: 4),
                   InfoLabel( 
                     label: '',
-                    child: SizedBox( // Limitamos el ancho del textbox explícitamente para evitar Unbounded Width
-                      width: 200, 
+                    child: SizedBox(
+                      width: 200,
                       child: TextBox(
                         controller: _filterControllers[col],
                         placeholder: 'Buscar',
@@ -629,6 +626,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
   }
 
   Widget _buildDataRow(Map<String, dynamic> row, int index, List<String> activeCols, double actionsWidth) {
+    // Icono Condicional
     final hasLink = row['Link_Drive'] != null && row['Link_Drive'].toString().isNotEmpty && row['Link_Drive'].toString() != '-';
 
     return Container(
@@ -655,7 +653,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                     onPressed: () => _showEditDialog(row),
                   ),
                 ),
-                // Icono Condicional: Nube solo si hay link
+                
                 if (hasLink)
                    Tooltip(
                     message: 'Abrir Drive/Plano',
@@ -665,7 +663,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                     ),
                   )
                 else
-                   const SizedBox(width: 30), // Espacio vacío
+                   const SizedBox(width: 30), 
 
                 Tooltip(
                   message: 'Copiar Código',
@@ -679,7 +677,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
           ),
           ...activeCols.map((col) {
             return SizedBox(
-              width: 200, // Ancho fijo
+              width: 200,
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8.0),
                 child: Text(
