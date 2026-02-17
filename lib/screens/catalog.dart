@@ -233,6 +233,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
         'Proceso_Primario': row['Proceso_Primario'],
         'Proceso_1': row['Proceso_1'],
         'Proceso_2': row['Proceso_2'],
+        'Proceso_3': row['Proceso_3'], // Nuevo Campo
         // Auditoría
         'usuario': username,
         'Modificado_Por': username
@@ -277,7 +278,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
     }
   }
 
-  /// Diálogo de Edición COMPLETO
+  /// Diálogo de Edición COMPLETO (Incluye Proceso 3)
   void _showEditDialog(Map<String, dynamic> row) {
     // Controladores para todos los campos
     final descCtrl = TextEditingController(text: row['Descripcion']?.toString() ?? '');
@@ -289,6 +290,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
     final procPrimCtrl = TextEditingController(text: row['Proceso_Primario']?.toString() ?? '');
     final proc1Ctrl = TextEditingController(text: row['Proceso_1']?.toString() ?? '');
     final proc2Ctrl = TextEditingController(text: row['Proceso_2']?.toString() ?? '');
+    final proc3Ctrl = TextEditingController(text: row['Proceso_3']?.toString() ?? '');
 
     showDialog(
       context: context,
@@ -327,6 +329,8 @@ class _CatalogScreenState extends State<CatalogScreen> {
                   ],
                 ),
                 const SizedBox(height: 8),
+                InfoLabel(label: 'Proceso 3', child: TextBox(controller: proc3Ctrl)),
+                const SizedBox(height: 8),
                 InfoLabel(label: 'Link Drive / Plano', child: TextBox(controller: linkCtrl)),
               ],
             ),
@@ -357,6 +361,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                 check('Proceso_Primario', procPrimCtrl);
                 check('Proceso_1', proc1Ctrl);
                 check('Proceso_2', proc2Ctrl);
+                check('Proceso_3', proc3Ctrl);
 
                 if (updates.isNotEmpty) {
                   _updateMaterial(row, updates);
@@ -381,7 +386,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Eliminado campo "Codigo" redundante, solo Codigo Pieza
+                // Solo Codigo Pieza
                 _buildLabelValue("CODIGO PIEZA", row['Codigo_Pieza'] ?? row['Codigo']),
                 const Divider(),
                 _buildLabelValue("DESCRIPCIÓN", row['Descripcion']),
@@ -396,6 +401,13 @@ class _CatalogScreenState extends State<CatalogScreen> {
                   children: [
                     Expanded(child: _buildLabelValue("SIMETRÍA", row['Simetria'])),
                      Expanded(child: _buildLabelValue("PROC. PRIMARIO", row['Proceso_Primario'])),
+                  ],
+                ),
+                Row(
+                  children: [
+                    Expanded(child: _buildLabelValue("PROC. 1", row['Proceso_1'])),
+                     Expanded(child: _buildLabelValue("PROC. 2", row['Proceso_2'])),
+                      Expanded(child: _buildLabelValue("PROC. 3", row['Proceso_3'])),
                   ],
                 ),
                 const Divider(),
@@ -586,13 +598,13 @@ class _CatalogScreenState extends State<CatalogScreen> {
           final minWidth = (activeCols.length * 200.0) + actionsWidth; 
           final viewWidth = minWidth > constraints.maxWidth ? minWidth : constraints.maxWidth;
 
-          // Scrollbar Industrial Horizontal (Thickness 14.0)
+          // Scrollbar Industrial Horizontal (Thickness 15.0)
           return Scrollbar(
             controller: _horizontalScrollController,
             thumbVisibility: true,
             interactive: true,
             style: const ScrollbarThemeData(
-              thickness: 14.0, // SUPER GRUESA
+              thickness: 15.0, // MEGA GRUESA (15.0)
               radius: Radius.circular(4),
             ),
             child: SingleChildScrollView(
@@ -612,7 +624,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                         thumbVisibility: true,
                          interactive: true,
                          style: const ScrollbarThemeData(
-                           thickness: 14.0, // SUPER GRUESA
+                           thickness: 15.0, // MEGA GRUESA (15.0)
                            radius: Radius.circular(4),
                          ),
                         child: ListView.builder(
@@ -637,8 +649,8 @@ class _CatalogScreenState extends State<CatalogScreen> {
   Widget _buildHeaderRow(List<String> activeCols, double actionsWidth) {
     return Row(
       children: [
-        // Eliminado icono de Engrane (Settings)
-        SizedBox(width: actionsWidth, child: Container()), 
+        // Sin Icono de Engrane
+         SizedBox(width: actionsWidth, child: Container()), 
         ...activeCols.map((col) {
           return SizedBox(
             width: 200,

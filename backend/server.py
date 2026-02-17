@@ -134,10 +134,10 @@ async def get_catalog():
     finally:
         conn.close()
 
-# 6. EDICIÓN DE MATERIALES (ESPECÍFICA + CAMPOS NUEVOS)
+# 6. EDICIÓN DE MATERIALES (ESPECÍFICA + CAMPOS NUEVOS + PROCESO 3)
 @app.put("/api/material/update")
 async def update_material(request: Request, payload: Dict[str, Any]):
-    print(f"--- UPDATE MATERIAL FULL EDITOR ---")
+    print(f"--- UPDATE MATERIAL FULL EDITOR V2 ---")
     print(f"Payload: {payload}")
 
     # Extraer ID
@@ -148,10 +148,10 @@ async def update_material(request: Request, payload: Dict[str, Any]):
     if not id_param:
         raise HTTPException(status_code=400, detail="Falta Codigo_Pieza o Codigo")
 
-    # Campos Permitidos (Whitelist)
+    # Campos Permitidos (Whitelist) - Incluyendo Proceso_3
     allowed_fields = [
         'Descripcion', 'Medida', 'Material', 'Link_Drive', 
-        'Simetria', 'Proceso_Primario', 'Proceso_1', 'Proceso_2'
+        'Simetria', 'Proceso_Primario', 'Proceso_1', 'Proceso_2', 'Proceso_3'
     ]
     
     usuario = payload.get('usuario') or payload.get('Modificado_Por') or 'Sistema'
