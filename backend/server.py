@@ -315,5 +315,64 @@ async def procesar_excel(file: UploadFile = File(...)):
         print(f"ERROR EXCEL: {e}")
         raise HTTPException(status_code=500, detail=f"Error procesando Excel: {str(e)}")
 
+# 7. SINCRONIZACIÓN DE ARBITRAJE (EXCEL -> SQL)
+@app.post("/api/excel/sincronizar")
+async def sincronizar_excel(payload: Dict[str, Any]):
+    print("--- INICIANDO SINCRONIZACIÓN MASSIVA (ARBITRAJE) ---")
+    updates = payload.get('updates', [])
+    
+    if not updates:
+        return {"updated_count": 0, "message": "Nada que actualizar"}
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    count = 0
+
+    try:
+        for item in updates:
+            codigo = item.get('Codigo_Pieza')
+            desc = item.get('Descripcion_Excel')
+            medida = item.get('Medida_Excel')
+            material = item.get('Material_Excel')
+            usuario = item.get('usuario', 'Sistema Arbitraje')
+            
+            # Solo actualizamos si hay dato en Excel (no vacio)
+            set_clauses = []
+            values = []
+
+            if desc: 
+                set_clauses.append("Descripcion = ?")
+                values.append(desc)
+            if medida:
+                set_clauses.append("Medida = ?")
+                values.append(medida)
+            if material:
+                set_clauses.append("Material = ?")
+                values.append(material)
+
+            # Si hay algo que actualizar
+            if set_clauses:
+                set_clauses.append("Modificado_Por = ?")
+                values.append(usuario)
+                set_clauses.append("Ultima_Actualizacion = GETDATE()")
+                
+                query_set = ", ".join(set_clauses)
+                query = f"UPDATE Tbl_Maestro_Piezas SET {query_set} WHERE Codigo_Pieza = ?"
+                values.append(codigo)
+                
+                cursor.execute(query, values)
+                count += cursor.rowcount
+
+        conn.commit()
+        print(f"--- SINCRONIZACIÓN COMPLETADA: {count} registros ---")
+        return {"updated_count": count, "message": "Sincronización exitosa"}
+
+    except Exception as e:
+        conn.rollback()
+        print(f"ERROR SYNC: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8001)

@@ -3,6 +3,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:io';
+import 'dart:convert';
+import 'arbitration.dart';
 
 class ConfigurationScreen extends StatefulWidget {
   const ConfigurationScreen({super.key});
@@ -135,6 +137,22 @@ class _ConfigurationScreenState extends State<ConfigurationScreen> {
                   ? const ProgressRing(strokeWidth: 2) 
                   : const Text('Ejecutar Diagnóstico (8001/1433)'),
             ),
+            const SizedBox(height: 30),
+            const Text('Importación de Datos', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Button(
+                  onPressed: _isChecking ? null : _processExcelBOM,
+                  child: _isChecking 
+                      ? const ProgressRing(strokeWidth: 2) 
+                      : const Text('Importar BOM Excel (Recalcular Conflictos)'),
+                ),
+                const SizedBox(width: 10),
+                if (_lastProcessedResult != null)
+                   Text("Último escaneo: ${_lastProcessedResult?['conflictos']?.length ?? 0} conflictos"),
+              ],
+            ),
             const SizedBox(height: 15),
             Container(
               padding: const EdgeInsets.all(10),
@@ -152,7 +170,7 @@ class _ConfigurationScreenState extends State<ConfigurationScreen> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      _statusMessage.isEmpty ? 'Listo para diagnosticar' : _statusMessage,
+                      _statusMessage.isEmpty ? 'Listo para diagnosticar o importar' : _statusMessage,
                       style: TextStyle(color: _statusColor, fontWeight: FontWeight.bold),
                     ),
                   ),
@@ -163,5 +181,78 @@ class _ConfigurationScreenState extends State<ConfigurationScreen> {
         ),
       ),
     );
+  }
+
+  // Resultado temporal para mostrar en UI
+  Map<String, dynamic>? _lastProcessedResult;
+
+  Future<void> _processExcelBOM() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['xlsx'],
+      dialogTitle: 'Seleccionar BOM de Ingeniería',
+    );
+
+    if (result == null || result.files.single.path == null) return;
+
+    setState(() {
+      _isChecking = true;
+      _statusMessage = 'Procesando Excel (Esto puede tardar)...';
+      _statusColor = Colors.blue;
+    });
+
+    try {
+      final file = File(result.files.single.path!);
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('http://192.168.1.73:8001/api/excel/procesar'), // Ajustar IP si es necesario
+      );
+      
+      request.files.add(await http.MultipartFile.fromPath('file', file.path));
+      
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200) {
+        final jsonResponse = json.decode(response.body);
+        setState(() {
+          _lastProcessedResult = jsonResponse;
+          _statusMessage = jsonResponse['mensaje'];
+          _statusColor = Colors.successPrimaryColor;
+          _isChecking = false;
+        });
+
+        // Navegar a Arbitraje si hay conflictos
+        final List<dynamic> conflictos = jsonResponse['conflictos'] ?? [];
+        if (conflictos.isNotEmpty) {
+           Navigator.push(
+            context, 
+            FluentPageRoute(builder: (context) => ArbitrationScreen(
+              conflicts: conflictos,
+              totalProcessed: jsonResponse['total_leidos'] ?? 0,
+            ))
+          );
+        } else {
+           _showDialog("Perfecto", "No se encontraron discrepancias entre Excel y SQL.");
+        }
+
+      } else {
+        throw Exception('Error Backend: ${response.statusCode} - ${response.body}');
+      }
+    } catch (e) {
+      setState(() {
+        _statusMessage = 'Error Procesando: $e';
+        _statusColor = Colors.errorPrimaryColor;
+        _isChecking = false;
+      });
+    }
+  }
+
+  void _showDialog(String title, String content) {
+    showDialog(context: context, builder: (c) => ContentDialog(
+      title: Text(title),
+      content: Text(content),
+      actions: [Button(child: const Text('Ok'), onPressed: () => Navigator.pop(c))],
+    ));
   }
 }
