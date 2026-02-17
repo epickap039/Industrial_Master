@@ -142,8 +142,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
       }).toList();
     });
     
-    // Solo reseteamos el scroll si es explicitamente solicitado (ej. carga inicial)
-    // Para filtros, mantenemos posición si es posible, o reset si cambia longitud drasticamente
+    // Mantenemos posición de scroll salvo que se pida reset explícito
     if (resetScroll && _filteredData.isNotEmpty && _verticalScrollController.hasClients) {
        _verticalScrollController.jumpTo(0);
     }
@@ -206,13 +205,13 @@ class _CatalogScreenState extends State<CatalogScreen> {
     }
   }
 
-  /// Guarda cambios en Backend
+  /// Guarda cambios en Backend con auditoría
   Future<void> _updateMaterial(Map<String, dynamic> row, Map<String, dynamic> updates) async {
     final prefs = await SharedPreferences.getInstance();
     final username = prefs.getString('username') ?? 'Usuario_Desconocido';
 
     try {
-      // Optimistic Update
+      // Aplicación optimista en UI
       setState(() {
          updates.forEach((key, value) {
            row[key] = value;
@@ -221,16 +220,16 @@ class _CatalogScreenState extends State<CatalogScreen> {
          row['Ultima_Actualizacion'] = DateTime.now().toIso8601String(); 
       });
 
-      // Enviar al backend
+      // Enviar cada campo al backend
       for (var entry in updates.entries) {
-        // payload con Codigo_Pieza para evitar error 500
+        // payload con Codigo_Pieza para evitar error 500 y usuario para log
         final body = {
           'Codigo': row['Codigo'],
           'Codigo_Pieza': row['Codigo_Pieza'] ?? row['Codigo'], 
           'Campo': entry.key,
           'Valor': entry.value,
           'Modificado_Por': username,
-          'usuario': username // Backup field
+          'usuario': username 
         };
         
         final response = await http.put(
@@ -267,7 +266,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
            );
          });
       }
-      // Revertir cambios recargando
+      // Revertir cambios recargando sin perder contexto de UI (no movemos scroll)
       _fetchData(showLoading: false);
     }
   }
@@ -400,7 +399,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
     });
   }
 
-  /// Selector de Columnas
+  /// Selector de Columnas - Usando Checkboxes nativos en lista vertical
   void _showColumnSelector() {
     showDialog(
       context: context,
@@ -445,7 +444,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
     );
   }
 
-  /// Helper para labels
+  /// Helper para mostrar etiqueta y valor
   Widget _buildLabelValue(String label, dynamic value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4.0),
@@ -467,9 +466,9 @@ class _CatalogScreenState extends State<CatalogScreen> {
     return ScaffoldPage(
       header: PageHeader(
         title: const Text('Catálogo Maestro'),
-        commandBar: _buildCommandBar(),
+        commandBar: _buildCommandBar(), // Barra de herramientas superior
       ),
-      content: _buildContent(),
+      content: _buildContent(), // Contenido principal
       bottomBar: Container(
         padding: const EdgeInsets.all(10),
         child: Text('Registros: ${_filteredData.length} / ${_allData.length}'),
@@ -477,9 +476,10 @@ class _CatalogScreenState extends State<CatalogScreen> {
     );
   }
 
+  /// Barra de Comandos (Toggle, Filtros, Exportar)
   Widget _buildCommandBar() {
     return Row(
-      mainAxisSize: MainAxisSize.min,
+      mainAxisSize: MainAxisSize.min, // Evita expansión infinita
       children: [
         ToggleSwitch(
           checked: _onlyWithPlano,
@@ -492,29 +492,37 @@ class _CatalogScreenState extends State<CatalogScreen> {
           },
         ),
         const SizedBox(width: 20),
-        CommandBar(
-          primaryItems: [
-            CommandBarButton(
-              icon: const Icon(FluentIcons.column_options),
-              label: const Text('Columnas'),
-              onPressed: _showColumnSelector,
-            ),
-            CommandBarButton(
-              icon: const Icon(FluentIcons.refresh),
-              label: const Text('Refrescar'),
-              onPressed: _fetchData,
-            ),
-            CommandBarButton(
-              icon: const Icon(FluentIcons.clear_filter),
-              label: const Text('Limpiar'),
-              onPressed: _clearFilters,
-            ),
-            CommandBarButton(
-              icon: const Icon(FluentIcons.excel_logo),
-              label: const Text('Exportar'),
-              onPressed: _filteredData.isNotEmpty ? _exportToExcel : null,
-            ),
-          ],
+        // Botones de acción manuales en lugar de CommandBar para evitar problemas de layout
+        Tooltip(
+          message: "Seleccionar Columnas",
+          child: IconButton(
+            icon: const Icon(FluentIcons.column_options),
+            onPressed: _showColumnSelector,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Tooltip(
+          message: "Refrescar Datos",
+          child: IconButton(
+            icon: const Icon(FluentIcons.refresh),
+            onPressed: _fetchData,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Tooltip(
+          message: "Limpiar Filtros",
+          child: IconButton(
+            icon: const Icon(FluentIcons.clear_filter),
+            onPressed: _clearFilters,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Tooltip(
+          message: "Exportar a Excel",
+          child: IconButton(
+            icon: const Icon(FluentIcons.excel_logo),
+            onPressed: _filteredData.isNotEmpty ? _exportToExcel : null,
+          ),
         ),
       ],
     );
@@ -532,13 +540,18 @@ class _CatalogScreenState extends State<CatalogScreen> {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final double actionsWidth = 160.0;
-          final minWidth = (activeCols.length * 180.0) + actionsWidth;
+          // Usamos 200 de ancho por columna como solicitado
+          final minWidth = (activeCols.length * 200.0) + actionsWidth; 
           final viewWidth = minWidth > constraints.maxWidth ? minWidth : constraints.maxWidth;
 
+          // Scrollbar Industrial
           return Scrollbar(
             controller: _horizontalScrollController,
             thumbVisibility: true,
-            style: const ScrollbarThemeData(thickness: 10.0), // Scrollbar grueso
+            style: const ScrollbarThemeData(
+              thickness: 10.0,
+              radius: Radius.circular(4),
+            ),
             child: SingleChildScrollView(
               controller: _horizontalScrollController,
               scrollDirection: Axis.horizontal,
@@ -554,7 +567,10 @@ class _CatalogScreenState extends State<CatalogScreen> {
                       child: Scrollbar(
                         controller: _verticalScrollController,
                         thumbVisibility: true,
-                         style: const ScrollbarThemeData(thickness: 10.0), // Scrollbar grueso
+                         style: const ScrollbarThemeData(
+                           thickness: 10.0,
+                           radius: Radius.circular(4),
+                         ),
                         child: ListView.builder(
                           controller: _verticalScrollController,
                           itemCount: _filteredData.length,
@@ -583,7 +599,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
         ),
         ...activeCols.map((col) {
           return SizedBox(
-            width: 180,
+            width: 200, // Ancho fijo solicitado
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8.0),
               child: Column(
@@ -591,13 +607,16 @@ class _CatalogScreenState extends State<CatalogScreen> {
                 children: [
                   Text(col.replaceAll('_', ' '), style: TextStyle(fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
                   const SizedBox(height: 4),
-                  InfoLabel( // Fix para evitar error de compilación (TextBox no tiene header)
+                  InfoLabel( 
                     label: '',
-                    child: TextBox(
-                      controller: _filterControllers[col],
-                      placeholder: 'Buscar',
-                      style: TextStyle(fontSize: 12),
-                      onChanged: (v) => _applyFilters(resetScroll: true),
+                    child: SizedBox( // Limitamos el ancho del textbox explícitamente para evitar Unbounded Width
+                      width: 200, 
+                      child: TextBox(
+                        controller: _filterControllers[col],
+                        placeholder: 'Buscar',
+                        style: TextStyle(fontSize: 12),
+                        onChanged: (v) => _applyFilters(resetScroll: true),
+                      ),
                     ),
                   ),
                 ],
@@ -646,7 +665,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                     ),
                   )
                 else
-                   const SizedBox(width: 30), // Espacio para alineación
+                   const SizedBox(width: 30), // Espacio vacío
 
                 Tooltip(
                   message: 'Copiar Código',
@@ -660,7 +679,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
           ),
           ...activeCols.map((col) {
             return SizedBox(
-              width: 180,
+              width: 200, // Ancho fijo
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8.0),
                 child: Text(
