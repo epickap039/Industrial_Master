@@ -235,10 +235,11 @@ class _CatalogScreenState extends State<CatalogScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label.toUpperCase(), style: const TextStyle(fontSize: 10, color: Colors.blue, fontWeight: FontWeight.bold)),
+          // Removed const from TextStyle as requested
+          Text(label.toUpperCase(), style: TextStyle(fontSize: 10, color: Colors.blue, fontWeight: FontWeight.bold)),
           SelectableText(
             value?.toString() ?? '-',
-            style: const TextStyle(fontSize: 13),
+            style: TextStyle(fontSize: 13), // Removed const
           ),
         ],
       ),
@@ -293,7 +294,6 @@ class _CatalogScreenState extends State<CatalogScreen> {
       padding: const EdgeInsets.all(8.0),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          // LayoutBuilder gives us the full available size (100% width/height of content area)
           final minWidth = (activeCols.length * 180.0) + 60.0;
           final viewWidth = minWidth > constraints.maxWidth ? minWidth : constraints.maxWidth;
 
@@ -305,20 +305,18 @@ class _CatalogScreenState extends State<CatalogScreen> {
               scrollDirection: Axis.horizontal,
               child: SizedBox(
                 width: viewWidth,
-                height: constraints.maxHeight, // Force full height to allow Expanded to work
+                height: constraints.maxHeight,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _buildHeaderRow(activeCols),
                     const Divider(),
-                    // Expanded here pushes the ListView to take all remaining vertical space
                     Expanded(
                       child: Scrollbar(
                         controller: _verticalScrollController,
                         thumbVisibility: true,
                         child: ListView.builder(
                           controller: _verticalScrollController,
-                          // Default physics ensures performance
                           itemCount: _filteredData.length,
                           itemBuilder: (context, index) {
                             return _buildDataRow(_filteredData[index], index, activeCols);
@@ -351,12 +349,13 @@ class _CatalogScreenState extends State<CatalogScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(col.replaceAll('_', ' '), style: const TextStyle(fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
+                  // Removed const from TextStyle
+                  Text(col.replaceAll('_', ' '), style: TextStyle(fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
                   const SizedBox(height: 4),
                   TextBox(
                     controller: _filterControllers[col],
                     placeholder: 'Buscar',
-                    style: const TextStyle(fontSize: 12),
+                    style: TextStyle(fontSize: 12), // Removed const
                     onChanged: (v) => _applyFilters(),
                   ),
                 ],
@@ -390,7 +389,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 8.0),
                 child: Text(
                   row[col]?.toString() ?? '',
-                  style: const TextStyle(fontSize: 12),
+                  style: TextStyle(fontSize: 12), // Removed const
                   overflow: TextOverflow.ellipsis,
                   maxLines: 1,
                 ),
