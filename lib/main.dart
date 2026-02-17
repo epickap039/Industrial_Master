@@ -1,8 +1,9 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'screens/home.dart';
+import 'screens/login.dart';
 import 'screens/catalog.dart';
+import 'screens/configuration.dart';
 import 'screens/editor.dart';
 import 'screens/settings.dart';
 import 'screens/login.dart';
@@ -142,6 +143,11 @@ class _MyAppState extends State<MyApp> {
                       isDarkMode: _themeMode == ThemeMode.dark,
                       onThemeChanged: (isDark) => _updateTheme(isDark ? ThemeMode.dark : ThemeMode.light),
                     ),
+                  ),
+                  PaneItem( // Changed from NavigationPaneItem to PaneItem to match existing items
+                    icon: const Icon(FluentIcons.settings),
+                    title: const Text('Configuración'),
+                    body: const ConfigurationScreen(),
                   ),
                 ],
               ),
