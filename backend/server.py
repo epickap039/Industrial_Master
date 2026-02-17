@@ -2,10 +2,12 @@ import socket
 import uvicorn
 import pyodbc
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Request, Response
+import openpyxl
+from fastapi import FastAPI, HTTPException, Request, Response, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from typing import Dict, Any, List
+import io
 
 # 1. CONFIGURACIÓN SQL (Auto-Detectada con Driver 18 Prioritario)
 DB_SERVER = '192.168.1.73'
@@ -214,6 +216,104 @@ async def update_material(request: Request, payload: Dict[str, Any]):
         raise HTTPException(status_code=500, detail=f"SQL Error: {str(e)}")
     finally:
         conn.close()
+
+# 5. MOTOR DE ARBITRAJE EXCEL
+@app.post("/api/excel/procesar")
+async def procesar_excel(file: UploadFile = File(...)):
+    print(f"--- PROCESANDO BOM EXCEL: {file.filename} ---")
+    contents = await file.read()
+    
+    try:
+        # 1. Leer Excel (Memoria)
+        wb = openpyxl.load_workbook(io.BytesIO(contents), data_only=True)
+        ws = wb.active
+        
+        scan_data = []
+        last_estacion = None
+        last_ensamble = None
+        
+        # 2. Iterar filas (Start Row 6/7 - ajustamos a 7 para saltar headers complejos)
+        start_row = 7 
+        for row in ws.iter_rows(min_row=start_row, values_only=True):
+            # Mapeo por índice (Asumiendo estructura estándar del BOM de Ingeniería)
+            # Col 0: Estacion (Merged)
+            # Col 1: Ensamble (Merged)
+            # Col 2: Codigo_Pieza (Clave)
+            # Col 3: Cantidad
+            # Col 4: Descripcion
+            # Col 5: Medida
+            # Col 6: Material
+            
+            if not row or all(c is None for c in row): continue
+
+            # Forward Fill Logic (Herencia de valores padre)
+            estacion = row[0] if row[0] is not None else last_estacion
+            ensamble = row[1] if row[1] is not None else last_ensamble
+            
+            if estacion: last_estacion = estacion
+            if ensamble: last_ensamble = ensamble
+
+            codigo_pieza = str(row[2]).strip() if row[2] else None
+            
+            if codigo_pieza and codigo_pieza.lower() not in ['none', 'codigo', '']:
+                scan_data.append({
+                    'Estacion': last_estacion,
+                    'Ensamble': last_ensamble,
+                    'Codigo_Pieza': codigo_pieza,
+                    'Cantidad': row[3],
+                    'Descripcion_Excel': str(row[4]).strip() if row[4] else "",
+                    'Medida_Excel': str(row[5]).strip() if row[5] else "",
+                    'Material_Excel': str(row[6]).strip() if row[6] else ""
+                })
+
+        # 3. Comparar contra SQL
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        conflictos = []
+        
+        for item in scan_data:
+            cursor.execute("SELECT Descripcion, Medida, Material FROM Tbl_Maestro_Piezas WHERE Codigo_Pieza = ?", (item['Codigo_Pieza'],))
+            row_sql = cursor.fetchone()
+            
+            status = "OK"
+            detalles = []
+
+            if not row_sql:
+                status = "NUEVO"
+            else:
+                desc_sql = (row_sql[0] or "").strip()
+                med_sql = (row_sql[1] or "").strip()
+                mat_sql = (row_sql[2] or "").strip()
+
+                # Comparación Flexible (Case Insensitive)
+                if item['Descripcion_Excel'].lower() != desc_sql.lower():
+                     if item['Descripcion_Excel']: # Solo si excel tiene dato
+                        status = "CONFLICTO"
+                        detalles.append(f"Desc: '{item['Descripcion_Excel']}' vs SQL '{desc_sql}'")
+                
+                if item['Medida_Excel'].lower() != med_sql.lower():
+                     if item['Medida_Excel']:
+                        status = "CONFLICTO"
+                        detalles.append(f"Med: '{item['Medida_Excel']}' vs SQL '{med_sql}'")
+
+            if status != "OK":
+                conflictos.append({
+                    'Codigo_Pieza': item['Codigo_Pieza'],
+                    'Estado': status,
+                    'Detalles': "; ".join(detalles),
+                    'Excel_Data': item
+                })
+
+        return {
+            "total_leidos": len(scan_data),
+            "conflictos": conflictos,
+            "mensaje": f"Procesado exitoso. {len(conflictos)} conflictos detectados."
+        }
+
+    except Exception as e:
+        print(f"ERROR EXCEL: {e}")
+        raise HTTPException(status_code=500, detail=f"Error procesando Excel: {str(e)}")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8001)

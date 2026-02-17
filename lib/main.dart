@@ -1,7 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'screens/login.dart';
 import 'screens/catalog.dart';
 import 'screens/configuration.dart';
 import 'screens/editor.dart';
@@ -120,14 +119,9 @@ class _MyAppState extends State<MyApp> {
                 displayMode: PaneDisplayMode.auto,
                 items: [
                   PaneItem(
-                    icon: const Icon(FluentIcons.home),
-                    title: const Text('Inicio'),
-                    body: const HomeScreen(),
-                  ),
-                  PaneItem(
                     icon: const Icon(FluentIcons.database),
                     title: const Text('Catálogo Maestro'),
-                    body: CatalogScreen(),
+                    body: const CatalogScreen(),
                   ),
                   PaneItem(
                     icon: const Icon(FluentIcons.edit),
