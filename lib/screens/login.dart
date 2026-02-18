@@ -2,7 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../main.dart'; // Para acceso a navegación si es necesario (o main gestiona)
+
 
 class LoginScreen extends StatefulWidget {
   final VoidCallback onLoginSuccess;

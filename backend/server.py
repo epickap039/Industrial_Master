@@ -6,7 +6,8 @@ import openpyxl
 from fastapi import FastAPI, HTTPException, Request, Response, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
+from pydantic import BaseModel, ConfigDict
 import io
 
 # 1. CONFIGURACIÓN SQL (Auto-Detectada con Driver 18 Prioritario)
@@ -319,62 +320,80 @@ async def procesar_excel(file: UploadFile = File(...)):
         print(f"ERROR EXCEL: {e}")
         raise HTTPException(status_code=500, detail=f"Error procesando Excel: {str(e)}")
 
-# 7. SINCRONIZACIÓN DE ARBITRAJE (EXCEL -> SQL)
-@app.post("/api/excel/sincronizar")
-async def sincronizar_excel(payload: Dict[str, Any]):
-    print("--- INICIANDO SINCRONIZACIÓN MASSIVA (ARBITRAJE) ---")
-    updates = payload.get('updates', [])
+class SincronizacionItem(BaseModel):
+    Codigo_Pieza: str
+    Descripcion: Optional[str] = None
+    Medida: Optional[str] = None
+    Material: Optional[str] = None
+    Link_Drive: Optional[str] = None
+    Simetria: Optional[str] = None
+    Proceso_Primario: Optional[str] = None
+    Proceso_1: Optional[str] = None
+    Proceso_2: Optional[str] = None
+    Proceso_3: Optional[str] = None
+    Estado: str 
     
-    if not updates:
-        return {"updated_count": 0, "message": "Nada que actualizar"}
+    model_config = ConfigDict(extra='ignore')
 
+@app.post("/api/excel/sincronizar")
+async def sincronizar_excel(items: List[SincronizacionItem]):
     conn = get_db_connection()
     cursor = conn.cursor()
-    count = 0
-
+    
+    procesados = 0
+    errores = 0
+    
     try:
-        for item in updates:
-            codigo = item.get('Codigo_Pieza')
-            desc = item.get('Descripcion_Excel')
-            medida = item.get('Medida_Excel')
-            material = item.get('Material_Excel')
-            usuario = item.get('usuario', 'Sistema Arbitraje')
-            
-            # Solo actualizamos si hay dato en Excel (no vacio)
-            set_clauses = []
-            values = []
+        for item in items:
+            # Sanitizar datos (Evitar NULLs -> Strings Vacíos)
+            desc = item.Descripcion if item.Descripcion is not None else ""
+            medida = item.Medida if item.Medida is not None else ""
+            material = item.Material if item.Material is not None else ""
+            link = item.Link_Drive if item.Link_Drive is not None else ""
+            simetria = item.Simetria if item.Simetria is not None else ""
+            proc_prim = item.Proceso_Primario if item.Proceso_Primario is not None else ""
+            proc_1 = item.Proceso_1 if item.Proceso_1 is not None else ""
+            proc_2 = item.Proceso_2 if item.Proceso_2 is not None else ""
+            proc_3 = item.Proceso_3 if item.Proceso_3 is not None else ""
 
-            if desc: 
-                set_clauses.append("Descripcion = ?")
-                values.append(desc)
-            if medida:
-                set_clauses.append("Medida = ?")
-                values.append(medida)
-            if material:
-                set_clauses.append("Material = ?")
-                values.append(material)
-
-            # Si hay algo que actualizar
-            if set_clauses:
-                set_clauses.append("Modificado_Por = ?")
-                values.append(usuario)
-                set_clauses.append("Ultima_Actualizacion = GETDATE()")
+            if item.Estado == "NUEVO":
+                # Lógica de Inserción (INSERT COMPLETO)
+                cursor.execute("""
+                    IF NOT EXISTS (SELECT 1 FROM Tbl_Maestra_Piezas WHERE Codigo_Pieza = ?)
+                    BEGIN
+                        INSERT INTO Tbl_Maestra_Piezas 
+                        (Codigo_Pieza, Descripcion, Medida, Material, Simetria, Proceso_Primario, Proceso_1, Proceso_2, Proceso_3, Link_Drive, Ultima_Actualizacion, Modificado_Por)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, GETDATE(), 'Importador Excel')
+                    END
+                """, (item.Codigo_Pieza, item.Codigo_Pieza, desc, medida, material, simetria, proc_prim, proc_1, proc_2, proc_3, link))
+                procesados += 1
                 
-                query_set = ", ".join(set_clauses)
-                query = f"UPDATE Tbl_Maestro_Piezas SET {query_set} WHERE Codigo_Pieza = ?"
-                values.append(codigo)
-                
-                cursor.execute(query, values)
-                count += cursor.rowcount
+            elif item.Estado == "CONFLICTO":
+                # Lógica de Actualización (UPDATE COMPLETO)
+                cursor.execute("""
+                    UPDATE Tbl_Maestra_Piezas
+                    SET Descripcion = ?,
+                        Medida = ?,
+                        Material = ?,
+                        Simetria = ?,
+                        Proceso_Primario = ?,
+                        Proceso_1 = ?,
+                        Proceso_2 = ?,
+                        Proceso_3 = ?,
+                        Link_Drive = ?,
+                        Ultima_Actualizacion = GETDATE(),
+                        Modificado_Por = 'Arbitro Excel'
+                    WHERE Codigo_Pieza = ?
+                """, (desc, medida, material, simetria, proc_prim, proc_1, proc_2, proc_3, link, item.Codigo_Pieza))
+                procesados += 1
 
         conn.commit()
-        print(f"--- SINCRONIZACIÓN COMPLETADA: {count} registros ---")
-        return {"updated_count": count, "message": "Sincronización exitosa"}
+        return {"status": "ok", "message": f"{procesados} registros sincronizados exitosamente."}
 
     except Exception as e:
         conn.rollback()
-        print(f"ERROR SYNC: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Error en sincronizacion: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error al sincronizar BD: {str(e)}")
     finally:
         conn.close()
 

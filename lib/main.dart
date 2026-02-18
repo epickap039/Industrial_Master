@@ -88,6 +88,7 @@ class _MyAppState extends State<MyApp> {
     }
 
     return FluentApp(
+      debugShowCheckedModeBanner: false,
       title: 'Industrial Manager v15.5',
       themeMode: _themeMode,
       theme: FluentThemeData(
@@ -127,7 +128,7 @@ class _MyAppState extends State<MyApp> {
                   PaneItem(
                     icon: const Icon(FluentIcons.excel_document),
                     title: const Text('Importar Excel'),
-                    body: const ArbitrationScreen(conflicts: [], totalProcessed: 0), // Estado inicial vacío
+                    body: const ArbitrationScreen(),
                   ),
                 ],
                 footerItems: [
@@ -138,11 +139,6 @@ class _MyAppState extends State<MyApp> {
                       isDarkMode: _themeMode == ThemeMode.dark,
                       onThemeChanged: (isDark) => _updateTheme(isDark ? ThemeMode.dark : ThemeMode.light),
                     ),
-                  ),
-                  PaneItem( // Changed from NavigationPaneItem to PaneItem to match existing items
-                    icon: const Icon(FluentIcons.settings),
-                    title: const Text('Configuración'),
-                    body: const ConfigurationScreen(),
                   ),
                 ],
               ),
