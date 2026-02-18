@@ -31,7 +31,7 @@ class ConflictResolutionDialog extends StatelessWidget {
     }
 
     // Helper para construir la tarjeta de datos
-    Widget _buildDataCard(BuildContext context, String title, Map<String, dynamic> data, Color headerColor, bool isExcel) {
+    Widget _buildDataCard(BuildContext context, String title, dynamic data, Color headerColor, bool isExcel) {
       return Card(
         padding: EdgeInsets.zero,
         child: Column(
