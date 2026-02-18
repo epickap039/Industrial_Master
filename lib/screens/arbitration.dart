@@ -340,25 +340,44 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
           ),
           FilledButton(
             child: const Text("Guardar Cambios"),
-            onPressed: () {
-              setState(() {
-                // Actualizar TODOS los campos en el objeto local
-                item['Excel_Data']['Descripcion_Excel'] = descCtrl.text;
-                item['Excel_Data']['Medida_Excel'] = medidaCtrl.text;
-                item['Excel_Data']['Material_Excel'] = matCtrl.text;
-                item['Excel_Data']['Simetria'] = simetriaCtrl.text;
-                item['Excel_Data']['Proceso_Primario'] = procPrimCtrl.text;
-                item['Excel_Data']['Proceso_1'] = proc1Ctrl.text;
-                item['Excel_Data']['Proceso_2'] = proc2Ctrl.text;
-                item['Excel_Data']['Proceso_3'] = proc3Ctrl.text;
-                item['Excel_Data']['Link_Drive'] = linkCtrl.text;
+            onPressed: () async {
+              // 1. Mostrar carga
+              setState(() => _isLoading = true);
+              Navigator.pop(c); // Cerrar diálogo
+
+              // 2. Preparar payload
+              final itemToSync = {
+                'Codigo_Pieza': item['Codigo_Pieza'],
+                'Descripcion': descCtrl.text,
+                'Medida': medidaCtrl.text,
+                'Material': matCtrl.text,
+                'Simetria': simetriaCtrl.text,
+                'Proceso_Primario': procPrimCtrl.text,
+                'Proceso_1': proc1Ctrl.text,
+                'Proceso_2': proc2Ctrl.text,
+                'Proceso_3': proc3Ctrl.text,
+                'Link_Drive': linkCtrl.text,
+                'Estado': 'CONFLICTO', // Forzar UPDATE
+                'usuario': 'Arbitro Manual',
+                'Modificado_Por': 'Arbitro Manual',
+              };
+
+              // 3. Sincronizar
+              try {
+                await _syncSingleItem(itemToSync);
                 
-                item['is_manual_edit'] = true; // Flag visual
-                
-                // Seleccionar automáticamente al editar
-                _selectedUpdates.add(item['Codigo_Pieza']);
-              });
-              Navigator.pop(c);
+                if (mounted) {
+                  setState(() {
+                    _conflicts.removeWhere((c) => c['Codigo_Pieza'] == item['Codigo_Pieza']);
+                    _selectedUpdates.remove(item['Codigo_Pieza']);
+                    _isLoading = false;
+                  });
+                  _showSnack("Edición Manual aplicada: ${item['Codigo_Pieza']}");
+                }
+              } catch (e) {
+                if (mounted) setState(() => _isLoading = false);
+                _showError("Error al guardar edición manual: $e");
+              }
             },
           ),
         ],

@@ -22,7 +22,7 @@ class ConflictResolutionDialog extends StatelessWidget {
               label.toUpperCase(), 
               style: TextStyle(
                 fontSize: 9, 
-                color: Colors.grey[120],
+                color: Colors.grey,
                 fontWeight: FontWeight.bold,
                 letterSpacing: 0.5
               )
@@ -33,7 +33,7 @@ class ConflictResolutionDialog extends StatelessWidget {
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: isHighlighted || isHeader ? FontWeight.bold : FontWeight.normal,
-                color: isHighlighted ? Colors.red : Colors.black,
+                color: isHighlighted ? Colors.red : null, // null usa el color del tema (blanco/negro)
               ),
             ),
           ],
