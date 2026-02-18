@@ -302,160 +302,162 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
           ],
         ),
       ),
-      content: Column(
-        children: [
-          // BARRA DE FILTROS Y ACCIONES (NUEVO DISEÑO PARA EVITAR OVERFLOW)
-          Container(
-            padding: const EdgeInsets.all(12),
-            margin: const EdgeInsets.only(bottom: 8, left: 16, right: 16),
-            decoration: BoxDecoration(
-              color: FluentTheme.of(context).cardColor,
-              borderRadius: BorderRadius.circular(4),
-              border: Border.all(color: FluentTheme.of(context).resources.dividerStrokeColorDefault),
-            ),
-            child: Wrap( // Usamos Wrap para responsividad total
-              spacing: 20,
-              runSpacing: 10,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                 // FILTROS
-                 Row(mainAxisSize: MainAxisSize.min, children: [
-                    const Icon(FluentIcons.filter, size: 16),
-                    const SizedBox(width: 8),
-                    ToggleSwitch(
-                      checked: _filterStatus == 'NUEVO',
-                      content: const Text("Solo Nuevos"),
-                      onChanged: (v) => setState(() => _filterStatus = v ? 'NUEVO' : 'TODOS'),
-                    ),
-                    const SizedBox(width: 16),
-                    ToggleSwitch(
-                      checked: _filterStatus == 'CONFLICTO',
-                      content: const Text("Solo Conflictos"),
-                      onChanged: (v) => setState(() => _filterStatus = v ? 'CONFLICTO' : 'TODOS'),
-                    ),
-                 ]),
-                 
-                 // ACCIONES MASIVAS
-                 if (_filterStatus != 'CONFLICTO')
-                   Button(
-                      onPressed: _selectOnlyNew,
-                      child: const Row(children: [Icon(FluentIcons.add), SizedBox(width: 5), Text("Aprobar Todos Nuevos")]),
-                   ),
-              ],
-            ),
-          ),
-
-          // HEADER TABLA
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-            color: FluentTheme.of(context).cardColor,
-            child: Row(
-              children: [
-                SizedBox(width: 60, child: Center(child: Checkbox(
-                  checked: _selectedUpdates.isNotEmpty && _filteredList.every((c) => _selectedUpdates.contains(c['Codigo_Pieza'])),
-                  onChanged: (v) => _selectAllVisible()
-                ))),
-                const Expanded(flex: 2, child: Text("CÓDIGO", style: TextStyle(fontWeight: FontWeight.bold))),
-                const Expanded(flex: 4, child: Text("VALOR EXCEL", style: TextStyle(color: Colors.successPrimaryColor, fontWeight: FontWeight.bold))),
-                const SizedBox(width: 30), 
-                const Expanded(flex: 4, child: Text("COMPARATIVA SQL", style: TextStyle(fontWeight: FontWeight.bold))),
-                const SizedBox(width: 100, child: Text("ACCIONES")), // Movido aquí
-                const SizedBox(width: 80, child: Text("ESTADO")),
-              ],
-            ),
-          ),
-          const Divider(),
-          // LISTA
-          Expanded(
-            child: ListView.builder(
-              controller: _scrollController,
-              itemCount: _filteredList.length,
-              itemBuilder: (context, index) {
-                final item = _filteredList[index];
-                final codigo = item['Codigo_Pieza'];
-                final isSelected = _selectedUpdates.contains(codigo);
-                final estado = item['Estado'];
-                final detalles = (item['Detalles'] as String?) ?? "";
-                final isManual = item['is_manual_edit'] == true;
-
-                return Container(
-                  decoration: BoxDecoration(
-                    border: Border(bottom: BorderSide(color: FluentTheme.of(context).resources.dividerStrokeColorDefault)),
-                    color: isSelected ? FluentTheme.of(context).accentColor.withOpacity(0.1) : null,
-                  ),
-                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                  child: Row(
-                    children: [
-                      // 1. Checkbox Centrado y Espaciado (60px)
-                      SizedBox(width: 60, child: Center(child: Checkbox(
-                        checked: isSelected,
-                        onChanged: (v) => setState(() {
-                          v == true ? _selectedUpdates.add(codigo) : _selectedUpdates.remove(codigo);
-                        })
-                      ))),
-                      
-                      // 2. Código (Flex 2)
-                      Expanded(flex: 2, child: Text(codigo, style: const TextStyle(fontWeight: FontWeight.bold))),
-                      
-                      // 3. Valor Excel (Flex 4)
-                      Expanded(flex: 4, child: Tooltip(
-                        message: "${item['Excel_Data']['Descripcion_Excel']} ${item['Excel_Data']['Medida_Excel']}",
-                        child: Text(
-                          "${item['Excel_Data']['Descripcion_Excel']} ${item['Excel_Data']['Medida_Excel']}", 
-                          style: TextStyle(
-                            color: isManual ? Colors.blue : Colors.successPrimaryColor,
-                            fontWeight: isManual ? FontWeight.bold : FontWeight.normal
-                          ),
-                          maxLines: 2, 
-                          overflow: TextOverflow.ellipsis
-                        ),
-                      )),
-                      
-                      // 4. Icono (30px)
-                      const SizedBox(width: 30, child: Icon(FluentIcons.forward, size: 14, color: Colors.grey)),
-                      
-                      // 5. Comparativa Visual (Flex 4)
-                      Expanded(flex: 4, child: estado == 'NUEVO' 
-                        ? const Text("✨ NUEVA ENTRADA", style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic))
-                        : Tooltip(
-                            message: detalles,
-                            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                               const Text("DIFERENCIA EN SQL:", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
-                               Text(detalles, style: TextStyle(color: Colors.warningPrimaryColor, fontSize: 11), maxLines: 2, overflow: TextOverflow.ellipsis)
-                            ]),
-                          )
+      content: SelectionArea( // Habilitar selección de texto
+        child: Column(
+          children: [
+            // BARRA DE FILTROS Y ACCIONES (NUEVO DISEÑO PARA EVITAR OVERFLOW)
+            Container(
+              padding: const EdgeInsets.all(12),
+              margin: const EdgeInsets.only(bottom: 8, left: 16, right: 16),
+              decoration: BoxDecoration(
+                color: FluentTheme.of(context).cardColor,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: FluentTheme.of(context).resources.dividerStrokeColorDefault),
+              ),
+              child: Wrap( // Usamos Wrap para responsividad total
+                spacing: 20,
+                runSpacing: 10,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                   // FILTROS
+                   Row(mainAxisSize: MainAxisSize.min, children: [
+                      const Icon(FluentIcons.filter, size: 16),
+                      const SizedBox(width: 8),
+                      ToggleSwitch(
+                        checked: _filterStatus == 'NUEVO',
+                        content: const Text("Solo Nuevos"),
+                        onChanged: (v) => setState(() => _filterStatus = v ? 'NUEVO' : 'TODOS'),
                       ),
-
-                      // 6. Acciones - Botón Editar (100px)
-                      SizedBox(width: 100, child: Row(
-                        children: [
-                           IconButton(
-                             icon: const Icon(FluentIcons.edit, size: 16),
-                             onPressed: () => _showEditDialog(item),
-                           ),
-                           const Text(" Editar", style: TextStyle(fontSize: 12))
-                        ],
-                      )),
-
-                      // 7. Badge Estado (80px)
-                      SizedBox(width: 80, child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: estado == "NUEVO" ? Colors.successPrimaryColor : Colors.warningPrimaryColor,
-                          borderRadius: BorderRadius.circular(12)
-                        ),
-                        child: Text(estado, 
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)
-                        ),
-                      )),
-                    ],
-                  ),
-                );
-              },
+                      const SizedBox(width: 16),
+                      ToggleSwitch(
+                        checked: _filterStatus == 'CONFLICTO',
+                        content: const Text("Solo Conflictos"),
+                        onChanged: (v) => setState(() => _filterStatus = v ? 'CONFLICTO' : 'TODOS'),
+                      ),
+                   ]),
+                   
+                   // ACCIONES MASIVAS
+                   if (_filterStatus != 'CONFLICTO')
+                     Button(
+                        onPressed: _selectOnlyNew,
+                        child: const Row(children: [Icon(FluentIcons.add), SizedBox(width: 5), Text("Aprobar Todos Nuevos")]),
+                     ),
+                ],
+              ),
             ),
-          ),
-        ],
+  
+            // HEADER TABLA
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+              color: FluentTheme.of(context).cardColor,
+              child: Row(
+                children: [
+                  SizedBox(width: 60, child: Center(child: Checkbox(
+                    checked: _selectedUpdates.isNotEmpty && _filteredList.every((c) => _selectedUpdates.contains(c['Codigo_Pieza'])),
+                    onChanged: (v) => _selectAllVisible()
+                  ))),
+                  const Expanded(flex: 2, child: Text("CÓDIGO", style: TextStyle(fontWeight: FontWeight.bold))),
+                  const Expanded(flex: 4, child: Text("VALOR EXCEL", style: TextStyle(color: Colors.successPrimaryColor, fontWeight: FontWeight.bold))),
+                  const SizedBox(width: 30), 
+                  const Expanded(flex: 4, child: Text("COMPARATIVA SQL", style: TextStyle(fontWeight: FontWeight.bold))),
+                  const SizedBox(width: 100, child: Text("ACCIONES")), // Movido aquí
+                  const SizedBox(width: 80, child: Text("ESTADO")),
+                ],
+              ),
+            ),
+            const Divider(),
+            // LISTA
+            Expanded(
+              child: ListView.builder(
+                controller: _scrollController,
+                itemCount: _filteredList.length,
+                itemBuilder: (context, index) {
+                  final item = _filteredList[index];
+                  final codigo = item['Codigo_Pieza'];
+                  final isSelected = _selectedUpdates.contains(codigo);
+                  final estado = item['Estado'];
+                  final detalles = (item['Detalles'] as String?) ?? "";
+                  final isManual = item['is_manual_edit'] == true;
+  
+                  return Container(
+                    decoration: BoxDecoration(
+                      border: Border(bottom: BorderSide(color: FluentTheme.of(context).resources.dividerStrokeColorDefault)),
+                      color: isSelected ? FluentTheme.of(context).accentColor.withOpacity(0.1) : null,
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                    child: Row(
+                      children: [
+                        // 1. Checkbox Centrado y Espaciado (60px)
+                        SizedBox(width: 60, child: Center(child: Checkbox(
+                          checked: isSelected,
+                          onChanged: (v) => setState(() {
+                            v == true ? _selectedUpdates.add(codigo) : _selectedUpdates.remove(codigo);
+                          })
+                        ))),
+                        
+                        // 2. Código (Flex 2)
+                        Expanded(flex: 2, child: Text(codigo, style: const TextStyle(fontWeight: FontWeight.bold))),
+                        
+                        // 3. Valor Excel (Flex 4)
+                        Expanded(flex: 4, child: Tooltip(
+                          message: "${item['Excel_Data']['Descripcion_Excel']} ${item['Excel_Data']['Medida_Excel']}",
+                          child: Text(
+                            "${item['Excel_Data']['Descripcion_Excel']} ${item['Excel_Data']['Medida_Excel']}", 
+                            style: TextStyle(
+                              color: isManual ? Colors.blue : Colors.successPrimaryColor,
+                              fontWeight: isManual ? FontWeight.bold : FontWeight.normal
+                            ),
+                            maxLines: 2, 
+                            overflow: TextOverflow.ellipsis
+                          ),
+                        )),
+                        
+                        // 4. Icono (30px)
+                        const SizedBox(width: 30, child: Icon(FluentIcons.forward, size: 14, color: Colors.grey)),
+                        
+                        // 5. Comparativa Visual (Flex 4)
+                        Expanded(flex: 4, child: estado == 'NUEVO' 
+                          ? const Text("✨ NUEVA ENTRADA", style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic))
+                          : Tooltip(
+                              message: detalles,
+                              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                 const Text("DIFERENCIA EN SQL:", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                                 Text(detalles, style: TextStyle(color: Colors.warningPrimaryColor, fontSize: 11), maxLines: 2, overflow: TextOverflow.ellipsis)
+                              ]),
+                            )
+                        ),
+  
+                        // 6. Acciones - Botón Editar (100px)
+                        SizedBox(width: 100, child: Row(
+                          children: [
+                             IconButton(
+                               icon: const Icon(FluentIcons.edit, size: 16),
+                               onPressed: () => _showEditDialog(item),
+                             ),
+                             const Text(" Editar", style: TextStyle(fontSize: 12))
+                          ],
+                        )),
+  
+                        // 7. Badge Estado (80px)
+                        SizedBox(width: 80, child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: estado == "NUEVO" ? Colors.successPrimaryColor : Colors.warningPrimaryColor,
+                            borderRadius: BorderRadius.circular(12)
+                          ),
+                          child: Text(estado, 
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)
+                          ),
+                        )),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -359,9 +359,9 @@ async def sincronizar_excel(items: List[SincronizacionItem]):
             if item.Estado == "NUEVO":
                 # Lógica de Inserción (INSERT COMPLETO)
                 cursor.execute("""
-                    IF NOT EXISTS (SELECT 1 FROM Tbl_Maestra_Piezas WHERE Codigo_Pieza = ?)
+                    IF NOT EXISTS (SELECT 1 FROM Tbl_Maestro_Piezas WHERE Codigo_Pieza = ?)
                     BEGIN
-                        INSERT INTO Tbl_Maestra_Piezas 
+                        INSERT INTO Tbl_Maestro_Piezas 
                         (Codigo_Pieza, Descripcion, Medida, Material, Simetria, Proceso_Primario, Proceso_1, Proceso_2, Proceso_3, Link_Drive, Ultima_Actualizacion, Modificado_Por)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, GETDATE(), 'Importador Excel')
                     END
@@ -371,7 +371,7 @@ async def sincronizar_excel(items: List[SincronizacionItem]):
             elif item.Estado == "CONFLICTO":
                 # Lógica de Actualización (UPDATE COMPLETO)
                 cursor.execute("""
-                    UPDATE Tbl_Maestra_Piezas
+                    UPDATE Tbl_Maestro_Piezas
                     SET Descripcion = ?,
                         Medida = ?,
                         Material = ?,
