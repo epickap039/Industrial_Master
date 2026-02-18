@@ -129,10 +129,10 @@ class _ConfigurationScreenState extends State<ConfigurationScreen> {
             const SizedBox(height: 30),
             const Divider(),
             const SizedBox(height: 30),
-            const Text('Actualizador de Hipervínculos', style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text('Sincronizador de Enlaces Drive (Excel)', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 10),
             const Text(
-              'Escanea la carpeta de ingeniería buscando archivos (PDF/JPG) que coincidan con los códigos de pieza y actualiza sus enlaces en la base de datos.',
+              'Lee "MAESTRO DE MATERIALES.xlsx" en la carpeta raíz para vincular códigos de pieza con sus enlaces de Google Drive.',
               style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
             const SizedBox(height: 15),
@@ -144,10 +144,10 @@ class _ConfigurationScreenState extends State<ConfigurationScreen> {
                       children: [
                         ProgressRing(strokeWidth: 2),
                         SizedBox(width: 8),
-                        Text('Escaneando archivos...'),
+                        Text('Sincronizando enlaces...'),
                       ],
                     )
-                  : const Text('Escanear y Actualizar Hipervínculos'),
+                  : const Text('Actualizar Enlaces Drive (Excel)'),
             ),
             const SizedBox(height: 30),
             const Divider(),

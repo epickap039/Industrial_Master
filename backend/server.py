@@ -53,9 +53,35 @@ except:
 async def lifespan(app: FastAPI):
     print(f"--- SERVER STARTED on {ADMIN_HOSTNAME} ---")
     print(f"--- LISTENING ON 0.0.0.0:8001 ---")
+    
+    # Sistema de Auditoría Forzada
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Tbl_Auditoria_Cambios')
+            BEGIN
+                CREATE TABLE Tbl_Auditoria_Cambios (
+                    ID_Log INT IDENTITY(1,1) PRIMARY KEY,
+                    Codigo_Pieza VARCHAR(50),
+                    Accion VARCHAR(50),
+                    Valor_Anterior NVARCHAR(MAX),
+                    Valor_Nuevo NVARCHAR(MAX),
+                    Usuario VARCHAR(100),
+                    Fecha_Hora DATETIME DEFAULT GETDATE()
+                );
+            END
+        """)
+        conn.commit()
+        print("--- ✅ SISTEMA DE AUDITORIA INICIALIZADO CORRECTAMENTE ---")
+    except Exception as e:
+        print(f"--- ⚠️ ALERTA SQL: {e} ---")
+    finally:
+        if 'conn' in locals():
+            conn.close()
+
     try:
         init_auth_db()
-        init_audit_table()
     except Exception as e:
         print(f"ERROR INITIALIZING DBs: {e}")
     yield
@@ -116,29 +142,6 @@ def init_auth_db():
     finally:
         conn.close()
 
-def init_audit_table():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        query = """
-        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Tbl_Auditoria_Cambios')
-        BEGIN
-            CREATE TABLE Tbl_Auditoria_Cambios (
-                ID_Log INT IDENTITY(1,1) PRIMARY KEY,
-                Codigo_Pieza VARCHAR(50),
-                Accion VARCHAR(50),
-                Valor_Anterior NVARCHAR(MAX),
-                Valor_Nuevo NVARCHAR(MAX),
-                Usuario VARCHAR(100),
-                Fecha_Hora DATETIME DEFAULT GETDATE()
-            );
-        END
-        """
-        cursor.execute(query)
-        conn.commit()
-        print("--- ✅ TABLA DE AUDITORIA VERIFICADA/CREADA ---")
-    except Exception as e:
-        print(f"ERROR AL INICIALIZAR AUDITORIA: {e}")
     finally:
         conn.close()
 
@@ -481,56 +484,63 @@ async def update_links(payload: Dict[str, str]):
     if not root_path or not os.path.exists(root_path):
         raise HTTPException(status_code=400, detail="Ruta base inválida o inaccesible")
 
-    print(f"--- INICIANDO ESCANEO DE ARCHIVOS EN: {root_path} ---")
+    # Archivo Maestro definido por el usuario
+    excel_path = os.path.join(root_path, "MAESTRO DE MATERIALES.xlsx")
+    if not os.path.exists(excel_path):
+        print(f"ERROR: No se encontró {excel_path}")
+        # Retornamos error claro para el frontend
+        raise HTTPException(status_code=404, detail=f"No se encontró el archivo 'MAESTRO DE MATERIALES.xlsx' en {root_path}")
+
+    print(f"--- SINCRONIZANDO ENLACES DESDE EXCEL: {excel_path} ---")
     
     conn = get_db_connection()
     cursor = conn.cursor()
     
     try:
-        # 1. Obtener todos los códigos de pieza existentes
-        cursor.execute("SELECT Codigo_Pieza FROM Tbl_Maestro_Piezas")
-        piezas = [row[0] for row in cursor.fetchall() if row[0]]
+        # 1. Leer Excel usando pandas (según imagen: Col A=Codigo, Col B=URL_Google_Drive)
+        df = pd.read_excel(excel_path)
         
-        updated_count = 0
-        match_map = {} # Codigo -> Path
+        # Normalizar nombres de columnas
+        df.columns = [str(c).strip() for c in df.columns]
+        
+        # Validar Columnas (Basado en captura de pantalla)
+        if 'Codigo' not in df.columns:
+            raise HTTPException(status_code=400, detail="El Excel no tiene la columna 'Codigo'")
+        
+        # Buscar columna de Drive (puede ser 'URL_Google_Drive' o similar)
+        drive_col = next((c for c in df.columns if 'drive' in c.lower() or 'url' in c.lower()), None)
+        
+        if not drive_col:
+             raise HTTPException(status_code=400, detail="No se encontró la columna de enlaces de Drive")
 
-        # 2. Caminar el directorio (os.walk)
-        for root, dirs, files in os.walk(root_path):
-            for file in files:
-                # Filtrar por extensiones comunes
-                if not file.lower().endswith(('.pdf', '.jpg', '.jpeg', '.png', '.dwg')):
-                    continue
-                
-                # Buscar coincidencias con los códigos de pieza
-                for codigo in piezas:
-                    # Coincidencia si el nombre del archivo CONTIENE el código
-                    if codigo.lower() in file.lower():
-                        # Si hay múltiples archivos, tomamos el primero o el más corto (heurística simple)
-                        full_path = os.path.join(root, file)
-                        if codigo not in match_map:
-                            match_map[codigo] = full_path
-                        
-        # 3. Aplicar Updates
-        for codigo, path in match_map.items():
-            cursor.execute("""
-                UPDATE Tbl_Maestro_Piezas 
-                SET Link_Drive = ?, 
-                    Ultima_Actualizacion = GETDATE(),
-                    Modificado_Por = 'Escáner Automático'
-                WHERE Codigo_Pieza = ?
-            """, (path, codigo))
-            updated_count += cursor.rowcount
+        updated_count = 0
+        
+        # 2. Iterar y Actualizar
+        for _, row in df.iterrows():
+            codigo = str(row['Codigo']).strip()
+            link = str(row[drive_col]).strip()
+            
+            # Solo actualizar si el link existe y no es nulo
+            if codigo and link and link.lower() != 'nan' and link != "":
+                cursor.execute("""
+                    UPDATE Tbl_Maestro_Piezas 
+                    SET Link_Drive = ?, 
+                        Ultima_Actualizacion = GETDATE(),
+                        Modificado_Por = 'Sincronizador Excel'
+                    WHERE Codigo_Pieza = ?
+                """, (link, codigo))
+                updated_count += cursor.rowcount
 
         conn.commit()
-        print(f"--- ESCANEO FINALIZADO: {updated_count} links actualizados ---")
+        print(f"--- SINCRONIZACIÓN EXCEL FINALIZADA: {updated_count} links actualizados ---")
         return {"status": "ok", "updated": updated_count}
 
     except Exception as e:
-        conn.rollback()
-        print(f"ERROR EN ESCANEO: {e}")
+        if 'conn' in locals(): conn.rollback()
+        print(f"ERROR EN SINCRONIZACIÓN EXCEL: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        conn.close()
+        if 'conn' in locals(): conn.close()
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8001)
