@@ -174,7 +174,7 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
   }
 
   // 3. EDICIÓN Y RESOLUCIÓN (LÓGICA "RESOLVER Y DESAPARECER")
-  void _showEditDialog(Map<String, dynamic> item) async {
+  void _showEditDialog(dynamic item) async {
     // Si es CONFLICTO, mostrar primero el diálogo de resolución
     if (item['Estado'] == 'CONFLICTO' && item['is_manual_edit'] != true) {
       final result = await showDialog(
@@ -279,7 +279,7 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
     });
   }
 
-  void _showManualEdit(Map<String, dynamic> item) {
+  void _showManualEdit(dynamic item) {
     // Inicializar controladores con datos existentes o vacíos
     final descCtrl = TextEditingController(text: item['Excel_Data']['Descripcion_Excel']);
     final medidaCtrl = TextEditingController(text: item['Excel_Data']['Medida_Excel']);

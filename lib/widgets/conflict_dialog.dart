@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 class ConflictResolutionDialog extends StatelessWidget {
-  final Map<String, dynamic> item;
+  final dynamic item;
 
   const ConflictResolutionDialog({super.key, required this.item});
 
