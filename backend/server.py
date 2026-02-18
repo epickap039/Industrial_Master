@@ -331,6 +331,7 @@ class SincronizacionItem(BaseModel):
     Proceso_1: Optional[str] = None
     Proceso_2: Optional[str] = None
     Proceso_3: Optional[str] = None
+    Modificado_Por: Optional[str] = None 
     Estado: str 
     
     model_config = ConfigDict(extra='ignore')
@@ -355,6 +356,9 @@ async def sincronizar_excel(items: List[SincronizacionItem]):
             proc_1 = item.Proceso_1 if item.Proceso_1 is not None else ""
             proc_2 = item.Proceso_2 if item.Proceso_2 is not None else ""
             proc_3 = item.Proceso_3 if item.Proceso_3 is not None else ""
+            
+            # Auditoría
+            usuario = item.Modificado_Por if item.Modificado_Por else "Importador Excel"
 
             if item.Estado == "NUEVO":
                 # Lógica de Inserción (INSERT COMPLETO)
@@ -363,9 +367,9 @@ async def sincronizar_excel(items: List[SincronizacionItem]):
                     BEGIN
                         INSERT INTO Tbl_Maestro_Piezas 
                         (Codigo_Pieza, Descripcion, Medida, Material, Simetria, Proceso_Primario, Proceso_1, Proceso_2, Proceso_3, Link_Drive, Ultima_Actualizacion, Modificado_Por)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, GETDATE(), 'Importador Excel')
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, GETDATE(), ?)
                     END
-                """, (item.Codigo_Pieza, item.Codigo_Pieza, desc, medida, material, simetria, proc_prim, proc_1, proc_2, proc_3, link))
+                """, (item.Codigo_Pieza, item.Codigo_Pieza, desc, medida, material, simetria, proc_prim, proc_1, proc_2, proc_3, link, usuario))
                 procesados += 1
                 
             elif item.Estado == "CONFLICTO":
@@ -382,9 +386,9 @@ async def sincronizar_excel(items: List[SincronizacionItem]):
                         Proceso_3 = ?,
                         Link_Drive = ?,
                         Ultima_Actualizacion = GETDATE(),
-                        Modificado_Por = 'Arbitro Excel'
+                        Modificado_Por = ?
                     WHERE Codigo_Pieza = ?
-                """, (desc, medida, material, simetria, proc_prim, proc_1, proc_2, proc_3, link, item.Codigo_Pieza))
+                """, (desc, medida, material, simetria, proc_prim, proc_1, proc_2, proc_3, link, usuario, item.Codigo_Pieza))
                 procesados += 1
 
         conn.commit()

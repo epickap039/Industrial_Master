@@ -3,6 +3,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:http/http.dart' as http;
 import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../widgets/conflict_dialog.dart';
 
 class ArbitrationScreen extends StatefulWidget {
   const ArbitrationScreen({super.key});
@@ -121,6 +122,7 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
              'Estado': c['Estado'],
              // Meta-datos internos (no esquema)
              'usuario': username,
+             'Modificado_Por': username, // AUDITORÍA DE USUARIO
              '_Estado_Origen': c['Estado'] 
            })
            .toList();
@@ -171,8 +173,38 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
     ));
   }
 
-  // 3. EDICIÓN MANUAL
-  void _showEditDialog(Map<String, dynamic> item) {
+  // 3. EDICIÓN Y RESOLUCIÓN
+  void _showEditDialog(Map<String, dynamic> item) async {
+    // Si es CONFLICTO, mostrar primero el diálogo de resolución
+    if (item['Estado'] == 'CONFLICTO' && item['is_manual_edit'] != true) {
+      final result = await showDialog(
+        context: context,
+        builder: (c) => ConflictResolutionDialog(item: item),
+      );
+
+      if (result == 'EXCEL') {
+        setState(() {
+          item['Estado'] = 'LISTO'; // Cambio visual para indicar resuelto
+          _selectedUpdates.add(item['Codigo_Pieza']);
+        });
+        return;
+      } else if (result == 'SQL') {
+        setState(() {
+          item['Estado'] = 'IGNORADO'; // Cambio visual para indicar descartado
+          _selectedUpdates.remove(item['Codigo_Pieza']);
+        });
+        return;
+      } else if (result == 'EDIT') {
+        // Continuar a edición manual
+      } else {
+        return; // Cancelado
+      }
+    }
+    
+    _showManualEdit(item);
+  }
+
+  void _showManualEdit(Map<String, dynamic> item) {
     // Inicializar controladores con datos existentes o vacíos
     final descCtrl = TextEditingController(text: item['Excel_Data']['Descripcion_Excel']);
     final medidaCtrl = TextEditingController(text: item['Excel_Data']['Medida_Excel']);
