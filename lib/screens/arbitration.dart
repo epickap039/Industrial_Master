@@ -107,9 +107,21 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
        final updatesToSend = _conflicts
            .where((c) => _selectedUpdates.contains(c['Codigo_Pieza']))
            .map((c) => {
-             ...c['Excel_Data'],
+             // MAPEO CRÍTICO PARA BACKEND (ERROR 422 FIX)
+             'Codigo_Pieza': c['Codigo_Pieza'],
+             'Descripcion': c['Excel_Data']['Descripcion_Excel'],
+             'Medida': c['Excel_Data']['Medida_Excel'],
+             'Material': c['Excel_Data']['Material_Excel'],
+             'Simetria': c['Excel_Data']['Simetria'] ?? "No",
+             'Proceso_Primario': c['Excel_Data']['Proceso_Primario'],
+             'Proceso_1': c['Excel_Data']['Proceso_1'],
+             'Proceso_2': c['Excel_Data']['Proceso_2'],
+             'Proceso_3': c['Excel_Data']['Proceso_3'],
+             'Link_Drive': c['Excel_Data']['Link_Drive'],
+             'Estado': c['Estado'],
+             // Meta-datos internos (no esquema)
              'usuario': username,
-             '_Estado_Origen': c['Estado'] // Meta-dato crítico para el backend
+             '_Estado_Origen': c['Estado'] 
            })
            .toList();
 
@@ -118,15 +130,19 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
        final response = await http.post(
          Uri.parse('http://127.0.0.1:8001/api/excel/sincronizar'),
          headers: {'Content-Type': 'application/json'},
-         body: json.encode({'updates': updatesToSend}),
+         body: json.encode(updatesToSend), // Enviar lista directa si el backend lo espera así, o envolver en {'updates': ...}
        );
 
+       // NOTA: El backend espera List<SincronizacionItem>, no un objeto con clave 'updates'.
+       // CORRECCIÓN: server.py definía `async def sincronizar_excel(items: List[SincronizacionItem]):`
+       // Por tanto, debemos enviar la lista directamente.
+       
        if (response.statusCode == 200) {
          final result = json.decode(response.body);
          
          await showDialog(context: context, builder: (c) => ContentDialog(
              title: const Text("Sincronización Completada"),
-             content: Text("Procesados: ${result['processed']}\nErrores: ${result['errors'].length}"),
+             content: Text("Mensaje: ${result['message']}"),
              actions: [Button(child: const Text("OK"), onPressed: () => Navigator.pop(c))]
          ));
 
@@ -138,7 +154,7 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
          });
 
        } else {
-         throw Exception("Error Backend: ${response.statusCode}");
+         throw Exception("Error Backend: ${response.statusCode} - ${response.body}");
        }
      } catch (e) {
        _showError(e.toString());
@@ -330,16 +346,15 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
           ),
 
           // HEADER TABLA
-          // HEADER TABLA
           Container(
             padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
             color: FluentTheme.of(context).cardColor,
             child: Row(
               children: [
-                SizedBox(width: 50, child: Checkbox(
+                SizedBox(width: 60, child: Center(child: Checkbox(
                   checked: _selectedUpdates.isNotEmpty && _filteredList.every((c) => _selectedUpdates.contains(c['Codigo_Pieza'])),
                   onChanged: (v) => _selectAllVisible()
-                )),
+                ))),
                 const Expanded(flex: 2, child: Text("CÓDIGO", style: TextStyle(fontWeight: FontWeight.bold))),
                 const Expanded(flex: 4, child: Text("VALOR EXCEL", style: TextStyle(color: Colors.successPrimaryColor, fontWeight: FontWeight.bold))),
                 const SizedBox(width: 30), 
@@ -371,13 +386,13 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
                   padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
                   child: Row(
                     children: [
-                      // 1. Checkbox (50px)
-                      SizedBox(width: 50, child: Checkbox(
+                      // 1. Checkbox Centrado y Espaciado (60px)
+                      SizedBox(width: 60, child: Center(child: Checkbox(
                         checked: isSelected,
                         onChanged: (v) => setState(() {
                           v == true ? _selectedUpdates.add(codigo) : _selectedUpdates.remove(codigo);
                         })
-                      )),
+                      ))),
                       
                       // 2. Código (Flex 2)
                       Expanded(flex: 2, child: Text(codigo, style: const TextStyle(fontWeight: FontWeight.bold))),
