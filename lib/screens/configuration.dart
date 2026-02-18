@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 
 
@@ -128,6 +129,29 @@ class _ConfigurationScreenState extends State<ConfigurationScreen> {
             const SizedBox(height: 30),
             const Divider(),
             const SizedBox(height: 30),
+            const Text('Actualizador de Hipervínculos', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 10),
+            const Text(
+              'Escanea la carpeta de ingeniería buscando archivos (PDF/JPG) que coincidan con los códigos de pieza y actualiza sus enlaces en la base de datos.',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 15),
+            Button(
+              onPressed: _isScanning || _pathController.text.isEmpty ? null : _updateLinks,
+              child: _isScanning 
+                  ? const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ProgressRing(strokeWidth: 2),
+                        SizedBox(width: 8),
+                        Text('Escaneando archivos...'),
+                      ],
+                    )
+                  : const Text('Escanear y Actualizar Hipervínculos'),
+            ),
+            const SizedBox(height: 30),
+            const Divider(),
+            const SizedBox(height: 30),
             const Text('Diagnóstico de Red', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 10),
             Button(
@@ -143,5 +167,56 @@ class _ConfigurationScreenState extends State<ConfigurationScreen> {
     );
   }
 
+  bool _isScanning = false;
 
+  Future<void> _updateLinks() async {
+    setState(() {
+      _isScanning = true;
+    });
+
+    try {
+      final response = await http.post(
+        Uri.parse('http://192.168.1.73:8001/api/config/update_links'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'root_path': _pathController.text}),
+      ).timeout(const Duration(minutes: 5));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (mounted) {
+           displayInfoBar(context, builder: (context, close) {
+            return InfoBar(
+              title: const Text('Escaneo Completado'),
+              content: Text('Se actualizaron ${data['updated']} enlaces correctamente.'),
+              severity: InfoBarSeverity.success,
+              onClose: close,
+            );
+          });
+        }
+      } else {
+        throw Exception("Error del servidor: ${response.body}");
+      }
+    } catch (e) {
+      if (mounted) {
+        _showErrorDialog("Error al escanear: $e");
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isScanning = false);
+      }
+    }
+  }
+
+  void _showErrorDialog(String msg) {
+    showDialog(
+      context: context,
+      builder: (c) => ContentDialog(
+        title: const Text("Error"),
+        content: Text(msg),
+        actions: [
+          Button(child: const Text("Cerrar"), onPressed: () => Navigator.pop(c)),
+        ],
+      ),
+    );
+  }
 }

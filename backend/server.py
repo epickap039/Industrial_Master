@@ -9,6 +9,8 @@ from contextlib import asynccontextmanager
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel, ConfigDict
 import io
+import os
+import re
 
 # 1. CONFIGURACIÓN SQL (Auto-Detectada con Driver 18 Prioritario)
 DB_SERVER = '192.168.1.73'
@@ -53,8 +55,9 @@ async def lifespan(app: FastAPI):
     print(f"--- LISTENING ON 0.0.0.0:8001 ---")
     try:
         init_auth_db()
+        init_audit_table()
     except Exception as e:
-        print(f"ERROR INITIALIZING AUTH DB: {e}")
+        print(f"ERROR INITIALIZING DBs: {e}")
     yield
     print("--- SERVER SHUTTING DOWN ---")
 
@@ -110,9 +113,32 @@ def init_auth_db():
                 cursor.execute("INSERT INTO Tbl_Usuarios (Username, Password, Role) VALUES (?, ?, ?)", (user, password, role))
         
         conn.commit()
+    finally:
+        conn.close()
+
+def init_audit_table():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        query = """
+        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Tbl_Auditoria_Cambios')
+        BEGIN
+            CREATE TABLE Tbl_Auditoria_Cambios (
+                ID_Log INT IDENTITY(1,1) PRIMARY KEY,
+                Codigo_Pieza VARCHAR(50),
+                Accion VARCHAR(50),
+                Valor_Anterior NVARCHAR(MAX),
+                Valor_Nuevo NVARCHAR(MAX),
+                Usuario VARCHAR(100),
+                Fecha_Hora DATETIME DEFAULT GETDATE()
+            );
+        END
+        """
+        cursor.execute(query)
+        conn.commit()
+        print("--- ✅ TABLA DE AUDITORIA VERIFICADA/CREADA ---")
     except Exception as e:
-        conn.rollback()
-        raise e
+        print(f"ERROR AL INICIALIZAR AUDITORIA: {e}")
     finally:
         conn.close()
 
@@ -391,10 +417,26 @@ async def sincronizar_excel(items: List[SincronizacionItem]):
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, GETDATE(), ?)
                     END
                 """, (item.Codigo_Pieza, item.Codigo_Pieza, desc, medida, material, simetria, proc_prim, proc_1, proc_2, proc_3, link, usuario))
-                procesados += 1
+                
+                if cursor.rowcount > 0:
+                    procesados += 1
+                    # Log Auditoría CREACIÓN
+                    try:
+                        cursor.execute("""
+                            INSERT INTO Tbl_Auditoria_Cambios (Codigo_Pieza, Accion, Valor_Anterior, Valor_Nuevo, Usuario)
+                            VALUES (?, ?, ?, ?, ?)
+                        """, (item.Codigo_Pieza, 'CREACION', 'NO EXISTIA', str(item.model_dump()), usuario))
+                    except Exception as audit_e:
+                        print(f"ERROR AUDITORIA INSERT: {audit_e}")
                 
             elif item.Estado == "CONFLICTO":
                 # Lógica de Actualización (UPDATE COMPLETO)
+                # 1. Obtener datos anteriores
+                cursor.execute("SELECT * FROM Tbl_Maestro_Piezas WHERE Codigo_Pieza = ?", (item.Codigo_Pieza,))
+                row_old = cursor.fetchone()
+                val_anterior = str(row_old) if row_old else "DESCONOCIDO"
+
+                # 2. Ejecutar Update
                 cursor.execute("""
                     UPDATE Tbl_Maestro_Piezas
                     SET Descripcion = ?,
@@ -410,7 +452,17 @@ async def sincronizar_excel(items: List[SincronizacionItem]):
                         Modificado_Por = ?
                     WHERE Codigo_Pieza = ?
                 """, (desc, medida, material, simetria, proc_prim, proc_1, proc_2, proc_3, link, usuario, item.Codigo_Pieza))
-                procesados += 1
+                
+                if cursor.rowcount > 0:
+                    procesados += 1
+                    # Log Auditoría MODIFICACIÓN
+                    try:
+                        cursor.execute("""
+                            INSERT INTO Tbl_Auditoria_Cambios (Codigo_Pieza, Accion, Valor_Anterior, Valor_Nuevo, Usuario)
+                            VALUES (?, ?, ?, ?, ?)
+                        """, (item.Codigo_Pieza, 'MODIFICACION', val_anterior, str(item.model_dump()), usuario))
+                    except Exception as audit_e:
+                        print(f"ERROR AUDITORIA UPDATE: {audit_e}")
 
         conn.commit()
         return {"status": "ok", "message": f"{procesados} registros sincronizados exitosamente."}
@@ -419,6 +471,64 @@ async def sincronizar_excel(items: List[SincronizacionItem]):
         conn.rollback()
         print(f"Error en sincronizacion: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error al sincronizar BD: {str(e)}")
+    finally:
+        conn.close()
+
+# 7. CONFIGURACIÓN Y UTILIDADES (ACTUALIZADOR DE LINKS)
+@app.post("/api/config/update_links")
+async def update_links(payload: Dict[str, str]):
+    root_path = payload.get('root_path')
+    if not root_path or not os.path.exists(root_path):
+        raise HTTPException(status_code=400, detail="Ruta base inválida o inaccesible")
+
+    print(f"--- INICIANDO ESCANEO DE ARCHIVOS EN: {root_path} ---")
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # 1. Obtener todos los códigos de pieza existentes
+        cursor.execute("SELECT Codigo_Pieza FROM Tbl_Maestro_Piezas")
+        piezas = [row[0] for row in cursor.fetchall() if row[0]]
+        
+        updated_count = 0
+        match_map = {} # Codigo -> Path
+
+        # 2. Caminar el directorio (os.walk)
+        for root, dirs, files in os.walk(root_path):
+            for file in files:
+                # Filtrar por extensiones comunes
+                if not file.lower().endswith(('.pdf', '.jpg', '.jpeg', '.png', '.dwg')):
+                    continue
+                
+                # Buscar coincidencias con los códigos de pieza
+                for codigo in piezas:
+                    # Coincidencia si el nombre del archivo CONTIENE el código
+                    if codigo.lower() in file.lower():
+                        # Si hay múltiples archivos, tomamos el primero o el más corto (heurística simple)
+                        full_path = os.path.join(root, file)
+                        if codigo not in match_map:
+                            match_map[codigo] = full_path
+                        
+        # 3. Aplicar Updates
+        for codigo, path in match_map.items():
+            cursor.execute("""
+                UPDATE Tbl_Maestro_Piezas 
+                SET Link_Drive = ?, 
+                    Ultima_Actualizacion = GETDATE(),
+                    Modificado_Por = 'Escáner Automático'
+                WHERE Codigo_Pieza = ?
+            """, (path, codigo))
+            updated_count += cursor.rowcount
+
+        conn.commit()
+        print(f"--- ESCANEO FINALIZADO: {updated_count} links actualizados ---")
+        return {"status": "ok", "updated": updated_count}
+
+    except Exception as e:
+        conn.rollback()
+        print(f"ERROR EN ESCANEO: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
 
