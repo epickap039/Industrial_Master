@@ -173,7 +173,7 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
     ));
   }
 
-  // 3. EDICIÓN Y RESOLUCIÓN
+  // 3. EDICIÓN Y RESOLUCIÓN (LÓGICA "RESOLVER Y DESAPARECER")
   void _showEditDialog(Map<String, dynamic> item) async {
     // Si es CONFLICTO, mostrar primero el diálogo de resolución
     if (item['Estado'] == 'CONFLICTO' && item['is_manual_edit'] != true) {
@@ -182,26 +182,101 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
         builder: (c) => ConflictResolutionDialog(item: item),
       );
 
-      if (result == 'EXCEL') {
-        setState(() {
-          item['Estado'] = 'LISTO'; // Cambio visual para indicar resuelto
-          _selectedUpdates.add(item['Codigo_Pieza']);
-        });
-        return;
-      } else if (result == 'SQL') {
-        setState(() {
-          item['Estado'] = 'IGNORADO'; // Cambio visual para indicar descartado
-          _selectedUpdates.remove(item['Codigo_Pieza']);
-        });
-        return;
-      } else if (result == 'EDIT') {
-        // Continuar a edición manual
-      } else {
-        return; // Cancelado
+      if (result == null) return; // Cancelado
+
+      if (result is Map) {
+        final action = result['action'];
+        
+        // OPCIÓN A: USAR EXCEL (SINCRONIZAR YA)
+        if (action == 'SYNC_EXCEL') {
+           // 1. Mostrar carga
+           setState(() => _isLoading = true);
+           
+           // 2. Preparar ítem único para sync
+           final itemToSync = {
+             'Codigo_Pieza': item['Codigo_Pieza'],
+             'Descripcion': result['data']['Descripcion_Excel'],
+             'Medida': result['data']['Medida_Excel'],
+             'Material': result['data']['Material_Excel'],
+             'Simetria': result['data']['Simetria'] ?? "No",
+             'Proceso_Primario': result['data']['Proceso_Primario'],
+             'Proceso_1': result['data']['Proceso_1'],
+             'Proceso_2': result['data']['Proceso_2'],
+             'Proceso_3': result['data']['Proceso_3'],
+             'Link_Drive': result['data']['Link_Drive'],
+             'Estado': 'CONFLICTO', // Para que el backend sepa que es update
+             'usuario': 'Arbitro Rapido',
+             'Modificado_Por': 'Arbitro Rapido', 
+           };
+
+           // 3. Llamar al backend
+           try {
+             await _syncSingleItem(itemToSync);
+             
+             // 4. Éxito: Desaparecer de la lista
+             if (mounted) {
+               setState(() {
+                 _conflicts.removeWhere((c) => c['Codigo_Pieza'] == item['Codigo_Pieza']);
+                 _selectedUpdates.remove(item['Codigo_Pieza']);
+                 _isLoading = false;
+               });
+               _showSnack("Resolución aplicada: ${item['Codigo_Pieza']} (Datos Excel)");
+             }
+           } catch (e) {
+             if (mounted) setState(() => _isLoading = false);
+             _showError("Error al sincronizar: $e");
+           }
+           return;
+        }
+
+        // OPCIÓN B: MANTENER BD (IGNORAR Y DESAPARECER)
+        if (action == 'KEEP_DB') {
+          setState(() {
+            _conflicts.removeWhere((c) => c['Codigo_Pieza'] == item['Codigo_Pieza']);
+            _selectedUpdates.remove(item['Codigo_Pieza']);
+          });
+          _showSnack("Ignorado: ${item['Codigo_Pieza']} (Se mantiene BD)");
+          return;
+        }
+
+        // OPCIÓN C: EDITAR MANUAL
+        if (action == 'EDIT_MANUAL') {
+          await Future.delayed(const Duration(milliseconds: 100));
+          _showManualEdit(item); // Abre formulario
+          return;
+        }
       }
     }
     
+    // Flujo normal o post-edición manual
     _showManualEdit(item);
+  }
+
+  // Helper para sync individual (reutiliza lógica si es posible, o crea nueva)
+  Future<void> _syncSingleItem(Map<String, dynamic> itemPayload) async {
+       final response = await http.post(
+         Uri.parse('http://127.0.0.1:8001/api/excel/sincronizar'),
+         headers: {'Content-Type': 'application/json'},
+         body: json.encode([itemPayload]), // Enviar como lista de 1
+       );
+
+       if (response.statusCode != 200) {
+         throw Exception("Error Backend: ${response.statusCode} - ${response.body}");
+       }
+  }
+
+  void _showSnack(String msg) {
+    displayInfoBar(context, builder: (context, close) {
+      return InfoBar(
+        title: const Text('Éxito'),
+        content: Text(msg),
+        action: IconButton(
+          icon: const Icon(FluentIcons.clear),
+          onPressed: close,
+        ),
+        severity: InfoBarSeverity.success,
+      );
+    });
   }
 
   void _showManualEdit(Map<String, dynamic> item) {
