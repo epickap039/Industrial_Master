@@ -278,7 +278,7 @@ async def procesar_excel(file: UploadFile = File(...)):
         conflictos = []
         
         for item in scan_data:
-            cursor.execute("SELECT Descripcion, Medida, Material FROM Tbl_Maestro_Piezas WHERE Codigo_Pieza = ?", (item['Codigo_Pieza'],))
+            cursor.execute("SELECT Descripcion, Medida, Material, Simetria, Proceso_Primario, Proceso_1, Proceso_2, Proceso_3, Link_Drive FROM Tbl_Maestro_Piezas WHERE Codigo_Pieza = ?", (item['Codigo_Pieza'],))
             row_sql = cursor.fetchone()
             
             status = "OK"
@@ -286,10 +286,30 @@ async def procesar_excel(file: UploadFile = File(...)):
 
             if not row_sql:
                 status = "NUEVO"
+                sql_data = {}
             else:
                 desc_sql = (row_sql[0] or "").strip()
                 med_sql = (row_sql[1] or "").strip()
                 mat_sql = (row_sql[2] or "").strip()
+                # Otros campos para mostrar en UI
+                sim_sql = (row_sql[3] or "").strip()
+                pp_sql = (row_sql[4] or "").strip()
+                p1_sql = (row_sql[5] or "").strip()
+                p2_sql = (row_sql[6] or "").strip()
+                p3_sql = (row_sql[7] or "").strip()
+                link_sql = (row_sql[8] or "").strip()
+
+                sql_data = {
+                    'Descripcion': desc_sql,
+                    'Medida': med_sql,
+                    'Material': mat_sql,
+                    'Simetria': sim_sql,
+                    'Proceso_Primario': pp_sql,
+                    'Proceso_1': p1_sql,
+                    'Proceso_2': p2_sql,
+                    'Proceso_3': p3_sql,
+                    'Link_Drive': link_sql
+                }
 
                 # Comparación Flexible (Case Insensitive)
                 if item['Descripcion_Excel'].lower() != desc_sql.lower():
@@ -307,7 +327,8 @@ async def procesar_excel(file: UploadFile = File(...)):
                     'Codigo_Pieza': item['Codigo_Pieza'],
                     'Estado': status,
                     'Detalles': "; ".join(detalles),
-                    'Excel_Data': item
+                    'Excel_Data': item,
+                    'SQL_Data': sql_data # <--- DATOS FALTANTES
                 })
 
         return {
