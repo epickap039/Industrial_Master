@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:http/http.dart' as http;
 import 'package:file_picker/file_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class SettingsScreen extends StatefulWidget {
   final bool isDarkMode;
@@ -18,41 +19,71 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  String _connectionStatus = 'Verificando...';
-  Color _statusColor = Colors.yellow;
+  // Estado para Conexión
+  String _connectionStatus = 'Sin verificar';
+  Color _statusColor = Colors.grey;
+  bool _isChecking = false;
+
+  // Estado para Sincronización
   bool _isSyncing = false;
 
   @override
   void initState() {
     super.initState();
-    _checkConnection();
+    _checkConnection(silent: true);
   }
 
-  Future<void> _checkConnection() async {
+  Future<void> _checkConnection({bool silent = false}) async {
+    setState(() {
+      _isChecking = true;
+      _connectionStatus = 'Conectando...';
+      _statusColor = Colors.blue;
+    });
+
     try {
-      final response = await http.get(Uri.parse('http://192.168.1.73:8001/docs'));
+      final response = await http.get(Uri.parse('http://192.168.1.73:8001/api/catalog?limit=1')).timeout(const Duration(seconds: 3));
+      
       if (response.statusCode == 200) {
         if (mounted) {
           setState(() {
-            _connectionStatus = 'Conectado (Puerto 8001)';
-            _statusColor = Colors.green;
+            _connectionStatus = 'Conectado (Online)';
+            _statusColor = Colors.successPrimaryColor;
           });
+          
+          if (!silent) {
+            displayInfoBar(context, builder: (context, close) {
+              return InfoBar(
+                title: const Text('Diagnóstico Exitoso'),
+                content: const Text('✅ El servidor SQL y la API están respondiendo correctamente.'),
+                severity: InfoBarSeverity.success,
+                onClose: close,
+              );
+            });
+          }
         }
       } else {
-        if (mounted) {
-          setState(() {
-            _connectionStatus = 'Error: ${response.statusCode}';
-            _statusColor = Colors.red;
-          });
-        }
+        throw Exception("Error API: ${response.statusCode}");
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _connectionStatus = 'Desconectado';
-          _statusColor = Colors.red;
+          _connectionStatus = 'Sin Conexión';
+          _statusColor = Colors.errorPrimaryColor;
         });
+
+        if (!silent) {
+           displayInfoBar(context, builder: (context, close) {
+              return InfoBar(
+                title: const Text('Fallo de Conexión'),
+                content: Text('❌ No se pudo conectar al servidor: $e'),
+                severity: InfoBarSeverity.error,
+                onClose: close,
+              );
+            });
+        }
       }
+    } finally {
+      if (mounted) setState(() => _isChecking = false);
     }
   }
 
@@ -61,53 +92,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['xlsx'],
-        dialogTitle: 'Selecciona Listado_PDFs_BD.xlsx',
+        dialogTitle: 'Seleccionar Listado de Enlaces (Excel)',
       );
 
-      if (result != null && result.files.single.path != null) {
-        setState(() => _isSyncing = true);
-        
-        String filePath = result.files.single.path!;
-        
-        final response = await http.post(
-          Uri.parse('http://192.168.1.73:8001/api/sync/drive'),
-          headers: {'Content-Type': 'application/json'},
-          body: json.encode({'excel_path': filePath}),
-        );
+      if (result == null || result.files.single.path == null) return;
 
-        if (response.statusCode == 200) {
-          final data = json.decode(response.body);
-          int count = data['updated_count'];
-          
-          if (mounted) {
-            displayInfoBar(context, builder: (context, close) {
-              return InfoBar(
-                title: const Text('Sincronización Exitosa'),
-                content: Text('Se actualizaron $count enlaces de Drive.'),
-                severity: InfoBarSeverity.success,
-                onClose: close,
-              );
-            });
-          }
-        } else {
-          final error = json.decode(response.body)['detail'];
-          if (mounted) {
-            displayInfoBar(context, builder: (context, close) {
-              return InfoBar(
-                title: const Text('Error de Sincronización'),
-                content: Text(error.toString()),
-                severity: InfoBarSeverity.error,
-                onClose: close,
-              );
-            });
-          }
+      setState(() => _isSyncing = true);
+      
+      final filePath = result.files.single.path!;
+      final fileName = result.files.single.name;
+
+      var request = http.MultipartRequest(
+        'POST',
+        Uri.parse('http://192.168.1.73:8001/api/excel/actualizar_enlaces'),
+      );
+
+      request.files.add(await http.MultipartFile.fromPath('file', filePath));
+
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (mounted) {
+          displayInfoBar(context, builder: (context, close) {
+            return InfoBar(
+              title: const Text('Sincronización Exitosa'),
+              content: Text('Se actualizaron ${data['actualizados']} enlaces desde "$fileName".'),
+              severity: InfoBarSeverity.success,
+              onClose: close,
+            );
+          });
         }
+      } else {
+        String errorDetail = response.body;
+        try {
+          final errorData = json.decode(response.body);
+          if (errorData is Map && errorData.containsKey('detail')) {
+            errorDetail = errorData['detail'].toString();
+          }
+        } catch (_) {}
+        throw Exception("Error del servidor (${response.statusCode}): $errorDetail");
       }
     } catch (e) {
       if (mounted) {
         displayInfoBar(context, builder: (context, close) {
           return InfoBar(
-            title: const Text('Error Crítico'),
+            title: const Text('Error de Sincronización'),
             content: Text(e.toString()),
             severity: InfoBarSeverity.error,
             onClose: close,
@@ -122,75 +153,82 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return ScaffoldPage(
-      header: const PageHeader(title: Text('Configuración')),
+      header: const PageHeader(title: Text('Configuración del Sistema')),
       content: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          // Sección de Apariencia
-          Card(
-            child: Column(
+          // 1. APARIENCIA
+          Expander(
+            header: const Text('Apariencia', style: TextStyle(fontWeight: FontWeight.bold)),
+            initiallyExpanded: true,
+            content: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Apariencia',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                const SizedBox(height: 10),
                 ToggleSwitch(
                   checked: widget.isDarkMode,
                   onChanged: widget.onThemeChanged,
-                  content: Text(widget.isDarkMode ? 'Modo Oscuro' : 'Modo Claro'),
+                  content: Text(widget.isDarkMode ? 'Modo Oscuro Activado' : 'Modo Claro Activado'),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 10),
 
-          // Sección de Conexión
-          Card(
-            child: Column(
+          // 2. DIAGNÓSTICO DE RED (Modificado)
+          Expander(
+            header: const Text('Diagnóstico de Red', style: TextStyle(fontWeight: FontWeight.bold)),
+            initiallyExpanded: true,
+            content: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Estado del Servidor',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                const SizedBox(height: 10),
                 Row(
                   children: [
-                    Container(
-                      width: 12,
-                      height: 12,
-                      decoration: BoxDecoration(
-                        color: _statusColor,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
+                    const Text('Estado del Servidor:', style: TextStyle(fontWeight: FontWeight.w600)),
                     const SizedBox(width: 10),
+                    Container(
+                      width: 10,
+                      height: 10,
+                      decoration: BoxDecoration(color: _statusColor, shape: BoxShape.circle),
+                    ),
+                    const SizedBox(width: 8),
                     Text(_connectionStatus),
                     const Spacer(),
                     Button(
-                      onPressed: _checkConnection,
-                      child: const Text('Comprobar'),
+                      // Acción modificada: usa la nueva lógica con feedback visual
+                      onPressed: _isChecking ? null : () => _checkConnection(silent: false),
+                      child: _isChecking ? const ProgressRing(strokeWidth: 2.0) : const Text('Ejecutar Diagnóstico'),
                     ),
                   ],
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Prueba la conexión con el servidor (192.168.1.73:8001) y la base de datos SQL.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 20),
-          
-          // Sección de Mantenimiento de Datos
-          Card(
-            child: Column(
+          const SizedBox(height: 10),
+
+          // 3. MANTENIMIENTO
+          Expander(
+            header: const Text('Mantenimiento de Datos', style: TextStyle(fontWeight: FontWeight.bold)),
+            initiallyExpanded: true,
+            content: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Mantenimiento de Datos',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                const SizedBox(height: 10),
-                const Text('Sincronizar enlaces de archivos PDF/Drive desde Excel Maestro.'),
-                const SizedBox(height: 10),
+                const Text('Sincronización de Enlaces (Drive/PDF)', style: TextStyle(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 5),
+                const Text(
+                  'Carga un archivo Excel ("Listado_PDFs_BD.xlsx") para actualizar masivamente los enlaces de Google Drive en el Catálogo Maestro.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const SizedBox(height: 15),
                 _isSyncing 
-                  ? const ProgressRing()
+                  ? const ProgressBar()
                   : Button(
                       onPressed: _syncDriveLinks,
-                      child: const Text('Actualizar Enlaces Drive (Excel)'),
+                      child: const Text('Actualizar Enlaces Drive (Desde Excel)'),
                     ),
               ],
             ),

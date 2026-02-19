@@ -3,7 +3,8 @@ import uvicorn
 import pyodbc
 import pandas as pd
 import openpyxl
-from fastapi import FastAPI, HTTPException, Request, Response, UploadFile, File
+from fastapi import FastAPI, HTTPException, Request, Response, UploadFile, File, Form
+from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from typing import Dict, Any, List, Optional
@@ -54,36 +55,14 @@ async def lifespan(app: FastAPI):
     print(f"--- SERVER STARTED on {ADMIN_HOSTNAME} ---")
     print(f"--- LISTENING ON 0.0.0.0:8001 ---")
     
-    # Sistema de Auditoría Forzada
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Tbl_Auditoria_Cambios')
-            BEGIN
-                CREATE TABLE Tbl_Auditoria_Cambios (
-                    ID_Log INT IDENTITY(1,1) PRIMARY KEY,
-                    Codigo_Pieza VARCHAR(50),
-                    Accion VARCHAR(50),
-                    Valor_Anterior NVARCHAR(MAX),
-                    Valor_Nuevo NVARCHAR(MAX),
-                    Usuario VARCHAR(100),
-                    Fecha_Hora DATETIME DEFAULT GETDATE()
-                );
-            END
-        """)
-        conn.commit()
-        print("--- ✅ SISTEMA DE AUDITORIA INICIALIZADO CORRECTAMENTE ---")
-    except Exception as e:
-        print(f"--- ⚠️ ALERTA SQL: {e} ---")
-    finally:
-        if 'conn' in locals():
-            conn.close()
-
+    # Inicializaciones Seguras
+    iniciar_auditoria()
+    
     try:
         init_auth_db()
     except Exception as e:
-        print(f"ERROR INITIALIZING DBs: {e}")
+        print(f"ERROR INITIALIZING AUTH DB: {e}")
+    
     yield
     print("--- SERVER SHUTTING DOWN ---")
 
@@ -142,8 +121,35 @@ def init_auth_db():
     finally:
         conn.close()
 
+def iniciar_auditoria():
+    """Crea la tabla de auditoría si no existe. No detiene el arranque si falla."""
+    print("--- INICIANDO SISTEMA DE AUDITORIA ---")
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Tbl_Auditoria_Cambios')
+            BEGIN
+                CREATE TABLE Tbl_Auditoria_Cambios (
+                    ID_Log INT IDENTITY(1,1) PRIMARY KEY,
+                    Codigo_Pieza VARCHAR(50),
+                    Accion VARCHAR(50),
+                    Valor_Anterior NVARCHAR(MAX),
+                    Valor_Nuevo NVARCHAR(MAX),
+                    Usuario VARCHAR(100),
+                    Fecha_Hora DATETIME DEFAULT GETDATE()
+                );
+            END
+        """)
+        conn.commit()
+        print("--- ✅ SISTEMA DE AUDITORIA INICIALIZADO CORRECTAMENTE ---")
+    except Exception as e:
+        print(f"--- ⚠️ ALERTA SQL (Auditoría): {e} ---")
     finally:
-        conn.close()
+        try:
+             conn.close()
+        except:
+             pass
 
 # 3. GESTIÓN DE DATOS (Mapeo)
 @app.get("/api/catalog")
@@ -541,6 +547,331 @@ async def update_links(payload: Dict[str, str]):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if 'conn' in locals(): conn.close()
+
+@app.post("/api/excel/actualizar_enlaces")
+async def actualizar_enlaces_manual(file: UploadFile = File(...)):
+    """
+    Actualiza enlaces Drive desde un Excel cargado por el usuario.
+    Estructura: Col 0 = Código, Col 1 = Link_Drive
+    """
+    print(f"--- ACTUALIZANDO ENLACES DESDE EXCEL MANUAL: {file.filename} ---")
+    contents = await file.read()
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # 1. Leer Excel (Memoria)
+        wb = openpyxl.load_workbook(io.BytesIO(contents), data_only=True)
+        ws = wb.active
+        
+        updated_count = 0
+        row_idx = 0
+        
+        # 2. Iterar filas
+        for row in ws.iter_rows(values_only=True):
+            row_idx += 1
+            # Saltar encabezado (fila 1)
+            if row_idx == 1:
+                continue
+                
+            if not row or len(row) < 2:
+                continue
+                
+            codigo = str(row[0]).strip() if row[0] else None
+            link = str(row[1]).strip() if row[1] else None
+            
+            # Solo procesar si hay código y link válido
+            if codigo and link and link.lower() != 'nan' and link != "" and link != "-":
+                cursor.execute("""
+                    UPDATE Tbl_Maestro_Piezas 
+                    SET Link_Drive = ?, 
+                        Ultima_Actualizacion = GETDATE(),
+                        Modificado_Por = 'Sincronizador Manual (Excel)'
+                    WHERE Codigo_Pieza = ?
+                """, (link, codigo))
+                
+                if cursor.rowcount == 0:
+                    # Fallback eliminado: La columna 'Codigo' no existe en esta versión de la BD.
+                    # Si se requiere soporte legacy, asegurar que la columna exista primero.
+                    print(f"--- AVISO: Codigo '{codigo}' no encontrado por Codigo_Pieza ---")
+
+                
+                updated_count += cursor.rowcount
+
+        conn.commit()
+        print(f"--- ACTUALIZACIÓN MANUAL FINALIZADA: {updated_count} enlaces actualizados ---")
+        return {"status": "ok", "actualizados": updated_count}
+
+    except Exception as e:
+        if 'conn' in locals(): conn.rollback()
+        print(f"ERROR EN ACTUALIZACIÓN MANUAL: {e}")
+        raise HTTPException(status_code=500, detail=f"Error procesando Excel: {str(e)}")
+    finally:
+        if 'conn' in locals(): conn.close()
+
+# --- FASE 12 y 13: AUDITOR AVANZADO Y HERRAMIENTAS ---
+
+@app.post("/api/excel/auditar")
+async def auditar_excel(file: UploadFile = File(...)):
+    """
+    Audita un archivo Excel comparando múltiples columnas con la BD.
+    Retorna errores puntuales para UI y reporte detallado para Excel.
+    """
+    print(f"--- INICIANDO AUDITORÍA AVANZADA: {file.filename} ---")
+    contents = await file.read()
+    
+    errores = []
+    reporte_detallado = [] # Lista de objetos con contexto completo
+    
+    field_map = {
+        'Descripcion': 4,
+        'Medida': 5,
+        'Simetria': 7,
+        'Proceso_Primario': 8,
+        'Proceso_1': 9,
+        'Proceso_2': 10,
+        'Proceso_3': 11
+    }
+
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(contents), data_only=True)
+        ws = wb.active
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        for row_idx, row in enumerate(ws.iter_rows(min_row=6, values_only=True), start=6):
+            if not row or len(row) < 12: 
+                continue
+            
+            codigo_excel = str(row[3]).strip() if row[3] else None
+            if not codigo_excel: continue
+
+            cursor.execute("""
+                SELECT Descripcion, Medida, Simetria, Proceso_Primario, Proceso_1, Proceso_2, Proceso_3 
+                FROM Tbl_Maestro_Piezas WHERE Codigo_Pieza = ?
+            """, (codigo_excel,))
+            row_bd = cursor.fetchone()
+            
+            if row_bd:
+                vals_bd = {
+                    'Descripcion': str(row_bd[0] or "").strip(),
+                    'Medida': str(row_bd[1] or "").strip(),
+                    'Simetria': str(row_bd[2] or "").strip(),
+                    'Proceso_Primario': str(row_bd[3] or "").strip(),
+                    'Proceso_1': str(row_bd[4] or "").strip(),
+                    'Proceso_2': str(row_bd[5] or "").strip(),
+                    'Proceso_3': str(row_bd[6] or "").strip(),
+                }
+                
+                vals_excel = {}
+                row_diffs = []
+
+                # Recolectar datos y diffs
+                for field, col_idx in field_map.items():
+                    val_excel = str(row[col_idx]).strip() if row[col_idx] else ""
+                    vals_excel[field] = val_excel
+                    
+                    if val_excel != vals_bd[field]:
+                         errores.append({
+                            "fila": row_idx,
+                            "codigo": codigo_excel,
+                            "campo": field,
+                            "excel": val_excel,
+                            "bd": vals_bd[field]
+                        })
+                         row_diffs.append(field)
+                
+                # Si hubo diferencias en esta fila, guardamos contexto completo
+                if row_diffs:
+                    reporte_detallado.append({
+                        "fila": row_idx,
+                        "codigo": codigo_excel,
+                        "excel_data": vals_excel,
+                        "bd_data": vals_bd,
+                        "campos_error": row_diffs
+                    })
+
+        print(f"--- AUDITORÍA FINALIZADA: {len(errores)} discrepancias en {len(reporte_detallado)} filas ---")
+        return {"status": "ok", "errores": errores, "reporte_detallado": reporte_detallado}
+
+    except Exception as e:
+        print(f"ERROR AUDITORIA: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if 'conn' in locals(): conn.close()
+
+from datetime import datetime
+import json
+
+@app.post("/api/excel/corregir")
+async def corregir_excel(
+    file: UploadFile = File(...), 
+    correcciones: str = Form(...), # JSON String
+    file_path: str = Form(...) # Ruta local completa
+):
+    print(f"--- INICIANDO AUTOCORRECCIÓN SEGURA: {file_path} ---")
+    
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="El archivo original no se encuentra en la ruta especificada.")
+
+    try:
+        corrections_list = json.loads(correcciones)
+        
+        # 1. RESPALDO CRÍTICO
+        timestamp = datetime.now().strftime('%d-%m-%Y_%H%M%S')
+        base, ext = os.path.splitext(file_path)
+        backup_path = f"{base}-retirado-{timestamp}{ext}"
+        
+        os.rename(file_path, backup_path)
+        print(f"Respaldo creado: {backup_path}")
+        
+        # 2. APLICAR CORRECCIONES (Sobre el respaldo, para guardar como nuevo original)
+        wb = openpyxl.load_workbook(backup_path) # No data_only para preservar FÓRMULAS no afectadas
+        ws = wb.active # Asumimos hoja activa. Idealmente deberíamos saber la hoja, pero para este caso sirve.
+        
+        # Mapeo Campo -> Columna (1-based para cell.column)
+        # D(4)=Codigo, E(5)=Desc, F(6)=Medida, H(8)=Simetria
+        # PROCESOS DISTRIBUIDOS (NO COMBINADOS):
+        # I(9)=Primario, J(10)=Proc1, K(11)=Proc2, L(12)=Proc3
+        col_map = {
+            'Descripcion': 5, # E
+            'Medida': 6,      # F
+            'Simetria': 8,    # H
+            'Proceso_Primario': 9, # I
+            'Proceso_1': 10,  # J
+            'Proceso_2': 11,  # K
+            'Proceso_3': 12   # L
+        }
+
+        count = 0
+        for item in corrections_list:
+            fila = int(item['fila'])
+            campo = item['campo']
+            valor_correcto = item['bd']
+            
+            if campo in col_map:
+                col_idx = col_map[campo]
+                # openpyxl: ws.cell(row=X, column=Y).value = ...
+                ws.cell(row=fila, column=col_idx).value = valor_correcto
+                count += 1
+        
+        # 3. GUARDAR COMO ORIGINAL
+        wb.save(file_path)
+        print(f"Archivo corregido guardado: {file_path} ({count} cambios)")
+        
+        return {"status": "ok", "mensaje": f"Se aplicaron {count} correcciones. Respaldo: {os.path.basename(backup_path)}"}
+
+    except Exception as e:
+        # Intentar restaurar si falló algo crítico después del rename?
+        # Si falló rename, no pasa nada. Si falló save, tenemos backup.
+        print(f"ERROR CORRECCIÓN: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al corregir archivo: {str(e)}")
+
+@app.post("/api/system/open_file")
+async def open_file_endpoint(payload: Dict[str, str]):
+    path = payload.get('path')
+    if not path or not os.path.exists(path):
+         raise HTTPException(status_code=404, detail="Archivo no encontrado")
+    
+    try:
+        os.startfile(path)
+        return {"status": "ok"}
+    except Exception as e:
+         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/excel/exportar_reporte")
+async def exportar_reporte(payload: List[Dict[str, Any]]):
+    """
+    Genera reporte estilo comparativo:
+    Fila Excel
+    Fila BD (Errors Highlighted)
+    [Empty Row]
+    """
+    try:
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Reporte de Auditoria"
+        
+        # Estilos
+        header_font = Font(bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="333333", end_color="333333", fill_type="solid")
+        error_fill = PatternFill(start_color="FFCCCC", end_color="FFCCCC", fill_type="solid") # Rojo claro
+        bd_row_fill = PatternFill(start_color="F0F0F0", end_color="F0F0F0", fill_type="solid") # Gris muy claro
+        
+        headers = ['Fila', 'Código', 'Fuente', 'Descripción', 'Medida', 'Simetría', 'Proceso Primario', 'Proceso 1', 'Proceso 2', 'Proceso 3']
+        ws.append(headers)
+        
+        # Aplicar estilo headers
+        for cell in ws[1]:
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center")
+
+        current_row = 2
+        
+        # Ordenar columnas para iteración
+        col_keys = ['Descripcion', 'Medida', 'Simetria', 'Proceso_Primario', 'Proceso_1', 'Proceso_2', 'Proceso_3']
+
+        for item in payload:
+            fila_orig = item.get('fila', '-')
+            codigo = item.get('codigo', '-')
+            excel_data = item.get('excel_data', {})
+            bd_data = item.get('bd_data', {})
+            errores = item.get('campos_error', [])
+            
+            # --- FILA 1: EXCEL ---
+            ws.cell(row=current_row, column=1, value=fila_orig)
+            ws.cell(row=current_row, column=2, value=codigo)
+            ws.cell(row=current_row, column=3, value="EXCEL").font = Font(bold=True)
+            
+            for idx, key in enumerate(col_keys, start=4):
+                ws.cell(row=current_row, column=idx, value=excel_data.get(key, ""))
+            
+            # --- FILA 2: BASE DE DATOS ---
+            next_row = current_row + 1
+            ws.cell(row=next_row, column=1, value=fila_orig)
+            ws.cell(row=next_row, column=2, value=codigo)
+            ws.cell(row=next_row, column=3, value="BASE DATOS").font = Font(bold=True)
+            
+            for idx, key in enumerate(col_keys, start=4):
+                cell = ws.cell(row=next_row, column=idx, value=bd_data.get(key, ""))
+                cell.fill = bd_row_fill # Default BD style
+                
+                # Highlight si hay error
+                if key in errores:
+                    cell.fill = error_fill
+                    cell.font = Font(bold=True, color="CC0000")
+
+            # Separador (Row vacía)
+            current_row += 3 
+
+        # Auto-width básico
+        for col in ws.columns:
+            max_length = 0
+            column = col[0].column_letter
+            for cell in col:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = (max_length + 2)
+            ws.column_dimensions[column].width = adjusted_width
+
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        
+        headers = {
+            'Content-Disposition': 'attachment; filename="Reporte_Auditoria_Avanzado.xlsx"'
+        }
+        return Response(content=output.read(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
+
+    except Exception as e:
+        print(f"ERROR REPORTE: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8001)

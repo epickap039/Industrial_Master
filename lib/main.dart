@@ -2,7 +2,8 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'screens/catalog.dart';
-import 'screens/configuration.dart';
+
+import 'screens/auditor.dart'; // Fase 12
 import 'screens/arbitration.dart';
 import 'screens/editor.dart';
 import 'screens/settings.dart';
@@ -129,6 +130,11 @@ class _MyAppState extends State<MyApp> {
                     icon: const Icon(FluentIcons.excel_document),
                     title: const Text('Importar Excel'),
                     body: const ArbitrationScreen(),
+                  ),
+                  PaneItem(
+                    icon: const Icon(FluentIcons.search_and_apps),
+                    title: const Text('Auditor de Archivos'),
+                    body: const AuditorScreen(), // Nueva pantalla Fase 12
                   ),
                 ],
                 footerItems: [
