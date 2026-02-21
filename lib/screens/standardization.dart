@@ -173,6 +173,28 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
     }
   }
 
+  Future<void> _hacerOficial(String desc) async {
+    setState(() => _isLoading = true);
+    try {
+      final response = await http.post(
+        Uri.parse('$API_URL/api/config/materiales'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'material': desc}),
+      );
+
+      if (response.statusCode == 200) {
+        _showSuccess("Material '$desc' agregado a la lista oficial.");
+        await _fetchOfficialMaterials();
+      } else {
+        _showError("Error del servidor: ${response.statusCode}");
+      }
+    } catch (e) {
+      _showError("Error de conexión: $e");
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
   void _showError(String message) {
     displayInfoBar(context, builder: (context, close) {
       return InfoBar(
@@ -289,7 +311,14 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
                                                 title: Text("Confirmación"), 
                                                 content: Text("Se agregará [$desc] a Materiales Oficiales."), 
                                                 actions: [
-                                                  Button(child: Text("Cerrar"), onPressed: () => Navigator.pop(context))
+                                                  Button(child: Text("Cancelar"), onPressed: () => Navigator.pop(context)),
+                                                  FilledButton(
+                                                    child: Text("Hacer Oficial"), 
+                                                    onPressed: () {
+                                                      Navigator.pop(context);
+                                                      _hacerOficial(desc);
+                                                    }
+                                                  )
                                                 ]
                                               )
                                             );

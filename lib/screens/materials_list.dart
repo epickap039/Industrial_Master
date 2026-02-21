@@ -126,6 +126,45 @@ class _MaterialsListScreenState extends State<MaterialsListScreen> {
     }
   }
 
+  Future<void> _deleteMaterial(String material) async {
+    try {
+      final encodedMaterial = Uri.encodeComponent(material);
+      final response = await http.delete(
+        Uri.parse('http://192.168.1.73:8001/api/config/materiales/$encodedMaterial'),
+      );
+
+      if (response.statusCode == 200) {
+        setState(() {
+          _descripcionesOficiales.remove(material);
+        });
+        if (mounted) {
+          displayInfoBar(context, duration: const Duration(seconds: 3), builder: (context, close) {
+            return InfoBar(
+              title: const Text('Eliminado'),
+              content: Text('Material "$material" eliminado exitosamente.'),
+              severity: InfoBarSeverity.success,
+              onClose: close,
+            );
+          });
+        }
+      } else {
+        final error = json.decode(response.body)['detail'] ?? 'Error desconocido';
+        throw Exception(error);
+      }
+    } catch (e) {
+      if (mounted) {
+        displayInfoBar(context, builder: (context, close) {
+          return InfoBar(
+            title: const Text('Error al Eliminar'),
+            content: Text(e.toString()),
+            severity: InfoBarSeverity.error,
+            onClose: close,
+          );
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // Filtrado de la lista
@@ -177,19 +216,49 @@ class _MaterialsListScreenState extends State<MaterialsListScreen> {
                   final material = filteredList[index];
                   return ListTile(
                     title: Text(material),
-                    trailing: IconButton(
-                      icon: const Icon(FluentIcons.copy),
-                      onPressed: () {
-                        Clipboard.setData(ClipboardData(text: material));
-                        displayInfoBar(context, duration: const Duration(seconds: 2), builder: (context, close) {
-                          return InfoBar(
-                            title: const Text('Copiado'),
-                            content: Text("'$material' copiado al portapapeles"),
-                            severity: InfoBarSeverity.success,
-                            onClose: close,
-                          );
-                        });
-                      },
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(FluentIcons.copy),
+                          onPressed: () {
+                            Clipboard.setData(ClipboardData(text: material));
+                            displayInfoBar(context, duration: const Duration(seconds: 2), builder: (context, close) {
+                              return InfoBar(
+                                title: const Text('Copiado'),
+                                content: Text("'$material' copiado al portapapeles"),
+                                severity: InfoBarSeverity.success,
+                                onClose: close,
+                              );
+                            });
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          icon: const Icon(FluentIcons.delete),
+                          style: ButtonStyle(foregroundColor: WidgetStateProperty.all(Colors.red)),
+                          onPressed: () {
+                            showDialog(
+                              context: context, 
+                              builder: (context) => ContentDialog(
+                                title: const Text("Confirmar Eliminación"), 
+                                content: Text("¿Estás seguro de eliminar el material oficial '$material'?"), 
+                                actions: [
+                                  Button(child: const Text("Cancelar"), onPressed: () => Navigator.pop(context)),
+                                  FilledButton(
+                                    style: ButtonStyle(backgroundColor: WidgetStateProperty.all(Colors.red)),
+                                    child: const Text("Eliminar"), 
+                                    onPressed: () {
+                                      Navigator.pop(context);
+                                      _deleteMaterial(material);
+                                    }
+                                  )
+                                ]
+                              )
+                            );
+                          }
+                        ),
+                      ],
                     ),
                   );
                 },

@@ -108,6 +108,19 @@ def add_material(payload: MaterialPayload):
     finally:
         conn.close()
 
+@app.delete("/api/config/materiales/{material_name}")
+def delete_material(material_name: str):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM Tbl_Materiales_Aprobados WHERE Material = ?", (material_name,))
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Material no encontrado")
+        conn.commit()
+        return {"mensaje": "Material eliminado correctamente"}
+    finally:
+        conn.close()
+
 # === FIN MATERIALES APROBADOS ===
 # --- ENDPOINTS CONFIGURACIÓN ---
 @app.get("/api/config/regla_espejo")
