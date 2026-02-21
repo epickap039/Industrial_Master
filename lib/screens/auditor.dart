@@ -450,47 +450,82 @@ class _AuditorScreenState extends State<AuditorScreen> {
                             filas.sort();
                             final filasStr = filas.join(', ');
 
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 12.0),
-                              child: Row(
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 12.0),
+                              padding: const EdgeInsets.all(12.0),
+                              decoration: BoxDecoration(
+                                color: FluentTheme.of(context).cardColor.withOpacity(0.5),
+                                border: Border.all(color: Colors.grey.withOpacity(0.2)),
+                                borderRadius: BorderRadius.circular(6.0),
+                              ),
+                              child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  // Encabezado de Filas Combinadas
-                                  Container(
-                                    width: 100, // Un poco más ancho por si hay muchas filas
-                                    padding: const EdgeInsets.all(4),
-                                    alignment: Alignment.center,
-                                    decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(4)),
-                                    child: Text(
-                                      filas.length > 1 ? 'Filas $filasStr' : 'Fila $filasStr', 
-                                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11),
-                                      textAlign: TextAlign.center,
-                                    ),
+                                  // 1. Encabezado del Error
+                                  Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(4)),
+                                        child: Text(
+                                          filas.length > 1 ? 'Filas: $filasStr' : 'Fila: $filasStr', 
+                                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      const Text('Columna: ', style: TextStyle(color: Colors.grey, fontSize: 13)),
+                                      Text(itemRef['campo'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                                    ],
                                   ),
-                                  const SizedBox(width: 15),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                          decoration: BoxDecoration(color: Colors.blue.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
-                                          child: Text(itemRef['campo'], style: TextStyle(color: Colors.blue, fontSize: 12)),
+                                  const SizedBox(height: 12),
+                                  
+                                  // 2. Diseño de 2 Columnas (Excel vs BD)
+                                  Row(
+                                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                                    children: [
+                                      // Columna Izquierda (Excel)
+                                      Expanded(
+                                        child: Container(
+                                          padding: const EdgeInsets.all(8),
+                                          decoration: BoxDecoration(
+                                            color: Colors.red.withOpacity(0.05),
+                                            border: Border(left: BorderSide(color: Colors.red.withOpacity(0.5), width: 3)),
+                                          ),
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              const Text('En Documento Excel:', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                                              const SizedBox(height: 4),
+                                              SelectableText(itemRef['excel'].toString(), style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600)),
+                                            ],
+                                          ),
                                         ),
-                                        const SizedBox(height: 5),
-                                        // Comparación visual usando el registro de la primeraInstancia
-                                        Row(
-                                          children: [
-                                            Expanded(child: SelectableText(itemRef['excel'].toString(), style: TextStyle(color: Colors.red))),
-                                            const Padding(
-                                              padding: EdgeInsets.symmetric(horizontal: 8.0),
-                                              child: Icon(FluentIcons.forward, size: 14, color: Colors.grey),
-                                            ),
-                                            Expanded(child: SelectableText(itemRef['bd'].toString(), style: TextStyle(color: Colors.green))),
-                                          ],
+                                      ),
+                                      
+                                      const Padding(
+                                        padding: EdgeInsets.symmetric(horizontal: 12.0),
+                                        child: Icon(FluentIcons.forward, size: 16, color: Colors.grey),
+                                      ),
+                                      
+                                      // Columna Derecha (Base de Datos)
+                                      Expanded(
+                                        child: Container(
+                                          padding: const EdgeInsets.all(8),
+                                          decoration: BoxDecoration(
+                                            color: Colors.green.withOpacity(0.05),
+                                            border: Border(left: BorderSide(color: Colors.green.withOpacity(0.5), width: 3)),
+                                          ),
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              const Text('En Base de Datos:', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                                              const SizedBox(height: 4),
+                                              SelectableText(itemRef['bd'].toString(), style: TextStyle(color: Colors.green, fontWeight: FontWeight.w600)),
+                                            ],
+                                          ),
                                         ),
-                                      ],
-                                    ),
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ),
