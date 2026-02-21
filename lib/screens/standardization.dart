@@ -16,6 +16,7 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
   List<Map<String, dynamic>> _filteredDescriptions = [];
   bool _isLoading = false;
   TextEditingController _searchController = TextEditingController();
+  bool _soloNoEstandarizados = false;
 
   List<String> _officialMaterials = [];
 
@@ -60,10 +61,14 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
 
   void _filterDescriptions(String query) {
     setState(() {
+      final baseList = _soloNoEstandarizados 
+          ? _descriptions.where((item) => !_officialMaterials.contains(item['descripcion'])).toList()
+          : _descriptions;
+          
       if (query.isEmpty) {
-        _filteredDescriptions = _descriptions;
+        _filteredDescriptions = baseList;
       } else {
-        _filteredDescriptions = _descriptions.where((item) {
+        _filteredDescriptions = baseList.where((item) {
           final desc = item['descripcion']?.toString().toLowerCase() ?? '';
           return desc.contains(query.toLowerCase());
         }).toList();
@@ -203,11 +208,28 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
         padding: EdgeInsets.all(16),
         child: Column(
           children: [
-            TextBox(
-              controller: _searchController,
-              placeholder: 'Filtrar descripciones...',
-              onChanged: _filterDescriptions,
-              suffix: Icon(FluentIcons.search),
+            Row(
+              children: [
+                Expanded(
+                  child: TextBox(
+                    controller: _searchController,
+                    placeholder: 'Filtrar descripciones...',
+                    onChanged: _filterDescriptions,
+                    suffix: Icon(FluentIcons.search),
+                  ),
+                ),
+                SizedBox(width: 16),
+                ToggleSwitch(
+                  checked: _soloNoEstandarizados,
+                  content: Text('Solo no estandarizados'),
+                  onChanged: (v) {
+                    setState(() {
+                      _soloNoEstandarizados = v;
+                    });
+                    _filterDescriptions(_searchController.text);
+                  },
+                ),
+              ],
             ),
             SizedBox(height: 20),
             Expanded(
@@ -247,15 +269,37 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
                                       ],
                                     ),
                                   ),
-                                  Button(
-                                    child: Row(
-                                      children: [
-                                        Icon(FluentIcons.edit),
+                                  Row(
+                                    children: [
+                                      if (!isOfficial) ...[
+                                        FilledButton(
+                                          child: Text('Hacer Oficial'),
+                                          onPressed: () {
+                                            showDialog(
+                                              context: context, 
+                                              builder: (context) => ContentDialog(
+                                                title: Text("Confirmación"), 
+                                                content: Text("Se agregará [$desc] a Materiales Oficiales."), 
+                                                actions: [
+                                                  Button(child: Text("Cerrar"), onPressed: () => Navigator.pop(context))
+                                                ]
+                                              )
+                                            );
+                                          },
+                                        ),
                                         SizedBox(width: 8),
-                                        Text('Estandarizar'),
                                       ],
-                                    ),
-                                    onPressed: () => _showStandardizeDialog(desc, total),
+                                      Button(
+                                        child: Row(
+                                          children: [
+                                            Icon(FluentIcons.edit),
+                                            SizedBox(width: 8),
+                                            Text('Estandarizar'),
+                                          ],
+                                        ),
+                                        onPressed: () => _showStandardizeDialog(desc, total),
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ),
