@@ -66,7 +66,7 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
         
         var request = http.MultipartRequest(
           'POST', 
-          Uri.parse('http://127.0.0.1:8001/api/excel/procesar')
+          Uri.parse('http://192.168.1.73:8001/api/excel/procesar')
         );
         
         request.files.add(http.MultipartFile.fromBytes(
@@ -130,7 +130,7 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
        if (updatesToSend.isEmpty) return;
 
        final response = await http.post(
-         Uri.parse('http://127.0.0.1:8001/api/excel/sincronizar'),
+         Uri.parse('http://192.168.1.73:8001/api/excel/sincronizar'),
          headers: {'Content-Type': 'application/json'},
          body: json.encode(updatesToSend), // Enviar lista directa si el backend lo espera así, o envolver en {'updates': ...}
        );
@@ -255,7 +255,7 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
   // Helper para sync individual (reutiliza lógica si es posible, o crea nueva)
   Future<void> _syncSingleItem(Map<String, dynamic> itemPayload) async {
        final response = await http.post(
-         Uri.parse('http://127.0.0.1:8001/api/excel/sincronizar'),
+         Uri.parse('http://192.168.1.73:8001/api/excel/sincronizar'),
          headers: {'Content-Type': 'application/json'},
          body: json.encode([itemPayload]), // Enviar como lista de 1
        );

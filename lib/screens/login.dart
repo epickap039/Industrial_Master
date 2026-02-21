@@ -18,6 +18,33 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _passController = TextEditingController();
   bool _isLoading = false;
   String _error = '';
+  bool _isServerOnline = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkServerStatus();
+  }
+
+  Future<void> _checkServerStatus() async {
+    try {
+      final response = await http.get(
+        Uri.parse('http://192.168.1.73:8001/'),
+      ).timeout(const Duration(seconds: 3));
+      
+      if (mounted) {
+        setState(() {
+          _isServerOnline = response.statusCode == 200;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isServerOnline = false;
+        });
+      }
+    }
+  }
 
   Future<void> _login() async {
     setState(() {
@@ -64,45 +91,74 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return ScaffoldPage(
-      content: Center(
-        child: SizedBox(
-          width: 300,
-          child: Card(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text('Iniciar Sesión', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 20),
-                InfoLabel(
-                  label: 'Usuario',
-                  child: TextBox(controller: _userController),
+      content: Stack(
+        children: [
+          Center(
+            child: SizedBox(
+              width: 300,
+              child: Card(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('Iniciar Sesión', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 20),
+                    InfoLabel(
+                      label: 'Usuario',
+                      child: TextBox(controller: _userController),
+                    ),
+                    const SizedBox(height: 10),
+                    InfoLabel(
+                      label: 'Contraseña',
+                      child: TextBox(
+                        controller: _passController,
+                        obscureText: true,
+                        maxLines: 1,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    if (_error.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Text(_error, style: TextStyle(color: Colors.red)),
+                      ),
+                    if (_isLoading)
+                      const ProgressRing()
+                    else
+                      FilledButton(
+                        onPressed: _login,
+                        child: const Text('Ingresar'),
+                      ),
+                  ],
                 ),
-                const SizedBox(height: 10),
-                InfoLabel(
-                  label: 'Contraseña',
-                  child: TextBox(
-                    controller: _passController,
-                    obscureText: true,
-                    maxLines: 1,
-                  ),
-                ),
-                const SizedBox(height: 20),
-                if (_error.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: Text(_error, style: TextStyle(color: Colors.red)),
-                  ),
-                if (_isLoading)
-                  const ProgressRing()
-                else
-                  FilledButton(
-                    onPressed: _login,
-                    child: const Text('Ingresar'),
-                  ),
-              ],
+              ),
             ),
           ),
-        ),
+          Align(
+            alignment: Alignment.bottomRight,
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    FluentIcons.circle_shape_solid, 
+                    color: _isServerOnline ? Colors.green : Colors.red, 
+                    size: 12
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    _isServerOnline ? "Servidor Conectado" : "Servidor Desconectado",
+                    style: TextStyle(color: _isServerOnline ? Colors.green : Colors.red),
+                  ),
+                  IconButton(
+                    icon: const Icon(FluentIcons.refresh),
+                    onPressed: _checkServerStatus,
+                  )
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

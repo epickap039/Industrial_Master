@@ -66,7 +66,60 @@ async def lifespan(app: FastAPI):
     yield
     print("--- SERVER SHUTTING DOWN ---")
 
+# Variables Globales de Configuración (RE-APPLIED)
+REGLA_ESPEJO_ACTIVA = True
+
+class MirrorConfig(BaseModel):
+    activa: bool
+
 app = FastAPI(title="Industrial Manager API", version="15.5", lifespan=lifespan)
+
+# === MATERIALES APROBADOS ===
+class MaterialPayload(BaseModel):
+    material: str
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+@app.get("/")
+def read_root():
+    return {"status": "online", "message": "Servidor Industrial Manager Activo"}
+
+@app.get("/api/config/materiales")
+def get_materiales():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT Material FROM Tbl_Materiales_Aprobados ORDER BY Material")
+    rows = cursor.fetchall()
+    conn.close()
+    return [row[0] for row in rows]
+
+@app.post("/api/config/materiales")
+def add_material(payload: MaterialPayload):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT INTO Tbl_Materiales_Aprobados (Material) VALUES (?)", (payload.material.upper(),))
+        conn.commit()
+        return {"mensaje": "Material agregado correctamente"}
+    except pyodbc.IntegrityError:
+        raise HTTPException(status_code=400, detail="El material ya existe")
+    finally:
+        conn.close()
+
+# === FIN MATERIALES APROBADOS ===
+# --- ENDPOINTS CONFIGURACIÓN ---
+@app.get("/api/config/regla_espejo")
+async def get_mirror_config():
+    return {"activa": REGLA_ESPEJO_ACTIVA}
+
+@app.post("/api/config/regla_espejo")
+async def set_mirror_config(config: MirrorConfig):
+    global REGLA_ESPEJO_ACTIVA
+    REGLA_ESPEJO_ACTIVA = config.activa
+    print(f"--- REGLA ESPEJO ACTUALIZADA: {REGLA_ESPEJO_ACTIVA} ---")
+    return {"activa": REGLA_ESPEJO_ACTIVA}
 
 # Middleware CORS
 app.add_middleware(
@@ -121,6 +174,28 @@ def init_auth_db():
     finally:
         conn.close()
 
+@app.post("/api/login")
+def login(request: LoginRequest):
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT Role FROM Tbl_Usuarios WHERE Username = ? AND Password = ?", (request.username, request.password))
+        user = cursor.fetchone()
+        
+        conn.close()
+        
+        if user:
+            return {"success": True, "role": user[0]}
+        else:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=401, detail="Credenciales incorrectas")
+            
+    except Exception as e:
+        print(f"Error en login: {e}")
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail="Error interno del servidor")
+
 def iniciar_auditoria():
     """Crea la tabla de auditoría si no existe. No detiene el arranque si falla."""
     print("--- INICIANDO SISTEMA DE AUDITORIA ---")
@@ -142,6 +217,49 @@ def iniciar_auditoria():
             END
         """)
         conn.commit()
+    # TABLA DE MATERIALES APROBADOS
+        cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Tbl_Materiales_Aprobados')
+            BEGIN
+                CREATE TABLE Tbl_Materiales_Aprobados (
+                    ID INT IDENTITY(1,1) PRIMARY KEY,
+                    Material VARCHAR(200) UNIQUE
+                );
+            END
+        """)
+        
+        # POBLAR TABLA SI ESTÁ VACÍA
+        cursor.execute("SELECT COUNT(*) FROM Tbl_Materiales_Aprobados")
+        if cursor.fetchone()[0] == 0:
+            materiales_iniciales = [
+                "ACERO ASTM A36 1/8\"", "ACERO ASTM A36 3/16\"", "ACERO ASTM A36 C.10", "ACERO ASTM A36 C.14", "ACERO ASTM A36 C.16",
+                "ACERO ASTM A572 G50 1/2\"", "ACERO ASTM A572 G50 1/4\"", "ACERO ASTM A572 G50 3/4\"", "ACERO ASTM A572 G50 3/8\"", "ACERO ASTM A572 G50 5/16\"",
+                "ACERO INOXIDABLE 304 CAL.16", "ACERO INOXIDABLE C.11", "ALUMINIO 3003 C.11", "ALUMINIO 3003 C.14", "ALUMINIO 5052 1/4\"", "ALUMINIO NEGRO 3003 C.19",
+                "ALUMINIO MACIZO 6026 Ø 1 1/2\"", "ALUMINIO MACIZO 6026 Ø 1/2\"", "ALUMINIO MACIZO 6026 Ø 2 1/2\"", "ALUMINIO MACIZO 6026 Ø 2\"", "ALUMINIO MACIZO 6026 Ø 3 1/2\"", "ALUMINIO MACIZO 6026 Ø 3\"", "ALUMINIO MACIZO 6026 Ø 4\"", "ALUMINIO MACIZO 6026 Ø 7/8\"",
+                "ANGULO ASTM A36 1 1/2\" x 1 1/2\" x 3/16\"", "ANGULO ASTM A36 1\" x 1\" x 3/16\"", "ANGULO ASTM A36 2\" x 2\" x 3/16\"",
+                "BARRA HUECA AISI 1018 Ø 33mm x 14mm", "BARRA HUECA AISI 1018 Ø 40mm x 25mm", "BARRA HUECA AISI 1018 Ø 40mm x 28mm", "BARRA HUECA AISI 1018 Ø 50mm x 35mm", "BARRA HUECA AISI 1018 Ø 76mm x 38mm",
+                "BARRA CROMADA AISI 1045 Ø 28mm", "BARRA CROMADA AISI 1045 Ø 45mm", "TUBO HONEADO AISI 1018 Ø 60mm x 50mm", "TUBO HONEADO AISI 1018 Ø 73mm x 63mm",
+                "BARRA HUECA CROMADA AISI 1018 Ø 38.1mm X 25.4mm",
+                "BARRA HUECA DE ALUMINIO B241 6026 Ø 101.6mm X 50.5mm", "BARRA HUECA DE ALUMINIO B241 6026 Ø 63.5mm X 29.7mm", "BARRA HUECA DE ALUMINIO B241 6026 Ø 76.2mm X 29.7mm", "BARRA HUECA DE ALUMINIO B241 6026 Ø 88.9mm X 24.7mm",
+                "CAJA DE TENSADO DE LONA", "CANAL C A36 4\"", "COMERCIAL BISAGRA DE LIBRO", "COMERCIAL BISAGRA DE PIANO", "MATRACA DE LONA", "PERFIL ALUMINIO PELDAÑO 688 6061 T6", "PERNO REY  COMERCIAL", "SEGURO DE FUNDICION -", "SEGURO DE RESORTE CORTO", "SEGURO DE RESORTE LARGO",
+                "HSS ASTM A500 °B 2 1/2\" x 2 1/2\" x 1/4\"", "HSS ASTM A500 °B 2 1/2\" x 2 1/2\" x 3/16\"", "HSS ASTM A500 °B 2\" x 2\" x 1/4\"", "HSS ASTM A500 °B 2\" x 2\" x 3/16\"", "HSS ASTM A500 °B 3 1/2\" X 3 1/2\" X 3/16\"", "HSS ASTM A500 °B 3\" x 2\" x 1/4\"", "HSS ASTM A500 °B 3\" x 2\" x 3/16\"", "HSS ASTM A500 °B 3\" x 3\" x 1/4\"", "HSS ASTM A500 °B 3\" x 3\" x 3/16\"", "HSS ASTM A500 °B 4 1/2\" x 3 1/2\" x 3/16\"", "HSS ASTM A500 °B 4\" x 2\" x 1/4\"", "HSS ASTM A500 °B 4\" x 2\" x 3/16\"", "HSS ASTM A500 °B 4\" x 3\" x 1/4\"", "HSS ASTM A500 °B 4\" x 3\" x 3/16\"", "HSS ASTM A500 °B 4\" x 3\" x 3/8\"", "HSS ASTM A500 °B 4\" x 4\" x 3/8\"", "HSS ASTM A500 °B 6\" x 2\" x 1/4\"", "HSS ASTM A500 °B 6\" x 2\" x 3/16\"", "HSS ASTM A500 °B 6\" x 3\" x 1/4\"", "HSS ASTM A500 °B 6\" x 3\" x 3/16\"", "HSS ASTM A500 °B 6\" x 4\" x 1/4\"", "HSS ASTM A500 °B 6\" x 4\" x 3/8\"", "HSS ASTM A500 °B 6\" X 6\" X 1/4\"", "HSS ASTM A500 °B 6\" x 6\" x 3/8\"",
+                "PLACA HARDOX 1/4\"", "PLACA STRENX 110 XF 3/16\"", "PLACA STRENX 110XF 1/2\"",
+                "PTR ASTM A36 1 1/2\" x 1 1/2 \" x 3/16\"", "PTR ASTM A36 1\" x 1\" x C.11",
+                "REDONDO AISI 1018 Ø 1 1/2\"", "REDONDO AISI 1018 Ø 1 1/4\"", "REDONDO AISI 1018 Ø 1 3/8\"", "REDONDO AISI 1018 Ø 1\"", "REDONDO AISI 1018 Ø 1/2\"", "REDONDO AISI 1018 Ø 2 1/2\"", "REDONDO AISI 1018 Ø 2 5/8\"", "REDONDO AISI 1018 Ø 2\"", "REDONDO AISI 1018 Ø 3\"", "REDONDO AISI 1018 Ø 3/4\"", "REDONDO AISI 1018 Ø 7/8\"", "REDONDO NEGRO Ø 5/16\"", "REDONDO NEGRO Ø 5/8\"",
+                "RIEL DE ACERO A36 1500", "SOLERA ASTM A36 1 1/2\" x 1/2\"", "SOLERA ASTM A36 1 1/4\" x 1/4\"", "SOLERA ASTM A36 1\" x 1/2\"", "SOLERA ASTM A36 2\" x 1\"", "SOLERA ASTM A36 4\" x 1\"", "SOLERA ASTM A36 6\" x 1\"", "SOLERA DE ALUMINIO ASTM A36 2\" X 1\"",
+                "TOLDO ALUMINIO C.19",
+                "TUBO DE ACERO A500 °B Ø 1 1/2\" CED. 80", "TUBO DE ACERO A500 °B Ø 1 1/2\" CED. 80 SIN/COS", "TUBO DE ACERO A500 °B Ø 1\" CED. 40 C/COS", "TUBO DE ACERO A500 °B Ø 1\" CED. 40 SIN/COS",
+                "TUBO DE ALUMINIO B241 Ø  2\" x  1\" x 1/8\"", "TUBO DE ALUMINIO B241 Ø 2 1/2\"", "TUBO DE ALUMINIO B241 Ø 2\"", "TUBO DE ALUMINIO B241 Ø 2\" x  1\" x 1/8\"", "TUBO DE ALUMINIO B241 Ø 3 1/2\"", "TUBO DE ALUMINIO NEGRO B241 Ø 2 1/2\"",
+                "TUBO STROCK CROMADO ASTM 1045 Ø 70mm X 63mm",
+                "PERFIL ALUMINIO CUERNO EA 685 6061T6", "PERFIL ALUMINIO PRINCIPAL EXT 684 6061T6", "PERFIL ALUMINIO ANGULO VISTA 686", "PERFIL ALUMINIO REFUERZO INT 683", "BORDA LATERAL BASCULANTE 4.9 6061", "BORDA LATERAL BASCULANTE 3.5 6061", "PERFIL DE ALUMINIO TIPO BISAGRA ABATIBLE 3.10 MT 6061-T6", "PERFIL DE ALUMINIO TIPO ESCALON ABATIBLE 3.10 MT 6061-T6"
+            ]
+            
+            for mat in materiales_iniciales:
+                cursor.execute("IF NOT EXISTS (SELECT * FROM Tbl_Materiales_Aprobados WHERE Material = ?) INSERT INTO Tbl_Materiales_Aprobados (Material) VALUES (?)", (mat, mat))
+            
+            conn.commit()
+            print(f"--- TB_MATERIALES_APROBADOS INICIALIZADA ({len(materiales_iniciales)} items) ---")
+
         print("--- ✅ SISTEMA DE AUDITORIA INICIALIZADO CORRECTAMENTE ---")
     except Exception as e:
         print(f"--- ⚠️ ALERTA SQL (Auditoría): {e} ---")
@@ -151,7 +269,25 @@ def iniciar_auditoria():
         except:
              pass
 
-# 3. GESTIÓN DE DATOS (Mapeo)
+def registrar_auditoria(cursor, codigo_pieza, accion, valor_anterior, valor_nuevo, usuario):
+    """
+    Registra un evento en Tbl_Auditoria_Cambios.
+    Maneja la conversión de dicts a JSON string si es necesario.
+    """
+    try:
+        # Convertir a cadena si son diccionarios/listas
+        if isinstance(valor_anterior, (dict, list)):
+            valor_anterior = str(valor_anterior) # Usamos str() para ser consistente con lo que espera el parser (ast.literal_eval/json)
+        if isinstance(valor_nuevo, (dict, list)):
+            valor_nuevo = str(valor_nuevo)
+
+        cursor.execute("""
+            INSERT INTO Tbl_Auditoria_Cambios (Codigo_Pieza, Accion, Valor_Anterior, Valor_Nuevo, Usuario, Fecha_Hora)
+            VALUES (?, ?, ?, ?, ?, GETDATE())
+        """, (codigo_pieza, accion, str(valor_anterior), str(valor_nuevo), usuario))
+    except Exception as e:
+        print(f"--- ⚠️ ERROR AUDITORIA INTERNA: {e} ---")
+
 @app.get("/api/catalog")
 async def get_catalog():
     conn = get_db_connection()
@@ -192,6 +328,10 @@ async def update_material(request: Request, payload: Dict[str, Any]):
         'Simetria', 'Proceso_Primario', 'Proceso_1', 'Proceso_2', 'Proceso_3'
     ]
     
+    # REGLA ESPEJO: Si está activa y se actualiza la descripción, también el material
+    if REGLA_ESPEJO_ACTIVA and 'Descripcion' in payload:
+        payload['Material'] = payload['Descripcion']
+
     usuario = payload.get('usuario') or payload.get('Modificado_Por') or 'Sistema'
 
     conn = get_db_connection()
@@ -218,6 +358,7 @@ async def update_material(request: Request, payload: Dict[str, Any]):
         if not set_clauses:
              return {"status": "ignored", "message": "No hay campos válidos para actualizar"}
 
+
         # Agregar Auditoría
         set_clauses.append("Modificado_Por = ?")
         values.append(usuario)
@@ -226,6 +367,23 @@ async def update_material(request: Request, payload: Dict[str, Any]):
         
         query_set = ", ".join(set_clauses)
         
+        # --- AUDITORIA: CAPTURAR VALOR ANTERIOR ---
+        try:
+             # Seleccionamos todos los campos afectados + ID
+             cols_to_select = ", ".join(allowed_fields)
+             cursor.execute(f"SELECT {cols_to_select} FROM Tbl_Maestro_Piezas WHERE Codigo_Pieza = ?", (id_param,))
+             row_prev = cursor.fetchone()
+             
+             valor_anterior = {}
+             if row_prev:
+                 for i, field in enumerate(allowed_fields):
+                     valor_anterior[field] = str(row_prev[i]) if row_prev[i] is not None else ""
+             else:
+                 valor_anterior = "REGISTRO NO ENCONTRADO (Posible error en Update)"
+        except Exception as audit_read_e:
+             valor_anterior = f"ERROR LECTURA PREVIA: {audit_read_e}"
+        # ------------------------------------------
+
         # Query Principal
         query = f"UPDATE Tbl_Maestro_Piezas SET {query_set} WHERE Codigo_Pieza = ?"
         values.append(id_param)
@@ -242,6 +400,10 @@ async def update_material(request: Request, payload: Dict[str, Any]):
         conn.commit()
         
         if cursor.rowcount > 0:
+             # --- AUDITORIA: REGISTRAR CAMBIO ---
+             registrar_auditoria(cursor, id_param, 'EDICION_CATALOGO', valor_anterior, payload, usuario)
+             conn.commit() # Commit del log
+             # -----------------------------------
              return {"status": "success", "message": "Actualizado correctamente"}
         else:
              raise HTTPException(status_code=404, detail="No se encontró registro (Codigo/Codigo_Pieza)")
@@ -268,42 +430,56 @@ async def procesar_excel(file: UploadFile = File(...)):
         last_estacion = None
         last_ensamble = None
         
-        # 2. Iterar filas (Start Row 6/7 - ajustamos a 7 para saltar headers complejos)
-        start_row = 7 
+        # 2. Iterar filas (Start Row 6 - 0-indexed es 5, pero openpyxl es 1-based, así que min_row=6)
+        start_row = 6
         for row in ws.iter_rows(min_row=start_row, values_only=True):
-            # Mapeo por índice (Asumiendo estructura estándar del BOM de Ingeniería)
-            # Col 0 (A): N/A
-            # Col 1 (B): Estacion
-            # Col 2 (C): Ensamble
-            # Col 3 (D): CODIGO_PIEZA (Clave)
-            # Col 4 (E): DESCRIPCION
+            # Mapeo por índice (0-based)
+            # Col 3 (D): CODIGO_PIEZA
+            # Col 4 (E): DESCRIPCION / MATERIAL
             # Col 5 (F): MEDIDA
-            # Col 6 (G): MATERIAL
+            # Col 7 (H): SIMETRIA
+            # Col 8 (I): PROCESO PRIMARIO
+            # Col 9 (J): PROCESO 1
+            # Col 10 (K): PROCESO 2
+            # Col 11 (L): PROCESO 3
             
             if not row: continue
 
-            # Forward Fill Logic (Herencia de valores padre)
-            estacion = row[1] if row[1] is not None else last_estacion
-            ensamble = row[2] if row[2] is not None else last_ensamble
+            # Forward Fill Logic
+            estacion = row[1] if len(row) > 1 and row[1] is not None else last_estacion
+            ensamble = row[2] if len(row) > 2 and row[2] is not None else last_ensamble
             
             if estacion: last_estacion = estacion
             if ensamble: last_ensamble = ensamble
 
             # Validar Codigo Pieza (Columna D - Index 3)
+            if len(row) <= 3: continue
             raw_codigo = row[3]
             codigo_pieza = str(raw_codigo).strip() if raw_codigo else None
             
             if not codigo_pieza or codigo_pieza.lower() in ['none', 'codigo', 'codigo_pieza', '']:
                 continue
 
+            # Extracción segura con manejo de nulos
+            def get_val(idx):
+                if idx < len(row) and row[idx] is not None:
+                    return str(row[idx]).strip()
+                return ""
+
             scan_data.append({
                 'Estacion': last_estacion,
                 'Ensamble': last_ensamble,
                 'Codigo_Pieza': codigo_pieza,
-                'Cantidad': row[7] if len(row) > 7 else 0, # Asumiendo Cantidad en H
-                'Descripcion_Excel': str(row[4]).strip() if row[4] else "",
-                'Medida_Excel': str(row[5]).strip() if row[5] else "",
-                'Material_Excel': str(row[6]).strip() if row[6] else ""
+                'Cantidad': 0, 
+                'Descripcion_Excel': get_val(4),
+                'Medida_Excel': get_val(5),
+                'Material_Excel': "", # No mapeado explícitamente en columna aparte, dejamos vacío (Regla Espejo lo llenará si aplica)
+                'Simetria': get_val(7),
+                'Proceso_Primario': get_val(8),
+                'Proceso_1': get_val(9),
+                'Proceso_2': get_val(10),
+                'Proceso_3': get_val(11),
+                'Link_Drive': "" # No mapeado en este bloque
             })
 
         # 3. Comparar contra SQL
@@ -402,6 +578,10 @@ async def sincronizar_excel(items: List[SincronizacionItem]):
     
     try:
         for item in items:
+            # REGLA ESPEJO
+            if REGLA_ESPEJO_ACTIVA:
+                item.Material = item.Descripcion
+
             # Sanitizar datos (Evitar NULLs -> Strings Vacíos)
             desc = item.Descripcion if item.Descripcion is not None else ""
             medida = item.Medida if item.Medida is not None else ""
@@ -427,17 +607,12 @@ async def sincronizar_excel(items: List[SincronizacionItem]):
                     END
                 """, (item.Codigo_Pieza, item.Codigo_Pieza, desc, medida, material, simetria, proc_prim, proc_1, proc_2, proc_3, link, usuario))
                 
+
                 if cursor.rowcount > 0:
                     procesados += 1
                     # Log Auditoría CREACIÓN
-                    try:
-                        cursor.execute("""
-                            INSERT INTO Tbl_Auditoria_Cambios (Codigo_Pieza, Accion, Valor_Anterior, Valor_Nuevo, Usuario)
-                            VALUES (?, ?, ?, ?, ?)
-                        """, (item.Codigo_Pieza, 'CREACION', 'NO EXISTIA', str(item.model_dump()), usuario))
-                    except Exception as audit_e:
-                        print(f"ERROR AUDITORIA INSERT: {audit_e}")
-                
+                    registrar_auditoria(cursor, item.Codigo_Pieza, 'CREACION', 'NO EXISTIA', item.model_dump(), usuario)
+
             elif item.Estado == "CONFLICTO":
                 # Lógica de Actualización (UPDATE COMPLETO)
                 # 1. Obtener datos anteriores
@@ -465,13 +640,7 @@ async def sincronizar_excel(items: List[SincronizacionItem]):
                 if cursor.rowcount > 0:
                     procesados += 1
                     # Log Auditoría MODIFICACIÓN
-                    try:
-                        cursor.execute("""
-                            INSERT INTO Tbl_Auditoria_Cambios (Codigo_Pieza, Accion, Valor_Anterior, Valor_Nuevo, Usuario)
-                            VALUES (?, ?, ?, ?, ?)
-                        """, (item.Codigo_Pieza, 'MODIFICACION', val_anterior, str(item.model_dump()), usuario))
-                    except Exception as audit_e:
-                        print(f"ERROR AUDITORIA UPDATE: {audit_e}")
+                    registrar_auditoria(cursor, item.Codigo_Pieza, 'MODIFICACION', val_anterior, item.model_dump(), usuario)
 
         conn.commit()
         return {"status": "ok", "message": f"{procesados} registros sincronizados exitosamente."}
@@ -526,8 +695,21 @@ async def update_links(payload: Dict[str, str]):
             codigo = str(row['Codigo']).strip()
             link = str(row[drive_col]).strip()
             
+
             # Solo actualizar si el link existe y no es nulo
             if codigo and link and link.lower() != 'nan' and link != "":
+                
+                # --- AUDITORIA: CAPTURAR LINK ANTERIOR ---
+                prev_link_val = "N/A"
+                try:
+                    cursor.execute("SELECT Link_Drive FROM Tbl_Maestro_Piezas WHERE Codigo_Pieza = ?", (codigo,))
+                    row_link = cursor.fetchone()
+                    if row_link:
+                         prev_link_val = row_link[0]
+                except:
+                    pass
+                # ----------------------------------------
+
                 cursor.execute("""
                     UPDATE Tbl_Maestro_Piezas 
                     SET Link_Drive = ?, 
@@ -535,7 +717,12 @@ async def update_links(payload: Dict[str, str]):
                         Modificado_Por = 'Sincronizador Excel'
                     WHERE Codigo_Pieza = ?
                 """, (link, codigo))
-                updated_count += cursor.rowcount
+                
+                if cursor.rowcount > 0:
+                     updated_count += cursor.rowcount
+                     # --- AUDITORIA ---
+                     registrar_auditoria(cursor, codigo, 'ACTUALIZACION_LINKS', prev_link_val, link, 'Sincronizador Excel')
+                     # -----------------
 
         conn.commit()
         print(f"--- SINCRONIZACIÓN EXCEL FINALIZADA: {updated_count} links actualizados ---")
@@ -581,8 +768,21 @@ async def actualizar_enlaces_manual(file: UploadFile = File(...)):
             codigo = str(row[0]).strip() if row[0] else None
             link = str(row[1]).strip() if row[1] else None
             
+
             # Solo procesar si hay código y link válido
             if codigo and link and link.lower() != 'nan' and link != "" and link != "-":
+                
+                # --- AUDITORIA: CAPTURAR LINK ANTERIOR ---
+                prev_link_val = "N/A"
+                try:
+                    cursor.execute("SELECT Link_Drive FROM Tbl_Maestro_Piezas WHERE Codigo_Pieza = ?", (codigo,))
+                    row_link = cursor.fetchone()
+                    if row_link:
+                         prev_link_val = row_link[0]
+                except:
+                    pass
+                # ----------------------------------------
+
                 cursor.execute("""
                     UPDATE Tbl_Maestro_Piezas 
                     SET Link_Drive = ?, 
@@ -595,9 +795,12 @@ async def actualizar_enlaces_manual(file: UploadFile = File(...)):
                     # Fallback eliminado: La columna 'Codigo' no existe en esta versión de la BD.
                     # Si se requiere soporte legacy, asegurar que la columna exista primero.
                     print(f"--- AVISO: Codigo '{codigo}' no encontrado por Codigo_Pieza ---")
-
                 
-                updated_count += cursor.rowcount
+                else: 
+                     updated_count += cursor.rowcount
+                     # --- AUDITORIA ---
+                     registrar_auditoria(cursor, codigo, 'ACTUALIZACION_LINKS', prev_link_val, link, 'Sincronizador Manual (Excel)')
+                     # -----------------
 
         conn.commit()
         print(f"--- ACTUALIZACIÓN MANUAL FINALIZADA: {updated_count} enlaces actualizados ---")
@@ -708,28 +911,20 @@ import json
 @app.post("/api/excel/corregir")
 async def corregir_excel(
     file: UploadFile = File(...), 
-    correcciones: str = Form(...), # JSON String
-    file_path: str = Form(...) # Ruta local completa
+    correcciones: str = Form(...) # JSON String
 ):
-    print(f"--- INICIANDO AUTOCORRECCIÓN SEGURA: {file_path} ---")
-    
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="El archivo original no se encuentra en la ruta especificada.")
+    print(f"--- INICIANDO AUTOCORRECCIÓN SEGURA: {file.filename} ---")
 
     try:
         corrections_list = json.loads(correcciones)
         
-        # 1. RESPALDO CRÍTICO
-        timestamp = datetime.now().strftime('%d-%m-%Y_%H%M%S')
-        base, ext = os.path.splitext(file_path)
-        backup_path = f"{base}-retirado-{timestamp}{ext}"
+        # Leer archivo en memoria
+        contents = await file.read()
         
-        os.rename(file_path, backup_path)
-        print(f"Respaldo creado: {backup_path}")
-        
-        # 2. APLICAR CORRECCIONES (Sobre el respaldo, para guardar como nuevo original)
-        wb = openpyxl.load_workbook(backup_path) # No data_only para preservar FÓRMULAS no afectadas
-        ws = wb.active # Asumimos hoja activa. Idealmente deberíamos saber la hoja, pero para este caso sirve.
+        # 2. APLICAR CORRECCIONES
+        wb = openpyxl.load_workbook(io.BytesIO(contents)) # No data_only para preservar FÓRMULAS
+        ws = wb.active # Asumimos hoja activa
+
         
         # Mapeo Campo -> Columna (1-based para cell.column)
         # D(4)=Codigo, E(5)=Desc, F(6)=Medida, H(8)=Simetria
@@ -757,15 +952,24 @@ async def corregir_excel(
                 ws.cell(row=fila, column=col_idx).value = valor_correcto
                 count += 1
         
-        # 3. GUARDAR COMO ORIGINAL
-        wb.save(file_path)
-        print(f"Archivo corregido guardado: {file_path} ({count} cambios)")
+        # 3. GUARDAR COMO BINARIO Y DEVOLVER
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
         
-        return {"status": "ok", "mensaje": f"Se aplicaron {count} correcciones. Respaldo: {os.path.basename(backup_path)}"}
+        print(f"Archivo corregido en memoria ({count} cambios). Enviando al cliente...")
+        
+        headers = {
+            'Content-Disposition': f'attachment; filename="CORREGIDO_{file.filename}"'
+        }
+        from fastapi.responses import StreamingResponse
+        return StreamingResponse(
+            output, 
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
+            headers=headers
+        )
 
     except Exception as e:
-        # Intentar restaurar si falló algo crítico después del rename?
-        # Si falló rename, no pasa nada. Si falló save, tenemos backup.
         print(f"ERROR CORRECCIÓN: {e}")
         raise HTTPException(status_code=500, detail=f"Error al corregir archivo: {str(e)}")
 
@@ -872,6 +1076,170 @@ async def exportar_reporte(payload: List[Dict[str, Any]]):
     except Exception as e:
         print(f"ERROR REPORTE: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+import ast
+
+@app.get("/api/historial")
+async def obtener_historial(busqueda: Optional[str] = None, limite: int = 50):
+    print(f"--- CONSULTANDO HISTORIAL (Busqueda: {busqueda}, Limite: {limite}) ---")
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        query = """
+            SELECT TOP (?) ID_Log, Codigo_Pieza, Accion, Valor_Anterior, Valor_Nuevo, Usuario, Fecha_Hora 
+            FROM Tbl_Auditoria_Cambios 
+        """
+        params = [limite]
+        
+        if busqueda:
+            query += " WHERE Codigo_Pieza LIKE ? OR Usuario LIKE ? "
+            search_term = f"%{busqueda}%"
+            params.extend([search_term, search_term])
+            
+        query += " ORDER BY Fecha_Hora DESC"
+        
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        
+        historial = []
+        for row in rows:
+            val_ant = row[3]
+            val_nue = row[4]
+            
+            # Intentar parsear Valor_Anterior
+            if val_ant and isinstance(val_ant, str):
+                try:
+                    if val_ant.strip().startswith('{') or val_ant.strip().startswith('['):
+                         val_ant = json.loads(val_ant.replace("'", '"')) # Attempt JSON fix or standard load
+                    elif val_ant.strip().startswith('('):
+                         val_ant = ast.literal_eval(val_ant)
+                    else:
+                         # Try literal eval for python dict repr
+                         val_ant = ast.literal_eval(val_ant)
+                except:
+                    pass # Keep as string if fail
+
+            # Intentar parsear Valor_Nuevo
+            if val_nue and isinstance(val_nue, str):
+                try:
+                    if val_nue.strip().startswith('{') or val_nue.strip().startswith('['):
+                         val_nue = json.loads(val_nue.replace("'", '"'))
+                    elif val_nue.strip().startswith('('):
+                         val_nue = ast.literal_eval(val_nue)
+                    else:
+                         val_nue = ast.literal_eval(val_nue)
+                except:
+                    pass
+
+            historial.append({
+                "id": row[0],
+                "codigo": row[1],
+                "accion": row[2],
+                "valor_anterior": val_ant,
+                "valor_nuevo": val_nue,
+                "usuario": row[5],
+                "fecha": row[6].strftime("%Y-%m-%d %H:%M:%S") if row[6] else None
+            })
+            
+        return historial
+
+    except Exception as e:
+        print(f"ERROR HISTORIAL: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if 'conn' in locals(): conn.close()
+
+
+# --- FASE 18: ESTANDARIZACIÓN DE DATOS ---
+
+@app.get("/api/limpieza/descripciones_unicas")
+async def get_unique_descriptions():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        query = """
+            SELECT Descripcion, COUNT(Codigo_Pieza) as Total 
+            FROM Tbl_Maestro_Piezas 
+            WHERE Descripcion IS NOT NULL AND Descripcion != ''
+            GROUP BY Descripcion 
+            ORDER BY Descripcion ASC
+        """
+        cursor.execute(query)
+        data = [{"descripcion": row[0], "total": row[1]} for row in cursor.fetchall()]
+        return data
+    except Exception as e:
+         print(f"ERROR DESC UNICAS: {e}")
+         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+         conn.close()
+
+class MasivoUpdate(BaseModel):
+    old_desc: str
+    new_desc: str
+    usuario: str
+
+@app.post("/api/limpieza/actualizar_masivo")
+async def actualizar_masivo(payload: MasivoUpdate):
+    print(f"--- INICIANDO ESTANDARIZACION MASIVA: '{payload.old_desc}' -> '{payload.new_desc}' ---")
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # 1. Obtener todas las piezas afectadas para auditoría individual
+        cursor.execute("SELECT Codigo_Pieza FROM Tbl_Maestro_Piezas WHERE Descripcion = ?", (payload.old_desc,))
+        piezas = cursor.fetchall()
+        
+        if not piezas:
+             return {"status": "ignored", "message": "No se encontraron piezas con esa descripción."}
+        
+        actualizadas = 0
+        
+        # 2. Iterar y actualizar UNO A UNO
+        for p in piezas:
+            codigo = p[0]
+            
+            val_nuevo = ""
+            
+            # REGLA ESPEJO
+            if globals().get('REGLA_ESPEJO_ACTIVA', True):
+                cursor.execute("""
+                    UPDATE Tbl_Maestro_Piezas 
+                    SET Descripcion = ?, Material = ?, Ultima_Actualizacion = GETDATE(), Modificado_Por = ?
+                    WHERE Codigo_Pieza = ?
+                """, (payload.new_desc, payload.new_desc, payload.usuario, codigo))
+                val_nuevo = str({"Descripcion": payload.new_desc, "Material": payload.new_desc})
+            else:
+                cursor.execute("""
+                    UPDATE Tbl_Maestro_Piezas 
+                    SET Descripcion = ?, Ultima_Actualizacion = GETDATE(), Modificado_Por = ?
+                    WHERE Codigo_Pieza = ?
+                """, (payload.new_desc, payload.usuario, codigo))
+                val_nuevo = str({"Descripcion": payload.new_desc})
+            
+            if cursor.rowcount > 0:
+                actualizadas += 1
+                # Auditoría Individual
+                registrar_auditoria(
+                    cursor, 
+                    codigo_pieza=codigo, 
+                    accion='ESTANDARIZACION_MASIVA', 
+                    valor_anterior=str({'Descripcion': payload.old_desc}), 
+                    valor_nuevo=val_nuevo, 
+                    usuario=payload.usuario
+                )
+        
+        conn.commit()
+        print(f"--- ESTANDARIZACION FINALIZADA: {actualizadas} piezas actualizadas ---")
+        return {"status": "ok", "actualizadas": actualizadas}
+        
+    except Exception as e:
+        conn.rollback()
+        print(f"ERROR MASIVO: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8001)

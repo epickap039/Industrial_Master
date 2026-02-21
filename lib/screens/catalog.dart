@@ -36,6 +36,10 @@ class _CatalogScreenState extends State<CatalogScreen> {
   bool _isLoading = true;
   bool _onlyWithPlano = false;
   String? _errorMessage;
+  
+  // Ordenamiento
+  String _columnaOrden = "";
+  bool _ordenAscendente = true;
 
   @override
   void initState() {
@@ -76,7 +80,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
           
           if (_visibleColumns.isEmpty) {
             for (var col in _columns) {
-              if (['Modificado_Por', 'Ultima_Actualizacion', 'Fecha_Creacion'].contains(col)) {
+              if (['Modificado_Por', 'Ultima_Actualizacion', 'Fecha_Creacion', 'Material', 'Simetria'].contains(col)) {
                 _visibleColumns[col] = false;
               } else {
                 _visibleColumns[col] = true;
@@ -145,6 +149,33 @@ class _CatalogScreenState extends State<CatalogScreen> {
     if (resetScroll && _filteredData.isNotEmpty && _verticalScrollController.hasClients) {
        _verticalScrollController.jumpTo(0);
     }
+  }
+
+  void _ordenarTabla(String columna) {
+    setState(() {
+      if (_columnaOrden == columna) {
+        _ordenAscendente = !_ordenAscendente;
+      } else {
+        _columnaOrden = columna;
+        _ordenAscendente = true;
+      }
+
+      _filteredData.sort((a, b) {
+        String valA = (a[columna] ?? "").toString().toLowerCase();
+        String valB = (b[columna] ?? "").toString().toLowerCase();
+        
+        // Manejo especial de fechas para última actualización
+        if (columna == 'Ultima_Actualizacion') {
+           DateTime? dateA = DateTime.tryParse(valA);
+           DateTime? dateB = DateTime.tryParse(valB);
+           if (dateA != null && dateB != null) {
+              return _ordenAscendente ? dateA.compareTo(dateB) : dateB.compareTo(dateA);
+           }
+        }
+
+        return _ordenAscendente ? valA.compareTo(valB) : valB.compareTo(valA);
+      });
+    });
   }
 
   void _clearFilters() {
@@ -266,7 +297,25 @@ class _CatalogScreenState extends State<CatalogScreen> {
          showDialog(context: context, builder: (context) {
            return ContentDialog(
              title: const Text('Error al Guardar'),
-             content: Text(e.toString()),
+             content: Column(
+               mainAxisSize: MainAxisSize.min,
+               crossAxisAlignment: CrossAxisAlignment.start,
+               children: [
+                 SelectableText(e.toString()),
+                 const SizedBox(height: 10),
+                 Button(
+                   child: const Row(
+                     mainAxisSize: MainAxisSize.min,
+                     children: [
+                       Icon(FluentIcons.copy, size: 12),
+                       SizedBox(width: 8),
+                       Text('Copiar Detalle'),
+                     ],
+                   ),
+                   onPressed: () => Clipboard.setData(ClipboardData(text: e.toString())),
+                 ),
+               ],
+             ),
              actions: [
                Button(child: const Text('Ok'), onPressed: () => Navigator.pop(context))
              ],
@@ -439,7 +488,12 @@ class _CatalogScreenState extends State<CatalogScreen> {
        displayInfoBar(context, builder: (context, close) {
         return InfoBar(
           title: const Text('Error'),
-          content: const Text('Link inválido o inaccesible.'),
+          content: Row(
+            children: [
+              const Expanded(child: SelectableText('Link inválido o inaccesible.')),
+              IconButton(icon: const Icon(FluentIcons.copy), onPressed: () => Clipboard.setData(ClipboardData(text: 'Link inválido o inaccesible.'))),
+            ],
+          ),
           severity: InfoBarSeverity.error,
           onClose: close,
         );
@@ -524,7 +578,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
       // Padding compactado en header
       padding: EdgeInsets.zero,
       header: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.0), // Compactado
+        padding: const EdgeInsets.only(left: 10.0, right: 10.0, top: 4.0, bottom: 0.0), // Compactado severamente debajo del titulo
         child: PageHeader(
           title: const Text('Catálogo Maestro'),
           commandBar: _buildCommandBar(),
@@ -588,67 +642,108 @@ class _CatalogScreenState extends State<CatalogScreen> {
     );
   }
 
+  double _getColumnWidth(String col) {
+    if (col == 'Descripcion') return 250.0;
+    if (col == 'Codigo_Pieza' || col == 'Codigo') return 120.0;
+    if (col == 'Proceso_Primario') return 135.0; // Fit text
+    if (col == 'Medida') return 100.0;
+    if (col.startsWith('Proceso_')) return 100.0;
+    return 130.0; // Restante (Link Drive, etc.)
+  }
+
   Widget _buildContent() {
     if (_isLoading) return const Center(child: ProgressRing());
-    if (_errorMessage != null) return Center(child: Text(_errorMessage!));
+    if (_errorMessage != null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SelectableText(_errorMessage!, style: TextStyle(color: Colors.red)),
+            const SizedBox(height: 10),
+            IconButton(
+              icon: const Icon(FluentIcons.copy),
+              onPressed: () => Clipboard.setData(ClipboardData(text: _errorMessage!)),
+            ),
+            const Text("Copiar Error", style: TextStyle(fontSize: 10, color: Colors.grey)),
+          ],
+        ),
+      );
+    }
     if (_allData.isEmpty) return const Center(child: Text('Sin datos.'));
 
     final activeCols = _columns.where((c) => _visibleColumns[c] == true).toList();
 
     return Padding(
       padding: const EdgeInsets.all(8.0),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final double actionsWidth = 160.0;
-          final minWidth = (activeCols.length * 200.0) + actionsWidth; 
-          final viewWidth = minWidth > constraints.maxWidth ? minWidth : constraints.maxWidth;
+      child: Container(
+        decoration: BoxDecoration(
+          color: FluentTheme.of(context).cardColor,
+          borderRadius: BorderRadius.circular(8.0),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            )
+          ],
+        ),
+        padding: const EdgeInsets.all(8.0),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final double actionsWidth = 110.0;
+            final double colsWidth = activeCols.fold(0.0, (sum, col) => sum + _getColumnWidth(col));
+            final minWidth = colsWidth + actionsWidth; 
+            final viewWidth = minWidth > constraints.maxWidth ? minWidth : constraints.maxWidth;
 
-          // SOLUCIÓN SCROLLBAR: Scrollbar vertical envuelve al Horizontal
-          // Esto asegura que la barra vertical esté siempre visible a la derecha de la pantalla
-          return Scrollbar(
-            controller: _verticalScrollController,
-            thumbVisibility: true,
-            interactive: true,
-            style: const ScrollbarThemeData(
-              thickness: 14.0, // Industrial
-              radius: Radius.circular(4),
-            ),
-            child: Scrollbar(
-              controller: _horizontalScrollController,
+            // SOLUCIÓN SCROLLBAR: Scrollbar vertical envuelve al Horizontal
+            // Esto asegura que la barra vertical esté siempre visible a la derecha de la pantalla
+            return Scrollbar(
+              controller: _verticalScrollController,
               thumbVisibility: true,
               interactive: true,
               style: const ScrollbarThemeData(
                 thickness: 14.0, // Industrial
                 radius: Radius.circular(4),
               ),
-              child: SingleChildScrollView(
+              child: Scrollbar(
                 controller: _horizontalScrollController,
-                scrollDirection: Axis.horizontal,
-                child: SizedBox(
-                  width: viewWidth,
-                  height: constraints.maxHeight,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildHeaderRow(activeCols, actionsWidth),
-                      const SizedBox(height: 8), // Separación justa (8px)
-                      const Divider(),
-                      Expanded(
-                        child: ListView.builder(
-                          controller: _verticalScrollController,
-                          itemCount: _filteredData.length,
-                          itemBuilder: (context, index) {
-                            return _buildDataRow(_filteredData[index], index, activeCols, actionsWidth);
-                          },
+                thumbVisibility: true,
+                interactive: true,
+                style: const ScrollbarThemeData(
+                  thickness: 8.0, // Barra horizontal reducida
+                  radius: Radius.circular(4),
+                ),
+                child: SingleChildScrollView(
+                  controller: _horizontalScrollController,
+                  scrollDirection: Axis.horizontal,
+                  child: SizedBox(
+                    width: viewWidth,
+                    height: constraints.maxHeight,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildHeaderRow(activeCols, actionsWidth),
+                        const SizedBox(height: 8), // Separación justa (8px)
+                        const Divider(),
+                        Expanded(
+                          child: ListView.builder(
+                            controller: _verticalScrollController,
+                            itemCount: _filteredData.length,
+                            itemBuilder: (context, index) {
+                              return _buildDataRow(_filteredData[index], index, activeCols, actionsWidth);
+                            },
+                          ),
                         ),
-                      ),
-                    ],
+                        // ESPACIO PARA EL SCROLLBAR HORIZONTAL
+                        const SizedBox(height: 10),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          );
-        }
+            );
+          }
+        ),
       ),
     );
   }
@@ -660,24 +755,46 @@ class _CatalogScreenState extends State<CatalogScreen> {
          SizedBox(width: actionsWidth, child: Container()), 
         ...activeCols.map((col) {
           return SizedBox(
-            width: 200,
+            width: _getColumnWidth(col),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8.0),
               child: Column(
+                mainAxisSize: MainAxisSize.min, // COMPACTAR
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(col.replaceAll('_', ' '), style: TextStyle(fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
-                  const SizedBox(height: 4), // Compacto
-                  InfoLabel( 
-                    label: '',
-                    child: SizedBox(
-                      width: 200,
-                      child: TextBox(
-                        controller: _filterControllers[col],
-                        placeholder: 'Buscar',
-                        style: TextStyle(fontSize: 12),
-                        onChanged: (v) => _applyFilters(resetScroll: true),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          col.replaceAll('_', ' '), 
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12.0), 
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
                       ),
+                      Tooltip(
+                        message: 'Ordenar por $col',
+                        child: IconButton(
+                          icon: Icon(
+                            _columnaOrden == col 
+                              ? (_ordenAscendente ? FluentIcons.sort_up : FluentIcons.sort_down)
+                              : FluentIcons.sort, 
+                            size: 10
+                          ),
+                          onPressed: () => _ordenarTabla(col),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4.0), // Separación justa sin paddings extra
+                  SizedBox(
+                    width: _getColumnWidth(col),
+                    child: TextBox(
+                      controller: _filterControllers[col],
+                      placeholder: 'Buscar',
+                      style: TextStyle(fontSize: 12),
+                      onChanged: (v) => _applyFilters(resetScroll: true),
                     ),
                   ),
                 ],
@@ -705,14 +822,14 @@ class _CatalogScreenState extends State<CatalogScreen> {
                 Tooltip(
                   message: 'Información',
                   child: IconButton(
-                    icon: Icon(FluentIcons.info, size: 14, color: Colors.blue), // AZUL
+                    icon: Icon(FluentIcons.info, size: 14, color: Colors.blue), // BLUE
                     onPressed: () => _showInfoDetails(row),
                   ),
                 ),
                 Tooltip(
                   message: 'Editar',
                   child: IconButton(
-                    icon: Icon(FluentIcons.edit, size: 14, color: Colors.warningPrimaryColor), // NARANJA/AMARILLO
+                    icon: Icon(FluentIcons.edit, size: 14, color: Colors.orange), // NARANJA VIBRANTE
                     onPressed: () => _showEditDialog(row),
                   ),
                 ),
@@ -721,7 +838,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                    Tooltip(
                     message: 'Abrir Drive/Plano',
                     child: IconButton(
-                      icon: Icon(FluentIcons.cloud, size: 14, color: Colors.successPrimaryColor), // VERDE
+                      icon: Icon(FluentIcons.cloud, size: 14, color: Colors.teal), // TEAL (VERDE PASTEL VIBRANTE)
                       onPressed: () => _launchDriveLink(row['Link_Drive']?.toString()),
                     ),
                   )
@@ -731,7 +848,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                 Tooltip(
                   message: 'Copiar Código',
                   child: IconButton(
-                    icon: Icon(FluentIcons.copy, size: 14, color: Colors.grey), // GRIS
+                    icon: Icon(FluentIcons.copy, size: 14, color: Colors.magenta), // MAGENTA/MORADO PARA RESALTAR
                     onPressed: () => _copyToClipboard(row['Codigo']?.toString() ?? ''),
                   ),
                 ),
@@ -740,7 +857,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
           ),
           ...activeCols.map((col) {
             return SizedBox(
-              width: 200,
+              width: _getColumnWidth(col),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8.0),
                 child: Text(

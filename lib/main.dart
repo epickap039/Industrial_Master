@@ -8,6 +8,9 @@ import 'screens/arbitration.dart';
 import 'screens/editor.dart';
 import 'screens/settings.dart';
 import 'screens/login.dart';
+import 'screens/history.dart';
+import 'screens/standardization.dart'; // Fase 18
+import 'screens/materials_list.dart'; // Fase 20
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -90,7 +93,7 @@ class _MyAppState extends State<MyApp> {
 
     return FluentApp(
       debugShowCheckedModeBanner: false,
-      title: 'Industrial Manager v15.5',
+      title: 'BDIV-v38.0',
       themeMode: _themeMode,
       theme: FluentThemeData(
         brightness: Brightness.light,
@@ -103,7 +106,7 @@ class _MyAppState extends State<MyApp> {
       home: _isLoggedIn
           ? NavigationView(
               appBar: NavigationAppBar(
-                title: const Text('Industrial Manager v15.5'),
+                title: const Text('BDIV-v38.0'),
                 automaticallyImplyLeading: false,
                 actions: Padding(
                   padding: const EdgeInsets.only(right: 12.0),
@@ -117,6 +120,7 @@ class _MyAppState extends State<MyApp> {
                 ),
               ),
               pane: NavigationPane(
+                size: const NavigationPaneSize(openWidth: 220.0),
                 selected: topIndex,
                 onChanged: (index) => setState(() => topIndex = index),
                 displayMode: PaneDisplayMode.auto,
@@ -135,6 +139,21 @@ class _MyAppState extends State<MyApp> {
                     icon: const Icon(FluentIcons.search_and_apps),
                     title: const Text('Auditor de Archivos'),
                     body: const AuditorScreen(), // Nueva pantalla Fase 12
+                  ),
+                  PaneItem(
+                    icon: const Icon(FluentIcons.history),
+                    title: const Text('Historial de Cambios'),
+                    body: const HistoryScreen(),
+                  ),
+                  PaneItem(
+                    icon: const Icon(FluentIcons.edit),
+                    title: const Text('Estandarización'),
+                    body: StandardizationScreen(),
+                  ),
+                  PaneItem(
+                    icon: const Icon(FluentIcons.paste),
+                    title: const Text('Materiales Oficiales'),
+                    body: const MaterialsListScreen(),
                   ),
                 ],
                 footerItems: [

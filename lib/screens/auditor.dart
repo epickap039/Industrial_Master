@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/services.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:http/http.dart' as http;
 import 'package:file_picker/file_picker.dart';
@@ -72,7 +73,7 @@ class _AuditorScreenState extends State<AuditorScreen> {
       builder: (c) => ContentDialog(
         title: const Text("Confirmar Autocorrección"),
         content: const Text(
-          "Se creará una copia de seguridad del archivo actual (con sufijo '-retirado') y se aplicarán todas las correcciones de la BD al archivo original.\n\n¿Deseas continuar?"
+          "El servidor analizará tu archivo y te devolverá una versión con las correcciones de base de datos aplicadas.\n\n¿Deseas continuar?"
         ),
         actions: [
           Button(child: const Text("Cancelar"), onPressed: () => Navigator.pop(c, false)),
@@ -93,25 +94,37 @@ class _AuditorScreenState extends State<AuditorScreen> {
       
       request.files.add(await http.MultipartFile.fromPath('file', _filePath!));
       request.fields['correcciones'] = json.encode(_errors);
-      request.fields['file_path'] = _filePath!;
 
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (mounted) {
-          displayInfoBar(context, builder: (context, close) {
-            return InfoBar(
-              title: const Text('Corrección Exitosa'),
-              content: Text("${data['mensaje']}"),
-              severity: InfoBarSeverity.success,
-              onClose: close,
-            );
-          });
-          // Recargar auditoría para confirmar? O simplemente mostrar éxito?
-          // Limpiamos errores para indicar que se solucionó
-          setState(() => _errors = []); 
+        String? outputFile = await FilePicker.platform.saveFile(
+          dialogTitle: 'Guardar Archivo Corregido',
+          fileName: 'CORREGIDO_${_fileName ?? "archivo.xlsx"}',
+          allowedExtensions: ['xlsx'],
+        );
+
+        if (outputFile != null) {
+          if (!outputFile.endsWith('.xlsx')) outputFile += '.xlsx';
+          final file = File(outputFile);
+          await file.writeAsBytes(response.bodyBytes);
+
+          if (mounted) {
+            displayInfoBar(context, builder: (context, close) {
+              return InfoBar(
+                title: const Text('Corrección Exitosa'),
+                content: Text("Archivo guardado en: $outputFile"),
+                severity: InfoBarSeverity.success,
+                action: Button(
+                  onPressed: () => _openLocalFile(outputFile!), 
+                  child: const Text('Abrir File'),
+                ),
+                onClose: close,
+              );
+            });
+            setState(() => _errors = []); 
+          }
         }
       } else {
         throw Exception(response.body);
@@ -202,7 +215,31 @@ class _AuditorScreenState extends State<AuditorScreen> {
       context: context,
       builder: (c) => ContentDialog(
         title: Text(title),
-        content: SelectableText(message, style: TextStyle(color: Colors.red)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+             Row(
+               children: [
+                 Expanded(child: SelectableText(message, style: TextStyle(color: Colors.red))),
+                 IconButton(
+                   icon: const Icon(FluentIcons.copy),
+                   onPressed: () {
+                     Clipboard.setData(ClipboardData(text: message));
+                     displayInfoBar(c, duration: const Duration(seconds: 2), builder: (context, close) {
+                       return InfoBar(
+                         title: const Text('Copiado'),
+                         content: const Text('Error copiado al portapapeles'),
+                         severity: InfoBarSeverity.success,
+                         onClose: close,
+                       );
+                     });
+                   },
+                 ),
+               ],
+             ),
+          ],
+        ),
         actions: [
           Button(child: const Text("Cerrar"), onPressed: () => Navigator.pop(c)),
         ],
