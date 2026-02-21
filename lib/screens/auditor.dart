@@ -437,7 +437,17 @@ class _AuditorScreenState extends State<AuditorScreen> {
                             erroresUnicosMap[firma] = [];
                             primeraInstancia[firma] = item;
                           }
-                          erroresUnicosMap[firma]!.add(item['fila'] as int);
+                          
+                          // Parsear fila de forma segura para evitar crashes si viene como String o double
+                          int filaNum = 0;
+                          if (item['fila'] != null) {
+                            if (item['fila'] is int) {
+                              filaNum = item['fila'];
+                            } else {
+                              filaNum = int.tryParse(item['fila'].toString()) ?? 0;
+                            }
+                          }
+                          erroresUnicosMap[firma]!.add(filaNum);
                         }
 
                         // 3. Bloque de Error Agrupado
