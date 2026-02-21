@@ -705,38 +705,43 @@ class _CatalogScreenState extends State<CatalogScreen> {
                 thickness: 14.0, // Industrial
                 radius: Radius.circular(4),
               ),
-              child: Scrollbar(
-                controller: _horizontalScrollController,
-                thumbVisibility: true,
-                interactive: true,
-                style: const ScrollbarThemeData(
-                  thickness: 8.0, // Barra horizontal reducida
-                  radius: Radius.circular(4),
-                ),
-                child: SingleChildScrollView(
+              child: SingleChildScrollView(
+                controller: _verticalScrollController,
+                scrollDirection: Axis.vertical,
+                child: Scrollbar(
                   controller: _horizontalScrollController,
-                  scrollDirection: Axis.horizontal,
-                  child: SizedBox(
-                    width: viewWidth,
-                    height: constraints.maxHeight,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _buildHeaderRow(activeCols, actionsWidth),
-                        const SizedBox(height: 8), // Separación justa (8px)
-                        const Divider(),
-                        Expanded(
-                          child: ListView.builder(
-                            controller: _verticalScrollController,
-                            itemCount: _filteredData.length,
-                            itemBuilder: (context, index) {
-                              return _buildDataRow(_filteredData[index], index, activeCols, actionsWidth);
-                            },
-                          ),
+                  thumbVisibility: true,
+                  interactive: true,
+                  style: const ScrollbarThemeData(
+                    thickness: 8.0, // Barra horizontal reducida
+                    radius: Radius.circular(4),
+                  ),
+                  child: SingleChildScrollView(
+                    controller: _horizontalScrollController,
+                    scrollDirection: Axis.horizontal,
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 20.0), // Carril exclusivo inferior
+                      child: SizedBox(
+                        width: viewWidth,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildHeaderRow(activeCols, actionsWidth),
+                            const SizedBox(height: 8), // Separación justa (8px)
+                            const Divider(),
+                            ListView.builder(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              itemCount: _filteredData.length,
+                              itemBuilder: (context, index) {
+                                return _buildDataRow(_filteredData[index], index, activeCols, actionsWidth);
+                              },
+                            ),
+                            // ESPACIO DE MARGEN FINAL
+                            const SizedBox(height: 20),
+                          ],
                         ),
-                        // ESPACIO PARA EL SCROLLBAR HORIZONTAL
-                        const SizedBox(height: 10),
-                      ],
+                      ),
                     ),
                   ),
                 ),
