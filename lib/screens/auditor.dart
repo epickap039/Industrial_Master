@@ -367,59 +367,102 @@ class _AuditorScreenState extends State<AuditorScreen> {
       );
     }
 
+    // 1. Agrupación en Tiempo de Renderizado
+    Map<String, List<dynamic>> discrepanciasAgrupadas = {};
+    for (var disc in _errors!) {
+      String codigo = disc['codigo'] ?? 'Sin Código';
+      if (!discrepanciasAgrupadas.containsKey(codigo)) {
+        discrepanciasAgrupadas[codigo] = [];
+      }
+      discrepanciasAgrupadas[codigo]!.add(disc);
+    }
+
+    final codigos = discrepanciasAgrupadas.keys.toList();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '⚠️ ${_errors!.length} discrepancias encontradas:',
+          '⚠️ ${_errors!.length} discrepancias encontradas en ${codigos.length} códigos de pieza:',
           style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.warningPrimaryColor),
         ),
         const SizedBox(height: 5),
         Expanded(
+          // 2. Nueva Estructura de Tarjetas por Código
           child: ListView.builder(
-            itemCount: _errors!.length,
+            itemCount: codigos.length,
             itemBuilder: (context, index) {
-              final item = _errors![index];
-              return Card(
-                margin: const EdgeInsets.only(bottom: 8),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 60,
-                      padding: const EdgeInsets.all(4),
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(4)),
-                      child: Text('Fila ${item['fila']}', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                    ),
-                    const SizedBox(width: 15),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+              final codigo = codigos[index];
+              final items = discrepanciasAgrupadas[codigo]!;
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12.0),
+                child: Card(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Encabezado de la Tarjeta (Código)
+                      Row(
                         children: [
-                          Row(
+                          Icon(FluentIcons.database, size: 20, color: Colors.blue),
+                          const SizedBox(width: 8),
+                          Text(codigo, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.blue)),
+                          const SizedBox(width: 10),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(color: Colors.red.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
+                            child: Text('${items.length} errores', style: TextStyle(color: Colors.red, fontSize: 12)),
+                          )
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      const Divider(),
+                      const SizedBox(height: 10),
+                      
+                      // Filas de Discrepancias del Código
+                      ...items.map((item) {
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8.0),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(item['codigo'], style: const TextStyle(fontWeight: FontWeight.bold)),
-                              const SizedBox(width: 10),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(color: Colors.blue.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
-                                child: Text(item['campo'], style: TextStyle(color: Colors.blue, fontSize: 12)),
+                                width: 60,
+                                padding: const EdgeInsets.all(4),
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(4)),
+                                child: Text('Fila ${item['fila']}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                              ),
+                              const SizedBox(width: 15),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(color: Colors.blue.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
+                                      child: Text(item['campo'], style: const TextStyle(color: Colors.blue, fontSize: 12)),
+                                    ),
+                                    const SizedBox(height: 5),
+                                    Row(
+                                      children: [
+                                        Expanded(child: SelectableText(item['excel'].toString(), style: const TextStyle(color: Colors.red))),
+                                        const Padding(
+                                          padding: EdgeInsets.symmetric(horizontal: 8.0),
+                                          child: Icon(FluentIcons.forward, size: 14, color: Colors.grey),
+                                        ),
+                                        Expanded(child: SelectableText(item['bd'].toString(), style: const TextStyle(color: Colors.green))),
+                                      ],
+                                    ),
+                                  ],
+                                ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 5),
-                          Row(
-                            children: [
-                              Expanded(child: SelectableText(item['excel'], style: TextStyle(color: Colors.red))),
-                              const Icon(FluentIcons.forward, size: 14, color: Colors.grey),
-                              const SizedBox(width: 5),
-                              Expanded(child: SelectableText(item['bd'], style: TextStyle(color: Colors.green))),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+                        );
+                      }),
+                    ],
+                  ),
                 ),
               );
             },
