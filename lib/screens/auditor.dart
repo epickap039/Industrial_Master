@@ -420,7 +420,7 @@ class _AuditorScreenState extends State<AuditorScreen> {
                       const SizedBox(height: 10),
                       
                       // 2. Agrupación Secundaria (Por "Firma del Error")
-                      ...Builder(builder: (context) {
+                      Builder(builder: (context) {
                         Map<String, List<int>> erroresUnicosMap = {};
                         // Guardar la primera ocurrencia completa del error para extraer 'campo', 'excel', 'bd' al dibujar
                         Map<String, dynamic> primeraInstancia = {};
