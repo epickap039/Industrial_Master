@@ -708,14 +708,18 @@ class _CatalogScreenState extends State<CatalogScreen> {
               child: SingleChildScrollView(
                 controller: _verticalScrollController,
                 scrollDirection: Axis.vertical,
-                child: Scrollbar(
-                  controller: _horizontalScrollController,
-                  thumbVisibility: true,
-                  interactive: true,
-                  style: const ScrollbarThemeData(
-                    thickness: 8.0, // Barra horizontal reducida
-                    radius: Radius.circular(4),
+                child: FluentTheme(
+                  data: FluentTheme.of(context).copyWith(
+                    scrollbarTheme: ScrollbarThemeData(
+                      trackColor: ButtonState.all(FluentTheme.of(context).cardColor),
+                      thickness: 12.0, // Barra horizontal opaca y más gruesa
+                      radius: const Radius.circular(4),
+                    ),
                   ),
+                  child: Scrollbar(
+                    controller: _horizontalScrollController,
+                    thumbVisibility: true,
+                    interactive: true,
                   child: SingleChildScrollView(
                     controller: _horizontalScrollController,
                     scrollDirection: Axis.horizontal,
@@ -741,9 +745,9 @@ class _CatalogScreenState extends State<CatalogScreen> {
                             const SizedBox(height: 20),
                           ],
                         ),
-                      ),
                     ),
                   ),
+                ),
                 ),
               ),
             );
