@@ -125,7 +125,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                      crossAxisAlignment: CrossAxisAlignment.start,
                      children: [
                        const Text('Anterior: ', style: TextStyle(color: Colors.grey)),
-                       Expanded(child: Text(oldVal, style: const TextStyle(color: Colors.red))),
+                       Expanded(child: Text(oldVal, style: TextStyle(color: Colors.red))),
                      ],
                    ),
                    const SizedBox(height: 2),
@@ -133,7 +133,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                      crossAxisAlignment: CrossAxisAlignment.start,
                      children: [
                        const Text('Nuevo: ', style: TextStyle(color: Colors.grey)),
-                       Expanded(child: Text(newVal, style: const TextStyle(color: Colors.green))),
+                       Expanded(child: Text(newVal, style: TextStyle(color: Colors.green))),
                      ],
                    ),
                  ],
@@ -159,7 +159,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                  crossAxisAlignment: CrossAxisAlignment.start,
                  children: [
                     const Text('Anterior: ', style: TextStyle(color: Colors.grey)),
-                    Expanded(child: Text(oldData.toString(), style: const TextStyle(color: Colors.red))),
+                    Expanded(child: Text(oldData.toString(), style: TextStyle(color: Colors.red))),
                  ],
                ),
              if (newData != null && newData.toString().isNotEmpty) ...[
@@ -168,7 +168,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                  crossAxisAlignment: CrossAxisAlignment.start,
                  children: [
                     const Text('Nuevo: ', style: TextStyle(color: Colors.grey)),
-                    Expanded(child: Text(newData.toString(), style: const TextStyle(color: Colors.green))),
+                    Expanded(child: Text(newData.toString(), style: TextStyle(color: Colors.green))),
                  ],
                ),
              ]
@@ -255,7 +255,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                         ),
                                         child: Text(
                                           item['accion'] ?? 'ACCIÓN',
-                                          style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 12),
+                                          style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 12),
                                         ),
                                       ),
                                     ],
