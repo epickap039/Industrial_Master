@@ -88,7 +88,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
       if (data is String) {
         try {
           String sanitized = data
-              .replaceAll("'", '"')
+              .replaceAll('"', '\\"') // 1. Protege las pulgadas primero
+              .replaceAll("'", '"')   // 2. Convierte sintaxis Python a JSON
               .replaceAll("None", "null")
               .replaceAll("True", "true")
               .replaceAll("False", "false");
