@@ -81,36 +81,62 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   Widget _buildDiffView(dynamic oldData, dynamic newData, BuildContext context) {
-    // Si son mapas (JSON Objects), mostramos diferencias campo por campo
-    if (oldData is Map || newData is Map) {
-      final oldMap = oldData is Map ? oldData : {};
-      final newMap = newData is Map ? newData : {};
+    // 1. LÓGICA DE PARSEO INTELIGENTE
+    Map<String, dynamic>? tryParseJson(dynamic data) {
+      if (data == null) return null;
+      if (data is Map<String, dynamic>) return data;
+      if (data is String) {
+        try {
+          String sanitized = data.replaceAll("'", '"');
+          final decoded = jsonDecode(sanitized);
+          if (decoded is Map<String, dynamic>) return decoded;
+        } catch (_) {}
+      }
+      return null;
+    }
+
+    final oldMap = tryParseJson(oldData);
+    final newMap = tryParseJson(newData);
+
+    final isDict = (oldMap != null || newMap != null);
+
+    // 2. CONSTRUCCIÓN VISUAL DEL BLOQUE (MAPAS DESGLOSADOS)
+    if (isDict) {
+      final safeOld = oldMap ?? {};
+      final safeNew = newMap ?? {};
       
-      final allKeys = {...oldMap.keys, ...newMap.keys}.toList();
+      final allKeys = {...safeOld.keys, ...safeNew.keys}.toList();
       List<Widget> changes = [];
 
       for (var key in allKeys) {
-        final oldVal = oldMap[key];
-        final newVal = newMap[key];
+        final oldVal = safeOld[key]?.toString() ?? 'N/A';
+        final newVal = safeNew[key]?.toString() ?? 'N/A';
         
-        // Convertir a string para comparar y mostrar
-        final oldStr = oldVal?.toString() ?? 'N/A';
-        final newStr = newVal?.toString() ?? 'N/A';
-
-        if (oldStr != newStr) {
+        if (oldVal != newVal) {
            changes.add(
              Padding(
-               padding: EdgeInsets.symmetric(vertical: 2.0),
-               child: RichText(
-                 text: TextSpan(
-                   style: TextStyle(color: FluentTheme.of(context).typography.body!.color, fontSize: 13),
-                   children: [
-                     TextSpan(text: '$key: ', style: TextStyle(fontWeight: FontWeight.bold)),
-                     TextSpan(text: oldStr, style: TextStyle(color: Colors.red, decoration: TextDecoration.lineThrough)),
-                     TextSpan(text: ' -> '),
-                     TextSpan(text: newStr, style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
-                   ]
-                 ),
+               padding: const EdgeInsets.only(bottom: 8.0),
+               child: Column(
+                 crossAxisAlignment: CrossAxisAlignment.start,
+                 children: [
+                   Text('Campo: $key', style: const TextStyle(fontWeight: FontWeight.bold)),
+                   const SizedBox(height: 2),
+                   Row(
+                     crossAxisAlignment: CrossAxisAlignment.start,
+                     children: [
+                       const Text('Anterior: ', style: TextStyle(color: Colors.grey)),
+                       Expanded(child: Text(oldVal, style: const TextStyle(color: Colors.red))),
+                     ],
+                   ),
+                   const SizedBox(height: 2),
+                   Row(
+                     crossAxisAlignment: CrossAxisAlignment.start,
+                     children: [
+                       const Text('Nuevo: ', style: TextStyle(color: Colors.grey)),
+                       Expanded(child: Text(newVal, style: const TextStyle(color: Colors.green))),
+                     ],
+                   ),
+                 ],
                ),
              )
            );
@@ -118,31 +144,31 @@ class _HistoryScreenState extends State<HistoryScreen> {
       }
       
       if (changes.isEmpty) {
-         return Text('Sin cambios identificados en estructura.', style: TextStyle(fontStyle: FontStyle.italic));
+         return const Text('Sin cambios identificados en estructura.', style: TextStyle(fontStyle: FontStyle.italic));
       }
       
       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: changes);
 
     } else {
-       // Fallback para datos simples (Strings, etc.)
+       // 2B. CONSTRUCCIÓN VISUAL (TEXTO SIMPLE)
        return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-             if (oldData != null)
+             if (oldData != null && oldData.toString().isNotEmpty)
                Row(
                  crossAxisAlignment: CrossAxisAlignment.start,
                  children: [
-                    SizedBox(width: 70, child: Text('Anterior:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red))),
-                    Expanded(child: Text(oldData.toString(), maxLines: 3, overflow: TextOverflow.ellipsis)),
+                    const Text('Anterior: ', style: TextStyle(color: Colors.grey)),
+                    Expanded(child: Text(oldData.toString(), style: const TextStyle(color: Colors.red))),
                  ],
                ),
-             if (newData != null) ...[
-               SizedBox(height: 4),
+             if (newData != null && newData.toString().isNotEmpty) ...[
+               const SizedBox(height: 4),
                Row(
                  crossAxisAlignment: CrossAxisAlignment.start,
                  children: [
-                    SizedBox(width: 70, child: Text('Nuevo:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green))),
-                    Expanded(child: Text(newData.toString(), maxLines: 3, overflow: TextOverflow.ellipsis)),
+                    const Text('Nuevo: ', style: TextStyle(color: Colors.grey)),
+                    Expanded(child: Text(newData.toString(), style: const TextStyle(color: Colors.green))),
                  ],
                ),
              ]
@@ -219,17 +245,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                         '| Usuario: ${item['usuario'] ?? "Desconocido"}',
                                         style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                                       ),
+                                      // 3. MEJORA DE BADGES (Etiqueta de Acción)
                                       const Spacer(),
                                       Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                         decoration: BoxDecoration(
-                                          color: actionColor.withOpacity(0.2),
+                                          color: Colors.orange.withOpacity(0.2), // Naranja tenue
                                           borderRadius: BorderRadius.circular(4),
-                                          border: Border.all(color: actionColor),
                                         ),
                                         child: Text(
                                           item['accion'] ?? 'ACCIÓN',
-                                          style: TextStyle(color: actionColor, fontWeight: FontWeight.bold, fontSize: 12),
+                                          style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 12),
                                         ),
                                       ),
                                     ],
