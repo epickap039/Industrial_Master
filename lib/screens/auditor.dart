@@ -406,7 +406,7 @@ class _AuditorScreenState extends State<AuditorScreen> {
                         children: [
                           Icon(FluentIcons.database, size: 20, color: Colors.blue),
                           const SizedBox(width: 8),
-                          Text(codigo, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.blue)),
+                          Text(codigo, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.blue)),
                           const SizedBox(width: 10),
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -431,7 +431,7 @@ class _AuditorScreenState extends State<AuditorScreen> {
                                 padding: const EdgeInsets.all(4),
                                 alignment: Alignment.center,
                                 decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(4)),
-                                child: Text('Fila ${item['fila']}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                child: Text('Fila ${item['fila']}', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                               ),
                               const SizedBox(width: 15),
                               Expanded(
@@ -441,17 +441,17 @@ class _AuditorScreenState extends State<AuditorScreen> {
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                       decoration: BoxDecoration(color: Colors.blue.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
-                                      child: Text(item['campo'], style: const TextStyle(color: Colors.blue, fontSize: 12)),
+                                      child: Text(item['campo'], style: TextStyle(color: Colors.blue, fontSize: 12)),
                                     ),
                                     const SizedBox(height: 5),
                                     Row(
                                       children: [
-                                        Expanded(child: SelectableText(item['excel'].toString(), style: const TextStyle(color: Colors.red))),
+                                        Expanded(child: SelectableText(item['excel'].toString(), style: TextStyle(color: Colors.red))),
                                         const Padding(
                                           padding: EdgeInsets.symmetric(horizontal: 8.0),
                                           child: Icon(FluentIcons.forward, size: 14, color: Colors.grey),
                                         ),
-                                        Expanded(child: SelectableText(item['bd'].toString(), style: const TextStyle(color: Colors.green))),
+                                        Expanded(child: SelectableText(item['bd'].toString(), style: TextStyle(color: Colors.green))),
                                       ],
                                     ),
                                   ],
