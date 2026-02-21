@@ -711,7 +711,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                 child: FluentTheme(
                   data: FluentTheme.of(context).copyWith(
                     scrollbarTheme: ScrollbarThemeData(
-                      backgroundColor: ButtonState.all(FluentTheme.of(context).cardColor),
+                      backgroundColor: FluentTheme.of(context).cardColor,
                       thickness: 12.0, // Barra horizontal opaca y más gruesa
                       radius: const Radius.circular(4),
                     ),
