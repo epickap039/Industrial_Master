@@ -711,7 +711,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                 child: FluentTheme(
                   data: FluentTheme.of(context).copyWith(
                     scrollbarTheme: ScrollbarThemeData(
-                      trackColor: ButtonState.all(FluentTheme.of(context).cardColor),
+                      backgroundColor: ButtonState.all(FluentTheme.of(context).cardColor),
                       thickness: 12.0, // Barra horizontal opaca y más gruesa
                       radius: const Radius.circular(4),
                     ),
@@ -720,38 +720,39 @@ class _CatalogScreenState extends State<CatalogScreen> {
                     controller: _horizontalScrollController,
                     thumbVisibility: true,
                     interactive: true,
-                  child: SingleChildScrollView(
-                    controller: _horizontalScrollController,
-                    scrollDirection: Axis.horizontal,
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 20.0), // Carril exclusivo inferior
-                      child: SizedBox(
-                        width: viewWidth,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _buildHeaderRow(activeCols, actionsWidth),
-                            const SizedBox(height: 8), // Separación justa (8px)
-                            const Divider(),
-                            ListView.builder(
-                              shrinkWrap: true,
-                              physics: const NeverScrollableScrollPhysics(),
-                              itemCount: _filteredData.length,
-                              itemBuilder: (context, index) {
-                                return _buildDataRow(_filteredData[index], index, activeCols, actionsWidth);
-                              },
-                            ),
-                            // ESPACIO DE MARGEN FINAL
-                            const SizedBox(height: 20),
-                          ],
+                    child: SingleChildScrollView(
+                      controller: _horizontalScrollController,
+                      scrollDirection: Axis.horizontal,
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 20.0), // Carril exclusivo inferior
+                        child: SizedBox(
+                          width: viewWidth,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _buildHeaderRow(activeCols, actionsWidth),
+                              const SizedBox(height: 8), // Separación justa (8px)
+                              const Divider(),
+                              ListView.builder(
+                                shrinkWrap: true,
+                                physics: const NeverScrollableScrollPhysics(),
+                                itemCount: _filteredData.length,
+                                itemBuilder: (context, index) {
+                                  return _buildDataRow(_filteredData[index], index, activeCols, actionsWidth);
+                                },
+                              ),
+                              // ESPACIO DE MARGEN FINAL
+                              const SizedBox(height: 20),
+                            ],
+                          ),
                         ),
+                      ),
                     ),
                   ),
                 ),
-                ),
               ),
             );
-          }
+          },
         ),
       ),
     );
