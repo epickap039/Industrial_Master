@@ -673,41 +673,38 @@ class _CatalogScreenState extends State<CatalogScreen> {
 
     final activeCols = _columns.where((c) => _visibleColumns[c] == true).toList();
 
-    return Padding(
-      padding: const EdgeInsets.all(8.0),
-      child: Container(
-        decoration: BoxDecoration(
-          color: FluentTheme.of(context).cardColor,
-          borderRadius: BorderRadius.circular(8.0),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            )
-          ],
-        ),
+    return Expanded(
+      child: Padding(
         padding: const EdgeInsets.all(8.0),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final double actionsWidth = 110.0;
-            final double colsWidth = activeCols.fold(0.0, (sum, col) => sum + _getColumnWidth(col));
-            final minWidth = colsWidth + actionsWidth; 
-            final viewWidth = minWidth > constraints.maxWidth ? minWidth : constraints.maxWidth;
+        child: Container(
+          decoration: BoxDecoration(
+            color: FluentTheme.of(context).cardColor,
+            borderRadius: BorderRadius.circular(8.0),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              )
+            ],
+          ),
+          padding: const EdgeInsets.all(8.0),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final double actionsWidth = 110.0;
+              final double colsWidth = activeCols.fold(0.0, (sum, col) => sum + _getColumnWidth(col));
+              final minWidth = colsWidth + actionsWidth; 
+              final viewWidth = minWidth > constraints.maxWidth ? minWidth : constraints.maxWidth;
 
-            // SOLUCIÓN SCROLLBAR: Scrollbar vertical envuelve al Horizontal
-            // Esto asegura que la barra vertical esté siempre visible a la derecha de la pantalla
-            return Scrollbar(
-              controller: _verticalScrollController,
-              thumbVisibility: true,
-              interactive: true,
-              style: const ScrollbarThemeData(
-                thickness: 14.0, // Industrial
-                radius: Radius.circular(4),
-              ),
-              child: SingleChildScrollView(
+              // 2. ORDEN CORRECTO DE SCROLLBARS
+              return Scrollbar(
                 controller: _verticalScrollController,
-                scrollDirection: Axis.vertical,
+                thumbVisibility: true,
+                interactive: true,
+                style: const ScrollbarThemeData(
+                  thickness: 14.0, // Industrial
+                  radius: Radius.circular(4),
+                ),
                 child: FluentTheme(
                   data: FluentTheme.of(context).copyWith(
                     scrollbarTheme: ScrollbarThemeData(
@@ -721,38 +718,42 @@ class _CatalogScreenState extends State<CatalogScreen> {
                     thumbVisibility: true,
                     interactive: true,
                     child: SingleChildScrollView(
-                      controller: _horizontalScrollController,
-                      scrollDirection: Axis.horizontal,
-                      child: Padding(
-                        padding: const EdgeInsets.only(bottom: 20.0), // Carril exclusivo inferior
-                        child: SizedBox(
-                          width: viewWidth,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              _buildHeaderRow(activeCols, actionsWidth),
-                              const SizedBox(height: 8), // Separación justa (8px)
-                              const Divider(),
-                              ListView.builder(
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                itemCount: _filteredData.length,
-                                itemBuilder: (context, index) {
-                                  return _buildDataRow(_filteredData[index], index, activeCols, actionsWidth);
-                                },
-                              ),
-                              // ESPACIO DE MARGEN FINAL
-                              const SizedBox(height: 20),
-                            ],
+                      controller: _verticalScrollController,
+                      scrollDirection: Axis.vertical,
+                      child: SingleChildScrollView(
+                        controller: _horizontalScrollController,
+                        scrollDirection: Axis.horizontal,
+                        child: Padding(
+                          padding: const EdgeInsets.only(bottom: 20.0), // Carril exclusivo inferior
+                          child: SizedBox(
+                            width: viewWidth,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _buildHeaderRow(activeCols, actionsWidth),
+                                const SizedBox(height: 8), // Separación justa (8px)
+                                const Divider(),
+                                ListView.builder(
+                                  shrinkWrap: true,
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  itemCount: _filteredData.length,
+                                  itemBuilder: (context, index) {
+                                    return _buildDataRow(_filteredData[index], index, activeCols, actionsWidth);
+                                  },
+                                ),
+                                // ESPACIO DE MARGEN FINAL
+                                const SizedBox(height: 20),
+                              ],
+                            ),
                           ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         ),
       ),
     );
