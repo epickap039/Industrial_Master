@@ -419,46 +419,83 @@ class _AuditorScreenState extends State<AuditorScreen> {
                       const Divider(),
                       const SizedBox(height: 10),
                       
-                      // Filas de Discrepancias del Código
-                      ...items.map((item) {
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 8.0),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                width: 60,
-                                padding: const EdgeInsets.all(4),
-                                alignment: Alignment.center,
-                                decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(4)),
-                                child: Text('Fila ${item['fila']}', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                              ),
-                              const SizedBox(width: 15),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                      decoration: BoxDecoration(color: Colors.blue.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
-                                      child: Text(item['campo'], style: TextStyle(color: Colors.blue, fontSize: 12)),
+                      // 2. Agrupación Secundaria (Por "Firma del Error")
+                      ...Builder(builder: (context) {
+                        Map<String, List<int>> erroresUnicosMap = {};
+                        // Guardar la primera ocurrencia completa del error para extraer 'campo', 'excel', 'bd' al dibujar
+                        Map<String, dynamic> primeraInstancia = {};
+
+                        for (var item in items) {
+                          final campo = item['campo'] ?? 'N/A';
+                          final valExcel = item['excel']?.toString() ?? 'null';
+                          final valBd = item['bd']?.toString() ?? 'null';
+                          
+                          // Firma Única Combinada
+                          final firma = "Col:$campo|Excel:$valExcel|BD:$valBd";
+                          
+                          if (!erroresUnicosMap.containsKey(firma)) {
+                            erroresUnicosMap[firma] = [];
+                            primeraInstancia[firma] = item;
+                          }
+                          erroresUnicosMap[firma]!.add(item['fila'] as int);
+                        }
+
+                        // 3. Bloque de Error Agrupado
+                        return Column(
+                          children: erroresUnicosMap.keys.map((firma) {
+                            final filas = erroresUnicosMap[firma]!;
+                            final itemRef = primeraInstancia[firma]!;
+                            
+                            // Unir números de fila únicos
+                            filas.sort();
+                            final filasStr = filas.join(', ');
+
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 12.0),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // Encabezado de Filas Combinadas
+                                  Container(
+                                    width: 100, // Un poco más ancho por si hay muchas filas
+                                    padding: const EdgeInsets.all(4),
+                                    alignment: Alignment.center,
+                                    decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(4)),
+                                    child: Text(
+                                      filas.length > 1 ? 'Filas $filasStr' : 'Fila $filasStr', 
+                                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11),
+                                      textAlign: TextAlign.center,
                                     ),
-                                    const SizedBox(height: 5),
-                                    Row(
+                                  ),
+                                  const SizedBox(width: 15),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        Expanded(child: SelectableText(item['excel'].toString(), style: TextStyle(color: Colors.red))),
-                                        const Padding(
-                                          padding: EdgeInsets.symmetric(horizontal: 8.0),
-                                          child: Icon(FluentIcons.forward, size: 14, color: Colors.grey),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(color: Colors.blue.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
+                                          child: Text(itemRef['campo'], style: TextStyle(color: Colors.blue, fontSize: 12)),
                                         ),
-                                        Expanded(child: SelectableText(item['bd'].toString(), style: TextStyle(color: Colors.green))),
+                                        const SizedBox(height: 5),
+                                        // Comparación visual usando el registro de la primeraInstancia
+                                        Row(
+                                          children: [
+                                            Expanded(child: SelectableText(itemRef['excel'].toString(), style: TextStyle(color: Colors.red))),
+                                            const Padding(
+                                              padding: EdgeInsets.symmetric(horizontal: 8.0),
+                                              child: Icon(FluentIcons.forward, size: 14, color: Colors.grey),
+                                            ),
+                                            Expanded(child: SelectableText(itemRef['bd'].toString(), style: TextStyle(color: Colors.green))),
+                                          ],
+                                        ),
                                       ],
                                     ),
-                                  ],
-                                ),
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
+                            );
+                          }).toList(),
                         );
                       }),
                     ],
