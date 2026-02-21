@@ -104,10 +104,13 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
                     label: e,
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 4.0),
-                      child: Text(
-                        e,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+                      child: Tooltip(
+                        message: e,
+                        child: Text(
+                          e,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ),
                   );
