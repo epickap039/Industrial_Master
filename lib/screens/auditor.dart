@@ -491,7 +491,7 @@ class _AuditorScreenState extends State<AuditorScreen> {
                                   
                                   // 2. Diseño de 2 Columnas (Excel vs BD)
                                   Row(
-                                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       // Columna Izquierda (Excel)
                                       Expanded(
