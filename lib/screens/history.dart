@@ -87,7 +87,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
       if (data is Map<String, dynamic>) return data;
       if (data is String) {
         try {
-          String sanitized = data.replaceAll("'", '"');
+          String sanitized = data
+              .replaceAll("'", '"')
+              .replaceAll("None", "null")
+              .replaceAll("True", "true")
+              .replaceAll("False", "false");
           final decoded = jsonDecode(sanitized);
           if (decoded is Map<String, dynamic>) return decoded;
         } catch (_) {}
@@ -114,30 +118,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
         
         if (oldVal != newVal) {
            changes.add(
-             Padding(
-               padding: const EdgeInsets.only(bottom: 8.0),
-               child: Column(
-                 crossAxisAlignment: CrossAxisAlignment.start,
-                 children: [
-                   Text('Campo: $key', style: const TextStyle(fontWeight: FontWeight.bold)),
-                   const SizedBox(height: 2),
-                   Row(
-                     crossAxisAlignment: CrossAxisAlignment.start,
-                     children: [
-                       const Text('Anterior: ', style: TextStyle(color: Colors.grey)),
-                       Expanded(child: Text(oldVal, style: TextStyle(color: Colors.red))),
-                     ],
-                   ),
-                   const SizedBox(height: 2),
-                   Row(
-                     crossAxisAlignment: CrossAxisAlignment.start,
-                     children: [
-                       const Text('Nuevo: ', style: TextStyle(color: Colors.grey)),
-                       Expanded(child: Text(newVal, style: TextStyle(color: Colors.green))),
-                     ],
-                   ),
-                 ],
-               ),
+             Wrap(
+               crossAxisAlignment: WrapCrossAlignment.center,
+               children: [
+                 Text('$key: ', style: const TextStyle(fontWeight: FontWeight.bold)),
+                 Text(oldVal, style: TextStyle(color: Colors.red, decoration: TextDecoration.lineThrough)),
+                 const Text(' ➔ ', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+                 Text(newVal, style: TextStyle(color: Colors.green)),
+               ],
              )
            );
         }
