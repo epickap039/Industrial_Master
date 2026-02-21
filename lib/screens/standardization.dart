@@ -102,6 +102,14 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
                   return AutoSuggestBoxItem<String>(
                     value: e,
                     label: e,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4.0),
+                      child: Text(
+                        e,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
                   );
                 }).toList(),
                 onSelected: (item) {
