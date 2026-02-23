@@ -121,6 +121,46 @@ def delete_material(material_name: str):
     finally:
         conn.close()
 
+class MaterialOficial(BaseModel):
+    descripcion: str
+
+@app.post("/api/materiales/oficial")
+def agregar_material_oficial(payload: MaterialOficial):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "INSERT INTO Tbl_Materiales_Aprobados (Material) VALUES (?)",
+            (payload.descripcion.upper(),)
+        )
+        conn.commit()
+        return {"status": "success", "message": "Material oficial guardado correctamente"}
+    except pyodbc.IntegrityError:
+        conn.rollback()
+        # En caso de que el material ya exista (UNIQUE constraint)
+        return {"status": "success", "message": "Material ya existe o se guardó correctamente"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error en SQL Server al guardar material: {str(e)}")
+    finally:
+        conn.close()
+
+@app.delete("/api/materiales/oficial/{identificador}")
+def eliminar_material_oficial(identificador: str):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM Tbl_Materiales_Aprobados WHERE Material = ?", (identificador,))
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Material no encontrado")
+        conn.commit()
+        return {"status": "success", "message": "Material oficial eliminado correctamente"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error en SQL Server al eliminar material: {str(e)}")
+    finally:
+        conn.close()
+
 # === FIN MATERIALES APROBADOS ===
 # --- ENDPOINTS CONFIGURACIÓN ---
 @app.get("/api/config/regla_espejo")

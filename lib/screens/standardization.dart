@@ -177,14 +177,15 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
     setState(() => _isLoading = true);
     try {
       final response = await http.post(
-        Uri.parse('$API_URL/api/config/materiales'),
+        Uri.parse('$API_URL/api/materiales/oficial'),
         headers: {'Content-Type': 'application/json'},
-        body: json.encode({'material': desc}),
+        body: jsonEncode({'descripcion': desc}),
       );
 
       if (response.statusCode == 200) {
         _showSuccess("Material '$desc' agregado a la lista oficial.");
         await _fetchOfficialMaterials();
+        await _fetchDescriptions(); // RECARGA TOTAL DE DATOS
       } else {
         _showError("Error del servidor: ${response.statusCode}");
       }
@@ -194,6 +195,28 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
       setState(() => _isLoading = false);
     }
   }
+
+  Future<void> _eliminarOficial(String desc) async {
+    setState(() => _isLoading = true);
+    try {
+      final response = await http.delete(
+        Uri.parse('$API_URL/api/materiales/oficial/${Uri.encodeComponent(desc)}'),
+      );
+
+      if (response.statusCode == 200) {
+        _showSuccess("Material '$desc' eliminado de la lista oficial.");
+        await _fetchOfficialMaterials();
+        await _fetchDescriptions();
+      } else {
+        _showError("Error del servidor: ${response.statusCode}");
+      }
+    } catch (e) {
+      _showError("Error de conexión: $e");
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
 
   void _showError(String message) {
     displayInfoBar(context, builder: (context, close) {
@@ -336,6 +359,37 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
                                         ),
                                         onPressed: () => _showStandardizeDialog(desc, total),
                                       ),
+                                      if (isOfficial) ...[
+                                        SizedBox(width: 8),
+                                        IconButton(
+                                          icon: Icon(FluentIcons.delete, color: Colors.red),
+                                          onPressed: () {
+                                            showDialog(
+                                              context: context,
+                                              builder: (context) => ContentDialog(
+                                                title: Text("Eliminar Material Oficial"),
+                                                content: Text("¿Seguro que deseas eliminar '$desc' del catálogo oficial?"),
+                                                actions: [
+                                                  Button(
+                                                    child: Text("Cancelar"),
+                                                    onPressed: () => Navigator.pop(context),
+                                                  ),
+                                                  FilledButton(
+                                                    style: ButtonStyle(
+                                                      backgroundColor: ButtonState.all(Colors.red),
+                                                    ),
+                                                    child: Text("Eliminar"),
+                                                    onPressed: () {
+                                                      Navigator.pop(context);
+                                                      _eliminarOficial(desc);
+                                                    },
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      ],
                                     ],
                                   ),
                                 ],
