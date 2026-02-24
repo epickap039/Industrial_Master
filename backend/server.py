@@ -387,6 +387,116 @@ def delete_cliente(id_cliente: int):
         conn.close()
 # === FIN JERARQUIA DE PROYECTOS ===
 
+# === MAPA DE INGENIERÍA ===
+@app.get("/api/mapa/jerarquia")
+def get_mapa_jerarquia():
+    """Devuelve el árbol completo: Tracto > Tipo > Versión > Revisiones."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT
+                TR.ID_Tracto, TR.Nombre_Tracto,
+                TP.ID_Tipo, TP.Nombre_Tipo,
+                V.ID_Version, V.Nombre_Version,
+                R.ID_Revision, R.Numero_Revision, R.Estado, R.Fecha_Creacion
+            FROM Tbl_Proyectos_Tracto TR
+            JOIN Tbl_Tipos_Proyecto TP ON TP.ID_Tracto = TR.ID_Tracto
+            JOIN Tbl_Versiones_Ingenieria V ON V.ID_Tipo = TP.ID_Tipo
+            LEFT JOIN Tbl_BOM_Revisiones R ON R.ID_Version = V.ID_Version
+            ORDER BY TR.Nombre_Tracto, TP.Nombre_Tipo, V.Nombre_Version, R.Numero_Revision
+        """)
+        rows = cursor.fetchall()
+        # Construir árbol en Python
+        tractos: dict = {}
+        for r in rows:
+            tid = r.ID_Tracto
+            if tid not in tractos:
+                tractos[tid] = {"id": tid, "nombre": r.Nombre_Tracto, "tipos": {}}
+            tipos = tractos[tid]["tipos"]
+            pid = r.ID_Tipo
+            if pid not in tipos:
+                tipos[pid] = {"id": pid, "nombre": r.Nombre_Tipo, "versiones": {}}
+            versiones = tipos[pid]["versiones"]
+            vid = r.ID_Version
+            if vid not in versiones:
+                versiones[vid] = {"id": vid, "nombre": r.Nombre_Version, "revisiones": []}
+            if r.ID_Revision:
+                versiones[vid]["revisiones"].append({
+                    "id_revision": r.ID_Revision,
+                    "numero_revision": r.Numero_Revision,
+                    "estado": r.Estado,
+                    "fecha_creacion": r.Fecha_Creacion.isoformat() if r.Fecha_Creacion else None
+                })
+        # Serializar a lista
+        result = []
+        for tracto in tractos.values():
+            t = {"id": tracto["id"], "nombre": tracto["nombre"], "tipos": []}
+            for tipo in tracto["tipos"].values():
+                tp = {"id": tipo["id"], "nombre": tipo["nombre"], "versiones": []}
+                for ver in tipo["versiones"].values():
+                    tp["versiones"].append({
+                        "id": ver["id"],
+                        "nombre": ver["nombre"],
+                        "revisiones": ver["revisiones"]
+                    })
+                t["tipos"].append(tp)
+            result.append(t)
+        return result
+    finally:
+        conn.close()
+
+# === NUBE DE ARCHIVOS VIN ===
+VIN_FILES_BASE = r"C:\BDIV_Archivos\VINs"
+
+@app.get("/api/vins/{id_vin}/archivos")
+def get_archivos_vin(id_vin: int):
+    """Lista archivos adjuntos de un VIN."""
+    folder = os.path.join(VIN_FILES_BASE, str(id_vin))
+    if not os.path.exists(folder):
+        return []
+    archivos = []
+    for fname in os.listdir(folder):
+        fpath = os.path.join(folder, fname)
+        if os.path.isfile(fpath):
+            archivos.append({
+                "nombre": fname,
+                "tamano_kb": round(os.path.getsize(fpath) / 1024, 1),
+                "es_pdf": fname.lower().endswith(".pdf")
+            })
+    return archivos
+
+@app.post("/api/vins/{id_vin}/subir_archivo")
+async def subir_archivo_vin(id_vin: int, file: UploadFile = File(...)):
+    """Sube y guarda un archivo en la carpeta del VIN en el servidor."""
+    folder = os.path.join(VIN_FILES_BASE, str(id_vin))
+    os.makedirs(folder, exist_ok=True)
+    # Sanitizar nombre de archivo
+    safe_name = re.sub(r"[^\w\.\-]", "_", file.filename or "archivo")
+    dest = os.path.join(folder, safe_name)
+    try:
+        content = await file.read()
+        with open(dest, "wb") as f:
+            f.write(content)
+        return {"status": "success", "nombre": safe_name, "tamano_kb": round(len(content) / 1024, 1)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al guardar archivo: {str(e)}")
+
+@app.get("/api/vins/{id_vin}/archivos/{nombre_archivo}")
+async def descargar_archivo_vin(id_vin: int, nombre_archivo: str):
+    """Descarga/abre un archivo adjunto del VIN."""
+    safe_name = re.sub(r"[^\w\.\-]", "_", nombre_archivo)
+    fpath = os.path.join(VIN_FILES_BASE, str(id_vin), safe_name)
+    if not os.path.exists(fpath):
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+    def iterfile():
+        with open(fpath, "rb") as f:
+            yield from f
+    media_type = "application/pdf" if safe_name.lower().endswith(".pdf") else "application/octet-stream"
+    return StreamingResponse(iterfile(), media_type=media_type,
+        headers={"Content-Disposition": f"inline; filename={safe_name}"})
+
+
 # === HELPER: Registro de Auditoría ===
 def registrar_log(cursor, id_revision: int, accion: str, detalle: str, motivo: str = ""):
     """Inserta un registro en Tbl_Log_Cambios_Ingenieria. Llamar dentro de una transacción abierta."""

@@ -1,6 +1,10 @@
-import 'package:fluent_ui/fluent_ui.dart';
+﻿import 'package:fluent_ui/fluent_ui.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:typed_data';
+import 'package:file_picker/file_picker.dart';
+import 'package:open_file/open_file.dart';
+import 'dart:io';
 
 const String API_URL = "http://192.168.1.73:8001";
 
@@ -18,6 +22,11 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
   final TextEditingController _notesController = TextEditingController();
   List<dynamic> _allVins = [];
   List<dynamic> _filteredVins = [];
+
+  // v60.0: Nube de Archivos
+  List<dynamic> _archivos = [];
+  bool _isLoadingArchivos = false;
+  bool _isSubiendo = false;
 
   @override
   void initState() {
@@ -63,8 +72,10 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
           if (results.isNotEmpty) {
             _vinData = results.first;
             _notesController.text = _vinData['notas'] ?? "";
+            _fetchArchivos(); // v60.0: cargar archivos del VIN
           } else {
             _vinData = null;
+            _archivos = [];
             _showError("No se encontró el VIN");
           }
         });
@@ -73,6 +84,69 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
       _showError("Error de conexión: $e");
     } finally {
       setState(() => _isLoading = false);
+    }
+  }
+
+  // === v60.0: NUBE DE ARCHIVOS ===
+  Future<void> _fetchArchivos() async {
+    if (_vinData == null) return;
+    setState(() => _isLoadingArchivos = true);
+    try {
+      final res = await http.get(
+        Uri.parse('$API_URL/api/vins/${_vinData['id_unidad']}/archivos'),
+      );
+      if (res.statusCode == 200) {
+        setState(() => _archivos = json.decode(res.body));
+      }
+    } catch (_) {
+      // silencioso
+    } finally {
+      setState(() => _isLoadingArchivos = false);
+    }
+  }
+
+  Future<void> _subirArchivo() async {
+    if (_vinData == null) return;
+    final result = await FilePicker.platform.pickFiles(allowMultiple: false);
+    if (result == null || result.files.isEmpty) return;
+    final pf = result.files.first;
+    if (pf.path == null) return;
+
+    setState(() => _isSubiendo = true);
+    try {
+      final req = http.MultipartRequest(
+        'POST',
+        Uri.parse('$API_URL/api/vins/${_vinData['id_unidad']}/subir_archivo'),
+      );
+      req.files.add(await http.MultipartFile.fromPath('file', pf.path!));
+      final streamed = await req.send();
+      if (streamed.statusCode == 200) {
+        _showError("Archivo subido correctamente", isError: false);
+        await _fetchArchivos();
+      } else {
+        _showError("Error al subir archivo: ${streamed.statusCode}");
+      }
+    } catch (e) {
+      _showError("Error: $e");
+    } finally {
+      setState(() => _isSubiendo = false);
+    }
+  }
+
+  Future<void> _abrirArchivoDesdeServer(String nombreArchivo) async {
+    if (_vinData == null) return;
+    final url = '$API_URL/api/vins/${_vinData['id_unidad']}/archivos/$nombreArchivo';
+    try {
+      // Descargar a carpeta temporal y abrir
+      final res = await http.get(Uri.parse(url));
+      if (res.statusCode == 200) {
+        final tmpDir = Directory.systemTemp;
+        final tmpFile = File('${tmpDir.path}\\$nombreArchivo');
+        await tmpFile.writeAsBytes(res.bodyBytes);
+        await OpenFile.open(tmpFile.path);
+      }
+    } catch (e) {
+      _showError("No se pudo abrir el archivo: $e");
     }
   }
 
@@ -352,16 +426,78 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
                                           placeholder: "Escribe aquí las modificaciones realizadas en piso...",
                                         ),
                                       ),
-                                      const SizedBox(height: 8),
-                                      const Button(
-                                        onPressed: null, // Deshabilitado por ahora
-                                        child: Text("Adjuntar Archivos / Reportes"),
-                                      ),
+                                                                            const SizedBox(height: 8),
                                     ],
                                   ),
                                 ),
                               ),
-                            ],
+                              const SizedBox(height: 12),
+                              // === v60.0: NUBE DE ARCHIVOS ===
+                              Card(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Row(children: [
+                                          const Icon(FluentIcons.cloud_upload, size: 16, color: Color(0xFF1565C0)),
+                                          const SizedBox(width: 6),
+                                          Text("Nube de Archivos", style: FluentTheme.of(context).typography.subtitle),
+                                        ]),
+                                        Row(children: [
+                                          _isSubiendo
+                                            ? const SizedBox(width: 20, height: 20, child: ProgressRing(strokeWidth: 2))
+                                            : Tooltip(
+                                                message: "Adjuntar archivo al expediente del VIN",
+                                                child: IconButton(
+                                                  icon: const Icon(FluentIcons.upload, size: 16),
+                                                  onPressed: _subirArchivo,
+                                                ),
+                                              ),
+                                          Tooltip(
+                                            message: "Recargar archivos",
+                                            child: IconButton(
+                                              icon: const Icon(FluentIcons.refresh, size: 14),
+                                              onPressed: _fetchArchivos,
+                                            ),
+                                          ),
+                                        ]),
+                                      ],
+                                    ),
+                                    const Divider(),
+                                    if (_isLoadingArchivos)
+                                      const SizedBox(height: 40, child: Center(child: ProgressRing()))
+                                    else if (_archivos.isEmpty)
+                                      const Padding(
+                                        padding: EdgeInsets.symmetric(vertical: 8),
+                                        child: Text("Sin archivos adjuntos.", style: TextStyle(color: Colors.grey)),
+                                      )
+                                    else
+                                      ...(_archivos.map((arch) => Padding(
+                                        padding: const EdgeInsets.symmetric(vertical: 3),
+                                        child: Row(children: [
+                                          Icon(
+                                            (arch['es_pdf'] as bool) ? FluentIcons.pdf : FluentIcons.document,
+                                            size: 16,
+                                            color: (arch['es_pdf'] as bool) ? Colors.red : Colors.grey[100],
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Expanded(child: Text(arch['nombre'], style: const TextStyle(fontSize: 13))),
+                                          Text("${arch['tamano_kb']} KB", style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                                          const SizedBox(width: 8),
+                                          Tooltip(
+                                            message: "Abrir archivo",
+                                            child: IconButton(
+                                              icon: Icon(FluentIcons.open_in_new_window, size: 14, color: Color(0xFF1565C0)),
+                                              onPressed: () => _abrirArchivoDesdeServer(arch['nombre']),
+                                            ),
+                                          ),
+                                        ]),
+                                      ))).toList(),
+                                  ],
+                                ),
+                              ),                            ],
                           ),
                   ),
                 ],

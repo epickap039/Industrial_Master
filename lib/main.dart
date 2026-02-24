@@ -16,6 +16,7 @@ import 'screens/materials_list.dart'; // Fase 20
 import 'screens/project_management.dart';
 import 'screens/bom_manager.dart';
 import 'screens/vin_dossier.dart';
+import 'screens/engineering_map.dart'; // v60.0: Mapa de Ingeniería
 
 const String API_URL = "http://192.168.1.73:8001";
 
@@ -232,6 +233,11 @@ class _MyAppState extends State<MyApp> {
                     icon: const Icon(FluentIcons.copy),
                     title: const Text('Gestor de Listas (BOM)'),
                     body: const BOMManagerScreen(),
+                  ),
+                  PaneItem(
+                    icon: const Icon(FluentIcons.map_layers),
+                    title: const Text('Mapa de Ingeniería'),
+                    body: const EngineeringMapScreen(),
                   ),
                   PaneItem(
                     icon: const Icon(FluentIcons.car),
