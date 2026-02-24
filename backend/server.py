@@ -4,6 +4,7 @@ import pyodbc
 import pandas as pd
 import openpyxl
 from fastapi import FastAPI, HTTPException, Request, Response, UploadFile, File, Form
+from fastapi.responses import StreamingResponse
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -12,6 +13,7 @@ from pydantic import BaseModel, ConfigDict
 import io
 import os
 import re
+import uuid
 
 # 1. CONFIGURACIÓN SQL (Auto-Detectada con Driver 18 Prioritario)
 DB_SERVER = '192.168.1.73'
@@ -160,6 +162,920 @@ def eliminar_material_oficial(identificador: str):
         raise HTTPException(status_code=500, detail=f"Error en SQL Server al eliminar material: {str(e)}")
     finally:
         conn.close()
+
+# === MODULO: JERARQUIA DE PROYECTOS ===
+class TractoPayload(BaseModel):
+    nombre: str
+
+class TipoProyectoPayload(BaseModel):
+    id_tracto: int
+    nombre: str
+
+class VersionPayload(BaseModel):
+    id_tipo: int
+    nombre: str
+
+class ClientePayload(BaseModel):
+    id_version: int
+    nombre: str
+
+# === MODELOS BOM ===
+class RevisionPayload(BaseModel):
+    nombre_revision: str
+
+class VINPayload(BaseModel):
+    vin: str
+    notas: str = None
+
+class ClonarPayload(BaseModel):
+    id_revision_origen: int
+    id_revision_destino: int
+
+class PropagarPayload(BaseModel):
+    codigo_pieza: str
+    nueva_cantidad: float
+    id_revisiones: list[int]
+
+class EstacionPayload(BaseModel):
+    id_revision: int
+    nombre: str
+
+class EnsamblePayload(BaseModel):
+    id_estacion: int
+    nombre: str
+
+class BOMPayload(BaseModel):
+    id_ensamble: int
+    codigo_pieza: str
+    cantidad: float
+    observaciones: str = ""
+
+# Endpoints Tracto
+@app.get("/api/proyectos/tractos")
+def get_tractos():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT ID_Tracto, Nombre_Tracto FROM Tbl_Proyectos_Tracto ORDER BY Nombre_Tracto")
+        rows = cursor.fetchall()
+        return [{"id": r[0], "nombre": r[1]} for r in rows]
+    finally:
+        conn.close()
+
+@app.post("/api/proyectos/tractos")
+def add_tracto(payload: TractoPayload):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT INTO Tbl_Proyectos_Tracto (Nombre_Tracto) VALUES (?)", (payload.nombre.upper(),))
+        conn.commit()
+        return {"status": "success"}
+    except pyodbc.IntegrityError as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=f"El Tracto '{payload.nombre}' ya existe o hay un error de integridad. Detalle: {str(e)}")
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error interno del servidor al insertar tracto: {str(e)}")
+    finally:
+        conn.close()
+
+@app.delete("/api/proyectos/tractos/{id_tracto}")
+def delete_tracto(id_tracto: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM Tbl_Proyectos_Tracto WHERE ID_Tracto = ?", (id_tracto,))
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="No encontrado")
+        conn.commit()
+        return {"status": "success"}
+    finally:
+        conn.close()
+
+# Endpoints Tipo de Proyecto
+@app.get("/api/proyectos/tipos/{id_tracto}")
+def get_tipos(id_tracto: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT ID_Tipo, Nombre_Tipo FROM Tbl_Tipos_Proyecto WHERE ID_Tracto = ? ORDER BY Nombre_Tipo", (id_tracto,))
+        rows = cursor.fetchall()
+        return [{"id": r[0], "nombre": r[1]} for r in rows]
+    finally:
+        conn.close()
+
+@app.post("/api/proyectos/tipos")
+def add_tipo(payload: TipoProyectoPayload):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT INTO Tbl_Tipos_Proyecto (ID_Tracto, Nombre_Tipo) VALUES (?, ?)", (payload.id_tracto, payload.nombre.upper()))
+        conn.commit()
+        return {"status": "success"}
+    except pyodbc.IntegrityError as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=f"Error al agregar Tipo. Verifica que no exista ya y que el Tracto sea válido. Detalle: {str(e)}")
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
+    finally:
+        conn.close()
+
+@app.delete("/api/proyectos/tipos/{id_tipo}")
+def delete_tipo(id_tipo: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM Tbl_Tipos_Proyecto WHERE ID_Tipo = ?", (id_tipo,))
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="No encontrado")
+        conn.commit()
+        return {"status": "success"}
+    finally:
+        conn.close()
+
+# Endpoints Version
+@app.get("/api/proyectos/versiones/{id_tipo}")
+def get_versiones(id_tipo: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT ID_Version, Nombre_Version FROM Tbl_Versiones_Ingenieria WHERE ID_Tipo = ? ORDER BY Nombre_Version", (id_tipo,))
+        rows = cursor.fetchall()
+        return [{"id": r[0], "nombre": r[1]} for r in rows]
+    finally:
+        conn.close()
+
+@app.post("/api/proyectos/versiones")
+def add_version(payload: VersionPayload):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT INTO Tbl_Versiones_Ingenieria (ID_Tipo, Nombre_Version) VALUES (?, ?)", (payload.id_tipo, payload.nombre.upper()))
+        conn.commit()
+        return {"status": "success"}
+    except pyodbc.IntegrityError as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=f"Error en inserción de Versión. Asegúrate de que el Tipo de Proyecto exista. Detalle: {str(e)}")
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error interno del servidor al insertar versión: {str(e)}")
+    finally:
+        conn.close()
+
+@app.delete("/api/proyectos/versiones/{id_version}")
+def delete_version(id_version: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM Tbl_Versiones_Ingenieria WHERE ID_Version = ?", (id_version,))
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="No encontrado")
+        conn.commit()
+        return {"status": "success"}
+    finally:
+        conn.close()
+
+# Endpoints Clientes
+@app.get("/api/proyectos/clientes/{id_version}")
+def get_clientes(id_version: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT ID_Config_Cliente, Nombre_Cliente FROM Tbl_Clientes_Configuracion WHERE ID_Version = ? ORDER BY Nombre_Cliente", (id_version,))
+        rows = cursor.fetchall()
+        return [{"id": r[0], "nombre": r[1]} for r in rows]
+    finally:
+        conn.close()
+
+@app.post("/api/proyectos/clientes")
+def add_cliente(payload: ClientePayload):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT INTO Tbl_Clientes_Configuracion (ID_Version, Nombre_Cliente) VALUES (?, ?)", (payload.id_version, payload.nombre.upper()))
+        conn.commit()
+        return {"status": "success"}
+    except pyodbc.IntegrityError as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=f"Error en inserción de Cliente. Asegúrate de que la Versión exista. Detalle: {str(e)}")
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error interno del servidor al insertar cliente: {str(e)}")
+    finally:
+        conn.close()
+
+@app.delete("/api/proyectos/clientes/{id_cliente}")
+def delete_cliente(id_cliente: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM Tbl_Clientes_Configuracion WHERE ID_Config_Cliente = ?", (id_cliente,))
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="No encontrado")
+        conn.commit()
+        return {"status": "success"}
+    finally:
+        conn.close()
+# === FIN JERARQUIA DE PROYECTOS ===
+
+# === MODULO: BOM (Gestor de Listas) ===
+@app.get("/api/bom/estaciones/{id_cliente}")
+def get_estaciones(id_cliente: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT ID_Estacion, ID_Config_Cliente, Nombre_Estacion, Orden FROM Tbl_Estaciones WHERE ID_Config_Cliente = ? ORDER BY Orden", (id_cliente,))
+        rows = cursor.fetchall()
+        return [{"id": r.ID_Estacion, "id_cliente": r.ID_Config_Cliente, "nombre": r.Nombre_Estacion, "orden": r.Orden} for r in rows]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al obtener estaciones: {str(e)}")
+    finally:
+        conn.close()
+
+@app.post("/api/bom/estaciones")
+# Endpoints Revisiones
+@app.get("/api/bom/revisiones/{id_cliente}")
+def get_revisiones(id_cliente: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT ID_Revision, Numero_Revision, Estado, Fecha_Creacion FROM Tbl_BOM_Revisiones WHERE ID_Config_Cliente = ? ORDER BY Numero_Revision DESC", (id_cliente,))
+        rows = cursor.fetchall()
+        return [{"id_revision": r.ID_Revision, "numero_revision": r.Numero_Revision, "estado": r.Estado, "fecha_creacion": r.Fecha_Creacion.isoformat() if r.Fecha_Creacion else None} for r in rows]
+    finally:
+        conn.close()
+
+@app.post("/api/bom/revisiones/{id_cliente}")
+def add_revision(id_cliente: int, payload: RevisionPayload):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT ISNULL(MAX(Numero_Revision), -1) + 1 FROM Tbl_BOM_Revisiones WHERE ID_Config_Cliente = ?", (id_cliente,))
+        siguiente_rev = int(cursor.fetchone()[0])
+        cursor.execute(
+            "INSERT INTO Tbl_BOM_Revisiones (ID_Config_Cliente, Numero_Revision, Estado) OUTPUT INSERTED.ID_Revision VALUES (?, ?, 'Borrador')", 
+            (id_cliente, siguiente_rev)
+        )
+        id_rev = cursor.fetchone()[0]
+        conn.commit()
+        return {"status": "success", "id_revision": id_rev}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error creando revisión: {str(e)}")
+    finally:
+        conn.close()
+
+@app.put("/api/bom/revisiones/{id_revision}/aprobar")
+def aprobar_revision(id_revision: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("UPDATE Tbl_BOM_Revisiones SET Estado = 'Aprobada' WHERE ID_Revision = ?", (id_revision,))
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Revisión no encontrada")
+        conn.commit()
+        return {"status": "success"}
+    finally:
+        conn.close()
+
+# Endpoints VINs (Unidades Físicas)
+@app.get("/api/bom/revisiones/{id_revision}/vins")
+def get_vins(id_revision: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT ID_Unidad, VIN FROM Tbl_Unidades_Fisicas WHERE ID_Revision = ?", (id_revision,))
+        rows = cursor.fetchall()
+        return [{"id_unidad": r.ID_Unidad, "vin": r.VIN} for r in rows]
+    finally:
+        conn.close()
+
+@app.get("/api/bom/buscar_pieza_jerarquia/{codigo_pieza}")
+def buscar_pieza_jerarquia(codigo_pieza: str, exclude_rev: Optional[int] = None):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        query = """
+            SELECT 
+                R.ID_Revision, 
+                TR.Nombre_Tracto, 
+                TP.Nombre_Tipo, 
+                V.Nombre_Version, 
+                CC.Nombre_Cliente, 
+                R.Numero_Revision, 
+                R.Estado, 
+                E.Cantidad
+            FROM Tbl_BOM_Estructura E
+            JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
+            JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
+            JOIN Tbl_BOM_Revisiones R ON ES.ID_Revision = R.ID_Revision
+            JOIN Tbl_Clientes_Configuracion CC ON R.ID_Config_Cliente = CC.ID_Config_Cliente
+            JOIN Tbl_Versiones_Ingenieria V ON CC.ID_Version = V.ID_Version
+            JOIN Tbl_Tipos_Proyecto TP ON V.ID_Tipo = TP.ID_Tipo
+            JOIN Tbl_Proyectos_Tracto TR ON TP.ID_Tracto = TR.ID_Tracto
+            WHERE E.Codigo_Pieza = ?
+        """
+        params = [codigo_pieza]
+        if exclude_rev:
+            query += " AND R.ID_Revision != ?"
+            params.append(exclude_rev)
+            
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        return [
+            {
+                "id_revision": r.ID_Revision,
+                "tracto": r.Nombre_Tracto,
+                "tipo": r.Nombre_Tipo,
+                "version": r.Nombre_Version,
+                "cliente": r.Nombre_Cliente,
+                "numero_revision": r.Numero_Revision,
+                "estado": r.Estado,
+                "cantidad": r.Cantidad
+            } for r in rows
+        ]
+    finally:
+        conn.close()
+
+@app.get("/api/bom/exportar/{id_revision}")
+def exportar_bom(id_revision: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        query = """
+            SELECT 
+                ES.Nombre_Estacion, 
+                EN.Nombre_Ensamble, 
+                E.Codigo_Pieza, 
+                M.Descripcion as Descripcion_Oficial, 
+                E.Cantidad
+            FROM Tbl_BOM_Estructura E
+            JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
+            JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
+            LEFT JOIN Tbl_Maestro_Piezas M ON E.Codigo_Pieza = M.Codigo_Pieza
+            WHERE ES.ID_Revision = ?
+            ORDER BY ES.Orden, EN.Nombre_Ensamble
+        """
+        cursor.execute(query, (id_revision,))
+        rows = cursor.fetchall()
+
+        output = io.BytesIO()
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.title = "BOM"
+        
+        headers = ["Estación", "Ensamble", "Código", "Descripción", "Cantidad"]
+        sheet.append(headers)
+        
+        for cell in sheet[1]:
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+            cell.alignment = Alignment(horizontal="center")
+
+        for r in rows:
+            sheet.append([r.Nombre_Estacion, r.Nombre_Ensamble, r.Codigo_Pieza, r.Descripcion_Oficial or '', r.Cantidad])
+
+        workbook.save(output)
+        output.seek(0)
+        
+        return StreamingResponse(
+            output,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename=BOM_Revision_{id_revision}.xlsx"}
+        )
+    finally:
+        conn.close()
+
+@app.post("/api/bom/revisiones/{id_revision}/vins")
+def add_vin(id_revision: int, payload: VINPayload):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT INTO Tbl_Unidades_Fisicas (ID_Revision, VIN) OUTPUT INSERTED.ID_Unidad VALUES (?, ?)", (id_revision, payload.vin.upper()))
+        id_gen = cursor.fetchone()[0]
+        conn.commit()
+        return {"status": "success", "id_unidad": id_gen}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al agregar VIN: {str(e)}")
+    finally:
+        conn.close()
+
+@app.delete("/api/bom/vins/{id_unidad}")
+def delete_vin(id_unidad: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM Tbl_Unidades_Fisicas WHERE ID_Unidad = ?", (id_unidad,))
+        conn.commit()
+        return {"status": "success"}
+    finally:
+        conn.close()
+
+# --- FUNCIONALIDADES AVANZADAS (FASE 8) ---
+
+@app.get("/api/vins/buscar")
+def buscar_vin(q: str):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        query = """
+            SELECT u.ID_Unidad, u.VIN, u.Notas, r.ID_Revision, r.Numero_Revision,
+                   c.ID_Config_Cliente, c.Nombre_Cliente, v.Nombre_Version, t.Nombre_Tipo, tr.Nombre_Tracto
+            FROM Tbl_Unidades_Fisicas u
+            JOIN Tbl_BOM_Revisiones r ON u.ID_Revision = r.ID_Revision
+            JOIN Tbl_Clientes_Configuracion c ON r.ID_Config_Cliente = c.ID_Config_Cliente
+            JOIN Tbl_Versiones_Ingenieria v ON c.ID_Version = v.ID_Version
+            JOIN Tbl_Tipos_Proyecto t ON v.ID_Tipo = t.ID_Tipo
+            JOIN Tbl_Proyectos_Tracto tr ON t.ID_Tracto = tr.ID_Tracto
+            WHERE u.VIN LIKE ?
+        """
+        cursor.execute(query, (f"%{q}%",))
+        rows = cursor.fetchall()
+        return [
+            {
+                "id_unidad": r.ID_Unidad,
+                "vin": r.VIN,
+                "notas": r.Notas,
+                "id_revision": r.ID_Revision,
+                "numero_revision": r.Numero_Revision,
+                "id_cliente": r.ID_Config_Cliente,
+                "cliente": r.Nombre_Cliente,
+                "version": r.Nombre_Version,
+                "tipo": r.Nombre_Tipo,
+                "tracto": r.Nombre_Tracto
+            } for r in rows
+        ]
+    finally:
+        conn.close()
+
+@app.put("/api/vins/{id_unidad}/notas")
+def update_vin_notas(id_unidad: int, payload: VINPayload):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("UPDATE Tbl_Unidades_Fisicas SET Notas = ? WHERE ID_Unidad = ?", (payload.notas, id_unidad))
+        conn.commit()
+        return {"status": "success"}
+    finally:
+        conn.close()
+
+@app.post("/api/bom/clonar")
+def clonar_bom(payload: ClonarPayload):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # 1. Obtener estaciones del origen
+        cursor.execute("SELECT ID_Estacion, Nombre_Estacion, Orden FROM Tbl_Estaciones WHERE ID_Revision = ?", (payload.id_revision_origen,))
+        estaciones = cursor.fetchall()
+        
+        for est_orig in estaciones:
+            id_est_orig = est_orig.ID_Estacion
+            # Insertar nueva estación
+            cursor.execute(
+                "INSERT INTO Tbl_Estaciones (ID_Revision, Nombre_Estacion, Orden) OUTPUT INSERTED.ID_Estacion VALUES (?, ?, ?)",
+                (payload.id_revision_destino, est_orig.Nombre_Estacion, est_orig.Orden)
+            )
+            id_est_dest = cursor.fetchone()[0]
+            
+            # 2. Obtener ensambles de la estación origen
+            cursor.execute("SELECT ID_Ensamble, Nombre_Ensamble FROM Tbl_Ensambles WHERE ID_Estacion = ?", (id_est_orig,))
+            ensambles = cursor.fetchall()
+            
+            for ens_orig in ensambles:
+                id_ens_orig = ens_orig.ID_Ensamble
+                # Insertar nuevo ensamble
+                cursor.execute(
+                    "INSERT INTO Tbl_Ensambles (ID_Estacion, Nombre_Ensamble) OUTPUT INSERTED.ID_Ensamble VALUES (?, ?)",
+                    (id_est_dest, ens_orig.Nombre_Ensamble)
+                )
+                id_ens_dest = cursor.fetchone()[0]
+                
+                # 3. Obtener piezas del ensamble origen
+                cursor.execute("SELECT Codigo_Pieza, Cantidad, Observaciones FROM Tbl_BOM_Estructura WHERE ID_Ensamble = ?", (id_ens_orig,))
+                piezas = cursor.fetchall()
+                
+                for p in piezas:
+                    cursor.execute(
+                        "INSERT INTO Tbl_BOM_Estructura (ID_Ensamble, Codigo_Pieza, Cantidad, Observaciones) VALUES (?, ?, ?, ?)",
+                        (id_ens_dest, p.Codigo_Pieza, p.Cantidad, p.Observaciones)
+                    )
+        
+        conn.commit()
+        return {"status": "success", "detalle": f"Clonadas {len(estaciones)} estaciones."}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al clonar: {str(e)}")
+    finally:
+        conn.close()
+
+@app.post("/api/bom/propagar")
+def propagar_cambios(payload: PropagarPayload):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        if not payload.id_revisiones:
+            return {"status": "ignored", "mensaje": "No se seleccionaron revisiones"}
+            
+        # Generar placeholders para la lista de IDs
+        placeholders = ",".join(["?"] * len(payload.id_revisiones))
+        query = f"""
+            UPDATE be
+            SET be.Cantidad = ?
+            FROM Tbl_BOM_Estructura be
+            JOIN Tbl_Ensambles en ON be.ID_Ensamble = en.ID_Ensamble
+            JOIN Tbl_Estaciones es ON en.ID_Estacion = es.ID_Estacion
+            WHERE be.Codigo_Pieza = ? AND es.ID_Revision IN ({placeholders})
+        """
+        params = [payload.nueva_cantidad, payload.codigo_pieza] + payload.id_revisiones
+        cursor.execute(query, params)
+        affected = cursor.rowcount
+        conn.commit()
+        return {"status": "success", "afectados": affected}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error en propagación: {str(e)}")
+    finally:
+        conn.close()
+
+@app.get("/api/bom/estaciones/{id_revision}")
+def get_estaciones(id_revision: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT ID_Estacion, ID_Revision, Nombre_Estacion, Orden FROM Tbl_Estaciones WHERE ID_Revision = ? ORDER BY Orden", (id_revision,))
+        rows = cursor.fetchall()
+        return [{"id": r.ID_Estacion, "id_revision": r.ID_Revision, "nombre": r.Nombre_Estacion, "orden": r.Orden} for r in rows]
+    finally:
+        conn.close()
+
+@app.post("/api/bom/estaciones")
+def add_estacion(payload: EstacionPayload):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT INTO Tbl_Estaciones (ID_Revision, Nombre_Estacion, Orden) VALUES (?, ?, ?)", (payload.id_revision, payload.nombre.upper(), 0))
+        conn.commit()
+        return {"status": "success"}
+    except pyodbc.IntegrityError as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=f"Error al agregar Estación. Asegúrate de que no exista duplicada. Detalle: {str(e)}")
+    except pyodbc.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error SQL interno en Estación: {str(e)}")
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
+    finally:
+        conn.close()
+
+@app.delete("/api/bom/estaciones/{id_estacion}")
+def delete_estacion(id_estacion: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Borrar piezas de sus ensambles
+        cursor.execute("SELECT ID_Ensamble FROM Tbl_Ensambles WHERE ID_Estacion = ?", (id_estacion,))
+        ensambles = cursor.fetchall()
+        for ens in ensambles:
+            cursor.execute("DELETE FROM Tbl_BOM_Estructura WHERE ID_Ensamble = ?", (ens.ID_Ensamble,))
+        
+        # Borrar los ensambles
+        cursor.execute("DELETE FROM Tbl_Ensambles WHERE ID_Estacion = ?", (id_estacion,))
+        
+        # Borrar la estacion
+        cursor.execute("DELETE FROM Tbl_Estaciones WHERE ID_Estacion = ?", (id_estacion,))
+        conn.commit()
+        return {"status": "success"}
+    except pyodbc.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error SQL al eliminar estación: {str(e)}")
+    finally:
+        conn.close()
+
+@app.get("/api/bom/ensambles/{id_estacion}")
+def get_ensambles(id_estacion: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT ID_Ensamble, ID_Estacion, Codigo_Ensamble, Nombre_Ensamble FROM Tbl_Ensambles WHERE ID_Estacion = ? ORDER BY Nombre_Ensamble", (id_estacion,))
+        rows = cursor.fetchall()
+        return [{"id": r.ID_Ensamble, "id_estacion": r.ID_Estacion, "codigo_ensamble": r.Codigo_Ensamble, "nombre": r.Nombre_Ensamble} for r in rows]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al obtener ensambles: {str(e)}")
+    finally:
+        conn.close()
+
+@app.post("/api/bom/ensambles")
+def add_ensamble(payload: EnsamblePayload):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Se asume un Codigo_Ensamble generico por ahora
+        cursor.execute("INSERT INTO Tbl_Ensambles (ID_Estacion, Codigo_Ensamble, Nombre_Ensamble) VALUES (?, ?, ?)", (payload.id_estacion, "N/A", payload.nombre.upper()))
+        conn.commit()
+        return {"status": "success"}
+    except pyodbc.IntegrityError as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=f"Error de integridad en Ensamble. Detalle: {str(e)}")
+    except pyodbc.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error SQL en Ensamble: {str(e)}")
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
+    finally:
+        conn.close()
+
+@app.delete("/api/bom/ensambles/{id_ensamble}")
+def delete_ensamble(id_ensamble: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Borrar piezas
+        cursor.execute("DELETE FROM Tbl_BOM_Estructura WHERE ID_Ensamble = ?", (id_ensamble,))
+        
+        # Borrar ensamble
+        cursor.execute("DELETE FROM Tbl_Ensambles WHERE ID_Ensamble = ?", (id_ensamble,))
+        conn.commit()
+        return {"status": "success"}
+    except pyodbc.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error SQL al eliminar ensamble: {str(e)}")
+    finally:
+        conn.close()
+
+@app.get("/api/bom/estructura/{id_ensamble}")
+def get_bom_estructura(id_ensamble: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT e.ID_BOM, e.Codigo_Pieza, m.Descripcion, e.Cantidad, e.Observaciones_Proceso
+            FROM Tbl_BOM_Estructura e
+            LEFT JOIN Tbl_Maestro_Piezas m ON e.Codigo_Pieza = m.Codigo_Pieza
+            WHERE e.ID_Ensamble = ?
+        """, (id_ensamble,))
+        rows = cursor.fetchall()
+        return [{
+            "id": r.ID_BOM,
+            "codigo": r.Codigo_Pieza,
+            "descripcion": getattr(r, 'Descripcion', 'Descripción no encontrada') if getattr(r, 'Descripcion', None) else "Descripción no encontrada",
+            "cantidad": r.Cantidad,
+            "observaciones": r.Observaciones_Proceso or ""
+        } for r in rows]
+    except pyodbc.Error as e:
+        raise HTTPException(status_code=500, detail=f"Error SQL al obtener estructura: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error interno al obtener estructura: {str(e)}")
+    finally:
+        conn.close()
+
+@app.post("/api/bom/estructura")
+def add_bom_estructura(payload: BOMPayload):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO Tbl_BOM_Estructura (ID_Ensamble, Codigo_Pieza, Cantidad, Observaciones_Proceso)
+            VALUES (?, ?, ?, ?)
+        """, (payload.id_ensamble, payload.codigo_pieza, payload.cantidad, payload.observaciones))
+        conn.commit()
+        return {"status": "success"}
+    except pyodbc.IntegrityError as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=f"Error de integridad en BOM. Verifica Código existete: {str(e)}")
+    except pyodbc.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error SQL en BOM_Estructura: {str(e)}")
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+@app.delete("/api/bom/estructura/{id_bom}")
+def delete_bom_estructura(id_bom: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM Tbl_BOM_Estructura WHERE ID_BOM = ?", (id_bom,))
+        conn.commit()
+        return {"status": "success"}
+    except pyodbc.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error SQL al eliminar BOM_Estructura: {str(e)}")
+    finally:
+        conn.close()
+
+class BOMPiezaUpdate(BaseModel):
+    cantidad: float
+
+@app.put("/api/bom/piezas/{id_bom}")
+def update_bom_pieza(id_bom: int, payload: BOMPiezaUpdate):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Validación de la cantidad
+        if payload.cantidad <= 0:
+            raise HTTPException(status_code=400, detail="La cantidad debe ser mayor a 0.")
+            
+        cursor.execute("UPDATE Tbl_BOM_Estructura SET Cantidad = ? WHERE ID_BOM = ?", (payload.cantidad, id_bom))
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Pieza de BOM no encontrada.")
+        conn.commit()
+        return {"status": "success"}
+    except pyodbc.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error SQL al actualizar la pieza: {str(e)}")
+    finally:
+        conn.close()
+
+@app.get("/api/bom/arbol/{id_revision}")
+def get_bom_arbol(id_revision: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT ID_Estacion, ID_Revision, Nombre_Estacion, Orden FROM Tbl_Estaciones WHERE ID_Revision = ? ORDER BY Orden", (id_revision,))
+        estaciones = cursor.fetchall()
+        
+        arbol = []
+        for est in estaciones:
+            id_estacion = est.ID_Estacion
+            est_dict = {"id": id_estacion, "nombre": est.Nombre_Estacion, "ensambles": []}
+            
+            cursor.execute("SELECT ID_Ensamble, ID_Estacion, Codigo_Ensamble, Nombre_Ensamble FROM Tbl_Ensambles WHERE ID_Estacion = ? ORDER BY Nombre_Ensamble", (id_estacion,))
+            ensambles = cursor.fetchall()
+            
+            for ens in ensambles:
+                id_ensamble = ens.ID_Ensamble
+                ens_dict = {"id": id_ensamble, "nombre": ens.Nombre_Ensamble, "piezas": []}
+                
+                cursor.execute("""
+                    SELECT e.ID_BOM, e.Codigo_Pieza, m.Descripcion, e.Cantidad, e.Observaciones_Proceso,
+                           m.Simetria, m.Proceso_Primario, m.Proceso_1, m.Proceso_2, m.Proceso_3, m.Link_Drive
+                    FROM Tbl_BOM_Estructura e
+                    LEFT JOIN Tbl_Maestro_Piezas m ON e.Codigo_Pieza = m.Codigo_Pieza
+                    WHERE e.ID_Ensamble = ?
+                """, (id_ensamble,))
+                piezas = cursor.fetchall()
+                
+                for p_row in piezas:
+                    desc = getattr(p_row, 'Descripcion', None)
+                    ens_dict["piezas"].append({
+                        "id": p_row.ID_BOM,
+                        "codigo": p_row.Codigo_Pieza,
+                        "descripcion": desc if desc else "N/A",
+                        "cantidad": p_row.Cantidad,
+                        "observaciones": p_row.Observaciones_Proceso or "",
+                        "simetria": getattr(p_row, 'Simetria', '') or "",
+                        "proceso_primario": getattr(p_row, 'Proceso_Primario', '') or "",
+                        "proceso_1": getattr(p_row, 'Proceso_1', '') or "",
+                        "proceso_2": getattr(p_row, 'Proceso_2', '') or "",
+                        "proceso_3": getattr(p_row, 'Proceso_3', '') or "",
+                        "link_drive": getattr(p_row, 'Link_Drive', '') or ""
+                    })
+                
+                est_dict["ensambles"].append(ens_dict)
+                
+            arbol.append(est_dict)
+            
+        return arbol
+    except pyodbc.Error as e:
+        raise HTTPException(status_code=500, detail=f"Error SQL en el Árbol BOM: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error interno en Árbol BOM: {str(e)}")
+    finally:
+        conn.close()
+@app.post("/api/bom/importar/{id_revision}")
+async def importar_bom(id_revision: int, file: UploadFile = File(...)):
+    if not file.filename.endswith(('.xls', '.xlsx')):
+        raise HTTPException(status_code=400, detail="El archivo debe ser un Excel (.xlsx, .xls)")
+    
+    try:
+        content = await file.read()
+        df = pd.read_excel(io.BytesIO(content), header=None)
+    except Exception as e:
+        if isinstance(e, HTTPException): raise e
+        raise HTTPException(status_code=400, detail=f"Error al analizar el Excel: {str(e)}")
+        
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    total_leidos = 0
+    insertados = 0
+    errores_mapeo = []
+    
+    try:
+        # Pre-cargar catálogo maestro para validación rápida
+        cursor.execute("SELECT Codigo_Pieza FROM Tbl_Maestro_Piezas")
+        codigos_buscar = {str(row[0]).strip().upper() for row in cursor.fetchall() if row[0]}
+        
+        acumulados = {}
+        
+        # 1.- Lógica de Secuencia Inicial (Ensambles)
+        cursor.execute("SELECT MAX(Codigo_Ensamble) FROM Tbl_Ensambles WHERE Codigo_Ensamble LIKE 'E-%'")
+        max_code_row = cursor.fetchone()
+        secuencia_ensamble = 0
+        if max_code_row and max_code_row[0]:
+            try:
+                # Extraer número tras el guión (ej: E-0005 -> 5)
+                secuencia_ensamble = int(max_code_row[0].split('-')[1])
+            except (ValueError, IndexError):
+                pass
+
+        for index, row in df.iterrows():
+            estacion_val = row[1]
+            ensamble_val = row[2]
+            codigo_val = row[3]
+            cantidad_val = row[6] if len(row) > 6 else 1
+
+            if pd.isna(codigo_val) or str(codigo_val).strip() == '' or str(codigo_val).strip().lower() == 'código de pieza':
+                continue
+
+            if pd.isna(estacion_val) or pd.isna(ensamble_val):
+                continue
+                
+            total_leidos += 1
+                
+            estacion_nombre = "" if pd.isna(row[1]) else str(row[1]).strip()
+            ensamble_nombre = "" if pd.isna(row[2]) else str(row[2]).strip()
+            codigo = str(codigo_val).strip().upper()
+            
+            # 2. Validación de Existencia
+            if codigo not in codigos_buscar:
+                if codigo not in errores_mapeo:
+                    errores_mapeo.append(codigo)
+                continue
+            
+            try:
+                if pd.isna(cantidad_val) or cantidad_val is None:
+                    cantidad = 1
+                else:
+                    cantidad = int(float(cantidad_val))
+            except (ValueError, TypeError):
+                cantidad = 1
+                
+            # 3. Acumulación
+            llave = (estacion_nombre, ensamble_nombre, codigo)
+            acumulados[llave] = acumulados.get(llave, 0) + cantidad
+            
+        # Inserción final con Caché para velocidad
+        cache_estaciones = {}
+        cache_ensambles = {}
+        
+        for (estacion_nombre, ensamble_nombre, codigo), cantidad in acumulados.items():
+            # 1. Buscar o Crear ESTACION
+            if estacion_nombre not in cache_estaciones:
+                cursor.execute("SELECT ID_Estacion FROM Tbl_Estaciones WHERE ID_Revision = ? AND Nombre_Estacion = ?", (id_revision, estacion_nombre))
+                est_row = cursor.fetchone()
+                if est_row:
+                    id_estacion = est_row[0]
+                else:
+                    cursor.execute("SELECT ISNULL(MAX(Orden), 0) + 1 FROM Tbl_Estaciones WHERE ID_Revision = ?", (id_revision,))
+                    nuevo_orden = cursor.fetchone()[0]
+                    cursor.execute(
+                        "INSERT INTO Tbl_Estaciones (ID_Revision, Nombre_Estacion, Orden) OUTPUT INSERTED.ID_Estacion VALUES (?, ?, ?)", 
+                        (id_revision, estacion_nombre, nuevo_orden)
+                    )
+                    id_estacion = int(cursor.fetchone()[0])
+                cache_estaciones[estacion_nombre] = id_estacion
+            else:
+                id_estacion = cache_estaciones[estacion_nombre]
+                
+            # 2. Buscar o Crear ENSAMBLE
+            ensamble_key = (id_estacion, ensamble_nombre)
+            if ensamble_key not in cache_ensambles:
+                cursor.execute("SELECT ID_Ensamble FROM Tbl_Ensambles WHERE ID_Estacion = ? AND Nombre_Ensamble = ?", (id_estacion, ensamble_nombre))
+                ens_row = cursor.fetchone()
+                if ens_row:
+                    id_ensamble = ens_row[0]
+                else:
+                    secuencia_ensamble += 1
+                    codigo_ensamble_generado = f"E-{secuencia_ensamble:04d}"
+                    cursor.execute(
+                        "INSERT INTO Tbl_Ensambles (ID_Estacion, Codigo_Ensamble, Nombre_Ensamble) OUTPUT INSERTED.ID_Ensamble VALUES (?, ?, ?)", 
+                        (id_estacion, codigo_ensamble_generado, ensamble_nombre)
+                    )
+                    id_ensamble = int(cursor.fetchone()[0])
+                cache_ensambles[ensamble_key] = id_ensamble
+            else:
+                id_ensamble = cache_ensambles[ensamble_key]
+                
+            # 3. Insertar PIEZA (BOM)
+            cursor.execute("INSERT INTO Tbl_BOM_Estructura (ID_Ensamble, Codigo_Pieza, Cantidad, Observaciones_Proceso) VALUES (?, ?, ?, ?)", (id_ensamble, codigo, cantidad, ""))
+            insertados += 1
+            
+        conn.commit()
+        return {"status": "success", "total_leidos": total_leidos, "insertados": insertados, "errores": errores_mapeo}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error SQL durante importación, transacción revertida: {str(e)}")
+    finally:
+        conn.close()
+
+# === FIN BOM ===
 
 # === FIN MATERIALES APROBADOS ===
 # --- ENDPOINTS CONFIGURACIÓN ---
@@ -312,6 +1228,113 @@ def iniciar_auditoria():
             
             conn.commit()
             print(f"--- TB_MATERIALES_APROBADOS INICIALIZADA ({len(materiales_iniciales)} items) ---")
+
+        # --- TABLAS DE JERARQUÍA DE PROYECTOS ---
+        cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Tbl_Proyectos_Tracto')
+            BEGIN
+                CREATE TABLE Tbl_Proyectos_Tracto (
+                    ID_Tracto INT IDENTITY(1,1) PRIMARY KEY,
+                    Nombre_Tracto VARCHAR(200) UNIQUE NOT NULL
+                );
+            END
+        """)
+        cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Tbl_Tipos_Proyecto')
+            BEGIN
+                CREATE TABLE Tbl_Tipos_Proyecto (
+                    ID_Tipo INT IDENTITY(1,1) PRIMARY KEY,
+                    ID_Tracto INT NOT NULL,
+                    Nombre_Tipo VARCHAR(200) NOT NULL,
+                    CONSTRAINT FK_Tipo_Tracto FOREIGN KEY (ID_Tracto) REFERENCES Tbl_Proyectos_Tracto(ID_Tracto) ON DELETE CASCADE
+                );
+            END
+        """)
+        cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Tbl_Versiones_Ingenieria')
+            BEGIN
+                CREATE TABLE Tbl_Versiones_Ingenieria (
+                    ID_Version INT IDENTITY(1,1) PRIMARY KEY,
+                    ID_Tipo INT NOT NULL,
+                    Nombre_Version VARCHAR(200) NOT NULL,
+                    CONSTRAINT FK_Version_Tipo FOREIGN KEY (ID_Tipo) REFERENCES Tbl_Tipos_Proyecto(ID_Tipo) ON DELETE CASCADE
+                );
+            END
+        """)
+        cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Tbl_Clientes_Configuracion')
+            BEGIN
+                CREATE TABLE Tbl_Clientes_Configuracion (
+                    ID_Config_Cliente INT IDENTITY(1,1) PRIMARY KEY,
+                    ID_Version INT NOT NULL,
+                    Nombre_Cliente VARCHAR(200) NOT NULL,
+                    CONSTRAINT FK_Cliente_Version FOREIGN KEY (ID_Version) REFERENCES Tbl_Versiones_Ingenieria(ID_Version) ON DELETE CASCADE
+                );
+            END
+        """)
+        cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Tbl_BOM_Revisiones')
+            BEGIN
+                CREATE TABLE Tbl_BOM_Revisiones (
+                    ID_Revision INT IDENTITY(1,1) PRIMARY KEY,
+                    ID_Config_Cliente INT NOT NULL,
+                    Numero_Revision INT NOT NULL,
+                    Estado VARCHAR(200) NOT NULL,
+                    Fecha_Creacion DATETIME DEFAULT GETDATE(),
+                    CONSTRAINT FK_Revision_Cliente FOREIGN KEY (ID_Config_Cliente) REFERENCES Tbl_Clientes_Configuracion(ID_Config_Cliente) ON DELETE CASCADE
+                );
+            END
+        """)
+        cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Tbl_Estaciones')
+            BEGIN
+                CREATE TABLE Tbl_Estaciones (
+                    ID_Estacion INT IDENTITY(1,1) PRIMARY KEY,
+                    ID_Revision INT NOT NULL,
+                    Nombre_Estacion VARCHAR(200) NOT NULL,
+                    Orden INT NOT NULL DEFAULT 0,
+                    CONSTRAINT FK_Estacion_Revision FOREIGN KEY (ID_Revision) REFERENCES Tbl_BOM_Revisiones(ID_Revision) ON DELETE CASCADE
+                );
+            END
+        """)
+        cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Tbl_Ensambles')
+            BEGIN
+                CREATE TABLE Tbl_Ensambles (
+                    ID_Ensamble INT IDENTITY(1,1) PRIMARY KEY,
+                    ID_Estacion INT NOT NULL,
+                    Nombre_Ensamble VARCHAR(200) NOT NULL,
+                    CONSTRAINT FK_Ensamble_Estacion FOREIGN KEY (ID_Estacion) REFERENCES Tbl_Estaciones(ID_Estacion) ON DELETE CASCADE
+                );
+            END
+        """)
+        cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Tbl_BOM_Estructura')
+            BEGIN
+                CREATE TABLE Tbl_BOM_Estructura (
+                    ID_BOM INT IDENTITY(1,1) PRIMARY KEY,
+                    ID_Ensamble INT NOT NULL,
+                    Codigo_Pieza VARCHAR(50) NOT NULL,
+                    Cantidad FLOAT NOT NULL,
+                    Observaciones VARCHAR(500),
+                    CONSTRAINT FK_BOM_Ensamble FOREIGN KEY (ID_Ensamble) REFERENCES Tbl_Ensambles(ID_Ensamble) ON DELETE CASCADE
+                );
+            END
+        """)
+        
+        cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Tbl_Unidades_Fisicas')
+            BEGIN
+                CREATE TABLE Tbl_Unidades_Fisicas (
+                    ID_Unidad INT IDENTITY(1,1) PRIMARY KEY,
+                    ID_Revision INT NOT NULL,
+                    VIN VARCHAR(50) NOT NULL,
+                    Notas VARCHAR(MAX),
+                    CONSTRAINT FK_Unidad_Revision FOREIGN KEY (ID_Revision) REFERENCES Tbl_BOM_Revisiones(ID_Revision) ON DELETE CASCADE
+                );
+            END
+        """)
+        conn.commit()
 
         print("--- ✅ SISTEMA DE AUDITORIA INICIALIZADO CORRECTAMENTE ---")
     except Exception as e:

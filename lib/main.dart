@@ -1,5 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 import 'screens/catalog.dart';
 
@@ -11,6 +13,11 @@ import 'screens/login.dart';
 import 'screens/history.dart';
 import 'screens/standardization.dart'; // Fase 18
 import 'screens/materials_list.dart'; // Fase 20
+import 'screens/project_management.dart';
+import 'screens/bom_manager.dart';
+import 'screens/vin_dossier.dart';
+
+const String API_URL = "http://192.168.1.73:8001";
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -33,6 +40,7 @@ class _MyAppState extends State<MyApp> {
   bool _isLoggedIn = false;
   bool _isLoadingAuth = true;
   int topIndex = 0;
+  List<AutoSuggestBoxItem<dynamic>> _searchItems = [];
 
   @override
   void initState() {
@@ -77,6 +85,60 @@ class _MyAppState extends State<MyApp> {
     });
   }
 
+  void _showVINResult(dynamic vin) {
+    showDialog(
+      context: context,
+      builder: (context) => ContentDialog(
+        title: Text("Resumen de VIN: ${vin['vin']}"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text("Tracto: ${vin['tracto']}"),
+            Text("Tipo: ${vin['tipo']}"),
+            Text("Versión: ${vin['version']}"),
+            Text("Cliente: ${vin['cliente']}"),
+            Text("Revisión: ${vin['numero_revision']}"),
+            const SizedBox(height: 8),
+            Text("Notas: ${vin['notas'] ?? 'Sin notas'}", style: const TextStyle(fontStyle: FontStyle.italic)),
+          ],
+        ),
+        actions: [
+          Button(child: const Text("Cerrar"), onPressed: () => Navigator.pop(context)),
+          FilledButton(
+            child: const Text("Ir a la Lista"),
+            onPressed: () {
+              Navigator.pop(context);
+              // Cambiar a la pestaña de BOM Manager (índice 9 en la lista actual)
+              setState(() {
+                topIndex = 11; // 0-5 Ingeniería, 6 Header, 7 Proyecto, 8 BOM, pero recalculando índices...
+                // Según PaneItem list:
+                // 0: Header Ing.
+                // 1: Catalogo
+                // 2: Importar
+                // 3: Auditor
+                // 4: Historial
+                // 5: Estandarizacion
+                // 6: Materiales
+                // 7: Header Estr.
+                // 8: Gestión Proyectos
+                // 9: Gestor BOM
+              });
+              // Para pasar parámetros dinámicos, necesitamos que BOMManagerScreen soporte navegación tipada o usar un GlobalKey/Provider.
+              // Por ahora, como es un NavigationView simple, pasaremos los datos vía Navigator si es necesario, 
+              // pero aquí el PaneItem ya está instanciado. 
+              // Una mejor opción es usar Navigator.push si queremos pasar ID directamente.
+              Navigator.push(context, FluentPageRoute(builder: (context) => BOMManagerScreen(
+                idCliente: vin['id_cliente'],
+                clientName: vin['cliente'],
+              )));
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   void _logout() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('isLoggedIn', false);
@@ -103,11 +165,15 @@ class _MyAppState extends State<MyApp> {
         brightness: Brightness.dark,
         accentColor: Colors.blue,
       ),
-      home: _isLoggedIn
+        home: _isLoggedIn
           ? NavigationView(
               appBar: NavigationAppBar(
                 title: const Text('BDIV-v38.0'),
                 automaticallyImplyLeading: false,
+                leading: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12.0),
+                  child: Icon(FluentIcons.factory),
+                ),
                 actions: Padding(
                   padding: const EdgeInsets.only(right: 12.0),
                   child: Align(
@@ -125,6 +191,7 @@ class _MyAppState extends State<MyApp> {
                 onChanged: (index) => setState(() => topIndex = index),
                 displayMode: PaneDisplayMode.auto,
                 items: [
+                  PaneItemHeader(header: const Text('Ingeniería')),
                   PaneItem(
                     icon: const Icon(FluentIcons.database),
                     title: const Text('Catálogo Maestro'),
@@ -154,6 +221,22 @@ class _MyAppState extends State<MyApp> {
                     icon: const Icon(FluentIcons.paste),
                     title: const Text('Materiales Oficiales'),
                     body: const MaterialsListScreen(),
+                  ),
+                  PaneItemHeader(header: const Text('Estructuras')),
+                  PaneItem(
+                    icon: const Icon(FluentIcons.org),
+                    title: const Text('Gestión de Proyectos'),
+                    body: const ProjectManagementScreen(),
+                  ),
+                  PaneItem(
+                    icon: const Icon(FluentIcons.copy),
+                    title: const Text('Gestor de Listas (BOM)'),
+                    body: const BOMManagerScreen(),
+                  ),
+                  PaneItem(
+                    icon: const Icon(FluentIcons.car),
+                    title: const Text('Expedientes VIN'),
+                    body: const VINDossierScreen(),
                   ),
                 ],
                 footerItems: [
