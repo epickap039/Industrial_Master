@@ -1,7 +1,7 @@
 -- =======================================================
 -- SCRIPT DE MIGRACIÓN: Industrial Manager v15.5 → v60.0
 -- Fecha: 2026-02-24
--- IMPORTANTE: Ejecutar en una transacción respaldada
+-- IMPORTANTE: Ejecutar DESPUÉS del respaldo/backup
 -- =======================================================
 
 BEGIN TRANSACTION;
@@ -44,42 +44,52 @@ IF NOT EXISTS (
     WHERE TABLE_NAME = 'Tbl_BOM_Revisiones' AND COLUMN_NAME = 'ID_Version'
 )
 BEGIN
-    -- 3a. Agregar nueva columna
+    -- 3a. Agregar nueva columna nullable
     ALTER TABLE Tbl_BOM_Revisiones ADD ID_Version INT NULL;
     PRINT '  OK: Columna ID_Version agregada.';
 
-    -- 3b. Rellenar con los datos históricos via join con Clientes
-    UPDATE R
-    SET R.ID_Version = CC.ID_Version
-    FROM Tbl_BOM_Revisiones R
-    JOIN Tbl_Clientes_Configuracion CC ON R.ID_Config_Cliente = CC.ID_Config_Cliente;
-    PRINT '  OK: Datos migrados (id_config_cliente → id_version).';
+    -- 3b. Rellenar via SQL dinámico (EXEC) para evitar error de parser
+    --     SQL Server no reconoce columnas nuevas en el mismo batch si no se usa EXEC
+    EXEC('
+        UPDATE R
+        SET R.ID_Version = CC.ID_Version
+        FROM Tbl_BOM_Revisiones R
+        JOIN Tbl_Clientes_Configuracion CC ON R.ID_Config_Cliente = CC.ID_Config_Cliente
+    ');
+    PRINT '  OK: Datos migrados (ID_Config_Cliente → ID_Version).';
 
-    -- 3c. Hacer la columna NOT NULL y agregar FK
-    ALTER TABLE Tbl_BOM_Revisiones ALTER COLUMN ID_Version INT NOT NULL;
-    ALTER TABLE Tbl_BOM_Revisiones ADD CONSTRAINT FK_Revision_Version
-        FOREIGN KEY (ID_Version) REFERENCES Tbl_Versiones_Ingenieria(ID_Version);
+    -- 3c. NOT NULL + FK (también via EXEC)
+    EXEC('ALTER TABLE Tbl_BOM_Revisiones ALTER COLUMN ID_Version INT NOT NULL');
+    EXEC('
+        ALTER TABLE Tbl_BOM_Revisiones
+        ADD CONSTRAINT FK_Revision_Version
+        FOREIGN KEY (ID_Version) REFERENCES Tbl_Versiones_Ingenieria(ID_Version)
+    ');
     PRINT '  OK: FK_Revision_Version establecida.';
 
-    -- 3d. Eliminar la columna antigua (solo si la FK anterior existe)
-    IF EXISTS (
-        SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
-        WHERE CONSTRAINT_NAME LIKE '%Config_Cliente%' AND TABLE_NAME = 'Tbl_BOM_Revisiones'
-    )
+    -- 3d. Eliminar FK antigua si existe
+    DECLARE @fk_name NVARCHAR(200);
+    SELECT @fk_name = CONSTRAINT_NAME
+    FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+    WHERE TABLE_NAME = 'Tbl_BOM_Revisiones'
+      AND CONSTRAINT_TYPE = 'FOREIGN KEY'
+      AND CONSTRAINT_NAME LIKE '%Config_Cliente%';
+
+    IF @fk_name IS NOT NULL
     BEGIN
-        DECLARE @fk_name NVARCHAR(200);
-        SELECT @fk_name = CONSTRAINT_NAME FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
-        WHERE TABLE_NAME = 'Tbl_BOM_Revisiones' AND CONSTRAINT_TYPE = 'FOREIGN KEY'
-              AND CONSTRAINT_NAME LIKE '%Config_Cliente%';
-        IF @fk_name IS NOT NULL
-        BEGIN
-            EXEC('ALTER TABLE Tbl_BOM_Revisiones DROP CONSTRAINT ' + @fk_name);
-            PRINT '  OK: FK antigua eliminada.';
-        END
+        EXEC('ALTER TABLE Tbl_BOM_Revisiones DROP CONSTRAINT ' + @fk_name);
+        PRINT '  OK: FK antigua eliminada.';
     END
 
-    ALTER TABLE Tbl_BOM_Revisiones DROP COLUMN ID_Config_Cliente;
-    PRINT '  OK: Columna ID_Config_Cliente eliminada de Tbl_BOM_Revisiones.';
+    -- 3e. Eliminar columna antigua si existe
+    IF EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_NAME = 'Tbl_BOM_Revisiones' AND COLUMN_NAME = 'ID_Config_Cliente'
+    )
+    BEGIN
+        EXEC('ALTER TABLE Tbl_BOM_Revisiones DROP COLUMN ID_Config_Cliente');
+        PRINT '  OK: Columna ID_Config_Cliente eliminada.';
+    END
 END
 ELSE
     PRINT '  SKIP: Tbl_BOM_Revisiones ya fue migrada.';

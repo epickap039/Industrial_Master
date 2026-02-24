@@ -728,11 +728,12 @@ def buscar_vin(q: str):
     try:
         query = """
             SELECT u.ID_Unidad, u.VIN, u.Notas, r.ID_Revision, r.Numero_Revision,
-                   c.ID_Config_Cliente, c.Nombre_Cliente, v.Nombre_Version, t.Nombre_Tipo, tr.Nombre_Tracto
+                   v.ID_Version, c.ID_Config_Cliente, c.Nombre_Cliente,
+                   v.Nombre_Version, t.Nombre_Tipo, tr.Nombre_Tracto
             FROM Tbl_Unidades_Fisicas u
             JOIN Tbl_BOM_Revisiones r ON u.ID_Revision = r.ID_Revision
-            JOIN Tbl_Clientes_Configuracion c ON r.ID_Config_Cliente = c.ID_Config_Cliente
-            JOIN Tbl_Versiones_Ingenieria v ON c.ID_Version = v.ID_Version
+            JOIN Tbl_Versiones_Ingenieria v ON r.ID_Version = v.ID_Version
+            LEFT JOIN Tbl_Clientes_Configuracion c ON c.ID_Version = v.ID_Version
             JOIN Tbl_Tipos_Proyecto t ON v.ID_Tipo = t.ID_Tipo
             JOIN Tbl_Proyectos_Tracto tr ON t.ID_Tracto = tr.ID_Tracto
             WHERE u.VIN LIKE ?
@@ -1423,11 +1424,11 @@ def iniciar_auditoria():
             BEGIN
                 CREATE TABLE Tbl_BOM_Revisiones (
                     ID_Revision INT IDENTITY(1,1) PRIMARY KEY,
-                    ID_Config_Cliente INT NOT NULL,
+                    ID_Version INT NOT NULL,
                     Numero_Revision INT NOT NULL,
                     Estado VARCHAR(200) NOT NULL,
                     Fecha_Creacion DATETIME DEFAULT GETDATE(),
-                    CONSTRAINT FK_Revision_Cliente FOREIGN KEY (ID_Config_Cliente) REFERENCES Tbl_Clientes_Configuracion(ID_Config_Cliente) ON DELETE CASCADE
+                    CONSTRAINT FK_Revision_Version2 FOREIGN KEY (ID_Version) REFERENCES Tbl_Versiones_Ingenieria(ID_Version) ON DELETE CASCADE
                 );
             END
         """)
