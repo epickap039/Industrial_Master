@@ -13,8 +13,19 @@ const String API_URL = "http://192.168.1.73:8001";
 class BOMManagerScreen extends StatefulWidget {
   final int? idCliente;
   final String? clientName;
+  // v60.0: nuevos parámetros de ingeniería maestra
+  final int? idVersion;
+  final String? versionName;
+  final String? tractoName; // para theming de color
   
-  const BOMManagerScreen({Key? key, this.idCliente, this.clientName}) : super(key: key);
+  const BOMManagerScreen({
+    Key? key, 
+    this.idCliente, 
+    this.clientName,
+    this.idVersion,
+    this.versionName,
+    this.tractoName,
+  }) : super(key: key);
 
   @override
   _BOMManagerScreenState createState() => _BOMManagerScreenState();
@@ -33,11 +44,22 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
   List<dynamic> _vins = [];
   bool _propagarAutomaticamente = false;
 
+  // v60.0: determina el color de acento según el nombre del tracto
+  Color get _accentColor {
+    final t = (widget.tractoName ?? '').toUpperCase();
+    if (t.contains('KENWORTH')) return const Color(0xFFD32F2F); // Rojo
+    if (t.contains('INTERNATIONAL')) return const Color(0xFFE65100); // Naranja
+    if (t.contains('PETERBILT')) return const Color(0xFF1565C0); // Azul
+    return const Color(0xFF1565C0); // Azul por defecto
+  }
+
+  // v60.0: ID maestro de la versión de ingeniería
+  int get _masterId => widget.idVersion ?? widget.idCliente ?? 1;
+  bool get _usingVersionMode => widget.idVersion != null;
+
   @override
   void initState() {
     super.initState();
-    _currentIdCliente = widget.idCliente ?? 1;
-    _currentClientName = widget.clientName ?? "Cliente Temporal (ID $_currentIdCliente)";
     _fetchRevisiones();
   }
 
@@ -52,13 +74,17 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
   Future<void> _fetchRevisiones() async {
     setState(() => _isLoading = true);
     try {
-      final response = await http.get(Uri.parse('$API_URL/api/bom/revisiones/$_currentIdCliente'));
+      // v60.0: usa endpoint por version si está disponible
+      final url = _usingVersionMode
+          ? '$API_URL/api/bom/revisiones/version/$_masterId'
+          : '$API_URL/api/bom/revisiones/$_masterId';
+      final response = await http.get(Uri.parse(url));
       if (response.statusCode == 200) {
         _clearData();
         setState(() {
           _revisiones = json.decode(response.body);
           if (_revisiones.isNotEmpty) {
-            _selectedRevision = _revisiones.first;
+            _selectedRevision = _revisiones.last; // última revisión por defecto
             _fetchArbol();
           } else {
             _selectedRevision = null;
@@ -75,8 +101,12 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
   Future<void> _addRevision(String nombre) async {
     setState(() => _isLoading = true);
     try {
+      // v60.0: endpoint por versión
+      final url = _usingVersionMode
+          ? '$API_URL/api/bom/revisiones/version/$_masterId'
+          : '$API_URL/api/bom/revisiones/$_masterId';
       final response = await http.post(
-        Uri.parse('$API_URL/api/bom/revisiones/$_currentIdCliente'),
+        Uri.parse(url),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'nombre_revision': nombre}),
       );
@@ -1031,6 +1061,80 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     );
   }
 
+  // === v60.0: HORIZONTAL STEPPER DE REVISIONES ===
+  Widget _buildRevisionStepper() {
+    if (_revisiones.isEmpty) {
+      return const Text("Sin revisiones", style: TextStyle(color: Colors.grey));
+    }
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: List.generate(_revisiones.length * 2 - 1, (i) {
+          if (i.isOdd) {
+            // Conector entre pasos
+            return Container(
+              width: 24, height: 2,
+              color: Colors.grey.withOpacity(0.4),
+            );
+          }
+          final rev = _revisiones[i ~/ 2];
+          final isSelected = _selectedRevision != null &&
+              _selectedRevision['id_revision'] == rev['id_revision'];
+          final isAprobada = rev['estado'] == 'Aprobada';
+          final stepColor = isAprobada
+              ? const Color(0xFF2E7D32) // Verde
+              : const Color(0xFFF9A825); // Amarillo
+
+          return Tooltip(
+            message: "Rev ${rev['numero_revision']} - ${rev['estado']} (click para seleccionar)",
+            child: GestureDetector(
+              onTap: () {
+                _clearData();
+                setState(() => _selectedRevision = rev);
+                _fetchArbol();
+                _fetchVINs();
+              },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: isSelected ? stepColor : stepColor.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: stepColor,
+                    width: isSelected ? 2.5 : 1,
+                  ),
+                  boxShadow: isSelected
+                      ? [BoxShadow(color: stepColor.withOpacity(0.4), blurRadius: 6)]
+                      : [],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      isAprobada ? FluentIcons.lock : FluentIcons.edit,
+                      size: 12,
+                      color: isSelected ? Colors.white : stepColor,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      "Rev ${rev['numero_revision']}",
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                        color: isSelected ? Colors.white : stepColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ScaffoldPage(
@@ -1051,37 +1155,20 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Header con CommandBar (Reemplaza la fila de botones)
+            // Header con CommandBar
             Container(
               decoration: BoxDecoration(
-                color: FluentTheme.of(context).cardColor.withOpacity(0.5),
-                border: Border(bottom: BorderSide(color: Colors.grey.withOpacity(0.15))),
+                color: _accentColor.withOpacity(0.06),
+                border: Border(bottom: BorderSide(color: _accentColor.withOpacity(0.2), width: 1.5)),
               ),
               child: Row(
                 children: [
-                  // Lado Izquierdo: Selector de Revisión
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                    child: Row(
-                      children: [
-                        const Text("Revisión: ", style: TextStyle(fontWeight: FontWeight.bold)),
-                        const SizedBox(width: 8),
-                        ComboBox<dynamic>(
-                          value: _selectedRevision,
-                          items: _revisiones.map((rev) => ComboBoxItem<dynamic>(
-                            value: rev,
-                            child: Text("Rev ${rev['numero_revision']} - ${rev['estado']}"),
-                          )).toList(),
-                          onChanged: (v) {
-                            if (v != null) {
-                              _clearData();
-                              setState(() => _selectedRevision = v);
-                              _fetchArbol();
-                              _fetchVINs();
-                            }
-                          },
-                        ),
-                      ],
+                  // === v60.0: HORIZONTAL STEPPER DE REVISIONES ===
+                  Expanded(
+                    flex: 4,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+                      child: _buildRevisionStepper(),
                     ),
                   ),
                   // Divider vertical

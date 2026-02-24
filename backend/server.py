@@ -74,7 +74,7 @@ REGLA_ESPEJO_ACTIVA = True
 class MirrorConfig(BaseModel):
     activa: bool
 
-app = FastAPI(title="Industrial Manager API", version="15.5", lifespan=lifespan)
+app = FastAPI(title="Industrial Manager API v60.0", version="60.0", lifespan=lifespan)
 
 # === MATERIALES APROBADOS ===
 class MaterialPayload(BaseModel):
@@ -190,6 +190,8 @@ class VINPayload(BaseModel):
 class ClonarPayload(BaseModel):
     id_revision_origen: int
     id_revision_destino: int
+    rama_cliente: bool = False
+    id_cliente_destino: Optional[int] = None
 
 class PropagarPayload(BaseModel):
     codigo_pieza: str
@@ -208,6 +210,12 @@ class BOMPayload(BaseModel):
     id_ensamble: int
     codigo_pieza: str
     cantidad: float
+
+class AsignarRevisionPayload(BaseModel):
+    id_revision_asignada: Optional[int] = None
+
+class LogAuditoriaPayload(BaseModel):
+    motivo: str = ""
     observaciones: str = ""
 
 # Endpoints Tracto
@@ -379,15 +387,26 @@ def delete_cliente(id_cliente: int):
         conn.close()
 # === FIN JERARQUIA DE PROYECTOS ===
 
+# === HELPER: Registro de Auditoría ===
+def registrar_log(cursor, id_revision: int, accion: str, detalle: str, motivo: str = ""):
+    """Inserta un registro en Tbl_Log_Cambios_Ingenieria. Llamar dentro de una transacción abierta."""
+    try:
+        cursor.execute(
+            "INSERT INTO Tbl_Log_Cambios_Ingenieria (ID_Revision, Accion, Detalle_Cambio, Motivo) VALUES (?, ?, ?, ?)",
+            (id_revision, accion, detalle[:500], motivo[:300] if motivo else "")
+        )
+    except Exception:
+        pass  # No interrumpir operación principal si falla el log
+
 # === MODULO: BOM (Gestor de Listas) ===
-@app.get("/api/bom/estaciones/{id_cliente}")
-def get_estaciones(id_cliente: int):
+@app.get("/api/bom/estaciones/{id_revision}")
+def get_estaciones(id_revision: int):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT ID_Estacion, ID_Config_Cliente, Nombre_Estacion, Orden FROM Tbl_Estaciones WHERE ID_Config_Cliente = ? ORDER BY Orden", (id_cliente,))
+        cursor.execute("SELECT ID_Estacion, ID_Revision, Nombre_Estacion, Orden FROM Tbl_Estaciones WHERE ID_Revision = ? ORDER BY Orden", (id_revision,))
         rows = cursor.fetchall()
-        return [{"id": r.ID_Estacion, "id_cliente": r.ID_Config_Cliente, "nombre": r.Nombre_Estacion, "orden": r.Orden} for r in rows]
+        return [{"id": r.ID_Estacion, "id_revision": r.ID_Revision, "nombre": r.Nombre_Estacion, "orden": r.Orden} for r in rows]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al obtener estaciones: {str(e)}")
     finally:
@@ -395,12 +414,60 @@ def get_estaciones(id_cliente: int):
 
 @app.post("/api/bom/estaciones")
 # Endpoints Revisiones
-@app.get("/api/bom/revisiones/{id_cliente}")
-def get_revisiones(id_cliente: int):
+# --- Endpoints Revisiones (v60.0: agrupados por ID_Version, no por cliente) ---
+@app.get("/api/bom/revisiones/version/{id_version}")
+def get_revisiones_por_version(id_version: int):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT ID_Revision, Numero_Revision, Estado, Fecha_Creacion FROM Tbl_BOM_Revisiones WHERE ID_Config_Cliente = ? ORDER BY Numero_Revision DESC", (id_cliente,))
+        cursor.execute(
+            "SELECT ID_Revision, Numero_Revision, Estado, Fecha_Creacion FROM Tbl_BOM_Revisiones WHERE ID_Version = ? ORDER BY Numero_Revision",
+            (id_version,)
+        )
+        rows = cursor.fetchall()
+        return [{"id_revision": r.ID_Revision, "numero_revision": r.Numero_Revision, "estado": r.Estado, "fecha_creacion": r.Fecha_Creacion.isoformat() if r.Fecha_Creacion else None} for r in rows]
+    finally:
+        conn.close()
+
+@app.post("/api/bom/revisiones/version/{id_version}")
+def add_revision_version(id_version: int, payload: RevisionPayload):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT ISNULL(MAX(Numero_Revision), -1) + 1 FROM Tbl_BOM_Revisiones WHERE ID_Version = ?", (id_version,))
+        siguiente_rev = int(cursor.fetchone()[0])
+        cursor.execute(
+            "INSERT INTO Tbl_BOM_Revisiones (ID_Version, Numero_Revision, Estado) OUTPUT INSERTED.ID_Revision VALUES (?, ?, 'Borrador')",
+            (id_version, siguiente_rev)
+        )
+        id_rev = cursor.fetchone()[0]
+        registrar_log(cursor, id_rev, "Creación", f"Nueva Revisión {siguiente_rev} creada para Versión ID {id_version}")
+        conn.commit()
+        return {"status": "success", "id_revision": id_rev}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error creando revisión: {str(e)}")
+    finally:
+        conn.close()
+
+# --- Compatibilidad legacy: revisiones por cliente (redirige a versión) ---
+@app.get("/api/bom/revisiones/{id_cliente}")
+def get_revisiones(id_cliente: int):
+    """Legacy endpoint - mantiene compatibilidad con pantallas antiguas."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Buscar revisiones cuya versión corresponde al cliente
+        cursor.execute(
+            """
+            SELECT R.ID_Revision, R.Numero_Revision, R.Estado, R.Fecha_Creacion
+            FROM Tbl_BOM_Revisiones R
+            JOIN Tbl_Clientes_Configuracion CC ON CC.ID_Version = R.ID_Version
+            WHERE CC.ID_Config_Cliente = ?
+            ORDER BY R.Numero_Revision
+            """,
+            (id_cliente,)
+        )
         rows = cursor.fetchall()
         return [{"id_revision": r.ID_Revision, "numero_revision": r.Numero_Revision, "estado": r.Estado, "fecha_creacion": r.Fecha_Creacion.isoformat() if r.Fecha_Creacion else None} for r in rows]
     finally:
@@ -408,16 +475,23 @@ def get_revisiones(id_cliente: int):
 
 @app.post("/api/bom/revisiones/{id_cliente}")
 def add_revision(id_cliente: int, payload: RevisionPayload):
+    """Legacy endpoint."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT ISNULL(MAX(Numero_Revision), -1) + 1 FROM Tbl_BOM_Revisiones WHERE ID_Config_Cliente = ?", (id_cliente,))
+        cursor.execute("SELECT ID_Version FROM Tbl_Clientes_Configuracion WHERE ID_Config_Cliente = ?", (id_cliente,))
+        ver_row = cursor.fetchone()
+        if not ver_row:
+            raise HTTPException(status_code=404, detail="Cliente no encontrado")
+        id_version = ver_row[0]
+        cursor.execute("SELECT ISNULL(MAX(Numero_Revision), -1) + 1 FROM Tbl_BOM_Revisiones WHERE ID_Version = ?", (id_version,))
         siguiente_rev = int(cursor.fetchone()[0])
         cursor.execute(
-            "INSERT INTO Tbl_BOM_Revisiones (ID_Config_Cliente, Numero_Revision, Estado) OUTPUT INSERTED.ID_Revision VALUES (?, ?, 'Borrador')", 
-            (id_cliente, siguiente_rev)
+            "INSERT INTO Tbl_BOM_Revisiones (ID_Version, Numero_Revision, Estado) OUTPUT INSERTED.ID_Revision VALUES (?, ?, 'Borrador')",
+            (id_version, siguiente_rev)
         )
         id_rev = cursor.fetchone()[0]
+        registrar_log(cursor, id_rev, "Creación", f"Nueva Revisión {siguiente_rev} (vía cliente {id_cliente})")
         conn.commit()
         return {"status": "success", "id_revision": id_rev}
     except Exception as e:
@@ -470,8 +544,8 @@ def buscar_pieza_jerarquia(codigo_pieza: str, exclude_rev: Optional[int] = None)
             JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
             JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
             JOIN Tbl_BOM_Revisiones R ON ES.ID_Revision = R.ID_Revision
-            JOIN Tbl_Clientes_Configuracion CC ON R.ID_Config_Cliente = CC.ID_Config_Cliente
-            JOIN Tbl_Versiones_Ingenieria V ON CC.ID_Version = V.ID_Version
+            JOIN Tbl_Versiones_Ingenieria V ON R.ID_Version = V.ID_Version
+            LEFT JOIN Tbl_Clientes_Configuracion CC ON CC.ID_Version = V.ID_Version
             JOIN Tbl_Tipos_Proyecto TP ON V.ID_Tipo = TP.ID_Tipo
             JOIN Tbl_Proyectos_Tracto TR ON TP.ID_Tracto = TR.ID_Tracto
             WHERE E.Codigo_Pieza = ?
@@ -500,50 +574,122 @@ def buscar_pieza_jerarquia(codigo_pieza: str, exclude_rev: Optional[int] = None)
 
 @app.get("/api/bom/exportar/{id_revision}")
 def exportar_bom(id_revision: int):
+    """Exportación Pro: BOM + Historial de Auditoría en 2 pestañas."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        query = """
-            SELECT 
-                ES.Nombre_Estacion, 
-                EN.Nombre_Ensamble, 
-                E.Codigo_Pieza, 
-                M.Descripcion as Descripcion_Oficial, 
-                E.Cantidad
+        # Pestaña 1: BOM
+        cursor.execute(
+            """
+            SELECT ES.Nombre_Estacion, EN.Nombre_Ensamble, E.Codigo_Pieza,
+                   M.Descripcion as Descripcion_Oficial, E.Cantidad
             FROM Tbl_BOM_Estructura E
             JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
             JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
             LEFT JOIN Tbl_Maestro_Piezas M ON E.Codigo_Pieza = M.Codigo_Pieza
             WHERE ES.ID_Revision = ?
             ORDER BY ES.Orden, EN.Nombre_Ensamble
-        """
-        cursor.execute(query, (id_revision,))
-        rows = cursor.fetchall()
+            """, (id_revision,)
+        )
+        bom_rows = cursor.fetchall()
+
+        # Pestaña 2: Historial de Auditoría
+        try:
+            cursor.execute(
+                "SELECT Usuario, Fecha_Hora, Accion, Detalle_Cambio, Motivo FROM Tbl_Log_Cambios_Ingenieria WHERE ID_Revision = ? ORDER BY Fecha_Hora DESC",
+                (id_revision,)
+            )
+            log_rows = cursor.fetchall()
+        except Exception:
+            log_rows = []
 
         output = io.BytesIO()
         workbook = openpyxl.Workbook()
-        sheet = workbook.active
-        sheet.title = "BOM"
-        
-        headers = ["Estación", "Ensamble", "Código", "Descripción", "Cantidad"]
-        sheet.append(headers)
-        
-        for cell in sheet[1]:
-            cell.font = Font(bold=True, color="FFFFFF")
-            cell.fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
-            cell.alignment = Alignment(horizontal="center")
 
-        for r in rows:
-            sheet.append([r.Nombre_Estacion, r.Nombre_Ensamble, r.Codigo_Pieza, r.Descripcion_Oficial or '', r.Cantidad])
+        # --- Pestaña 1: BOM ---
+        sheet_bom = workbook.active
+        sheet_bom.title = "BOM"
+        hdr_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+        hdr_font = Font(bold=True, color="FFFFFF")
+        hdr_align = Alignment(horizontal="center")
+
+        bom_headers = ["Estación", "Ensamble", "Código", "Descripción", "Cantidad"]
+        sheet_bom.append(bom_headers)
+        for cell in sheet_bom[1]:
+            cell.font = hdr_font; cell.fill = hdr_fill; cell.alignment = hdr_align
+        for r in bom_rows:
+            sheet_bom.append([r.Nombre_Estacion, r.Nombre_Ensamble, r.Codigo_Pieza, r.Descripcion_Oficial or '', r.Cantidad])
+        # Auto-ancho columnas
+        for col in sheet_bom.columns:
+            max_len = max((len(str(cell.value or '')) for cell in col), default=10)
+            sheet_bom.column_dimensions[col[0].column_letter].width = min(max_len + 4, 50)
+
+        # --- Pestaña 2: Historial ---
+        sheet_log = workbook.create_sheet(title="Historial de Cambios")
+        log_fill = PatternFill(start_color="2E7D32", end_color="2E7D32", fill_type="solid")
+        log_headers = ["Usuario", "Fecha / Hora", "Acción", "Detalle", "Motivo"]
+        sheet_log.append(log_headers)
+        for cell in sheet_log[1]:
+            cell.font = hdr_font; cell.fill = log_fill; cell.alignment = hdr_align
+        for r in log_rows:
+            sheet_log.append([
+                r.Usuario,
+                r.Fecha_Hora.strftime("%Y-%m-%d %H:%M:%S") if r.Fecha_Hora else '',
+                r.Accion, r.Detalle_Cambio, r.Motivo or ''
+            ])
 
         workbook.save(output)
         output.seek(0)
-        
+
         return StreamingResponse(
             output,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f"attachment; filename=BOM_Revision_{id_revision}.xlsx"}
+            headers={"Content-Disposition": f"attachment; filename=BOM_Rev{id_revision}_v60.xlsx"}
         )
+    finally:
+        conn.close()
+
+@app.get("/api/bom/log/{id_revision}")
+def get_log_auditoria(id_revision: int):
+    """ADN de Ingeniería: historial completo de cambios de una revisión."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "SELECT ID_Log, Usuario, Fecha_Hora, Accion, Detalle_Cambio, Motivo FROM Tbl_Log_Cambios_Ingenieria WHERE ID_Revision = ? ORDER BY Fecha_Hora DESC",
+            (id_revision,)
+        )
+        rows = cursor.fetchall()
+        return [{
+            "id_log": r.ID_Log,
+            "usuario": r.Usuario,
+            "fecha_hora": r.Fecha_Hora.isoformat() if r.Fecha_Hora else None,
+            "accion": r.Accion,
+            "detalle": r.Detalle_Cambio,
+            "motivo": r.Motivo or ""
+        } for r in rows]
+    except Exception:
+        return []  # Si la tabla aún no existe, retorna lista vacía
+    finally:
+        conn.close()
+
+@app.put("/api/proyectos/clientes/{id_cliente}/asignar_revision")
+def asignar_revision_cliente(id_cliente: int, payload: AsignarRevisionPayload):
+    """Vincula un cliente a una revisión maestra específica."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "UPDATE Tbl_Clientes_Configuracion SET ID_Revision_Asignada = ? WHERE ID_Config_Cliente = ?",
+            (payload.id_revision_asignada, id_cliente)
+        )
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Cliente no encontrado")
+        conn.commit()
+        return {"status": "success"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
 

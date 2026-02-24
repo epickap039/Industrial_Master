@@ -92,6 +92,105 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
     }
   }
 
+  // v60.0: ADN de Ingeniería - Muestra historial de auditoría de la revisión
+  Future<void> _showADNIngenieria() async {
+    if (_vinData == null) return;
+    final idRevision = _vinData['id_revision'] ?? _vinData['numero_revision'];
+    if (idRevision == null) {
+      _showError("No se encontró ID de revisión para este VIN");
+      return;
+    }
+
+    List<dynamic> log = [];
+    bool dialogLoading = true;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDState) {
+          if (dialogLoading) {
+            http.get(Uri.parse('$API_URL/api/bom/log/$idRevision')).then((res) {
+              if (res.statusCode == 200) {
+                setDState(() {
+                  log = json.decode(res.body);
+                  dialogLoading = false;
+                });
+              } else {
+                setDState(() => dialogLoading = false);
+              }
+            });
+            return const ContentDialog(content: Center(child: ProgressRing()));
+          }
+
+          return ContentDialog(
+            title: Row(
+              children: [
+                Icon(FluentIcons.history, color: Colors.blue),
+                const SizedBox(width: 8),
+                Expanded(child: Text("ADN de Ingeniería - VIN: ${_vinData['vin']}")),
+              ],
+            ),
+            content: SizedBox(
+              width: 600,
+              height: 400,
+              child: log.isEmpty
+                  ? const Center(
+                      child: Text(
+                        "Sin historial de cambios registrado.\n(La tabla Tbl_Log_Cambios_Ingenieria puede no existir aún)",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: log.length,
+                      itemBuilder: (context, idx) {
+                        final item = log[idx];
+                        final accion = item['accion'] as String;
+                        Color accionColor;
+                        if (accion.contains('Inserci')) accionColor = Colors.green;
+                        else if (accion.contains('Borrado')) accionColor = Colors.red;
+                        else accionColor = Colors.orange;
+
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4.0),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                width: 6, height: 6,
+                                margin: const EdgeInsets.only(top: 6, right: 8),
+                                decoration: BoxDecoration(
+                                  color: accionColor,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(item['detalle'], style: const TextStyle(fontSize: 13)),
+                                    Text(
+                                      "${item['accion']}  •  ${item['usuario']}  •  ${item['fecha_hora']?.toString().substring(0, 16) ?? ''}${item['motivo']?.isNotEmpty == true ? '  •  Motivo: ${item['motivo']}' : ''}",
+                                      style: TextStyle(fontSize: 11, color: Colors.grey[100]),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+            ),
+            actions: [
+              Button(child: const Text("Cerrar"), onPressed: () => Navigator.pop(context)),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   void _showError(String message, {bool isError = true}) {
     displayInfoBar(context, builder: (context, close) {
       return InfoBar(
@@ -212,6 +311,19 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
                                     _buildInfoRow("Tipo:", _vinData['tipo']),
                                     _buildInfoRow("Versión:", _vinData['version']),
                                     _buildInfoRow("BOM Rev:", "Rev ${_vinData['numero_revision']}"),
+                                    const SizedBox(height: 12),
+                                    // v60.0: Botón ADN de Ingeniería
+                                    Button(
+                                      onPressed: _showADNIngenieria,
+                                      child: const Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(FluentIcons.history, size: 14),
+                                          SizedBox(width: 6),
+                                          Text("Ver ADN de Ingeniería"),
+                                        ],
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ),

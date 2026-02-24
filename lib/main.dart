@@ -155,7 +155,7 @@ class _MyAppState extends State<MyApp> {
 
     return FluentApp(
       debugShowCheckedModeBanner: false,
-      title: 'BDIV-v38.0',
+      title: 'Industrial Master v60.0',
       themeMode: _themeMode,
       theme: FluentThemeData(
         brightness: Brightness.light,
@@ -168,7 +168,7 @@ class _MyAppState extends State<MyApp> {
         home: _isLoggedIn
           ? NavigationView(
               appBar: NavigationAppBar(
-                title: const Text('BDIV-v38.0'),
+                title: const Text('Industrial Master v60.0'),
                 automaticallyImplyLeading: false,
                 leading: const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 12.0),
