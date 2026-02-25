@@ -440,9 +440,15 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
         builder: (ctx, setD) => ContentDialog(
           constraints: const BoxConstraints(maxWidth: 460, maxHeight: 380),
           title: Row(children: [
-            Icon(FluentIcons.delete, color: isAprobada ? Colors.red : Colors.orange, size: 20),
+            Icon(FluentIcons.delete, color: isAprobada ? Colors.red : Colors.orange, size: 18),
             const SizedBox(width: 8),
-            Text(isAprobada ? "⚠️ Eliminar Revisión Aprobada" : "Eliminar Revisión"),
+            Expanded(
+              child: Text(
+                isAprobada ? "⚠️ Eliminar Revisión Aprobada" : "Eliminar Revisión",
+                style: const TextStyle(fontSize: 14),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
           ]),
           content: Column(
             mainAxisSize: MainAxisSize.min,
