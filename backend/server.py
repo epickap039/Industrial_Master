@@ -661,14 +661,17 @@ def eliminar_revision(id_revision: int, payload: EliminarRevisionPayload):
                     detail="Contraseña incorrecta. No se puede eliminar una revisión Aprobada sin autorización."
                 )
 
-        # 3. Registrar en auditoría ANTES de borrar (para que la FK aún exista)
-        registrar_log(
-            cursor,
-            id_revision,
+        # 3. Registrar en auditoría ANTES de borrar (sobrevive al borrado en cascada)
+        cursor.execute("""
+            INSERT INTO Tbl_Auditoria_Cambios (Codigo_Pieza, Accion, Valor_Anterior, Valor_Nuevo, Usuario, Fecha_Hora)
+            VALUES (?, ?, ?, ?, ?, GETDATE())
+        """, (
+            f"REV-{numero_revision}",
             "ELIMINAR_REVISION",
-            f"Se eliminó la revisión ID: {id_revision}, Rev#{numero_revision}, estado: {estado}.",
-            motivo=payload.motivo or "Sin motivo especificado"
-        )
+            f"ID_Revision: {id_revision}, Estado: {estado}",
+            f"Motivo: {payload.motivo or 'N/A'}",
+            "SISTEMA_BOM"
+        ))
         conn.commit()  # Asegurar que el log quede persistido
 
         # 4. Borrado en cascada manual (más seguro que CASCADE en FK)
@@ -2565,25 +2568,25 @@ async def obtener_historial(busqueda: Optional[str] = None, limite: int = 50):
             
             # Intentar parsear Valor_Anterior
             if val_ant and isinstance(val_ant, str):
+                val_ant_s = val_ant.strip()
                 try:
-                    if val_ant.strip().startswith('{') or val_ant.strip().startswith('['):
+                    if val_ant_s.startswith('{') or val_ant_s.startswith('['):
                          val_ant = json.loads(val_ant.replace("'", '"')) # Attempt JSON fix or standard load
-                    elif val_ant.strip().startswith('('):
+                    elif val_ant_s.startswith('('):
                          val_ant = ast.literal_eval(val_ant)
-                    else:
-                         # Try literal eval for python dict repr
-                         val_ant = ast.literal_eval(val_ant)
+                    # NOTA: evitamos evaluar incondicionalmente con ast.literal_eval
+                    # porque si val_ant es un string numérico con ceros a la izq ("002")
+                    # Python lanza SyntaxWarning: invalid decimal literal
                 except:
                     pass # Keep as string if fail
 
             # Intentar parsear Valor_Nuevo
             if val_nue and isinstance(val_nue, str):
+                val_nue_s = val_nue.strip()
                 try:
-                    if val_nue.strip().startswith('{') or val_nue.strip().startswith('['):
+                    if val_nue_s.startswith('{') or val_nue_s.startswith('['):
                          val_nue = json.loads(val_nue.replace("'", '"'))
-                    elif val_nue.strip().startswith('('):
-                         val_nue = ast.literal_eval(val_nue)
-                    else:
+                    elif val_nue_s.startswith('('):
                          val_nue = ast.literal_eval(val_nue)
                 except:
                     pass
