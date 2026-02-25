@@ -618,10 +618,96 @@ def aprobar_revision(id_revision: int):
         cursor.execute("UPDATE Tbl_BOM_Revisiones SET Estado = 'Aprobada' WHERE ID_Revision = ?", (id_revision,))
         if cursor.rowcount == 0:
             raise HTTPException(status_code=404, detail="Revisión no encontrada")
+        registrar_log(cursor, id_revision, "APROBAR_REVISION", f"Revisión {id_revision} aprobada y bloqueada.")
         conn.commit()
         return {"status": "success"}
     finally:
         conn.close()
+
+# ── NUEVO v60.1: Borrado de Revisión (con protección para Aprobadas) ──────────
+class EliminarRevisionPayload(BaseModel):
+    password: str = ""
+    motivo: str = ""
+
+ADMIN_PASSWORD_INGENIERIA = "ADMIN_ING_2024"
+
+@app.delete("/api/bom/revisiones/{id_revision}")
+def eliminar_revision(id_revision: int, payload: EliminarRevisionPayload):
+    """
+    Borra una revisión y toda su estructura en cascada.
+    - Borradores: no requieren contraseña.
+    - Aprobadas: requieren la contraseña maestra de ingeniería.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # 1. Verificar existencia y estado
+        cursor.execute(
+            "SELECT Estado, Numero_Revision FROM Tbl_BOM_Revisiones WHERE ID_Revision = ?",
+            (id_revision,)
+        )
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Revisión no encontrada")
+
+        estado = row.Estado
+        numero_revision = row.Numero_Revision
+
+        # 2. Protección por contraseña si está Aprobada
+        if estado == "Aprobada":
+            if payload.password != ADMIN_PASSWORD_INGENIERIA:
+                raise HTTPException(
+                    status_code=401,
+                    detail="Contraseña incorrecta. No se puede eliminar una revisión Aprobada sin autorización."
+                )
+
+        # 3. Registrar en auditoría ANTES de borrar (para que la FK aún exista)
+        registrar_log(
+            cursor,
+            id_revision,
+            "ELIMINAR_REVISION",
+            f"Se eliminó la revisión ID: {id_revision}, Rev#{numero_revision}, estado: {estado}.",
+            motivo=payload.motivo or "Sin motivo especificado"
+        )
+        conn.commit()  # Asegurar que el log quede persistido
+
+        # 4. Borrado en cascada manual (más seguro que CASCADE en FK)
+        # 4a. Borrar piezas de todos los ensambles de todas las estaciones de esta revisión
+        cursor.execute("""
+            DELETE E FROM Tbl_BOM_Estructura E
+            INNER JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
+            INNER JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
+            WHERE ES.ID_Revision = ?
+        """, (id_revision,))
+
+        # 4b. Borrar ensambles
+        cursor.execute("""
+            DELETE EN FROM Tbl_Ensambles EN
+            INNER JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
+            WHERE ES.ID_Revision = ?
+        """, (id_revision,))
+
+        # 4c. Borrar estaciones
+        cursor.execute("DELETE FROM Tbl_Estaciones WHERE ID_Revision = ?", (id_revision,))
+
+        # 4d. Borrar VINs ligados a la revisión
+        cursor.execute("DELETE FROM Tbl_Unidades_Fisicas WHERE ID_Revision = ?", (id_revision,))
+
+        # 4e. Borrar la revisión
+        cursor.execute("DELETE FROM Tbl_BOM_Revisiones WHERE ID_Revision = ?", (id_revision,))
+
+        conn.commit()
+        return {"status": "success", "message": f"Revisión {numero_revision} eliminada correctamente."}
+
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al eliminar revisión: {str(e)}")
+    finally:
+        conn.close()
+
 
 # Endpoints VINs (Unidades Físicas)
 @app.get("/api/bom/revisiones/{id_revision}/vins")
@@ -1047,8 +1133,17 @@ def add_ensamble(payload: EnsamblePayload):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Se asume un Codigo_Ensamble generico por ahora
-        cursor.execute("INSERT INTO Tbl_Ensambles (ID_Estacion, Codigo_Ensamble, Nombre_Ensamble) VALUES (?, ?, ?)", (payload.id_estacion, "N/A", payload.nombre.upper()))
+        # Insertar ensamble
+        cursor.execute(
+            "INSERT INTO Tbl_Ensambles (ID_Estacion, Codigo_Ensamble, Nombre_Ensamble) VALUES (?, ?, ?)",
+            (payload.id_estacion, "N/A", payload.nombre.upper())
+        )
+        # Recuperar ID_Revision para el log (via Tbl_Estaciones)
+        cursor.execute("SELECT ID_Revision FROM Tbl_Estaciones WHERE ID_Estacion = ?", (payload.id_estacion,))
+        rev_row = cursor.fetchone()
+        if rev_row:
+            registrar_log(cursor, rev_row.ID_Revision, "AGREGAR_ENSAMBLE",
+                          f"Nuevo ensamble '{payload.nombre.upper()}' en estación {payload.id_estacion}.")
         conn.commit()
         return {"status": "success"}
     except pyodbc.IntegrityError as e:
@@ -1116,6 +1211,16 @@ def add_bom_estructura(payload: BOMPayload):
             INSERT INTO Tbl_BOM_Estructura (ID_Ensamble, Codigo_Pieza, Cantidad, Observaciones_Proceso)
             VALUES (?, ?, ?, ?)
         """, (payload.id_ensamble, payload.codigo_pieza, payload.cantidad, payload.observaciones))
+        # Recuperar ID_Revision para el log
+        cursor.execute("""
+            SELECT ES.ID_Revision FROM Tbl_Ensambles EN
+            INNER JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
+            WHERE EN.ID_Ensamble = ?
+        """, (payload.id_ensamble,))
+        rev_row = cursor.fetchone()
+        if rev_row:
+            registrar_log(cursor, rev_row.ID_Revision, "AGREGAR_PIEZA",
+                          f"Pieza '{payload.codigo_pieza}' x{payload.cantidad} agregada al ensamble {payload.id_ensamble}.")
         conn.commit()
         return {"status": "success"}
     except pyodbc.IntegrityError as e:

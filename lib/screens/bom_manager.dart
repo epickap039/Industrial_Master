@@ -391,6 +391,129 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     }
   }
 
+  // ── NUEVO v60.1: Eliminar revisión con protección ──────────────────────────
+  Future<void> _deleteRevision({String password = '', String motivo = ''}) async {
+    if (_selectedRevision == null) return;
+    final idRev = _selectedRevision['id_revision'];
+    setState(() => _isLoading = true);
+    try {
+      final response = await http.delete(
+        Uri.parse('$API_URL/api/bom/revisiones/$idRev'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'password': password, 'motivo': motivo}),
+      );
+      if (response.statusCode == 200) {
+        _showError("✅ Revisión eliminada correctamente", isError: false);
+        setState(() {
+          _selectedRevision = null;
+          _arbol = [];
+          _selectedEnsamble = null;
+        });
+        _fetchRevisiones();
+      } else if (response.statusCode == 401) {
+        _showError("❌ Contraseña incorrecta. Operación denegada.");
+      } else {
+        final detail = json.decode(response.body)['detail'] ?? 'Error desconocido';
+        _showError("Error: $detail");
+      }
+    } catch (e) {
+      _showError("Error de conexión: $e");
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  void _showDeleteRevisionDialog() {
+    if (_selectedRevision == null) {
+      _showError("Selecciona una revisión primero.");
+      return;
+    }
+    final bool isAprobada = _selectedRevision['estado'] == 'Aprobada';
+    final String revLabel =
+        "Rev. ${_selectedRevision['numero_revision']} — ${_selectedRevision['estado']}";
+    String passwordInput = '';
+    String motivoInput = '';
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => ContentDialog(
+          constraints: const BoxConstraints(maxWidth: 460, maxHeight: 380),
+          title: Row(children: [
+            Icon(FluentIcons.delete, color: isAprobada ? Colors.red : Colors.orange, size: 20),
+            const SizedBox(width: 8),
+            Text(isAprobada ? "⚠️ Eliminar Revisión Aprobada" : "Eliminar Revisión"),
+          ]),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (isAprobada) ...[
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withOpacity(0.1),
+                    border: Border.all(color: Colors.red),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Row(children: [
+                    Icon(FluentIcons.error_badge, color: Colors.red, size: 18),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        "ADVERTENCIA: Esta revisión está APROBADA. "
+                        "Eliminarla borrará permanentemente toda su ingeniería. "
+                        "Se requiere contraseña de seguridad.",
+                        style: TextStyle(color: Colors.red, fontSize: 12),
+                      ),
+                    ),
+                  ]),
+                ),
+                const SizedBox(height: 12),
+                const Text("Contraseña de Seguridad:", style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                PasswordBox(
+                  placeholder: 'Contraseña maestra...',
+                  onChanged: (v) => setD(() => passwordInput = v),
+                ),
+                const SizedBox(height: 10),
+              ] else ...[
+                Text("¿Estás seguro de eliminar $revLabel?",
+                    style: const TextStyle(fontWeight: FontWeight.w500)),
+                const SizedBox(height: 4),
+                const Text("Se borrarán todas las estaciones, ensambles y piezas de esta revisión.",
+                    style: TextStyle(fontSize: 12, color: Color(0xFFF57C00))),
+                const SizedBox(height: 10),
+              ],
+              const Text("Motivo del borrado (opcional):"),
+              const SizedBox(height: 4),
+              TextBox(
+                placeholder: "Describe el motivo...",
+                onChanged: (v) => setD(() => motivoInput = v),
+              ),
+            ],
+          ),
+          actions: [
+            Button(
+              child: const Text("Cancelar"),
+              onPressed: () => Navigator.pop(ctx),
+            ),
+            FilledButton(
+              style: ButtonStyle(
+                backgroundColor: WidgetStateProperty.all(Colors.red),
+              ),
+              child: const Text("ELIMINAR"),
+              onPressed: () {
+                Navigator.pop(ctx);
+                _deleteRevision(password: passwordInput, motivo: motivoInput);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _clonarBOM(int idOrigen) async {
     if (_selectedRevision == null) return;
     setState(() => _isLoading = true);
@@ -1178,60 +1301,71 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                   ),
                   // Divider vertical
                   Container(width: 1, height: 24, color: Colors.grey.withOpacity(0.2)),
-                  // Centro/Derecha: CommandBar con Botones
+                  // Centro/Derecha: CommandBar responsiva (primaryItems + secondaryItems)
                   Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                      child: CommandBar(
-                        overflowBehavior: CommandBarOverflowBehavior.clip,
-                        primaryItems: [
-                          // GRUPO 1: INGENIERÍA / CONTROL
+                    child: CommandBar(
+                      overflowBehavior: CommandBarOverflowBehavior.dynamicOverflow,
+                      primaryItems: [
+                        // ── PRIMARIOS: Siempre visibles ─────────────────────
+                        CommandBarButton(
+                          icon: const Icon(FluentIcons.add),
+                          label: const Text("Nueva Rev."),
+                          onPressed: () => _showAddDialog("Nueva Revisión", _addRevision),
+                        ),
+                        if (_selectedRevision != null &&
+                            _selectedRevision['estado'] != 'Aprobada')
                           CommandBarButton(
-                            icon: Icon(FluentIcons.add, color: Colors.blue),
-                            label: const Text("Nueva Rev."),
-                            onPressed: () => _showAddDialog("Nueva Revisión", _addRevision),
+                            icon: Icon(FluentIcons.lock, color: Colors.green),
+                            label: const Text("Aprobar"),
+                            onPressed: _aprobarRevision,
                           ),
-                          if (_selectedRevision != null && _selectedRevision['estado'] != 'Aprobada')
-                            CommandBarButton(
-                              icon: Icon(FluentIcons.lock, color: Colors.green),
-                              label: const Text("Aprobar"),
-                              onPressed: _aprobarRevision,
-                            ),
-                          const CommandBarSeparator(),
-                          // GRUPO 2: ACCIONES / EXPORTACIÓN
-                          CommandBarButton(
-                            icon: Icon(FluentIcons.excel_document, color: Colors.green),
-                            label: const Text("Exportar BOM"),
-                            onPressed: _selectedRevision == null ? null : _exportarExcel,
+                        CommandBarButton(
+                          icon: Icon(
+                            FluentIcons.delete,
+                            color: _selectedRevision?['estado'] == 'Aprobada'
+                                ? Colors.red
+                                : Colors.orange,
                           ),
-                          CommandBarButton(
-                            icon: Icon(FluentIcons.car, color: Colors.blue),
-                            label: const Text("VINDossier"),
-                            onPressed: _selectedRevision == null ? null : _showVINManagementDialog,
-                          ),
-                          const CommandBarSeparator(),
-                        ],
-                      ),
+                          label: const Text("Eliminar"),
+                          onPressed: _selectedRevision == null
+                              ? null
+                              : _showDeleteRevisionDialog,
+                        ),
+                      ],
+                      secondaryItems: [
+                        // ── SECUNDARIOS: se colapsan en el menú "..." ───────
+                        CommandBarButton(
+                          icon: Icon(FluentIcons.excel_document, color: Colors.green),
+                          label: const Text("Exportar BOM"),
+                          onPressed: _selectedRevision == null ? null : _exportarExcel,
+                        ),
+                        CommandBarButton(
+                          icon: Icon(FluentIcons.car, color: Colors.blue),
+                          label: const Text("Gestionar VINs"),
+                          onPressed: _selectedRevision == null
+                              ? null
+                              : _showVINManagementDialog,
+                        ),
+                        const CommandBarSeparator(),
+                        CommandBarButton(
+                          icon: const Icon(FluentIcons.download),
+                          label: const Text("Importar Excel"),
+                          onPressed: (_selectedRevision == null ||
+                                  _selectedRevision['estado'] == 'Aprobada')
+                              ? null
+                              : _importarExcel,
+                        ),
+                        CommandBarButton(
+                          icon: const Icon(FluentIcons.copy),
+                          label: const Text("Clonar BOM"),
+                          onPressed: (_selectedRevision == null ||
+                                  _selectedRevision['estado'] == 'Aprobada')
+                              ? null
+                              : _showClonarDialog,
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  DropDownButton(
-                    title: const Text("Importar / Clonar"),
-                    leading: const Icon(FluentIcons.share),
-                    items: [
-                      MenuFlyoutItem(
-                        leading: const Icon(FluentIcons.excel_document),
-                        text: const Text('Excel (Importar)'),
-                        onPressed: (_selectedRevision == null || _selectedRevision['estado'] == 'Aprobada') ? null : _importarExcel,
-                      ),
-                      MenuFlyoutItem(
-                        leading: const Icon(FluentIcons.copy),
-                        text: const Text('BOM (Clonar)'),
-                        onPressed: (_selectedRevision == null || _selectedRevision['estado'] == 'Aprobada') ? null : _showClonarDialog,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(width: 16),
                 ],
               ),
             ),
