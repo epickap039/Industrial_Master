@@ -1107,7 +1107,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                     return Container(
                       padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 16.0),
                       decoration: BoxDecoration(
-                        border: Border(bottom: BorderSide(color: Colors.grey[200]!)),
+                        border: Border(bottom: BorderSide(color: const Color(0xFFEEEEEE))),
                       ),
                       child: Row(
                         children: [
@@ -1197,7 +1197,10 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
-        children: List.generate(_revisiones.length * 2 - 1, (i) {
+        children: List.generate(
+          // BUGFIX: proteger contra lista vacía (length=0 → count=-1 → RangeError)
+          _revisiones.isEmpty ? 0 : _revisiones.length * 2 - 1,
+          (i) {
           if (i.isOdd) {
             // Conector entre pasos
             return Container(
@@ -1429,11 +1432,20 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                         ],
                         border: Border.all(color: Colors.grey.withOpacity(0.2)),
                       ),
-                      child: _isLoading && _selectedEnsamble == null 
-                          ? const Center(child: ProgressRing()) 
-                          : Padding(
-                              padding: const EdgeInsets.all(12.0),
-                              child: _buildPiezasTable(),
+                      child: _isLoading && _selectedEnsamble == null
+                          ? const Center(child: ProgressRing())
+                          : LayoutBuilder(
+                              builder: (context, constraints) {
+                                // BUGFIX OVERFLOW: _buildPiezasTable usa Expanded internamente,
+                                // necesita un padre con altura definida.
+                                return SizedBox(
+                                  height: constraints.maxHeight,
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(12.0),
+                                    child: _buildPiezasTable(),
+                                  ),
+                                );
+                              },
                             ),
                     ),
                   ),
