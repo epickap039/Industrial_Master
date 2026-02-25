@@ -230,11 +230,6 @@ class _MyAppState extends State<MyApp> {
                     body: const ProjectManagementScreen(),
                   ),
                   PaneItem(
-                    icon: const Icon(FluentIcons.copy),
-                    title: const Text('Gestor de Listas (BOM)'),
-                    body: const BOMManagerScreen(),
-                  ),
-                  PaneItem(
                     icon: const Icon(FluentIcons.map_layers),
                     title: const Text('Mapa de Ingeniería'),
                     body: const EngineeringMapScreen(),

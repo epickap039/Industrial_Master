@@ -246,6 +246,7 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
     showDialog(
       context: context,
       builder: (context) => ContentDialog(
+        constraints: BoxConstraints(maxWidth: 400, maxHeight: 240),
         title: Text(title),
         content: TextBox(
           placeholder: 'Ingresa el nombre...',

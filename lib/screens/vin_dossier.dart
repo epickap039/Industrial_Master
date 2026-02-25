@@ -466,6 +466,10 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
                                       ],
                                     ),
                                     const Divider(),
+                                    SizedBox(
+                                      height: 350,
+                                      child: SingleChildScrollView(
+                                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                                     if (_isLoadingArchivos)
                                       const SizedBox(height: 40, child: Center(child: ProgressRing()))
                                     else if (_archivos.isEmpty)
@@ -495,6 +499,10 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
                                           ),
                                         ]),
                                       ))).toList(),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ),                            ],

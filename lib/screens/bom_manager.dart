@@ -1,4 +1,4 @@
-import 'package:fluent_ui/fluent_ui.dart';
+﻿import 'package:fluent_ui/fluent_ui.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:url_launcher/url_launcher.dart';
@@ -34,8 +34,8 @@ class BOMManagerScreen extends StatefulWidget {
 class _BOMManagerScreenState extends State<BOMManagerScreen> {
   bool _isLoading = false;
   
-  late int _currentIdCliente;
-  late String _currentClientName;
+  int _currentIdCliente = 0;
+  String _currentClientName = '';
 
   List<dynamic> _arbol = [];
   dynamic _selectedEnsamble;
@@ -731,7 +731,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
       builder: (context) => StatefulBuilder(
         builder: (context, setDState) {
           if (loadingDialog) {
-            http.get(Uri.parse('$API_URL/api/bom/revisiones/$_currentIdCliente')).then((res) {
+            http.get(Uri.parse('$API_URL/api/bom/revisiones/$_masterId')).then((res) {
               if (res.statusCode == 200) {
                 setDState(() {
                   allRevisions = (json.decode(res.body) as List).where((r) => r['id_revision'] != _selectedRevision['id_revision']).toList();
@@ -899,7 +899,12 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                 color: isSelected ? Colors.blue.withOpacity(0.2) : Colors.transparent,
                 child: Row(
                   children: [
-                    Expanded(child: Text(ens['nombre'])),
+                    Expanded(
+                      child: Text(
+                        "[E-${ens['id'].toString().padLeft(4, '0')}] - ${ens['nombre']}",
+                        style: const TextStyle(fontWeight: FontWeight.w500),
+                      ),
+                    ),
                     if (!isAprobada)
                       IconButton(
                         icon: const Icon(FluentIcons.delete),
@@ -1175,67 +1180,58 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                   Container(width: 1, height: 24, color: Colors.grey.withOpacity(0.2)),
                   // Centro/Derecha: CommandBar con Botones
                   Expanded(
-                    child: CommandBar(
-                      overflowBehavior: CommandBarOverflowBehavior.clip,
-                      primaryItems: [
-                        CommandBarButton(
-                          icon: const Icon(FluentIcons.add),
-                          label: const Text("Nueva"),
-                          onPressed: () => _showAddDialog("Nueva Revisión", _addRevision),
-                          subtitle: const Text("Crea una revisión vacía"),
-                        ),
-                        if (_selectedRevision != null && _selectedRevision['estado'] != 'Aprobada')
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                      child: CommandBar(
+                        overflowBehavior: CommandBarOverflowBehavior.clip,
+                        primaryItems: [
+                          // GRUPO 1: INGENIERÍA / CONTROL
                           CommandBarButton(
-                            icon: const Icon(FluentIcons.lock),
-                            label: const Text("Aprobar"),
-                            onPressed: _selectedRevision == null ? null : _aprobarRevision,
-                            subtitle: const Text("Bloquea la lista actual"),
+                            icon: Icon(FluentIcons.add, color: Colors.blue),
+                            label: const Text("Nueva Rev."),
+                            onPressed: () => _showAddDialog("Nueva Revisión", _addRevision),
                           ),
-                        const CommandBarSeparator(),
-                        CommandBarButton(
-                          icon: const Icon(FluentIcons.excel_document),
-                          label: const Text("Exportar"),
-                          onPressed: _selectedRevision == null ? null : _exportarExcel,
-                          subtitle: const Text("Baja la lista a Excel"),
-                        ),
-                        CommandBarButton(
-                          icon: const Icon(FluentIcons.car),
-                          label: const Text("Gestionar VINs"),
-                          onPressed: _selectedRevision == null ? null : _showVINManagementDialog,
-                          subtitle: const Text("Asigna VINs a esta revisión"),
-                        ),
-                      ],
+                          if (_selectedRevision != null && _selectedRevision['estado'] != 'Aprobada')
+                            CommandBarButton(
+                              icon: Icon(FluentIcons.lock, color: Colors.green),
+                              label: const Text("Aprobar"),
+                              onPressed: _aprobarRevision,
+                            ),
+                          const CommandBarSeparator(),
+                          // GRUPO 2: ACCIONES / EXPORTACIÓN
+                          CommandBarButton(
+                            icon: Icon(FluentIcons.excel_document, color: Colors.green),
+                            label: const Text("Exportar BOM"),
+                            onPressed: _selectedRevision == null ? null : _exportarExcel,
+                          ),
+                          CommandBarButton(
+                            icon: Icon(FluentIcons.car, color: Colors.blue),
+                            label: const Text("VINDossier"),
+                            onPressed: _selectedRevision == null ? null : _showVINManagementDialog,
+                          ),
+                          const CommandBarSeparator(),
+                        ],
+                      ),
                     ),
                   ),
-                  // Propagar Auto
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                    child: Checkbox(
-                      content: const Text("Propagar a otras listas"),
-                      checked: _propagarAutomaticamente,
-                      onChanged: (v) => setState(() => _propagarAutomaticamente = v ?? false),
-                    ),
+                  const SizedBox(width: 8),
+                  DropDownButton(
+                    title: const Text("Importar / Clonar"),
+                    leading: const Icon(FluentIcons.share),
+                    items: [
+                      MenuFlyoutItem(
+                        leading: const Icon(FluentIcons.excel_document),
+                        text: const Text('Excel (Importar)'),
+                        onPressed: (_selectedRevision == null || _selectedRevision['estado'] == 'Aprobada') ? null : _importarExcel,
+                      ),
+                      MenuFlyoutItem(
+                        leading: const Icon(FluentIcons.copy),
+                        text: const Text('BOM (Clonar)'),
+                        onPressed: (_selectedRevision == null || _selectedRevision['estado'] == 'Aprobada') ? null : _showClonarDialog,
+                      ),
+                    ],
                   ),
-                  // Importar/Clonar con DropDownButton
-                  Padding(
-                    padding: const EdgeInsets.only(right: 16.0),
-                    child: DropDownButton(
-                      title: const Text("Importar / Clonar"),
-                      leading: const Icon(FluentIcons.share),
-                      items: [
-                        MenuFlyoutItem(
-                          leading: const Icon(FluentIcons.excel_document),
-                          text: const Text('Excel (Importar)'),
-                          onPressed: (_selectedRevision == null || _selectedRevision['estado'] == 'Aprobada') ? null : _importarExcel,
-                        ),
-                        MenuFlyoutItem(
-                          leading: const Icon(FluentIcons.copy),
-                          text: const Text('BOM (Clonar)'),
-                          onPressed: (_selectedRevision == null || _selectedRevision['estado'] == 'Aprobada') ? null : _showClonarDialog,
-                        ),
-                      ],
-                    ),
-                  ),
+                  const SizedBox(width: 16),
                 ],
               ),
             ),

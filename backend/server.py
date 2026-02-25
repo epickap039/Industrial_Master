@@ -716,23 +716,41 @@ def exportar_bom(id_revision: int):
         output = io.BytesIO()
         workbook = openpyxl.Workbook()
 
-        # --- Pestaña 1: BOM ---
+        # --- Pestaña 1: BOM (formato cliente: cabecera fila 5, datos desde fila 6) ---
         sheet_bom = workbook.active
         sheet_bom.title = "BOM"
         hdr_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
         hdr_font = Font(bold=True, color="FFFFFF")
         hdr_align = Alignment(horizontal="center")
 
-        bom_headers = ["Estación", "Ensamble", "Código", "Descripción", "Cantidad"]
-        sheet_bom.append(bom_headers)
-        for cell in sheet_bom[1]:
-            cell.font = hdr_font; cell.fill = hdr_fill; cell.alignment = hdr_align
-        for r in bom_rows:
-            sheet_bom.append([r.Nombre_Estacion, r.Nombre_Ensamble, r.Codigo_Pieza, r.Descripcion_Oficial or '', r.Cantidad])
-        # Auto-ancho columnas
-        for col in sheet_bom.columns:
-            max_len = max((len(str(cell.value or '')) for cell in col), default=10)
-            sheet_bom.column_dimensions[col[0].column_letter].width = min(max_len + 4, 50)
+        # Cabecera en fila 5, columnas B/C/D/G (índices 2,3,4,7)
+        COL_ESTACION  = 2  # B
+        COL_ENSAMBLE  = 3  # C
+        COL_CODIGO    = 4  # D
+        COL_CANTIDAD  = 7  # G
+        HDR_ROW = 5
+        DATA_ROW_START = 6
+
+        headers = {COL_ESTACION: "Estación", COL_ENSAMBLE: "Ensamble",
+                   COL_CODIGO: "Código Pieza", COL_CANTIDAD: "Cantidad"}
+        for col_idx, text in headers.items():
+            cell = sheet_bom.cell(row=HDR_ROW, column=col_idx, value=text)
+            cell.font = hdr_font
+            cell.fill = hdr_fill
+            cell.alignment = hdr_align
+
+        for row_offset, r in enumerate(bom_rows):
+            row_num = DATA_ROW_START + row_offset
+            sheet_bom.cell(row=row_num, column=COL_ESTACION,  value=r.Nombre_Estacion)
+            sheet_bom.cell(row=row_num, column=COL_ENSAMBLE,  value=r.Nombre_Ensamble)
+            sheet_bom.cell(row=row_num, column=COL_CODIGO,    value=r.Codigo_Pieza)
+            sheet_bom.cell(row=row_num, column=COL_CANTIDAD,  value=r.Cantidad)
+
+        # Ancho de columnas usadas
+        for col_idx, ancho in [(COL_ESTACION, 22), (COL_ENSAMBLE, 28),
+                               (COL_CODIGO, 18), (COL_CANTIDAD, 10)]:
+            col_letter = sheet_bom.cell(row=1, column=col_idx).column_letter
+            sheet_bom.column_dimensions[col_letter].width = ancho
 
         # --- Pestaña 2: Historial ---
         sheet_log = workbook.create_sheet(title="Historial de Cambios")
