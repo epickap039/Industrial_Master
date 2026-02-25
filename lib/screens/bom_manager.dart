@@ -1047,20 +1047,31 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
   }
 
   Widget _buildPiezasTable() {
+    if (_selectedRevision == null) {
+      return const Center(child: Text("Selecciona una revisión primero."));
+    }
     if (_selectedEnsamble == null) {
       return const Center(child: Text("Selecciona un ensamble para ver sus piezas."));
     }
 
-    final piezas = _selectedEnsamble['piezas'] as List;
-    final bool isAprobada = _selectedRevision != null && _selectedRevision['estado'] == 'Aprobada';
+    // Snapshot inmutable para evitar RangeError si el estado cambia mid-frame
+    final List<dynamic> piezas = List<dynamic>.from(_selectedEnsamble['piezas'] ?? []);
+    final bool isAprobada = _selectedRevision['estado'] == 'Aprobada';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // ─── Encabezado del ensamble ───
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text("Piezas en: ${_selectedEnsamble['nombre']}", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Flexible(
+              child: Text(
+                "Piezas: ${_selectedEnsamble['nombre']}",
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
             if (!isAprobada)
               FilledButton(
                 onPressed: _showAddPiezaDialog,
@@ -1068,72 +1079,77 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
               ),
           ],
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 8),
+        // ─── Header de columnas ───
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 6.0, horizontal: 12.0),
+          decoration: BoxDecoration(
+            color: Colors.blue.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: const Row(
+            children: [
+              Expanded(flex: 2, child: Text("Código", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+              Expanded(flex: 4, child: Text("Descripción Oficial", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+              Expanded(flex: 1, child: Text("Cant.", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+              Expanded(flex: 2, child: Text("Procesos", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+              Expanded(flex: 1, child: Text("Simetría", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+              Expanded(flex: 1, child: Text("Acciones", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+            ],
+          ),
+        ),
+        const SizedBox(height: 4),
+        // ─── Lista de piezas ─── Expanded recibe constraints del Column padre
         Expanded(
           child: piezas.isEmpty
-              ? const Center(child: Text("No hay piezas en este ensamble."))
+              ? const Center(child: Text("No hay piezas en este ensamble.", style: TextStyle(color: Color(0xFF9E9E9E))))
               : ListView.builder(
-                  itemCount: piezas.length + 1, // Header + Rows
+                  itemCount: piezas.length,
                   itemBuilder: (context, index) {
-                    if (index == 0) {
-                      return Container(
-                        padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
-                        color: Colors.blue.withOpacity(0.1),
-                        child: const Row(
-                          children: [
-                            Expanded(flex: 2, child: Text("Código", style: TextStyle(fontWeight: FontWeight.bold))),
-                            Expanded(flex: 4, child: Text("Descripción Oficial", style: TextStyle(fontWeight: FontWeight.bold))),
-                            Expanded(flex: 1, child: Text("Cant.", style: TextStyle(fontWeight: FontWeight.bold))),
-                            Expanded(flex: 2, child: Text("Procesos", style: TextStyle(fontWeight: FontWeight.bold))),
-                            Expanded(flex: 1, child: Text("Simetría", style: TextStyle(fontWeight: FontWeight.bold))),
-                            Expanded(flex: 1, child: Text("Plano / Acciones", style: TextStyle(fontWeight: FontWeight.bold))),
-                          ],
-                        ),
-                      );
-                    }
+                    // Guardia: nunca acceder fuera de rango
+                    if (index >= piezas.length) return const SizedBox.shrink();
+                    final pieza = piezas[index];
 
-                    final pieza = piezas[index - 1];
-                    
-                    List<String> procesos = [];
-                    if (pieza['proceso_primario'] != null && pieza['proceso_primario'].toString().isNotEmpty) procesos.add(pieza['proceso_primario'].toString());
-                    if (pieza['proceso_1'] != null && pieza['proceso_1'].toString().isNotEmpty) procesos.add(pieza['proceso_1'].toString());
-                    if (pieza['proceso_2'] != null && pieza['proceso_2'].toString().isNotEmpty) procesos.add(pieza['proceso_2'].toString());
-                    if (pieza['proceso_3'] != null && pieza['proceso_3'].toString().isNotEmpty) procesos.add(pieza['proceso_3'].toString());
-                    
-                    String strProcesos = procesos.join(', ');
-                    String strLink = pieza['link_drive']?.toString() ?? '';
-                    bool hasLink = strLink.isNotEmpty && strLink != 'N/A';
+                    final List<String> procesos = [];
+                    for (final key in ['proceso_primario', 'proceso_1', 'proceso_2', 'proceso_3']) {
+                      final v = pieza[key]?.toString() ?? '';
+                      if (v.isNotEmpty) procesos.add(v);
+                    }
+                    final strProcesos = procesos.join(', ');
+                    final strLink = pieza['link_drive']?.toString() ?? '';
+                    final hasLink = strLink.isNotEmpty && strLink != 'N/A';
+                    final descripcion = pieza['descripcion']?.toString() ?? '';
 
                     return Container(
-                      padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 16.0),
-                      decoration: BoxDecoration(
-                        border: Border(bottom: BorderSide(color: const Color(0xFFEEEEEE))),
+                      padding: const EdgeInsets.symmetric(vertical: 3.0, horizontal: 12.0),
+                      decoration: const BoxDecoration(
+                        border: Border(bottom: BorderSide(color: Color(0xFFEEEEEE))),
                       ),
                       child: Row(
                         children: [
-                          Expanded(flex: 2, child: Text(pieza['codigo'])),
+                          Expanded(flex: 2, child: Text(pieza['codigo']?.toString() ?? '', style: const TextStyle(fontSize: 12))),
                           Expanded(
-                            flex: 4, 
+                            flex: 4,
                             child: Tooltip(
-                              message: pieza['descripcion'],
-                              child: Text(pieza['descripcion'], overflow: TextOverflow.ellipsis),
+                              message: descripcion,
+                              child: Text(descripcion, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
                             ),
                           ),
                           Expanded(
-                            flex: 1, 
+                            flex: 1,
                             child: Row(
                               children: [
                                 Expanded(
                                   child: TextBox(
-                                    controller: TextEditingController(text: pieza['cantidad'].toString()),
+                                    controller: TextEditingController(text: pieza['cantidad']?.toString() ?? '0'),
                                     keyboardType: TextInputType.number,
                                     textInputAction: TextInputAction.done,
                                     enabled: !isAprobada,
                                     placeholder: "Cant.",
                                     onSubmitted: (value) {
-                                      double? cant = double.tryParse(value);
+                                      final cant = double.tryParse(value);
                                       if (cant != null && cant > 0) {
-                                        _updateCantidadPieza(pieza['id'], cant, codigo: pieza['codigo']);
+                                        _updateCantidadPieza(pieza['id'], cant, codigo: pieza['codigo']?.toString());
                                       } else {
                                         _showError("Cantidad inválida o igual a 0");
                                       }
@@ -1142,39 +1158,40 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                                 ),
                                 if (!isAprobada)
                                   IconButton(
-                                    icon: const Icon(FluentIcons.sync_occurence, size: 14),
-                                    onPressed: () {
-                                      _showPropagacionDialog(pieza['codigo'], pieza['cantidad'].toDouble());
-                                    },
+                                    icon: const Icon(FluentIcons.sync_occurence, size: 13),
+                                    onPressed: () => _showPropagacionDialog(
+                                      pieza['codigo']?.toString() ?? '',
+                                      (pieza['cantidad'] as num).toDouble(),
+                                    ),
                                   ),
                               ],
                             ),
                           ),
-                          Expanded(flex: 2, child: Text(strProcesos, style: const TextStyle(fontSize: 12))),
-                          Expanded(flex: 1, child: Text(pieza['simetria']?.toString() ?? '')),
+                          Expanded(flex: 2, child: Text(strProcesos, style: const TextStyle(fontSize: 11))),
+                          Expanded(flex: 1, child: Text(pieza['simetria']?.toString() ?? '', style: const TextStyle(fontSize: 12))),
                           Expanded(
-                            flex: 1, 
+                            flex: 1,
                             child: Row(
+                              mainAxisSize: MainAxisSize.min,
                               children: [
                                 if (hasLink)
                                   Tooltip(
                                     message: "Abrir Plano",
                                     child: IconButton(
-                                      icon: Icon(FluentIcons.link, color: Colors.blue), 
+                                      icon: Icon(FluentIcons.link, color: Colors.blue, size: 14),
                                       onPressed: () async {
-                                        final Uri url = Uri.parse(strLink);
-                                        if (await canLaunchUrl(url)) {
-                                          await launchUrl(url);
-                                        }
-                                      }
-                                    )
+                                        final uri = Uri.parse(strLink);
+                                        if (await canLaunchUrl(uri)) await launchUrl(uri);
+                                      },
+                                    ),
                                   ),
                                 if (!isAprobada)
                                   IconButton(
-                                    icon: Icon(FluentIcons.delete, color: Colors.red),
-                                    onPressed: () => _confirmDelete("¿Seguro de quitar la pieza ${pieza['codigo']}?", () {
-                                      _deletePieza(pieza['id']);
-                                    }),
+                                    icon: Icon(FluentIcons.delete, color: Colors.red, size: 14),
+                                    onPressed: () => _confirmDelete(
+                                      "¿Seguro de quitar la pieza ${pieza['codigo']}?",
+                                      () => _deletePieza(pieza['id']),
+                                    ),
                                   ),
                               ],
                             ),
@@ -1194,27 +1211,26 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     if (_revisiones.isEmpty) {
       return const Text("Sin revisiones", style: TextStyle(color: Colors.grey));
     }
+    // Snapshot inmutable: evita RangeError si _revisiones cambia mid-frame
+    final List<dynamic> snap = List<dynamic>.from(_revisiones);
+    if (snap.isEmpty) return const SizedBox.shrink();
+
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
-        children: List.generate(
-          // BUGFIX: proteger contra lista vacía (length=0 → count=-1 → RangeError)
-          _revisiones.isEmpty ? 0 : _revisiones.length * 2 - 1,
-          (i) {
+        children: List.generate(snap.length * 2 - 1, (i) {
           if (i.isOdd) {
-            // Conector entre pasos
-            return Container(
-              width: 24, height: 2,
-              color: Colors.grey.withOpacity(0.4),
-            );
+            return Container(width: 24, height: 2, color: Colors.grey.withOpacity(0.4));
           }
-          final rev = _revisiones[i ~/ 2];
+          final idx = i ~/ 2;
+          if (idx >= snap.length) return const SizedBox.shrink();
+          final rev = snap[idx];
           final isSelected = _selectedRevision != null &&
               _selectedRevision['id_revision'] == rev['id_revision'];
           final isAprobada = rev['estado'] == 'Aprobada';
           final stepColor = isAprobada
-              ? const Color(0xFF2E7D32) // Verde
-              : const Color(0xFFF9A825); // Amarillo
+              ? const Color(0xFF2E7D32)
+              : const Color(0xFFF9A825);
 
           return Tooltip(
             message: "Rev ${rev['numero_revision']} - ${rev['estado']} (click para seleccionar)",
@@ -1231,10 +1247,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                 decoration: BoxDecoration(
                   color: isSelected ? stepColor : stepColor.withOpacity(0.15),
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: stepColor,
-                    width: isSelected ? 2.5 : 1,
-                  ),
+                  border: Border.all(color: stepColor, width: isSelected ? 2.5 : 1),
                   boxShadow: isSelected
                       ? [BoxShadow(color: stepColor.withOpacity(0.4), blurRadius: 6)]
                       : [],
@@ -1242,11 +1255,8 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(
-                      isAprobada ? FluentIcons.lock : FluentIcons.edit,
-                      size: 12,
-                      color: isSelected ? Colors.white : stepColor,
-                    ),
+                    Icon(isAprobada ? FluentIcons.lock : FluentIcons.edit,
+                        size: 12, color: isSelected ? Colors.white : stepColor),
                     const SizedBox(width: 4),
                     Text(
                       "Rev ${rev['numero_revision']}",
@@ -1281,179 +1291,148 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
         ),
         title: const Text('Gestor de Listas (BOM)'),
       ),
-      content: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Header con CommandBar
-            Container(
-              decoration: BoxDecoration(
-                color: _accentColor.withOpacity(0.06),
-                border: Border(bottom: BorderSide(color: _accentColor.withOpacity(0.2), width: 1.5)),
-              ),
-              child: Row(
+      // LayoutBuilder garantiza constraints reales antes del Column
+      content: LayoutBuilder(
+        builder: (context, constraints) {
+          return SizedBox(
+            width: constraints.maxWidth,
+            height: constraints.maxHeight.isInfinite ? 600 : constraints.maxHeight,
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // === v60.0: HORIZONTAL STEPPER DE REVISIONES ===
-                  Expanded(
-                    flex: 4,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
-                      child: _buildRevisionStepper(),
+                  // ─── Barra superior: Stepper + CommandBar ───────────────
+                  Container(
+                    decoration: BoxDecoration(
+                      color: _accentColor.withOpacity(0.06),
+                      border: Border(bottom: BorderSide(color: _accentColor.withOpacity(0.2), width: 1.5)),
                     ),
-                  ),
-                  // Divider vertical
-                  Container(width: 1, height: 24, color: Colors.grey.withOpacity(0.2)),
-                  // Centro/Derecha: CommandBar responsiva (primaryItems + secondaryItems)
-                  Expanded(
-                    child: CommandBar(
-                      overflowBehavior: CommandBarOverflowBehavior.dynamicOverflow,
-                      primaryItems: [
-                        // ── PRIMARIOS: Siempre visibles ─────────────────────
-                        CommandBarButton(
-                          icon: const Icon(FluentIcons.add),
-                          label: const Text("Nueva Rev."),
-                          onPressed: () => _showAddDialog("Nueva Revisión", _addRevision),
-                        ),
-                        if (_selectedRevision != null &&
-                            _selectedRevision['estado'] != 'Aprobada')
-                          CommandBarButton(
-                            icon: Icon(FluentIcons.lock, color: Colors.green),
-                            label: const Text("Aprobar"),
-                            onPressed: _aprobarRevision,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          flex: 4,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+                            child: _buildRevisionStepper(),
                           ),
-                        CommandBarButton(
-                          icon: Icon(
-                            FluentIcons.delete,
-                            color: _selectedRevision?['estado'] == 'Aprobada'
-                                ? Colors.red
-                                : Colors.orange,
-                          ),
-                          label: const Text("Eliminar"),
-                          onPressed: _selectedRevision == null
-                              ? null
-                              : _showDeleteRevisionDialog,
                         ),
-                      ],
-                      secondaryItems: [
-                        // ── SECUNDARIOS: se colapsan en el menú "..." ───────
-                        CommandBarButton(
-                          icon: Icon(FluentIcons.excel_document, color: Colors.green),
-                          label: const Text("Exportar BOM"),
-                          onPressed: _selectedRevision == null ? null : _exportarExcel,
-                        ),
-                        CommandBarButton(
-                          icon: Icon(FluentIcons.car, color: Colors.blue),
-                          label: const Text("Gestionar VINs"),
-                          onPressed: _selectedRevision == null
-                              ? null
-                              : _showVINManagementDialog,
-                        ),
-                        const CommandBarSeparator(),
-                        CommandBarButton(
-                          icon: const Icon(FluentIcons.download),
-                          label: const Text("Importar Excel"),
-                          onPressed: (_selectedRevision == null ||
-                                  _selectedRevision['estado'] == 'Aprobada')
-                              ? null
-                              : _importarExcel,
-                        ),
-                        CommandBarButton(
-                          icon: const Icon(FluentIcons.copy),
-                          label: const Text("Clonar BOM"),
-                          onPressed: (_selectedRevision == null ||
-                                  _selectedRevision['estado'] == 'Aprobada')
-                              ? null
-                              : _showClonarDialog,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            if (_isLoading) const ProgressBar(),
-            const SizedBox(height: 8),
-            Expanded(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Left Panel: TreeView (Flex 3)
-                  Expanded(
-                    flex: 3,
-                    child: Card(
-                      padding: const EdgeInsets.all(8),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text("ENSAMBLES", style: TextStyle(fontWeight: FontWeight.bold)),
-                              Tooltip(
-                                message: "Agregar Estación",
-                                child: IconButton(
-                                  icon: const Icon(FluentIcons.add),
-                                  onPressed: () => _showAddDialog("Nueva Estación", _addEstacion),
+                        Container(width: 1, height: 24, color: Colors.grey.withOpacity(0.2)),
+                        Expanded(
+                          child: CommandBar(
+                            overflowBehavior: CommandBarOverflowBehavior.dynamicOverflow,
+                            primaryItems: [
+                              CommandBarButton(
+                                icon: const Icon(FluentIcons.add),
+                                label: const Text("Nueva Rev."),
+                                onPressed: () => _showAddDialog("Nueva Revisión", _addRevision),
+                              ),
+                              if (_selectedRevision != null && _selectedRevision['estado'] != 'Aprobada')
+                                CommandBarButton(
+                                  icon: Icon(FluentIcons.lock, color: Colors.green),
+                                  label: const Text("Aprobar"),
+                                  onPressed: _aprobarRevision,
                                 ),
-                              )
+                              CommandBarButton(
+                                icon: Icon(
+                                  FluentIcons.delete,
+                                  color: _selectedRevision?['estado'] == 'Aprobada' ? Colors.red : Colors.orange,
+                                ),
+                                label: const Text("Eliminar"),
+                                onPressed: _selectedRevision == null ? null : _showDeleteRevisionDialog,
+                              ),
+                            ],
+                            secondaryItems: [
+                              CommandBarButton(
+                                icon: Icon(FluentIcons.excel_document, color: Colors.green),
+                                label: const Text("Exportar BOM"),
+                                onPressed: _selectedRevision == null ? null : _exportarExcel,
+                              ),
+                              CommandBarButton(
+                                icon: Icon(FluentIcons.car, color: Colors.blue),
+                                label: const Text("Gestionar VINs"),
+                                onPressed: _selectedRevision == null ? null : _showVINManagementDialog,
+                              ),
+                              const CommandBarSeparator(),
+                              CommandBarButton(
+                                icon: const Icon(FluentIcons.download),
+                                label: const Text("Importar Excel"),
+                                onPressed: (_selectedRevision == null || _selectedRevision['estado'] == 'Aprobada')
+                                    ? null : _importarExcel,
+                              ),
+                              CommandBarButton(
+                                icon: const Icon(FluentIcons.copy),
+                                label: const Text("Clonar BOM"),
+                                onPressed: (_selectedRevision == null || _selectedRevision['estado'] == 'Aprobada')
+                                    ? null : _showClonarDialog,
+                              ),
                             ],
                           ),
-                          const Divider(),
-                          Expanded(
-                            child: _arbol.isEmpty
-                                ? Center(child: Text("Sin estaciones", style: TextStyle(color: Colors.grey)))
-                                : TreeView(
-                                    items: _buildTreeItems(),
-                                    selectionMode: TreeViewSelectionMode.single,
-                                    onItemInvoked: (item, reason) async {},
-                                  ),
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(width: 16),
-                  
-                  // Right Panel: Table (Flex 7)
+                  if (_isLoading) const ProgressBar(),
+                  const SizedBox(height: 8),
+                  // ─── ZONA PRINCIPAL: ocupa todo el espacio restante ─────
                   Expanded(
-                    flex: 7,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: FluentTheme.of(context).cardColor,
-                        borderRadius: BorderRadius.circular(8),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.04),
-                            blurRadius: 12,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                        border: Border.all(color: Colors.grey.withOpacity(0.2)),
-                      ),
-                      child: _isLoading && _selectedEnsamble == null
-                          ? const Center(child: ProgressRing())
-                          : LayoutBuilder(
-                              builder: (context, constraints) {
-                                // BUGFIX OVERFLOW: _buildPiezasTable usa Expanded internamente,
-                                // necesita un padre con altura definida.
-                                return SizedBox(
-                                  height: constraints.maxHeight,
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(12.0),
-                                    child: _buildPiezasTable(),
-                                  ),
-                                );
-                              },
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // Panel izquierdo: TreeView de ensambles
+                        SizedBox(
+                          width: 280,
+                          child: Card(
+                            padding: const EdgeInsets.all(8),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text("ENSAMBLES", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                                    Tooltip(
+                                      message: "Agregar Estación",
+                                      child: IconButton(
+                                        icon: const Icon(FluentIcons.add, size: 14),
+                                        onPressed: () => _showAddDialog("Nueva Estación", _addEstacion),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const Divider(),
+                                Expanded(
+                                  child: _arbol.isEmpty
+                                      ? const Center(child: Text("Sin estaciones", style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 12)))
+                                      : TreeView(
+                                          items: _buildTreeItems(),
+                                          selectionMode: TreeViewSelectionMode.single,
+                                          onItemInvoked: (item, reason) async {},
+                                        ),
+                                ),
+                              ],
                             ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        // Panel derecho: tabla de piezas — Expanded recibe
+                        // constraints exactos del Row padre
+                        Expanded(
+                          child: Card(
+                            padding: const EdgeInsets.all(12),
+                            child: _isLoading && _selectedEnsamble == null
+                                ? const Center(child: ProgressRing())
+                                : _buildPiezasTable(),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
