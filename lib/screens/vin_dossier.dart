@@ -245,7 +245,7 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
                                     Text(item['detalle'], style: const TextStyle(fontSize: 13)),
                                     Text(
                                       "${item['accion']}  •  ${item['usuario']}  •  ${item['fecha_hora']?.toString().substring(0, 16) ?? ''}${item['motivo']?.isNotEmpty == true ? '  •  Motivo: ${item['motivo']}' : ''}",
-                                      style: TextStyle(fontSize: 11, color: Colors.grey[100]),
+                                      style: TextStyle(fontSize: 11, color: (FluentTheme.of(context).typography.body?.color?.withOpacity(0.3) ?? Colors.grey)),
                                     ),
                                   ],
                                 ),
@@ -484,7 +484,7 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
                                           Icon(
                                             (arch['es_pdf'] as bool) ? FluentIcons.pdf : FluentIcons.document,
                                             size: 16,
-                                            color: (arch['es_pdf'] as bool) ? Colors.red : Colors.grey[100],
+                                            color: (arch['es_pdf'] as bool) ? Colors.red : (FluentTheme.of(context).typography.body?.color?.withOpacity(0.3) ?? Colors.grey),
                                           ),
                                           const SizedBox(width: 8),
                                           Expanded(child: Text(arch['nombre'], style: const TextStyle(fontSize: 13))),

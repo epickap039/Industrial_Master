@@ -248,10 +248,12 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
       builder: (context) => ContentDialog(
         constraints: BoxConstraints(maxWidth: 400, maxHeight: 240),
         title: Text(title),
-        content: TextBox(
-          placeholder: 'Ingresa el nombre...',
-          onChanged: (v) => inputValue = v,
-        ),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          TextBox(
+            placeholder: 'Ingresa el nombre...',
+            onChanged: (v) => inputValue = v,
+          ),
+        ]),
         actions: [
           Button(child: const Text('Cancelar'), onPressed: () => Navigator.pop(context)),
           FilledButton(

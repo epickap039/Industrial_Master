@@ -88,7 +88,7 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
             children: (tipo['versiones'] as List).map<TreeViewItem>((ver) {
               final revisiones = ver['revisiones'] as List;
               return TreeViewItem(
-                leading: Icon(FluentIcons.fabric_open_folder_horizontal, size: 13, color: Colors.grey[100]),
+                leading: Icon(FluentIcons.fabric_open_folder_horizontal, size: 13, color: (FluentTheme.of(context).typography.body?.color?.withOpacity(0.3) ?? Colors.grey)),
                 content: Text(ver['nombre'], style: const TextStyle(fontStyle: FontStyle.italic)),
                 children: revisiones.isEmpty
                   ? [TreeViewItem(content: const Text('Sin revisiones', style: TextStyle(color: Colors.grey)))]
@@ -179,7 +179,7 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(FluentIcons.map_layers, size: 48, color: Colors.grey[100]),
+                      Icon(FluentIcons.map_layers, size: 48, color: (FluentTheme.of(context).typography.body?.color?.withOpacity(0.3) ?? Colors.grey)),
                       const SizedBox(height: 12),
                       const Text('No se encontraron datos de ingeniería.',
                           style: TextStyle(color: Colors.grey)),

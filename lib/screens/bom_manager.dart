@@ -34,7 +34,7 @@ class BOMManagerScreen extends StatefulWidget {
 class _BOMManagerScreenState extends State<BOMManagerScreen> {
   bool _isLoading = false;
   
-  int _currentIdCliente = 0;
+  int? _currentIdCliente;
   String _currentClientName = '';
 
   List<dynamic> _arbol = [];
@@ -642,9 +642,14 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
       context: context,
       builder: (context) => ContentDialog(
         title: Text(title),
-        content: TextBox(
-          placeholder: 'Nombre...',
-          onChanged: (v) => inputValue = v,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextBox(
+              placeholder: 'Nombre...',
+              onChanged: (v) => inputValue = v,
+            ),
+          ],
         ),
         actions: [
           Button(child: const Text('Cancelar'), onPressed: () => Navigator.pop(context)),
@@ -830,11 +835,16 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
       context: context,
       builder: (context) => ContentDialog(
         title: Text("Notas del VIN: ${vin['vin']}"),
-        content: TextBox(
-          controller: TextEditingController(text: notasTemp),
-          maxLines: 5,
-          placeholder: "Escribe notas aquí...",
-          onChanged: (v) => notasTemp = v,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextBox(
+              controller: TextEditingController(text: notasTemp),
+              maxLines: 5,
+              placeholder: "Escribe notas aquí...",
+              onChanged: (v) => notasTemp = v,
+            ),
+          ],
         ),
         actions: [
           Button(child: const Text("Cancelar"), onPressed: () => Navigator.pop(context)),
@@ -1108,7 +1118,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
         // ─── Lista de piezas ─── Expanded recibe constraints del Column padre
         Expanded(
           child: piezas.isEmpty
-              ? const Center(child: Text("No hay piezas en este ensamble.", style: TextStyle(color: Color(0xFF9E9E9E))))
+              ? const Center(child: Text("No hay piezas en este ensamble.", style: TextStyle(color: (FluentTheme.of(context).typography.body?.color?.withOpacity(0.5) ?? Colors.grey))))
               : ListView.builder(
                   itemCount: piezas.length,
                   itemBuilder: (context, index) {
@@ -1129,7 +1139,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                     return Container(
                       padding: const EdgeInsets.symmetric(vertical: 3.0, horizontal: 12.0),
                       decoration: const BoxDecoration(
-                        border: Border(bottom: BorderSide(color: Color(0xFFEEEEEE))),
+                        border: Border(bottom: BorderSide(color: FluentTheme.of(context).scaffoldBackgroundColor)),
                       ),
                       child: Row(
                         children: [
@@ -1409,7 +1419,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                                 const Divider(),
                                 Expanded(
                                   child: _arbol.isEmpty
-                                      ? const Center(child: Text("Sin estaciones", style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 12)))
+                                      ? const Center(child: Text("Sin estaciones", style: TextStyle(color: (FluentTheme.of(context).typography.body?.color?.withOpacity(0.5) ?? Colors.grey), fontSize: 12)))
                                       : TreeView(
                                           items: _buildTreeItems(),
                                           selectionMode: TreeViewSelectionMode.single,

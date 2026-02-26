@@ -341,6 +341,12 @@ def delete_version(id_version: int):
             raise HTTPException(status_code=404, detail="No encontrado")
         conn.commit()
         return {"status": "success"}
+    except pyodbc.IntegrityError:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail="No se puede eliminar esta versión porque hay clientes o unidades asignadas a ella. Desvincule los clientes primero.")
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
 
@@ -781,7 +787,8 @@ def exportar_bom(id_revision: int):
         cursor.execute(
             """
             SELECT ES.Nombre_Estacion, EN.Nombre_Ensamble, E.Codigo_Pieza,
-                   M.Descripcion as Descripcion_Oficial, E.Cantidad
+                   M.Descripcion as Descripcion_Oficial, M.Medida, E.Cantidad,
+                   M.Simetria, M.Proceso_Primario, M.Proceso_1, M.Proceso_2, M.Proceso_3, M.Link_Drive, E.Observaciones_Proceso
             FROM Tbl_BOM_Estructura E
             JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
             JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
@@ -812,16 +819,31 @@ def exportar_bom(id_revision: int):
         hdr_font = Font(bold=True, color="FFFFFF")
         hdr_align = Alignment(horizontal="center")
 
-        # Cabecera en fila 5, columnas B/C/D/G (índices 2,3,4,7)
+        # Cabecera en fila 5, columnas extendidas sin romper fila 6
         COL_ESTACION  = 2  # B
         COL_ENSAMBLE  = 3  # C
         COL_CODIGO    = 4  # D
+        COL_DESC      = 5  # E
+        COL_MEDIDA    = 6  # F
         COL_CANTIDAD  = 7  # G
+        COL_SIMETRIA  = 8  # H
+        COL_PROC_PRI  = 9  # I
+        COL_PROC_1    = 10 # J
+        COL_PROC_2    = 11 # K
+        COL_PROC_3    = 12 # L
+        COL_LINK      = 13 # M
+        COL_OBS       = 14 # N
         HDR_ROW = 5
         DATA_ROW_START = 6
 
-        headers = {COL_ESTACION: "Estación", COL_ENSAMBLE: "Ensamble",
-                   COL_CODIGO: "Código Pieza", COL_CANTIDAD: "Cantidad"}
+        headers = {
+            COL_ESTACION: "Estación", COL_ENSAMBLE: "Ensamble",
+            COL_CODIGO: "Código Pieza", COL_DESC: "Descripción",
+            COL_MEDIDA: "Medida", COL_CANTIDAD: "Cantidad",
+            COL_SIMETRIA: "Simetría", COL_PROC_PRI: "Proceso Primario",
+            COL_PROC_1: "Proceso 1", COL_PROC_2: "Proceso 2", COL_PROC_3: "Proceso 3",
+            COL_LINK: "Link Plano", COL_OBS: "Observaciones"
+        }
         for col_idx, text in headers.items():
             cell = sheet_bom.cell(row=HDR_ROW, column=col_idx, value=text)
             cell.font = hdr_font
@@ -833,11 +855,25 @@ def exportar_bom(id_revision: int):
             sheet_bom.cell(row=row_num, column=COL_ESTACION,  value=r.Nombre_Estacion)
             sheet_bom.cell(row=row_num, column=COL_ENSAMBLE,  value=r.Nombre_Ensamble)
             sheet_bom.cell(row=row_num, column=COL_CODIGO,    value=r.Codigo_Pieza)
+            sheet_bom.cell(row=row_num, column=COL_DESC,      value=r.Descripcion_Oficial)
+            sheet_bom.cell(row=row_num, column=COL_MEDIDA,    value=r.Medida)
             sheet_bom.cell(row=row_num, column=COL_CANTIDAD,  value=r.Cantidad)
+            sheet_bom.cell(row=row_num, column=COL_SIMETRIA,  value=r.Simetria)
+            sheet_bom.cell(row=row_num, column=COL_PROC_PRI,  value=r.Proceso_Primario)
+            sheet_bom.cell(row=row_num, column=COL_PROC_1,    value=r.Proceso_1)
+            sheet_bom.cell(row=row_num, column=COL_PROC_2,    value=r.Proceso_2)
+            sheet_bom.cell(row=row_num, column=COL_PROC_3,    value=r.Proceso_3)
+            sheet_bom.cell(row=row_num, column=COL_LINK,      value=r.Link_Drive)
+            sheet_bom.cell(row=row_num, column=COL_OBS,       value=r.Observaciones_Proceso)
 
         # Ancho de columnas usadas
-        for col_idx, ancho in [(COL_ESTACION, 22), (COL_ENSAMBLE, 28),
-                               (COL_CODIGO, 18), (COL_CANTIDAD, 10)]:
+        anchos = [
+            (COL_ESTACION, 22), (COL_ENSAMBLE, 28), (COL_CODIGO, 18),
+            (COL_DESC, 30), (COL_MEDIDA, 15), (COL_CANTIDAD, 10),
+            (COL_SIMETRIA, 15), (COL_PROC_PRI, 18), (COL_PROC_1, 15),
+            (COL_PROC_2, 15), (COL_PROC_3, 15), (COL_LINK, 25), (COL_OBS, 25)
+        ]
+        for col_idx, ancho in anchos:
             col_letter = sheet_bom.cell(row=1, column=col_idx).column_letter
             sheet_bom.column_dimensions[col_letter].width = ancho
 
