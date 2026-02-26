@@ -156,7 +156,7 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
       final response = await http.put(
         Uri.parse('$API_URL/api/vins/${_vinData['id_unidad']}/notas'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'vin': '', 'notas': _notesController.text}),
+        body: jsonEncode({'vin': _vinData['vin'], 'observaciones': _notesController.text}),
       );
       if (response.statusCode == 200) {
         _showError("Notas guardadas correctamente", isError: false);
@@ -166,15 +166,10 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
     }
   }
 
-  // v60.0: ADN de Ingeniería - Muestra historial de auditoría de la revisión
+  // v60.0: ADN de Ingeniería - Muestra historial combinado del VIN y su revisión
   Future<void> _showADNIngenieria() async {
     if (_vinData == null) return;
-    final idRevision = _vinData['id_revision'] ?? _vinData['numero_revision'];
-    if (idRevision == null) {
-      _showError("No se encontró ID de revisión para este VIN");
-      return;
-    }
-
+    
     List<dynamic> log = [];
     bool dialogLoading = true;
 
@@ -183,7 +178,7 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
       builder: (context) => StatefulBuilder(
         builder: (context, setDState) {
           if (dialogLoading) {
-            http.get(Uri.parse('$API_URL/api/bom/log/$idRevision')).then((res) {
+            http.get(Uri.parse('$API_URL/api/vins/${_vinData['id_unidad']}/adn')).then((res) {
               if (res.statusCode == 200) {
                 setDState(() {
                   log = json.decode(res.body);
@@ -210,7 +205,7 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
               child: log.isEmpty
                   ? const Center(
                       child: Text(
-                        "Sin historial de cambios registrado.\n(La tabla Tbl_Log_Cambios_Ingenieria puede no existir aún)",
+                        "Sin historial de eventos.",
                         textAlign: TextAlign.center,
                         style: TextStyle(color: Colors.grey),
                       ),
@@ -219,32 +214,29 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
                       itemCount: log.length,
                       itemBuilder: (context, idx) {
                         final item = log[idx];
-                        final accion = item['accion'] as String;
-                        Color accionColor;
-                        if (accion.contains('Inserci')) accionColor = Colors.green;
-                        else if (accion.contains('Borrado')) accionColor = Colors.red;
-                        else accionColor = Colors.orange;
+                        final titulo = (item['titulo'] as String).toLowerCase();
+                        
+                        String icn = "🔧";
+                        if (titulo.contains('aprob')) icn = "✅";
+                        else if (titulo.contains('archivo')) icn = "📎";
+                        else if (titulo.contains('combo') || titulo.contains('vinc')) icn = "🔗";
 
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 4.0),
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Container(
-                                width: 6, height: 6,
-                                margin: const EdgeInsets.only(top: 6, right: 8),
-                                decoration: BoxDecoration(
-                                  color: accionColor,
-                                  shape: BoxShape.circle,
-                                ),
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4, right: 8),
+                                child: Text(icn, style: const TextStyle(fontSize: 16)),
                               ),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(item['detalle'], style: const TextStyle(fontSize: 13)),
+                                    Text(item['detalle'] ?? "", style: const TextStyle(fontSize: 13)),
                                     Text(
-                                      "${item['accion']}  •  ${item['usuario']}  •  ${item['fecha_hora']?.toString().substring(0, 16) ?? ''}${item['motivo']?.isNotEmpty == true ? '  •  Motivo: ${item['motivo']}' : ''}",
+                                      "${item['titulo']}  •  ${item['usuario']}  •  ${item['fecha']?.toString().substring(0, 16) ?? ''}",
                                       style: TextStyle(fontSize: 11, color: (FluentTheme.of(context).typography.body?.color?.withOpacity(0.3) ?? Colors.grey)),
                                     ),
                                   ],
@@ -261,6 +253,105 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
             ],
           );
         },
+      ),
+    );
+  }
+
+  Future<void> _vincularSocio(int idSocio) async {
+    if (_vinData == null) return;
+    try {
+      final res = await http.post(
+        Uri.parse('$API_URL/api/vins/${_vinData['id_unidad']}/vincular/$idSocio'),
+      );
+      if (res.statusCode == 200) {
+        _showError(idSocio == 0 ? "VIN desvinculado" : "Combo C3 creado", isError: false);
+        _searchVIN(_vinData['vin']); // reload
+      } else {
+        _showError("Error al vincular: ${res.statusCode}");
+      }
+    } catch(e) {
+      _showError("Error: $e");
+    }
+  }
+
+  void _showVincularDialog() {
+    String searchVin = "";
+    List<dynamic> resultados = [];
+    bool buscando = false;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDState) {
+          return ContentDialog(
+            title: const Text("Vincular a Combo C3"),
+            content: SizedBox(
+              width: 400,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextBox(
+                          placeholder: "Buscar VIN de socio...",
+                          onChanged: (v) => searchVin = v,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Button(
+                        child: const Text("Buscar"),
+                        onPressed: () async {
+                          if (searchVin.trim().isEmpty) return;
+                          setDState(() => buscando = true);
+                          try {
+                            final r = await http.get(Uri.parse('$API_URL/api/vins/buscar?q=${searchVin.trim()}'));
+                            if(r.statusCode == 200) {
+                              setDState(() {
+                                resultados = json.decode(r.body);
+                                buscando = false;
+                              });
+                            }
+                          } catch(e) {
+                            setDState(() => buscando = false);
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  if (buscando) const ProgressRing()
+                  else if (resultados.isEmpty) const Text("Ingresa un VIN para buscar")
+                  else ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 200),
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: resultados.length,
+                      itemBuilder: (ctx, idx) {
+                        final socio = resultados[idx];
+                        if (socio['id_unidad'] == _vinData['id_unidad']) return const SizedBox.shrink();
+                        return ListTile(
+                          title: Text(socio['vin']),
+                          subtitle: Text(socio['tracto']),
+                          trailing: FilledButton(
+                            child: const Text("Vincular"),
+                            onPressed: () {
+                              Navigator.pop(context);
+                              _vincularSocio(socio['id_unidad']);
+                            },
+                          ),
+                        );
+                      }
+                    )
+                  )
+                ],
+              ),
+            ),
+            actions: [
+              Button(child: const Text("Cancelar"), onPressed: () => Navigator.pop(context)),
+            ],
+          );
+        }
       ),
     );
   }
@@ -386,6 +477,33 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
                                     _buildInfoRow("Versión:", _vinData['version']),
                                     _buildInfoRow("BOM Rev:", "Rev ${_vinData['numero_revision']}"),
                                     const SizedBox(height: 12),
+                                    Text("Unidad Vinculada (Combo C3)", style: FluentTheme.of(context).typography.subtitle),
+                                    const Divider(),
+                                    if (_vinData['id_socio'] == null)
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(vertical: 8.0),
+                                        child: Button(
+                                          onPressed: _showVincularDialog,
+                                          child: const Text("Vincular con Head Ramp / Remolque"),
+                                        ),
+                                      )
+                                    else
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(vertical: 8.0),
+                                        child: Row(
+                                          children: [
+                                            Icon(FluentIcons.link, color: Colors.blue),
+                                            const SizedBox(width: 8),
+                                            Text(_vinData['vin_socio'] ?? "Socio Desconocido", style: const TextStyle(fontWeight: FontWeight.bold)),
+                                            const SizedBox(width: 16),
+                                            Button(
+                                              onPressed: () => _vincularSocio(0),
+                                              child: const Text("Desvincular"),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    const SizedBox(height: 12),
                                     // v60.0: Botón ADN de Ingeniería
                                     Button(
                                       onPressed: _showADNIngenieria,
@@ -466,8 +584,7 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
                                       ],
                                     ),
                                     const Divider(),
-                                    SizedBox(
-                                      height: 350,
+                                    Expanded(
                                       child: SingleChildScrollView(
                                         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                                     if (_isLoadingArchivos)
@@ -505,7 +622,8 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
                                     ),
                                   ],
                                 ),
-                              ),                            ],
+                              ),
+                            ],
                           ),
                   ),
                 ],

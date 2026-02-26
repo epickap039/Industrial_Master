@@ -185,7 +185,8 @@ class RevisionPayload(BaseModel):
 
 class VINPayload(BaseModel):
     vin: str
-    notas: str = None
+    notas: Optional[str] = None
+    observaciones: Optional[str] = None
 
 class ClonarPayload(BaseModel):
     id_revision_origen: int
@@ -951,8 +952,38 @@ def add_vin(id_revision: int, payload: VINPayload):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("INSERT INTO Tbl_Unidades_Fisicas (ID_Revision, VIN) OUTPUT INSERTED.ID_Unidad VALUES (?, ?)", (id_revision, payload.vin.upper()))
+        cursor.execute(
+            "INSERT INTO Tbl_Unidades_Fisicas (ID_Revision, VIN, Notas) OUTPUT INSERTED.ID_Unidad VALUES (?, ?, ?)", 
+            (id_revision, payload.vin.upper(), payload.notas or "")
+        )
         id_gen = cursor.fetchone()[0]
+
+        # Log assignment
+        cursor.execute("""
+            SELECT R.Numero_Revision, V.Nombre_Version, TR.Nombre_Tracto
+            FROM Tbl_BOM_Revisiones R
+            JOIN Tbl_Versiones_Ingenieria V ON R.ID_Version = V.ID_Version
+            JOIN Tbl_Tipos_Proyecto TP ON V.ID_Tipo = TP.ID_Tipo
+            JOIN Tbl_Proyectos_Tracto TR ON TP.ID_Tracto = TR.ID_Tracto
+            WHERE R.ID_Revision = ?
+        """, (id_revision,))
+        rev_info = cursor.fetchone()
+        proyecto = f"{rev_info.Nombre_Tracto} - {rev_info.Nombre_Version} (Rev {rev_info.Numero_Revision})" if rev_info else str(id_revision)
+
+        cursor.execute("""
+            INSERT INTO Tbl_Auditoria_Cambios (Codigo_Pieza, Accion, Valor_Anterior, Valor_Nuevo, Usuario, Fecha_Hora)
+            VALUES (?, ?, ?, ?, ?, GETDATE())
+        """, (
+            f"VIN-{payload.vin.upper()}",
+            "VIN ASIGNADO",
+            "N/A",
+            f"Serie {payload.vin.upper()} vinculada a {proyecto}",
+            "SISTEMA_VIN"
+        ))
+
+        # We also can log it in Tbl_Log_Cambios_Ingenieria if it's for the revision, but user says Tbl_Auditoria_Cambios
+        registrar_log(cursor, id_revision, "VIN_CREADO", f"VIN {payload.vin.upper()} registrado a la revisión.")
+        
         conn.commit()
         return {"status": "success", "id_unidad": id_gen}
     except Exception as e:
@@ -980,15 +1011,17 @@ def buscar_vin(q: str):
     cursor = conn.cursor()
     try:
         query = """
-            SELECT u.ID_Unidad, u.VIN, u.Notas, r.ID_Revision, r.Numero_Revision,
+            SELECT u.ID_Unidad, u.VIN, u.Notas, u.ID_VIN_Asociado, r.ID_Revision, r.Numero_Revision,
                    v.ID_Version, c.ID_Config_Cliente, c.Nombre_Cliente,
-                   v.Nombre_Version, t.Nombre_Tipo, tr.Nombre_Tracto
+                   v.Nombre_Version, t.Nombre_Tipo, tr.Nombre_Tracto,
+                   socio.VIN as VIN_Asociado_Nombre
             FROM Tbl_Unidades_Fisicas u
             JOIN Tbl_BOM_Revisiones r ON u.ID_Revision = r.ID_Revision
             JOIN Tbl_Versiones_Ingenieria v ON r.ID_Version = v.ID_Version
             LEFT JOIN Tbl_Clientes_Configuracion c ON c.ID_Version = v.ID_Version
             JOIN Tbl_Tipos_Proyecto t ON v.ID_Tipo = t.ID_Tipo
             JOIN Tbl_Proyectos_Tracto tr ON t.ID_Tracto = tr.ID_Tracto
+            LEFT JOIN Tbl_Unidades_Fisicas socio ON u.ID_VIN_Asociado = socio.ID_Unidad
             WHERE u.VIN LIKE ?
         """
         cursor.execute(query, (f"%{q}%",))
@@ -1004,9 +1037,115 @@ def buscar_vin(q: str):
                 "cliente": r.Nombre_Cliente,
                 "version": r.Nombre_Version,
                 "tipo": r.Nombre_Tipo,
-                "tracto": r.Nombre_Tracto
+                "tracto": r.Nombre_Tracto,
+                "id_socio": r.ID_VIN_Asociado,
+                "vin_socio": r.VIN_Asociado_Nombre
             } for r in rows
         ]
+    finally:
+        conn.close()
+
+@app.get("/api/vins/{id_unidad}/adn")
+def get_vin_adn(id_unidad: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT VIN, ID_Revision FROM Tbl_Unidades_Fisicas WHERE ID_Unidad = ?", (id_unidad,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="VIN no encontrado")
+        vin_str = row.VIN
+        id_revision = row.ID_Revision
+
+        eventos = []
+
+        # 1. Movimientos propios del VIN desde Tbl_Auditoria_Cambios
+        prefix = f"VIN-{vin_str}"
+        cursor.execute("""
+            SELECT Accion, Valor_Anterior, Valor_Nuevo, Usuario, Fecha_Hora
+            FROM Tbl_Auditoria_Cambios
+            WHERE Codigo_Pieza = ?
+        """, (prefix,))
+        for ev in cursor.fetchall():
+            eventos.append({
+                "fecha": ev.Fecha_Hora.isoformat() if ev.Fecha_Hora else None,
+                "titulo": ev.Accion,
+                "detalle": ev.Valor_Nuevo,
+                "usuario": ev.Usuario,
+                "tipo": "VIN"
+            })
+
+        # 2. Movimientos de la revisión de Tbl_Log_Cambios_Ingenieria
+        try:
+            cursor.execute("""
+                SELECT Accion, Detalle_Cambio, Usuario, Fecha_Hora
+                FROM Tbl_Log_Cambios_Ingenieria
+                WHERE ID_Revision = ?
+            """, (id_revision,))
+            for lr in cursor.fetchall():
+                eventos.append({
+                    "fecha": lr.Fecha_Hora.isoformat() if lr.Fecha_Hora else None,
+                    "titulo": lr.Accion,
+                    "detalle": lr.Detalle_Cambio,
+                    "usuario": lr.Usuario,
+                    "tipo": "REVISION"
+                })
+        except:
+            pass # Si Tbl_Log_Cambios_Ingenieria doesn't exist yet, ignore
+            
+        # Ordenar cronológicamente descendente
+        eventos.sort(key=lambda x: x['fecha'] or "", reverse=True)
+        return eventos
+    finally:
+        conn.close()
+
+@app.post("/api/vins/{id_unidad}/vincular/{id_socio}")
+def vincular_vin(id_unidad: int, id_socio: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT VIN FROM Tbl_Unidades_Fisicas WHERE ID_Unidad = ?", (id_unidad,))
+        u1 = cursor.fetchone()
+        if not u1:
+            raise HTTPException(status_code=404, detail="Unidad no encontrada")
+
+        if id_socio == 0:
+            # Desvincular
+            cursor.execute("SELECT ID_VIN_Asociado FROM Tbl_Unidades_Fisicas WHERE ID_Unidad = ?", (id_unidad,))
+            socio = cursor.fetchone()
+            if socio and socio.ID_VIN_Asociado:
+                cursor.execute("UPDATE Tbl_Unidades_Fisicas SET ID_VIN_Asociado = NULL WHERE ID_Unidad = ?", (socio.ID_VIN_Asociado,))
+            cursor.execute("UPDATE Tbl_Unidades_Fisicas SET ID_VIN_Asociado = NULL WHERE ID_Unidad = ?", (id_unidad,))
+            
+            cursor.execute(
+                "INSERT INTO Tbl_Auditoria_Cambios (Codigo_Pieza, Accion, Valor_Anterior, Valor_Nuevo, Usuario, Fecha_Hora) VALUES (?, ?, ?, ?, ?, GETDATE())",
+                (f"VIN-{u1.VIN}", "VIN DESVINCULADO", "Combo disuelto", "Regresó a individual", "SISTEMA_VIN")
+            )
+            
+        else:
+            # Vincular (Bidireccional)
+            cursor.execute("SELECT VIN FROM Tbl_Unidades_Fisicas WHERE ID_Unidad = ?", (id_socio,))
+            u2 = cursor.fetchone()
+            if not u2:
+                raise HTTPException(status_code=404, detail="Socio no encontrado")
+                
+            cursor.execute("UPDATE Tbl_Unidades_Fisicas SET ID_VIN_Asociado = ? WHERE ID_Unidad = ?", (id_socio, id_unidad))
+            cursor.execute("UPDATE Tbl_Unidades_Fisicas SET ID_VIN_Asociado = ? WHERE ID_Unidad = ?", (id_unidad, id_socio))
+            
+            cursor.execute(
+                "INSERT INTO Tbl_Auditoria_Cambios (Codigo_Pieza, Accion, Valor_Anterior, Valor_Nuevo, Usuario, Fecha_Hora) VALUES (?, ?, ?, ?, ?, GETDATE())",
+                (f"VIN-{u1.VIN}", "COMBO C3 CREADO", "Individual", f"Vinculado con VIN: {u2.VIN}", "SISTEMA_VIN")
+            )
+            cursor.execute(
+                "INSERT INTO Tbl_Auditoria_Cambios (Codigo_Pieza, Accion, Valor_Anterior, Valor_Nuevo, Usuario, Fecha_Hora) VALUES (?, ?, ?, ?, ?, GETDATE())",
+                (f"VIN-{u2.VIN}", "COMBO C3 CREADO", "Individual", f"Vinculado con VIN: {u1.VIN}", "SISTEMA_VIN")
+            )
+
+        conn.commit()
+        return {"status": "success"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
 
@@ -1015,7 +1154,8 @@ def update_vin_notas(id_unidad: int, payload: VINPayload):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("UPDATE Tbl_Unidades_Fisicas SET Notas = ? WHERE ID_Unidad = ?", (payload.notas, id_unidad))
+        val = payload.observaciones if payload.observaciones is not None else payload.notas
+        cursor.execute("UPDATE Tbl_Unidades_Fisicas SET Notas = ? WHERE ID_Unidad = ?", (val, id_unidad))
         conn.commit()
         return {"status": "success"}
     finally:
