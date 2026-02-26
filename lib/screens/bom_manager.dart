@@ -1118,7 +1118,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
         // ─── Lista de piezas ─── Expanded recibe constraints del Column padre
         Expanded(
           child: piezas.isEmpty
-              ? const Center(child: Text("No hay piezas en este ensamble.", style: TextStyle(color: (FluentTheme.of(context).typography.body?.color?.withOpacity(0.5) ?? Colors.grey))))
+              ? Center(child: Text("No hay piezas en este ensamble.", style: TextStyle(color: (FluentTheme.of(context).typography.body?.color?.withOpacity(0.5) ?? Colors.grey))))
               : ListView.builder(
                   itemCount: piezas.length,
                   itemBuilder: (context, index) {
@@ -1138,7 +1138,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
 
                     return Container(
                       padding: const EdgeInsets.symmetric(vertical: 3.0, horizontal: 12.0),
-                      decoration: const BoxDecoration(
+                      decoration: BoxDecoration(
                         border: Border(bottom: BorderSide(color: FluentTheme.of(context).scaffoldBackgroundColor)),
                       ),
                       child: Row(
@@ -1419,7 +1419,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                                 const Divider(),
                                 Expanded(
                                   child: _arbol.isEmpty
-                                      ? const Center(child: Text("Sin estaciones", style: TextStyle(color: (FluentTheme.of(context).typography.body?.color?.withOpacity(0.5) ?? Colors.grey), fontSize: 12)))
+                                      ? Center(child: Text("Sin estaciones", style: TextStyle(color: (FluentTheme.of(context).typography.body?.color?.withOpacity(0.5) ?? Colors.grey), fontSize: 12)))
                                       : TreeView(
                                           items: _buildTreeItems(),
                                           selectionMode: TreeViewSelectionMode.single,
