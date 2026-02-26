@@ -551,79 +551,80 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
                               ),
                               const SizedBox(height: 12),
                               // === v60.0: NUBE DE ARCHIVOS ===
-                              Card(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Row(children: [
-                                          const Icon(FluentIcons.cloud_upload, size: 16, color: Color(0xFF1565C0)),
-                                          const SizedBox(width: 6),
-                                          Text("Nube de Archivos", style: FluentTheme.of(context).typography.subtitle),
-                                        ]),
-                                        Row(children: [
-                                          _isSubiendo
-                                            ? const SizedBox(width: 20, height: 20, child: ProgressRing(strokeWidth: 2))
-                                            : Tooltip(
-                                                message: "Adjuntar archivo al expediente del VIN",
-                                                child: IconButton(
-                                                  icon: const Icon(FluentIcons.upload, size: 16),
-                                                  onPressed: _subirArchivo,
+                              Expanded(
+                                child: Card(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Row(children: [
+                                            const Icon(FluentIcons.cloud_upload, size: 16, color: Color(0xFF1565C0)),
+                                            const SizedBox(width: 6),
+                                            Text("Nube de Archivos", style: FluentTheme.of(context).typography.subtitle),
+                                          ]),
+                                          Row(children: [
+                                            _isSubiendo
+                                              ? const SizedBox(width: 20, height: 20, child: ProgressRing(strokeWidth: 2))
+                                              : Tooltip(
+                                                  message: "Adjuntar archivo al expediente del VIN",
+                                                  child: IconButton(
+                                                    icon: const Icon(FluentIcons.upload, size: 16),
+                                                    onPressed: _subirArchivo,
+                                                  ),
                                                 ),
+                                            Tooltip(
+                                              message: "Recargar archivos",
+                                              child: IconButton(
+                                                icon: const Icon(FluentIcons.refresh, size: 14),
+                                                onPressed: _fetchArchivos,
                                               ),
-                                          Tooltip(
-                                            message: "Recargar archivos",
-                                            child: IconButton(
-                                              icon: const Icon(FluentIcons.refresh, size: 14),
-                                              onPressed: _fetchArchivos,
                                             ),
-                                          ),
-                                        ]),
-                                      ],
-                                    ),
-                                    const Divider(),
-                                    Expanded(
-                                      child: SingleChildScrollView(
-                                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                    if (_isLoadingArchivos)
-                                      const SizedBox(height: 40, child: Center(child: ProgressRing()))
-                                    else if (_archivos.isEmpty)
-                                      const Padding(
-                                        padding: EdgeInsets.symmetric(vertical: 8),
-                                        child: Text("Sin archivos adjuntos.", style: TextStyle(color: Colors.grey)),
-                                      )
-                                    else
-                                      ...(_archivos.map((arch) => Padding(
-                                        padding: const EdgeInsets.symmetric(vertical: 3),
-                                        child: Row(children: [
-                                          Icon(
-                                            (arch['es_pdf'] as bool) ? FluentIcons.pdf : FluentIcons.document,
-                                            size: 16,
-                                            color: (arch['es_pdf'] as bool) ? Colors.red : (FluentTheme.of(context).typography.body?.color?.withOpacity(0.3) ?? Colors.grey),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Expanded(child: Text(arch['nombre'], style: const TextStyle(fontSize: 13))),
-                                          Text("${arch['tamano_kb']} KB", style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                                          const SizedBox(width: 8),
-                                          Tooltip(
-                                            message: "Abrir archivo",
-                                            child: IconButton(
-                                              icon: Icon(FluentIcons.open_in_new_window, size: 14, color: Color(0xFF1565C0)),
-                                              onPressed: () => _abrirArchivoDesdeServer(arch['nombre']),
+                                          ]),
+                                        ],
+                                      ),
+                                      const Divider(),
+                                      Expanded(
+                                        child: SingleChildScrollView(
+                                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                      if (_isLoadingArchivos)
+                                        const SizedBox(height: 40, child: Center(child: ProgressRing()))
+                                      else if (_archivos.isEmpty)
+                                        const Padding(
+                                          padding: EdgeInsets.symmetric(vertical: 8),
+                                          child: Text("Sin archivos adjuntos.", style: TextStyle(color: Colors.grey)),
+                                        )
+                                      else
+                                        ...(_archivos.map((arch) => Padding(
+                                          padding: const EdgeInsets.symmetric(vertical: 3),
+                                          child: Row(children: [
+                                            Icon(
+                                              (arch['es_pdf'] as bool) ? FluentIcons.pdf : FluentIcons.document,
+                                              size: 16,
+                                              color: (arch['es_pdf'] as bool) ? Colors.red : (FluentTheme.of(context).typography.body?.color?.withOpacity(0.3) ?? Colors.grey),
                                             ),
+                                            const SizedBox(width: 8),
+                                            Expanded(child: Text(arch['nombre'], style: const TextStyle(fontSize: 13))),
+                                            Text("${arch['tamano_kb']} KB", style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                                            const SizedBox(width: 8),
+                                            Tooltip(
+                                              message: "Abrir archivo",
+                                              child: IconButton(
+                                                icon: Icon(FluentIcons.open_in_new_window, size: 14, color: Color(0xFF1565C0)),
+                                                onPressed: () => _abrirArchivoDesdeServer(arch['nombre']),
+                                              ),
+                                            ),
+                                          ]),
+                                        ))).toList(),
+                                            ],
                                           ),
-                                        ]),
-                                      ))).toList(),
-                                          ],
                                         ),
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ),                            ],
                           ),
                   ),
                 ],

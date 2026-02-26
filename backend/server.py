@@ -952,9 +952,10 @@ def add_vin(id_revision: int, payload: VINPayload):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
+        val = payload.observaciones if payload.observaciones is not None else payload.notas
         cursor.execute(
-            "INSERT INTO Tbl_Unidades_Fisicas (ID_Revision, VIN, Notas) OUTPUT INSERTED.ID_Unidad VALUES (?, ?, ?)", 
-            (id_revision, payload.vin.upper(), payload.notas or "")
+            "INSERT INTO Tbl_Unidades_Fisicas (ID_Revision, VIN, Observaciones) OUTPUT INSERTED.ID_Unidad VALUES (?, ?, ?)", 
+            (id_revision, payload.vin.upper(), val or "")
         )
         id_gen = cursor.fetchone()[0]
 
@@ -1011,16 +1012,16 @@ def buscar_vin(q: str):
     cursor = conn.cursor()
     try:
         query = """
-            SELECT u.ID_Unidad, u.VIN, u.Notas, u.ID_VIN_Asociado, r.ID_Revision, r.Numero_Revision,
+            SELECT u.ID_Unidad, u.VIN, u.Observaciones as Notas, u.ID_VIN_Asociado, r.ID_Revision, r.Numero_Revision,
                    v.ID_Version, c.ID_Config_Cliente, c.Nombre_Cliente,
                    v.Nombre_Version, t.Nombre_Tipo, tr.Nombre_Tracto,
                    socio.VIN as VIN_Asociado_Nombre
             FROM Tbl_Unidades_Fisicas u
-            JOIN Tbl_BOM_Revisiones r ON u.ID_Revision = r.ID_Revision
-            JOIN Tbl_Versiones_Ingenieria v ON r.ID_Version = v.ID_Version
+            LEFT JOIN Tbl_BOM_Revisiones r ON u.ID_Revision = r.ID_Revision
+            LEFT JOIN Tbl_Versiones_Ingenieria v ON r.ID_Version = v.ID_Version
             LEFT JOIN Tbl_Clientes_Configuracion c ON c.ID_Version = v.ID_Version
-            JOIN Tbl_Tipos_Proyecto t ON v.ID_Tipo = t.ID_Tipo
-            JOIN Tbl_Proyectos_Tracto tr ON t.ID_Tracto = tr.ID_Tracto
+            LEFT JOIN Tbl_Tipos_Proyecto t ON v.ID_Tipo = t.ID_Tipo
+            LEFT JOIN Tbl_Proyectos_Tracto tr ON t.ID_Tracto = tr.ID_Tracto
             LEFT JOIN Tbl_Unidades_Fisicas socio ON u.ID_VIN_Asociado = socio.ID_Unidad
             WHERE u.VIN LIKE ?
         """
@@ -1155,7 +1156,7 @@ def update_vin_notas(id_unidad: int, payload: VINPayload):
     cursor = conn.cursor()
     try:
         val = payload.observaciones if payload.observaciones is not None else payload.notas
-        cursor.execute("UPDATE Tbl_Unidades_Fisicas SET Notas = ? WHERE ID_Unidad = ?", (val, id_unidad))
+        cursor.execute("UPDATE Tbl_Unidades_Fisicas SET Observaciones = ? WHERE ID_Unidad = ?", (val, id_unidad))
         conn.commit()
         return {"status": "success"}
     finally:
