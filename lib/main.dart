@@ -481,7 +481,7 @@ class _MyAppState extends State<MyApp> {
                             body: VINDossierScreen(
                               onNavigateToBOM: () {
                                 setState(() {
-                                  topIndex = 9; // Índice de Mapa de Ingeniería
+                                  topIndex = 7; // Índice 7: Mapa de Ingeniería (Header no cuenta)
                                 });
                               },
                             ),
