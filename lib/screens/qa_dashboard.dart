@@ -171,33 +171,49 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
       content:
           _isLoading
               ? const Center(child: ProgressRing())
+              : _reportes.isEmpty
+              ? Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      FluentIcons.party_leader,
+                      size: 80,
+                      color: Colors.green,
+                    ),
+                    const SizedBox(height: 20),
+                    const Text(
+                      "¡Bandeja limpia! No hay reportes de QA pendientes.",
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              )
               : Padding(
                 padding: const EdgeInsets.all(16.0),
-                child: Card(
-                  child: ListView.builder(
-                    itemCount: _reportes.length,
-                    itemBuilder: (context, index) {
-                      final rep = _reportes[index];
-                      Color gravedadColor = Colors.grey;
-                      if (rep['gravedad'] == 'Crítico')
-                        gravedadColor = Colors.red;
-                      if (rep['gravedad'] == 'Visual')
-                        gravedadColor = Colors.orange;
-                      if (rep['gravedad'] == 'Sugerencia')
-                        gravedadColor = Colors.blue;
+                child: ListView.builder(
+                  itemCount: _reportes.length,
+                  itemBuilder: (context, index) {
+                    final rep = _reportes[index];
+                    Color gravedadColor = Colors.grey;
+                    if (rep['gravedad'] == 'Crítico')
+                      gravedadColor = Colors.red;
+                    if (rep['gravedad'] == 'Visual')
+                      gravedadColor = Colors.orange;
+                    if (rep['gravedad'] == 'Sugerencia')
+                      gravedadColor = Colors.blue;
 
-                      return Container(
-                        padding: const EdgeInsets.all(12),
-                        margin: const EdgeInsets.only(bottom: 8),
-                        decoration: BoxDecoration(
-                          border: Border.all(
-                            color: Colors.grey.withOpacity(0.3),
-                          ),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12.0),
+                      child: Card(
+                        padding: const EdgeInsets.all(20),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            // Fila 1: Cabecera
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
@@ -207,17 +223,40 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
                                       "#${rep['id']}",
                                       style: const TextStyle(
                                         fontWeight: FontWeight.bold,
+                                        fontSize: 16,
                                       ),
                                     ),
                                     const SizedBox(width: 12),
                                     Container(
                                       padding: const EdgeInsets.symmetric(
-                                        horizontal: 6,
-                                        vertical: 2,
+                                        horizontal: 8,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey.withOpacity(0.2),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Text(
+                                        rep['modulo'] ?? "General",
+                                        style: TextStyle(
+                                          color:
+                                              FluentTheme.of(
+                                                context,
+                                              ).typography.body?.color,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 4,
                                       ),
                                       decoration: BoxDecoration(
                                         color: gravedadColor,
-                                        borderRadius: BorderRadius.circular(4),
+                                        borderRadius: BorderRadius.circular(6),
                                       ),
                                       child: Text(
                                         rep['gravedad']
@@ -226,18 +265,9 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
                                             'N/A',
                                         style: const TextStyle(
                                           color: Colors.white,
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
                                         ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Text(
-                                      rep['modulo'] ?? "General",
-                                      style: TextStyle(
-                                        color:
-                                            FluentTheme.of(context).accentColor,
-                                        fontWeight: FontWeight.bold,
                                       ),
                                     ),
                                   ],
@@ -246,23 +276,39 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
                                   rep['fecha'] ?? "",
                                   style: const TextStyle(
                                     color: Colors.grey,
-                                    fontSize: 12,
+                                    fontSize: 13,
                                   ),
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 8),
-                            Text(rep['descripcion'] ?? "Sin descripción"),
-                            const SizedBox(height: 8),
+                            const SizedBox(height: 16),
+                            // Fila 2: Cuerpo
+                            Text(
+                              rep['descripcion'] ?? "Sin descripción",
+                              style: const TextStyle(fontSize: 15.0),
+                            ),
+                            const SizedBox(height: 20),
+                            // Fila 3: Footer
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text(
-                                  "Por: ${rep['usuario']}",
-                                  style: const TextStyle(
-                                    color: Colors.grey,
-                                    fontStyle: FontStyle.italic,
-                                  ),
+                                Row(
+                                  children: [
+                                    const Icon(
+                                      FluentIcons.contact_info,
+                                      color: Colors.grey,
+                                      size: 16,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      rep['usuario'] ?? "Desconocido",
+                                      style: const TextStyle(
+                                        color: Colors.grey,
+                                        fontWeight: FontWeight.w500,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                                 Row(
                                   children: [
@@ -280,16 +326,30 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
                                               ),
                                         ),
                                       ),
-                                    const SizedBox(width: 8),
+                                    if (rep['captura_base64'] != null)
+                                      const SizedBox(width: 8),
                                     Tooltip(
                                       message: "Marcar como resuelto",
-                                      child: IconButton(
-                                        icon: Icon(
-                                          FluentIcons.check_mark,
-                                          color: Colors.green,
+                                      child: FilledButton(
+                                        style: ButtonStyle(
+                                          backgroundColor:
+                                              WidgetStatePropertyAll(
+                                                Colors.green,
+                                              ),
                                         ),
                                         onPressed:
                                             () => _resolverReporte(rep['id']),
+                                        child: const Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(
+                                              FluentIcons.check_mark,
+                                              size: 14,
+                                            ),
+                                            SizedBox(width: 6),
+                                            Text("Resuelto"),
+                                          ],
+                                        ),
                                       ),
                                     ),
                                   ],
@@ -298,9 +358,9 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
                             ),
                           ],
                         ),
-                      );
-                    },
-                  ),
+                      ),
+                    );
+                  },
                 ),
               ),
     );
