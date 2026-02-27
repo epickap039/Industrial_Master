@@ -725,7 +725,7 @@ def get_vins(id_revision: int):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT ID_Unidad, VIN FROM Tbl_Unidades_Fisicas WHERE ID_Revision = ?", (id_revision,))
+        cursor.execute("SELECT ID_Unidad, Serie as VIN FROM Tbl_Unidades_Fisicas WHERE ID_Revision = ?", (id_revision,))
         rows = cursor.fetchall()
         return [{"id_unidad": r.ID_Unidad, "vin": r.VIN} for r in rows]
     finally:
@@ -954,7 +954,7 @@ def add_vin(id_revision: int, payload: VINPayload):
     try:
         val = payload.observaciones if payload.observaciones is not None else payload.notas
         cursor.execute(
-            "INSERT INTO Tbl_Unidades_Fisicas (ID_Revision, VIN, Observaciones) OUTPUT INSERTED.ID_Unidad VALUES (?, ?, ?)", 
+            "INSERT INTO Tbl_Unidades_Fisicas (ID_Revision, Serie, Observaciones) OUTPUT INSERTED.ID_Unidad VALUES (?, ?, ?)", 
             (id_revision, payload.vin.upper(), val or "")
         )
         id_gen = cursor.fetchone()[0]
@@ -1012,10 +1012,10 @@ def buscar_vin(q: str):
     cursor = conn.cursor()
     try:
         query = """
-            SELECT u.ID_Unidad, u.VIN, u.Observaciones as Notas, u.ID_VIN_Asociado, r.ID_Revision, r.Numero_Revision,
+            SELECT u.ID_Unidad, u.Serie as VIN, u.Observaciones as Notas, u.ID_VIN_Asociado, r.ID_Revision, r.Numero_Revision,
                    v.ID_Version, c.ID_Config_Cliente, c.Nombre_Cliente,
                    v.Nombre_Version, t.Nombre_Tipo, tr.Nombre_Tracto,
-                   socio.VIN as VIN_Asociado_Nombre
+                   socio.Serie as VIN_Asociado_Nombre
             FROM Tbl_Unidades_Fisicas u
             LEFT JOIN Tbl_BOM_Revisiones r ON u.ID_Revision = r.ID_Revision
             LEFT JOIN Tbl_Versiones_Ingenieria v ON r.ID_Version = v.ID_Version
@@ -1023,7 +1023,7 @@ def buscar_vin(q: str):
             LEFT JOIN Tbl_Tipos_Proyecto t ON v.ID_Tipo = t.ID_Tipo
             LEFT JOIN Tbl_Proyectos_Tracto tr ON t.ID_Tracto = tr.ID_Tracto
             LEFT JOIN Tbl_Unidades_Fisicas socio ON u.ID_VIN_Asociado = socio.ID_Unidad
-            WHERE u.VIN LIKE ?
+            WHERE u.Serie LIKE ?
         """
         cursor.execute(query, (f"%{q}%",))
         rows = cursor.fetchall()
@@ -1051,7 +1051,7 @@ def get_vin_adn(id_unidad: int):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT VIN, ID_Revision FROM Tbl_Unidades_Fisicas WHERE ID_Unidad = ?", (id_unidad,))
+        cursor.execute("SELECT Serie as VIN, ID_Revision FROM Tbl_Unidades_Fisicas WHERE ID_Unidad = ?", (id_unidad,))
         row = cursor.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="VIN no encontrado")
@@ -1105,7 +1105,7 @@ def vincular_vin(id_unidad: int, id_socio: int):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT VIN FROM Tbl_Unidades_Fisicas WHERE ID_Unidad = ?", (id_unidad,))
+        cursor.execute("SELECT Serie as VIN FROM Tbl_Unidades_Fisicas WHERE ID_Unidad = ?", (id_unidad,))
         u1 = cursor.fetchone()
         if not u1:
             raise HTTPException(status_code=404, detail="Unidad no encontrada")
@@ -1125,7 +1125,7 @@ def vincular_vin(id_unidad: int, id_socio: int):
             
         else:
             # Vincular (Bidireccional)
-            cursor.execute("SELECT VIN FROM Tbl_Unidades_Fisicas WHERE ID_Unidad = ?", (id_socio,))
+            cursor.execute("SELECT Serie as VIN FROM Tbl_Unidades_Fisicas WHERE ID_Unidad = ?", (id_socio,))
             u2 = cursor.fetchone()
             if not u2:
                 raise HTTPException(status_code=404, detail="Socio no encontrado")
@@ -1888,8 +1888,9 @@ def iniciar_auditoria():
                 CREATE TABLE Tbl_Unidades_Fisicas (
                     ID_Unidad INT IDENTITY(1,1) PRIMARY KEY,
                     ID_Revision INT NOT NULL,
-                    VIN VARCHAR(50) NOT NULL,
-                    Notas VARCHAR(MAX),
+                    Serie VARCHAR(50) NOT NULL,
+                    Observaciones VARCHAR(MAX),
+                    ID_VIN_Asociado INT NULL,
                     CONSTRAINT FK_Unidad_Revision FOREIGN KEY (ID_Revision) REFERENCES Tbl_BOM_Revisiones(ID_Revision) ON DELETE CASCADE
                 );
             END
