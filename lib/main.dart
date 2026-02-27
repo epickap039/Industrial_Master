@@ -46,6 +46,7 @@ class _MyAppState extends State<MyApp> {
   bool _isLoggedIn = false;
   bool _isLoadingAuth = true;
   int topIndex = 0;
+  int? targetRevisionId;
   List<AutoSuggestBoxItem<dynamic>> _searchItems = [];
 
   @override
@@ -473,15 +474,19 @@ class _MyAppState extends State<MyApp> {
                           PaneItem(
                             icon: const Icon(FluentIcons.map_layers),
                             title: const Text('Mapa de Ingeniería'),
-                            body: const EngineeringMapScreen(),
+                            body: EngineeringMapScreen(
+                              targetRevisionId: targetRevisionId,
+                            ),
                           ),
                           PaneItem(
                             icon: const Icon(FluentIcons.car),
                             title: const Text('Expedientes VIN'),
                             body: VINDossierScreen(
-                              onNavigateToBOM: () {
+                              onNavigateToBOM: (id) {
                                 setState(() {
-                                  topIndex = 7; // Índice 7: Mapa de Ingeniería (Header no cuenta)
+                                  topIndex =
+                                      7; // Índice 7: Mapa de Ingeniería (Header no cuenta)
+                                  targetRevisionId = id;
                                 });
                               },
                             ),

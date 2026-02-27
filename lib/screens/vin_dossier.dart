@@ -10,7 +10,7 @@ import 'bom_manager.dart';
 const String API_URL = "http://192.168.1.73:8001";
 
 class VINDossierScreen extends StatefulWidget {
-  final VoidCallback? onNavigateToBOM;
+  final Function(int idRevision)? onNavigateToBOM;
 
   const VINDossierScreen({Key? key, this.onNavigateToBOM}) : super(key: key);
 
@@ -687,11 +687,21 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
                                                         size: 14,
                                                       ),
                                                       SizedBox(width: 4),
-                                                      Text("Ver Lista Asignada"),
+                                                      Text(
+                                                        "Ver Lista Asignada",
+                                                      ),
                                                     ],
                                                   ),
-                                                  onPressed:
-                                                      widget.onNavigateToBOM,
+                                                  onPressed: () {
+                                                    if (widget
+                                                            .onNavigateToBOM !=
+                                                        null) {
+                                                      widget.onNavigateToBOM!(
+                                                        _vinData['id_revision'] ??
+                                                            0,
+                                                      );
+                                                    }
+                                                  },
                                                 ),
                                             ],
                                           ),

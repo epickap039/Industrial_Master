@@ -1,4 +1,4 @@
-﻿import 'package:fluent_ui/fluent_ui.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:url_launcher/url_launcher.dart';
@@ -16,15 +16,17 @@ class BOMManagerScreen extends StatefulWidget {
   // v60.0: nuevos parámetros de ingeniería maestra
   final int? idVersion;
   final String? versionName;
-  final String? tractoName; // para theming de color
-  
+  final String? tractoName;
+  final int? targetRevisionId;
+
   const BOMManagerScreen({
-    Key? key, 
-    this.idCliente, 
+    Key? key,
+    this.idCliente,
     this.clientName,
     this.idVersion,
     this.versionName,
     this.tractoName,
+    this.targetRevisionId,
   }) : super(key: key);
 
   @override
@@ -33,7 +35,7 @@ class BOMManagerScreen extends StatefulWidget {
 
 class _BOMManagerScreenState extends State<BOMManagerScreen> {
   bool _isLoading = false;
-  
+
   int? _currentIdCliente;
   String _currentClientName = '';
 
@@ -58,6 +60,26 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
   bool get _usingVersionMode => widget.idVersion != null;
 
   @override
+  void didUpdateWidget(BOMManagerScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.targetRevisionId != oldWidget.targetRevisionId &&
+        widget.targetRevisionId != null) {
+      if (_revisiones.isNotEmpty) {
+        final rev = _revisiones.firstWhere(
+          (r) => r['id_revision'] == widget.targetRevisionId,
+          orElse: () => null,
+        );
+        if (rev != null) {
+          setState(() {
+            _selectedRevision = rev;
+          });
+          _fetchArbol();
+        }
+      }
+    }
+  }
+
+  @override
   void initState() {
     super.initState();
     _fetchRevisiones();
@@ -75,16 +97,24 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     setState(() => _isLoading = true);
     try {
       // v60.0: usa endpoint por version si está disponible
-      final url = _usingVersionMode
-          ? '$API_URL/api/bom/revisiones/version/$_masterId'
-          : '$API_URL/api/bom/revisiones/$_masterId';
+      final url =
+          _usingVersionMode
+              ? '$API_URL/api/bom/revisiones/version/$_masterId'
+              : '$API_URL/api/bom/revisiones/$_masterId';
       final response = await http.get(Uri.parse(url));
       if (response.statusCode == 200) {
         _clearData();
         setState(() {
           _revisiones = json.decode(response.body);
           if (_revisiones.isNotEmpty) {
-            _selectedRevision = _revisiones.last; // última revisión por defecto
+            if (widget.targetRevisionId != null) {
+              _selectedRevision = _revisiones.firstWhere(
+                (r) => r['id_revision'] == widget.targetRevisionId,
+                orElse: () => _revisiones.last,
+              );
+            } else {
+              _selectedRevision = _revisiones.last;
+            }
             _fetchArbol();
           } else {
             _selectedRevision = null;
@@ -102,9 +132,10 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     setState(() => _isLoading = true);
     try {
       // v60.0: endpoint por versión
-      final url = _usingVersionMode
-          ? '$API_URL/api/bom/revisiones/version/$_masterId'
-          : '$API_URL/api/bom/revisiones/$_masterId';
+      final url =
+          _usingVersionMode
+              ? '$API_URL/api/bom/revisiones/version/$_masterId'
+              : '$API_URL/api/bom/revisiones/$_masterId';
       final response = await http.post(
         Uri.parse(url),
         headers: {'Content-Type': 'application/json'},
@@ -127,7 +158,9 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     setState(() => _isLoading = true);
     try {
       final response = await http.put(
-        Uri.parse('$API_URL/api/bom/revisiones/${_selectedRevision['id_revision']}/aprobar'),
+        Uri.parse(
+          '$API_URL/api/bom/revisiones/${_selectedRevision['id_revision']}/aprobar',
+        ),
       );
       if (response.statusCode == 200) {
         _showError("Revisión Aprobada Correctamente", isError: false);
@@ -146,7 +179,9 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     if (_selectedRevision == null) return;
     setState(() => _isLoading = true);
     try {
-      final response = await http.get(Uri.parse('$API_URL/api/bom/arbol/${_selectedRevision['id_revision']}'));
+      final response = await http.get(
+        Uri.parse('$API_URL/api/bom/arbol/${_selectedRevision['id_revision']}'),
+      );
       if (response.statusCode == 200) {
         setState(() {
           _arbol = json.decode(response.body);
@@ -189,16 +224,18 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
         }
 
         String filePath = result.files.single.path!;
-        
+
         setState(() => _isLoading = true);
 
         var request = http.MultipartRequest(
-          'POST', 
-          Uri.parse('$API_URL/api/bom/importar/${_selectedRevision['id_revision']}')
+          'POST',
+          Uri.parse(
+            '$API_URL/api/bom/importar/${_selectedRevision['id_revision']}',
+          ),
         );
-        
+
         request.files.add(await http.MultipartFile.fromPath('file', filePath));
-        
+
         var streamedResponse = await request.send();
         var response = await http.Response.fromStream(streamedResponse);
 
@@ -208,33 +245,46 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
           List errores = data['errores'] ?? [];
 
           if (errores.isEmpty) {
-            _showError("✅ Se cargaron $importadas piezas con éxito.", isError: false);
+            _showError(
+              "✅ Se cargaron $importadas piezas con éxito.",
+              isError: false,
+            );
           } else {
             showDialog(
               context: context,
-              builder: (context) => ContentDialog(
-                title: const Text("Resumen de Importación"),
-                content: Text("Se cargaron $importadas piezas con éxito.\n\n"
-                    "Los siguientes códigos no existen en el catálogo maestro y fueron omitidos:\n${errores.join(', ')}"),
-                actions: [
-                  Button(
-                    child: const Text('Copiar Errores'),
-                    onPressed: () {
-                      Clipboard.setData(ClipboardData(text: errores.join(', ')));
-                      _showError("Errores copiados al portapapeles", isError: false);
-                    },
+              builder:
+                  (context) => ContentDialog(
+                    title: const Text("Resumen de Importación"),
+                    content: Text(
+                      "Se cargaron $importadas piezas con éxito.\n\n"
+                      "Los siguientes códigos no existen en el catálogo maestro y fueron omitidos:\n${errores.join(', ')}",
+                    ),
+                    actions: [
+                      Button(
+                        child: const Text('Copiar Errores'),
+                        onPressed: () {
+                          Clipboard.setData(
+                            ClipboardData(text: errores.join(', ')),
+                          );
+                          _showError(
+                            "Errores copiados al portapapeles",
+                            isError: false,
+                          );
+                        },
+                      ),
+                      Button(
+                        child: const Text('Cerrar'),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
                   ),
-                  Button(
-                    child: const Text('Cerrar'),
-                    onPressed: () => Navigator.pop(context),
-                  )
-                ],
-              ),
             );
           }
           _fetchArbol();
         } else {
-          final errorMsg = json.decode(response.body)['detail'] ?? "Error desconocido en el servidor";
+          final errorMsg =
+              json.decode(response.body)['detail'] ??
+              "Error desconocido en el servidor";
           _showError("Error al importar: $errorMsg");
         }
       }
@@ -251,7 +301,10 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
       final response = await http.post(
         Uri.parse('$API_URL/api/bom/estaciones'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'id_revision': _selectedRevision['id_revision'], 'nombre': nombre}),
+        body: jsonEncode({
+          'id_revision': _selectedRevision['id_revision'],
+          'nombre': nombre,
+        }),
       );
       if (response.statusCode == 200) {
         _fetchArbol();
@@ -265,14 +318,17 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
 
   Future<void> _deleteEstacion(int id) async {
     try {
-      final response = await http.delete(Uri.parse('$API_URL/api/bom/estaciones/$id'));
+      final response = await http.delete(
+        Uri.parse('$API_URL/api/bom/estaciones/$id'),
+      );
       if (response.statusCode == 200) {
         if (_selectedEnsamble != null && _arbol.any((est) => est['id'] == id)) {
-           _selectedEnsamble = null;
+          _selectedEnsamble = null;
         }
         _fetchArbol();
       } else {
-        final errorMsg = json.decode(response.body)['detail'] ?? "Error desconocido";
+        final errorMsg =
+            json.decode(response.body)['detail'] ?? "Error desconocido";
         _showError(errorMsg);
       }
     } catch (e) {
@@ -299,14 +355,17 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
 
   Future<void> _deleteEnsamble(int id) async {
     try {
-      final response = await http.delete(Uri.parse('$API_URL/api/bom/ensambles/$id'));
+      final response = await http.delete(
+        Uri.parse('$API_URL/api/bom/ensambles/$id'),
+      );
       if (response.statusCode == 200) {
         if (_selectedEnsamble != null && _selectedEnsamble['id'] == id) {
           _selectedEnsamble = null;
         }
         _fetchArbol();
       } else {
-        final errorMsg = json.decode(response.body)['detail'] ?? "Error desconocido";
+        final errorMsg =
+            json.decode(response.body)['detail'] ?? "Error desconocido";
         _showError(errorMsg);
       }
     } catch (e) {
@@ -324,7 +383,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
           'id_ensamble': _selectedEnsamble['id'],
           'codigo_pieza': codigo,
           'cantidad': cantidad,
-          'observaciones': obs
+          'observaciones': obs,
         }),
       );
       if (response.statusCode == 200) {
@@ -339,7 +398,9 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
 
   Future<void> _deletePieza(int idBom) async {
     try {
-      final response = await http.delete(Uri.parse('$API_URL/api/bom/estructura/$idBom'));
+      final response = await http.delete(
+        Uri.parse('$API_URL/api/bom/estructura/$idBom'),
+      );
       if (response.statusCode == 200) {
         _fetchArbol();
       }
@@ -348,7 +409,12 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     }
   }
 
-  Future<void> _updateCantidadPieza(int idBom, double nuevaCantidad, {bool propagar = false, String? codigo}) async {
+  Future<void> _updateCantidadPieza(
+    int idBom,
+    double nuevaCantidad, {
+    bool propagar = false,
+    String? codigo,
+  }) async {
     try {
       final response = await http.put(
         Uri.parse('$API_URL/api/bom/estructura/cantidad/$idBom'),
@@ -373,10 +439,15 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     if (_selectedRevision == null) return;
     setState(() => _isLoading = true);
     try {
-      final response = await http.get(Uri.parse('$API_URL/api/bom/exportar/${_selectedRevision['id_revision']}'));
+      final response = await http.get(
+        Uri.parse(
+          '$API_URL/api/bom/exportar/${_selectedRevision['id_revision']}',
+        ),
+      );
       if (response.statusCode == 200) {
         final directory = await getApplicationDocumentsDirectory();
-        final filePath = '${directory.path}/BOM_Rev_${_selectedRevision['numero_revision']}.xlsx';
+        final filePath =
+            '${directory.path}/BOM_Rev_${_selectedRevision['numero_revision']}.xlsx';
         final file = File(filePath);
         await file.writeAsBytes(response.bodyBytes);
         _showError("Archivo exportado en: $filePath", isError: false);
@@ -392,7 +463,10 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
   }
 
   // ── NUEVO v60.1: Eliminar revisión con protección ──────────────────────────
-  Future<void> _deleteRevision({String password = '', String motivo = ''}) async {
+  Future<void> _deleteRevision({
+    String password = '',
+    String motivo = '',
+  }) async {
     if (_selectedRevision == null) return;
     final idRev = _selectedRevision['id_revision'];
     setState(() => _isLoading = true);
@@ -413,7 +487,8 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
       } else if (response.statusCode == 401) {
         _showError("❌ Contraseña incorrecta. Operación denegada.");
       } else {
-        final detail = json.decode(response.body)['detail'] ?? 'Error desconocido';
+        final detail =
+            json.decode(response.body)['detail'] ?? 'Error desconocido';
         _showError("Error: $detail");
       }
     } catch (e) {
@@ -436,87 +511,122 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
 
     showDialog(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setD) => ContentDialog(
-          constraints: const BoxConstraints(maxWidth: 460, maxHeight: 380),
-          title: Row(children: [
-            Icon(FluentIcons.delete, color: isAprobada ? Colors.red : Colors.orange, size: 18),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                isAprobada ? "⚠️ Eliminar Revisión Aprobada" : "Eliminar Revisión",
-                style: const TextStyle(fontSize: 14),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ]),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (isAprobada) ...[
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.1),
-                    border: Border.all(color: Colors.red),
-                    borderRadius: BorderRadius.circular(6),
+      builder:
+          (ctx) => StatefulBuilder(
+            builder:
+                (ctx, setD) => ContentDialog(
+                  constraints: const BoxConstraints(
+                    maxWidth: 460,
+                    maxHeight: 380,
                   ),
-                  child: Row(children: [
-                    Icon(FluentIcons.error_badge, color: Colors.red, size: 18),
-                    SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        "ADVERTENCIA: Esta revisión está APROBADA. "
-                        "Eliminarla borrará permanentemente toda su ingeniería. "
-                        "Se requiere contraseña de seguridad.",
-                        style: TextStyle(color: Colors.red, fontSize: 12),
+                  title: Row(
+                    children: [
+                      Icon(
+                        FluentIcons.delete,
+                        color: isAprobada ? Colors.red : Colors.orange,
+                        size: 18,
                       ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          isAprobada
+                              ? "⚠️ Eliminar Revisión Aprobada"
+                              : "Eliminar Revisión",
+                          style: const TextStyle(fontSize: 14),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (isAprobada) ...[
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.red.withOpacity(0.1),
+                            border: Border.all(color: Colors.red),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                FluentIcons.error_badge,
+                                color: Colors.red,
+                                size: 18,
+                              ),
+                              SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  "ADVERTENCIA: Esta revisión está APROBADA. "
+                                  "Eliminarla borrará permanentemente toda su ingeniería. "
+                                  "Se requiere contraseña de seguridad.",
+                                  style: TextStyle(
+                                    color: Colors.red,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          "Contraseña de Seguridad:",
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 4),
+                        PasswordBox(
+                          placeholder: 'Contraseña maestra...',
+                          onChanged: (v) => setD(() => passwordInput = v),
+                        ),
+                        const SizedBox(height: 10),
+                      ] else ...[
+                        Text(
+                          "¿Estás seguro de eliminar $revLabel?",
+                          style: const TextStyle(fontWeight: FontWeight.w500),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          "Se borrarán todas las estaciones, ensambles y piezas de esta revisión.",
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFFF57C00),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                      const Text("Motivo del borrado (opcional):"),
+                      const SizedBox(height: 4),
+                      TextBox(
+                        placeholder: "Describe el motivo...",
+                        onChanged: (v) => setD(() => motivoInput = v),
+                      ),
+                    ],
+                  ),
+                  actions: [
+                    Button(
+                      child: const Text("Cancelar"),
+                      onPressed: () => Navigator.pop(ctx),
                     ),
-                  ]),
+                    FilledButton(
+                      style: ButtonStyle(
+                        backgroundColor: WidgetStateProperty.all(Colors.red),
+                      ),
+                      child: const Text("ELIMINAR"),
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        _deleteRevision(
+                          password: passwordInput,
+                          motivo: motivoInput,
+                        );
+                      },
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 12),
-                const Text("Contraseña de Seguridad:", style: TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 4),
-                PasswordBox(
-                  placeholder: 'Contraseña maestra...',
-                  onChanged: (v) => setD(() => passwordInput = v),
-                ),
-                const SizedBox(height: 10),
-              ] else ...[
-                Text("¿Estás seguro de eliminar $revLabel?",
-                    style: const TextStyle(fontWeight: FontWeight.w500)),
-                const SizedBox(height: 4),
-                const Text("Se borrarán todas las estaciones, ensambles y piezas de esta revisión.",
-                    style: TextStyle(fontSize: 12, color: Color(0xFFF57C00))),
-                const SizedBox(height: 10),
-              ],
-              const Text("Motivo del borrado (opcional):"),
-              const SizedBox(height: 4),
-              TextBox(
-                placeholder: "Describe el motivo...",
-                onChanged: (v) => setD(() => motivoInput = v),
-              ),
-            ],
           ),
-          actions: [
-            Button(
-              child: const Text("Cancelar"),
-              onPressed: () => Navigator.pop(ctx),
-            ),
-            FilledButton(
-              style: ButtonStyle(
-                backgroundColor: WidgetStateProperty.all(Colors.red),
-              ),
-              child: const Text("ELIMINAR"),
-              onPressed: () {
-                Navigator.pop(ctx);
-                _deleteRevision(password: passwordInput, motivo: motivoInput);
-              },
-            ),
-          ],
-        ),
-      ),
     );
   }
 
@@ -529,7 +639,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'id_revision_origen': idOrigen,
-          'id_revision_destino': _selectedRevision['id_revision']
+          'id_revision_destino': _selectedRevision['id_revision'],
         }),
       );
       if (response.statusCode == 200) {
@@ -545,7 +655,11 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     }
   }
 
-  Future<void> _propagarCambio(String codigo, double cantidad, List<int> ids) async {
+  Future<void> _propagarCambio(
+    String codigo,
+    double cantidad,
+    List<int> ids,
+  ) async {
     try {
       final response = await http.post(
         Uri.parse('$API_URL/api/bom/propagar'),
@@ -553,7 +667,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
         body: jsonEncode({
           'codigo_pieza': codigo,
           'nueva_cantidad': cantidad,
-          'id_revisiones': ids
+          'id_revisiones': ids,
         }),
       );
       if (response.statusCode == 200) {
@@ -569,7 +683,9 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
       final response = await http.put(
         Uri.parse('$API_URL/api/vins/$idUnidad/notas'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'vin': '', 'notas': notas}), // vin es requerido por el modelo pero ignorado si es vacío en el update
+        body: jsonEncode(
+          {'vin': '', 'notas': notas},
+        ), // vin es requerido por el modelo pero ignorado si es vacío en el update
       );
       if (response.statusCode == 200) {
         await _fetchVINs();
@@ -582,7 +698,11 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
   Future<void> _fetchVINs() async {
     if (_selectedRevision == null) return;
     try {
-      final response = await http.get(Uri.parse('$API_URL/api/bom/revisiones/${_selectedRevision['id_revision']}/vins'));
+      final response = await http.get(
+        Uri.parse(
+          '$API_URL/api/bom/revisiones/${_selectedRevision['id_revision']}/vins',
+        ),
+      );
       if (response.statusCode == 200) {
         setState(() {
           _vins = json.decode(response.body);
@@ -597,7 +717,9 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     if (_selectedRevision == null) return;
     try {
       final response = await http.post(
-        Uri.parse('$API_URL/api/bom/revisiones/${_selectedRevision['id_revision']}/vins'),
+        Uri.parse(
+          '$API_URL/api/bom/revisiones/${_selectedRevision['id_revision']}/vins',
+        ),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'vin': vin}),
       );
@@ -613,7 +735,9 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
 
   Future<void> _deleteVIN(int idUnidad) async {
     try {
-      final response = await http.delete(Uri.parse('$API_URL/api/bom/vins/$idUnidad'));
+      final response = await http.delete(
+        Uri.parse('$API_URL/api/bom/vins/$idUnidad'),
+      );
       if (response.statusCode == 200) {
         await _fetchVINs();
       } else {
@@ -625,14 +749,17 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
   }
 
   void _showError(String message, {bool isError = true}) {
-    displayInfoBar(context, builder: (context, close) {
-      return InfoBar(
-        title: Text(isError ? 'Error' : 'Éxito'),
-        content: Text(message),
-        severity: isError ? InfoBarSeverity.error : InfoBarSeverity.success,
-        onClose: close,
-      );
-    });
+    displayInfoBar(
+      context,
+      builder: (context, close) {
+        return InfoBar(
+          title: Text(isError ? 'Error' : 'Éxito'),
+          content: Text(message),
+          severity: isError ? InfoBarSeverity.error : InfoBarSeverity.success,
+          onClose: close,
+        );
+      },
+    );
   }
 
   // DIALOGOS
@@ -640,30 +767,34 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     String inputValue = "";
     showDialog(
       context: context,
-      builder: (context) => ContentDialog(
-        title: Text(title),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextBox(
-              placeholder: 'Nombre...',
-              onChanged: (v) => inputValue = v,
+      builder:
+          (context) => ContentDialog(
+            title: Text(title),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextBox(
+                  placeholder: 'Nombre...',
+                  onChanged: (v) => inputValue = v,
+                ),
+              ],
             ),
-          ],
-        ),
-        actions: [
-          Button(child: const Text('Cancelar'), onPressed: () => Navigator.pop(context)),
-          FilledButton(
-            child: const Text('Guardar'),
-            onPressed: () {
-              if (inputValue.trim().isNotEmpty) {
-                onSave(inputValue.trim());
-                Navigator.pop(context);
-              }
-            },
-          )
-        ],
-      ),
+            actions: [
+              Button(
+                child: const Text('Cancelar'),
+                onPressed: () => Navigator.pop(context),
+              ),
+              FilledButton(
+                child: const Text('Guardar'),
+                onPressed: () {
+                  if (inputValue.trim().isNotEmpty) {
+                    onSave(inputValue.trim());
+                    Navigator.pop(context);
+                  }
+                },
+              ),
+            ],
+          ),
     );
   }
 
@@ -674,73 +805,79 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
 
     showDialog(
       context: context,
-      builder: (context) => ContentDialog(
-        title: const Text("Agregar Pieza"),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            InfoLabel(
-              label: "Código de Pieza (del Catálogo)",
-              child: TextBox(
-                onChanged: (v) => codigoValue = v,
-              ),
+      builder:
+          (context) => ContentDialog(
+            title: const Text("Agregar Pieza"),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                InfoLabel(
+                  label: "Código de Pieza (del Catálogo)",
+                  child: TextBox(onChanged: (v) => codigoValue = v),
+                ),
+                const SizedBox(height: 8),
+                InfoLabel(
+                  label: "Cantidad",
+                  child: TextBox(
+                    keyboardType: TextInputType.number,
+                    onChanged: (v) => cantStr = v,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                InfoLabel(
+                  label: "Observaciones",
+                  child: TextBox(onChanged: (v) => obsValue = v),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
-            InfoLabel(
-              label: "Cantidad",
-              child: TextBox(
-                keyboardType: TextInputType.number,
-                onChanged: (v) => cantStr = v,
+            actions: [
+              Button(
+                child: const Text('Cancelar'),
+                onPressed: () => Navigator.pop(context),
               ),
-            ),
-            const SizedBox(height: 8),
-            InfoLabel(
-              label: "Observaciones",
-              child: TextBox(
-                onChanged: (v) => obsValue = v,
+              FilledButton(
+                child: const Text('Agregar'),
+                onPressed: () {
+                  if (codigoValue.trim().isNotEmpty && cantStr.isNotEmpty) {
+                    double? cant = double.tryParse(cantStr);
+                    if (cant != null) {
+                      _addPieza(codigoValue.trim(), cant, obsValue.trim());
+                      Navigator.pop(context);
+                    } else {
+                      _showError("Cantidad inválida");
+                    }
+                  }
+                },
               ),
-            ),
-          ],
-        ),
-        actions: [
-          Button(child: const Text('Cancelar'), onPressed: () => Navigator.pop(context)),
-          FilledButton(
-            child: const Text('Agregar'),
-            onPressed: () {
-              if (codigoValue.trim().isNotEmpty && cantStr.isNotEmpty) {
-                double? cant = double.tryParse(cantStr);
-                if (cant != null) {
-                  _addPieza(codigoValue.trim(), cant, obsValue.trim());
-                  Navigator.pop(context);
-                } else {
-                  _showError("Cantidad inválida");
-                }
-              }
-            },
-          )
-        ],
-      ),
+            ],
+          ),
     );
   }
 
   void _confirmDelete(String title, VoidCallback onConfirm) {
     showDialog(
       context: context,
-      builder: (context) => ContentDialog(
-        title: const Text('Eliminar'),
-        content: Text(title),
-        actions: [
-          Button(child: const Text('Cancelar'), onPressed: () => Navigator.pop(context)),
-          FilledButton(
-            style: ButtonStyle(backgroundColor: ButtonState.all(Colors.red)),
-            child: const Text('Eliminar'),
-            onPressed: () {
-              onConfirm();
-              Navigator.pop(context);
-            },
-          )
-        ],
-      ),
+      builder:
+          (context) => ContentDialog(
+            title: const Text('Eliminar'),
+            content: Text(title),
+            actions: [
+              Button(
+                child: const Text('Cancelar'),
+                onPressed: () => Navigator.pop(context),
+              ),
+              FilledButton(
+                style: ButtonStyle(
+                  backgroundColor: ButtonState.all(Colors.red),
+                ),
+                child: const Text('Eliminar'),
+                onPressed: () {
+                  onConfirm();
+                  Navigator.pop(context);
+                },
+              ),
+            ],
+          ),
     );
   }
 
@@ -750,82 +887,92 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     _fetchVINs();
     showDialog(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          return ContentDialog(
-            title: const Text("VINs Asignados - Gestión"),
-            content: SizedBox(
-              width: 500,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
+      builder:
+          (context) => StatefulBuilder(
+            builder: (context, setDialogState) {
+              return ContentDialog(
+                title: const Text("VINs Asignados - Gestión"),
+                content: SizedBox(
+                  width: 500,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Expanded(
-                        child: TextBox(
-                          placeholder: "Nuevo VIN...",
-                          onChanged: (v) => newVin = v,
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextBox(
+                              placeholder: "Nuevo VIN...",
+                              onChanged: (v) => newVin = v,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton(
+                            child: const Text("Agregar"),
+                            onPressed: () {
+                              if (newVin.trim().isNotEmpty) {
+                                _addVIN(newVin.trim()).then((_) {
+                                  setDialogState(() {});
+                                });
+                              }
+                            },
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 8),
-                      FilledButton(
-                        child: const Text("Agregar"),
-                        onPressed: () {
-                          if (newVin.trim().isNotEmpty) {
-                            _addVIN(newVin.trim()).then((_) {
-                              setDialogState(() {});
-                            });
-                          }
-                        },
+                      const SizedBox(height: 16),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 400),
+                        child: ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: _vins.length,
+                          itemBuilder: (context, index) {
+                            final vin = _vins[index];
+                            return ListTile(
+                              title: Text(vin['vin']),
+                              subtitle: Text(
+                                vin['notas'] ?? "Sin notas",
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(FluentIcons.edit_note),
+                                    onPressed: () => _showNotasVINDialog(vin),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(FluentIcons.delete),
+                                    onPressed: () {
+                                      _confirmDelete(
+                                        "¿Seguro de eliminar el VIN ${vin['vin']}?",
+                                        () {
+                                          _deleteVIN(vin['id_unidad']).then((
+                                            _,
+                                          ) {
+                                            setDialogState(() {});
+                                          });
+                                        },
+                                      );
+                                    },
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxHeight: 400),
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: _vins.length,
-                      itemBuilder: (context, index) {
-                        final vin = _vins[index];
-                        return ListTile(
-                          title: Text(vin['vin']),
-                          subtitle: Text(vin['notas'] ?? "Sin notas", maxLines: 1, overflow: TextOverflow.ellipsis),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                icon: const Icon(FluentIcons.edit_note),
-                                onPressed: () => _showNotasVINDialog(vin),
-                              ),
-                              IconButton(
-                                icon: const Icon(FluentIcons.delete),
-                                onPressed: () {
-                                  _confirmDelete("¿Seguro de eliminar el VIN ${vin['vin']}?", () {
-                                    _deleteVIN(vin['id_unidad']).then((_) {
-                                      setDialogState(() {});
-                                    });
-                                  });
-                                },
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
+                ),
+                actions: [
+                  Button(
+                    child: const Text("Cerrar"),
+                    onPressed: () => Navigator.pop(context),
                   ),
                 ],
-              ),
-            ),
-            actions: [
-              Button(
-                child: const Text("Cerrar"),
-                onPressed: () => Navigator.pop(context),
-              ),
-            ],
-          );
-        }
-      ),
+              );
+            },
+          ),
     );
   }
 
@@ -833,30 +980,34 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     String notasTemp = vin['notas'] ?? "";
     showDialog(
       context: context,
-      builder: (context) => ContentDialog(
-        title: Text("Notas del VIN: ${vin['vin']}"),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextBox(
-              controller: TextEditingController(text: notasTemp),
-              maxLines: 5,
-              placeholder: "Escribe notas aquí...",
-              onChanged: (v) => notasTemp = v,
+      builder:
+          (context) => ContentDialog(
+            title: Text("Notas del VIN: ${vin['vin']}"),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextBox(
+                  controller: TextEditingController(text: notasTemp),
+                  maxLines: 5,
+                  placeholder: "Escribe notas aquí...",
+                  onChanged: (v) => notasTemp = v,
+                ),
+              ],
             ),
-          ],
-        ),
-        actions: [
-          Button(child: const Text("Cancelar"), onPressed: () => Navigator.pop(context)),
-          FilledButton(
-            child: const Text("Guardar"),
-            onPressed: () {
-              _updateVINNotas(vin['id_unidad'], notasTemp);
-              Navigator.pop(context);
-            },
+            actions: [
+              Button(
+                child: const Text("Cancelar"),
+                onPressed: () => Navigator.pop(context),
+              ),
+              FilledButton(
+                child: const Text("Guardar"),
+                onPressed: () {
+                  _updateVINNotas(vin['id_unidad'], notasTemp);
+                  Navigator.pop(context);
+                },
+              ),
+            ],
           ),
-        ],
-      ),
     );
   }
 
@@ -867,54 +1018,78 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
 
     showDialog(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDState) {
-          if (loadingDialog) {
-            http.get(Uri.parse('$API_URL/api/bom/revisiones/$_masterId')).then((res) {
-              if (res.statusCode == 200) {
-                setDState(() {
-                  allRevisions = (json.decode(res.body) as List).where((r) => r['id_revision'] != _selectedRevision['id_revision']).toList();
-                  loadingDialog = false;
-                });
+      builder:
+          (context) => StatefulBuilder(
+            builder: (context, setDState) {
+              if (loadingDialog) {
+                http
+                    .get(Uri.parse('$API_URL/api/bom/revisiones/$_masterId'))
+                    .then((res) {
+                      if (res.statusCode == 200) {
+                        setDState(() {
+                          allRevisions =
+                              (json.decode(res.body) as List)
+                                  .where(
+                                    (r) =>
+                                        r['id_revision'] !=
+                                        _selectedRevision['id_revision'],
+                                  )
+                                  .toList();
+                          loadingDialog = false;
+                        });
+                      }
+                    });
+                return const ContentDialog(content: ProgressRing());
               }
-            });
-            return const ContentDialog(content: ProgressRing());
-          }
 
-          return ContentDialog(
-            title: const Text("Clonar BOM desde otra Revisión"),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text("Selecciona la revisión de origen para copiar toda su estructura a la revisión actual:"),
-                const SizedBox(height: 16),
-                ComboBox<int>(
-                  placeholder: const Text("Seleccionar Revisión Origen"),
-                  value: selectedOrigenId,
-                  items: allRevisions.map((r) => ComboBoxItem<int>(
-                    value: r['id_revision'],
-                    child: Text("Rev ${r['numero_revision']} (ID ${r['id_revision']}) - ${r['estado']}"),
-                  )).toList(),
-                  onChanged: (v) => setDState(() => selectedOrigenId = v),
+              return ContentDialog(
+                title: const Text("Clonar BOM desde otra Revisión"),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      "Selecciona la revisión de origen para copiar toda su estructura a la revisión actual:",
+                    ),
+                    const SizedBox(height: 16),
+                    ComboBox<int>(
+                      placeholder: const Text("Seleccionar Revisión Origen"),
+                      value: selectedOrigenId,
+                      items:
+                          allRevisions
+                              .map(
+                                (r) => ComboBoxItem<int>(
+                                  value: r['id_revision'],
+                                  child: Text(
+                                    "Rev ${r['numero_revision']} (ID ${r['id_revision']}) - ${r['estado']}",
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                      onChanged: (v) => setDState(() => selectedOrigenId = v),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            actions: [
-              Button(child: const Text("Cancelar"), onPressed: () => Navigator.pop(context)),
-              FilledButton(
-                child: const Text("Clonar Ahora"),
-                onPressed: selectedOrigenId == null ? null : () {
-                  Navigator.pop(context);
-                  _clonarBOM(selectedOrigenId!);
-                },
-              ),
-            ],
-          );
-        },
-      ),
+                actions: [
+                  Button(
+                    child: const Text("Cancelar"),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                  FilledButton(
+                    child: const Text("Clonar Ahora"),
+                    onPressed:
+                        selectedOrigenId == null
+                            ? null
+                            : () {
+                              Navigator.pop(context);
+                              _clonarBOM(selectedOrigenId!);
+                            },
+                  ),
+                ],
+              );
+            },
+          ),
     );
   }
-
 
   void _showPropagacionDialog(String codigo, double cantidad) async {
     List<int> selectedIds = [];
@@ -923,141 +1098,200 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
 
     showDialog(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDState) {
-          if (dialogLoading) {
-            http.get(Uri.parse('$API_URL/api/bom/buscar_pieza_jerarquia/$codigo?exclude_rev=${_selectedRevision['id_revision']}')).then((res) {
-              if (res.statusCode == 200) {
-                setDState(() {
-                  jerarquia = json.decode(res.body);
-                  dialogLoading = false;
-                });
-              }
-            });
-            return const ContentDialog(content: ProgressRing());
-          }
-
-          return ContentDialog(
-            title: Text("Propagar cambio: $codigo"),
-            content: SizedBox(
-              width: 500,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text("Selecciona las listas donde deseas actualizar la cantidad a $cantidad:"),
-                  const SizedBox(height: 12),
-                  if (jerarquia.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.all(8.0),
-                      child: Text("No se encontró esta pieza en otras revisiones."),
-                    )
-                  else
-                    Flexible(
-                      child: ListView.builder(
-                        shrinkWrap: true,
-                        itemCount: jerarquia.length,
-                        itemBuilder: (context, idx) {
-                          final item = jerarquia[idx];
-                          final label = "${item['tracto']} > ${item['tipo']} > ${item['version']} > ${item['cliente']}";
-                          final revisionInfo = "Rev ${item['numero_revision']} - ${item['estado']}";
-                          
-                          return Checkbox(
-                            content: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
-                                Text(revisionInfo, style: const TextStyle(fontSize: 12)),
-                                Text("Cantidad actual: ${item['cantidad']}", style: TextStyle(color: Colors.blue.withOpacity(0.8), fontSize: 11)),
-                              ],
-                            ),
-                            checked: selectedIds.contains(item['id_revision']),
-                            onChanged: (v) {
-                              setDState(() {
-                                if (v == true) selectedIds.add(item['id_revision']);
-                                else selectedIds.remove(item['id_revision']);
-                              });
-                            },
-                          );
-                        },
+      builder:
+          (context) => StatefulBuilder(
+            builder: (context, setDState) {
+              if (dialogLoading) {
+                http
+                    .get(
+                      Uri.parse(
+                        '$API_URL/api/bom/buscar_pieza_jerarquia/$codigo?exclude_rev=${_selectedRevision['id_revision']}',
                       ),
-                    ),
+                    )
+                    .then((res) {
+                      if (res.statusCode == 200) {
+                        setDState(() {
+                          jerarquia = json.decode(res.body);
+                          dialogLoading = false;
+                        });
+                      }
+                    });
+                return const ContentDialog(content: ProgressRing());
+              }
+
+              return ContentDialog(
+                title: Text("Propagar cambio: $codigo"),
+                content: SizedBox(
+                  width: 500,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "Selecciona las listas donde deseas actualizar la cantidad a $cantidad:",
+                      ),
+                      const SizedBox(height: 12),
+                      if (jerarquia.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.all(8.0),
+                          child: Text(
+                            "No se encontró esta pieza en otras revisiones.",
+                          ),
+                        )
+                      else
+                        Flexible(
+                          child: ListView.builder(
+                            shrinkWrap: true,
+                            itemCount: jerarquia.length,
+                            itemBuilder: (context, idx) {
+                              final item = jerarquia[idx];
+                              final label =
+                                  "${item['tracto']} > ${item['tipo']} > ${item['version']} > ${item['cliente']}";
+                              final revisionInfo =
+                                  "Rev ${item['numero_revision']} - ${item['estado']}";
+
+                              return Checkbox(
+                                content: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      label,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    Text(
+                                      revisionInfo,
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
+                                    Text(
+                                      "Cantidad actual: ${item['cantidad']}",
+                                      style: TextStyle(
+                                        color: Colors.blue.withOpacity(0.8),
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                checked: selectedIds.contains(
+                                  item['id_revision'],
+                                ),
+                                onChanged: (v) {
+                                  setDState(() {
+                                    if (v == true)
+                                      selectedIds.add(item['id_revision']);
+                                    else
+                                      selectedIds.remove(item['id_revision']);
+                                  });
+                                },
+                              );
+                            },
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  Button(
+                    child: const Text("Cancelar"),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                  FilledButton(
+                    child: const Text("Propagar a Marcados"),
+                    onPressed:
+                        selectedIds.isEmpty
+                            ? null
+                            : () {
+                              _propagarCambio(codigo, cantidad, selectedIds);
+                              Navigator.pop(context);
+                            },
+                  ),
                 ],
-              ),
-            ),
-            actions: [
-              Button(child: const Text("Cancelar"), onPressed: () => Navigator.pop(context)),
-              FilledButton(
-                child: const Text("Propagar a Marcados"),
-                onPressed: selectedIds.isEmpty ? null : () {
-                  _propagarCambio(codigo, cantidad, selectedIds);
-                  Navigator.pop(context);
-                },
-              ),
-            ],
-          );
-        }
-      ),
+              );
+            },
+          ),
     );
   }
 
   List<TreeViewItem> _buildTreeItems() {
-    final bool isAprobada = _selectedRevision != null && _selectedRevision['estado'] == 'Aprobada';
+    final bool isAprobada =
+        _selectedRevision != null && _selectedRevision['estado'] == 'Aprobada';
 
     return _arbol.map((est) {
       return TreeViewItem(
         content: Row(
           children: [
             Expanded(
-              child: Text(est['nombre'], style: const TextStyle(fontWeight: FontWeight.bold)),
+              child: Text(
+                est['nombre'],
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
             ),
             if (!isAprobada) ...[
               IconButton(
                 icon: const Icon(FluentIcons.add),
-                onPressed: () => _showAddDialog("Nuevo Ensamble para ${est['nombre']}", (nombre) {
-                  _addEnsamble(est['id'], nombre);
-                }),
+                onPressed:
+                    () => _showAddDialog(
+                      "Nuevo Ensamble para ${est['nombre']}",
+                      (nombre) {
+                        _addEnsamble(est['id'], nombre);
+                      },
+                    ),
               ),
               IconButton(
                 icon: const Icon(FluentIcons.delete),
-                onPressed: () => _confirmDelete("¿Seguro de eliminar la estación '${est['nombre']}' y todo su contenido?", () {
-                  _deleteEstacion(est['id']);
-                }),
+                onPressed:
+                    () => _confirmDelete(
+                      "¿Seguro de eliminar la estación '${est['nombre']}' y todo su contenido?",
+                      () {
+                        _deleteEstacion(est['id']);
+                      },
+                    ),
               ),
             ],
           ],
         ),
-        children: (est['ensambles'] as List).map((ens) {
-          final isSelected = _selectedEnsamble != null && _selectedEnsamble['id'] == ens['id'];
-          return TreeViewItem(
-            content: GestureDetector(
-              onTap: () {
-                setState(() => _selectedEnsamble = ens);
-              },
-              child: Container(
-                color: isSelected ? Colors.blue.withOpacity(0.2) : Colors.transparent,
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        "[E-${ens['id'].toString().padLeft(4, '0')}] - ${ens['nombre']}",
-                        style: const TextStyle(fontWeight: FontWeight.w500),
-                      ),
+        children:
+            (est['ensambles'] as List).map((ens) {
+              final isSelected =
+                  _selectedEnsamble != null &&
+                  _selectedEnsamble['id'] == ens['id'];
+              return TreeViewItem(
+                content: GestureDetector(
+                  onTap: () {
+                    setState(() => _selectedEnsamble = ens);
+                  },
+                  child: Container(
+                    color:
+                        isSelected
+                            ? Colors.blue.withOpacity(0.2)
+                            : Colors.transparent,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            "[E-${ens['id'].toString().padLeft(4, '0')}] - ${ens['nombre']}",
+                            style: const TextStyle(fontWeight: FontWeight.w500),
+                          ),
+                        ),
+                        if (!isAprobada)
+                          IconButton(
+                            icon: const Icon(FluentIcons.delete),
+                            onPressed:
+                                () => _confirmDelete(
+                                  "¿Seguro de eliminar el ensamble '${ens['nombre']}' y sus piezas?",
+                                  () {
+                                    _deleteEnsamble(ens['id']);
+                                  },
+                                ),
+                          ),
+                      ],
                     ),
-                    if (!isAprobada)
-                      IconButton(
-                        icon: const Icon(FluentIcons.delete),
-                        onPressed: () => _confirmDelete("¿Seguro de eliminar el ensamble '${ens['nombre']}' y sus piezas?", () {
-                          _deleteEnsamble(ens['id']);
-                        }),
-                      ),
-                  ],
+                  ),
                 ),
-              ),
-            ),
-            value: ens,
-          );
-        }).toList(),
+                value: ens,
+              );
+            }).toList(),
       );
     }).toList();
   }
@@ -1067,11 +1301,15 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
       return const Center(child: Text("Selecciona una revisión primero."));
     }
     if (_selectedEnsamble == null) {
-      return const Center(child: Text("Selecciona un ensamble para ver sus piezas."));
+      return const Center(
+        child: Text("Selecciona un ensamble para ver sus piezas."),
+      );
     }
 
     // Snapshot inmutable para evitar RangeError si el estado cambia mid-frame
-    final List<dynamic> piezas = List<dynamic>.from(_selectedEnsamble['piezas'] ?? []);
+    final List<dynamic> piezas = List<dynamic>.from(
+      _selectedEnsamble['piezas'] ?? [],
+    );
     final bool isAprobada = _selectedRevision['estado'] == 'Aprobada';
 
     return Column(
@@ -1084,7 +1322,10 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
             Flexible(
               child: Text(
                 "Piezas: ${_selectedEnsamble['nombre']}",
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -1105,118 +1346,230 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
           ),
           child: const Row(
             children: [
-              Expanded(flex: 2, child: Text("Código", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
-              Expanded(flex: 4, child: Text("Descripción Oficial", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
-              Expanded(flex: 1, child: Text("Cant.", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
-              Expanded(flex: 2, child: Text("Procesos", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
-              Expanded(flex: 1, child: Text("Simetría", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
-              Expanded(flex: 1, child: Text("Acciones", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+              Expanded(
+                flex: 2,
+                child: Text(
+                  "Código",
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                ),
+              ),
+              Expanded(
+                flex: 4,
+                child: Text(
+                  "Descripción Oficial",
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                ),
+              ),
+              Expanded(
+                flex: 1,
+                child: Text(
+                  "Cant.",
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                ),
+              ),
+              Expanded(
+                flex: 2,
+                child: Text(
+                  "Procesos",
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                ),
+              ),
+              Expanded(
+                flex: 1,
+                child: Text(
+                  "Simetría",
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                ),
+              ),
+              Expanded(
+                flex: 1,
+                child: Text(
+                  "Acciones",
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                ),
+              ),
             ],
           ),
         ),
         const SizedBox(height: 4),
         // ─── Lista de piezas ─── Expanded recibe constraints del Column padre
         Expanded(
-          child: piezas.isEmpty
-              ? Center(child: Text("No hay piezas en este ensamble.", style: TextStyle(color: (FluentTheme.of(context).typography.body?.color?.withOpacity(0.5) ?? Colors.grey))))
-              : ListView.builder(
-                  itemCount: piezas.length,
-                  itemBuilder: (context, index) {
-                    // Guardia: nunca acceder fuera de rango
-                    if (index >= piezas.length) return const SizedBox.shrink();
-                    final pieza = piezas[index];
-
-                    final List<String> procesos = [];
-                    for (final key in ['proceso_primario', 'proceso_1', 'proceso_2', 'proceso_3']) {
-                      final v = pieza[key]?.toString() ?? '';
-                      if (v.isNotEmpty) procesos.add(v);
-                    }
-                    final strProcesos = procesos.join(', ');
-                    final strLink = pieza['link_drive']?.toString() ?? '';
-                    final hasLink = strLink.isNotEmpty && strLink != 'N/A';
-                    final descripcion = pieza['descripcion']?.toString() ?? '';
-
-                    return Container(
-                      padding: const EdgeInsets.symmetric(vertical: 3.0, horizontal: 12.0),
-                      decoration: BoxDecoration(
-                        border: Border(bottom: BorderSide(color: FluentTheme.of(context).scaffoldBackgroundColor)),
+          child:
+              piezas.isEmpty
+                  ? Center(
+                    child: Text(
+                      "No hay piezas en este ensamble.",
+                      style: TextStyle(
+                        color:
+                            (FluentTheme.of(
+                                  context,
+                                ).typography.body?.color?.withOpacity(0.5) ??
+                                Colors.grey),
                       ),
-                      child: Row(
-                        children: [
-                          Expanded(flex: 2, child: Text(pieza['codigo']?.toString() ?? '', style: const TextStyle(fontSize: 12))),
-                          Expanded(
-                            flex: 4,
-                            child: Tooltip(
-                              message: descripcion,
-                              child: Text(descripcion, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
+                    ),
+                  )
+                  : ListView.builder(
+                    itemCount: piezas.length,
+                    itemBuilder: (context, index) {
+                      // Guardia: nunca acceder fuera de rango
+                      if (index >= piezas.length)
+                        return const SizedBox.shrink();
+                      final pieza = piezas[index];
+
+                      final List<String> procesos = [];
+                      for (final key in [
+                        'proceso_primario',
+                        'proceso_1',
+                        'proceso_2',
+                        'proceso_3',
+                      ]) {
+                        final v = pieza[key]?.toString() ?? '';
+                        if (v.isNotEmpty) procesos.add(v);
+                      }
+                      final strProcesos = procesos.join(', ');
+                      final strLink = pieza['link_drive']?.toString() ?? '';
+                      final hasLink = strLink.isNotEmpty && strLink != 'N/A';
+                      final descripcion =
+                          pieza['descripcion']?.toString() ?? '';
+
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 3.0,
+                          horizontal: 12.0,
+                        ),
+                        decoration: BoxDecoration(
+                          border: Border(
+                            bottom: BorderSide(
+                              color:
+                                  FluentTheme.of(
+                                    context,
+                                  ).scaffoldBackgroundColor,
                             ),
                           ),
-                          Expanded(
-                            flex: 1,
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: TextBox(
-                                    controller: TextEditingController(text: pieza['cantidad']?.toString() ?? '0'),
-                                    keyboardType: TextInputType.number,
-                                    textInputAction: TextInputAction.done,
-                                    enabled: !isAprobada,
-                                    placeholder: "Cant.",
-                                    onSubmitted: (value) {
-                                      final cant = double.tryParse(value);
-                                      if (cant != null && cant > 0) {
-                                        _updateCantidadPieza(pieza['id'], cant, codigo: pieza['codigo']?.toString());
-                                      } else {
-                                        _showError("Cantidad inválida o igual a 0");
-                                      }
-                                    },
-                                  ),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              flex: 2,
+                              child: Text(
+                                pieza['codigo']?.toString() ?? '',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                            ),
+                            Expanded(
+                              flex: 4,
+                              child: Tooltip(
+                                message: descripcion,
+                                child: Text(
+                                  descripcion,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 12),
                                 ),
-                                if (!isAprobada)
-                                  IconButton(
-                                    icon: const Icon(FluentIcons.sync_occurence, size: 13),
-                                    onPressed: () => _showPropagacionDialog(
-                                      pieza['codigo']?.toString() ?? '',
-                                      (pieza['cantidad'] as num).toDouble(),
-                                    ),
-                                  ),
-                              ],
+                              ),
                             ),
-                          ),
-                          Expanded(flex: 2, child: Text(strProcesos, style: const TextStyle(fontSize: 11))),
-                          Expanded(flex: 1, child: Text(pieza['simetria']?.toString() ?? '', style: const TextStyle(fontSize: 12))),
-                          Expanded(
-                            flex: 1,
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (hasLink)
-                                  Tooltip(
-                                    message: "Abrir Plano",
-                                    child: IconButton(
-                                      icon: Icon(FluentIcons.link, color: Colors.blue, size: 14),
-                                      onPressed: () async {
-                                        final uri = Uri.parse(strLink);
-                                        if (await canLaunchUrl(uri)) await launchUrl(uri);
+                            Expanded(
+                              flex: 1,
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: TextBox(
+                                      controller: TextEditingController(
+                                        text:
+                                            pieza['cantidad']?.toString() ??
+                                            '0',
+                                      ),
+                                      keyboardType: TextInputType.number,
+                                      textInputAction: TextInputAction.done,
+                                      enabled: !isAprobada,
+                                      placeholder: "Cant.",
+                                      onSubmitted: (value) {
+                                        final cant = double.tryParse(value);
+                                        if (cant != null && cant > 0) {
+                                          _updateCantidadPieza(
+                                            pieza['id'],
+                                            cant,
+                                            codigo: pieza['codigo']?.toString(),
+                                          );
+                                        } else {
+                                          _showError(
+                                            "Cantidad inválida o igual a 0",
+                                          );
+                                        }
                                       },
                                     ),
                                   ),
-                                if (!isAprobada)
-                                  IconButton(
-                                    icon: Icon(FluentIcons.delete, color: Colors.red, size: 14),
-                                    onPressed: () => _confirmDelete(
-                                      "¿Seguro de quitar la pieza ${pieza['codigo']}?",
-                                      () => _deletePieza(pieza['id']),
+                                  if (!isAprobada)
+                                    IconButton(
+                                      icon: const Icon(
+                                        FluentIcons.sync_occurence,
+                                        size: 13,
+                                      ),
+                                      onPressed:
+                                          () => _showPropagacionDialog(
+                                            pieza['codigo']?.toString() ?? '',
+                                            (pieza['cantidad'] as num)
+                                                .toDouble(),
+                                          ),
                                     ),
-                                  ),
-                              ],
+                                ],
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
+                            Expanded(
+                              flex: 2,
+                              child: Text(
+                                strProcesos,
+                                style: const TextStyle(fontSize: 11),
+                              ),
+                            ),
+                            Expanded(
+                              flex: 1,
+                              child: Text(
+                                pieza['simetria']?.toString() ?? '',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                            ),
+                            Expanded(
+                              flex: 1,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (hasLink)
+                                    Tooltip(
+                                      message: "Abrir Plano",
+                                      child: IconButton(
+                                        icon: Icon(
+                                          FluentIcons.link,
+                                          color: Colors.blue,
+                                          size: 14,
+                                        ),
+                                        onPressed: () async {
+                                          final uri = Uri.parse(strLink);
+                                          if (await canLaunchUrl(uri))
+                                            await launchUrl(uri);
+                                        },
+                                      ),
+                                    ),
+                                  if (!isAprobada)
+                                    IconButton(
+                                      icon: Icon(
+                                        FluentIcons.delete,
+                                        color: Colors.red,
+                                        size: 14,
+                                      ),
+                                      onPressed:
+                                          () => _confirmDelete(
+                                            "¿Seguro de quitar la pieza ${pieza['codigo']}?",
+                                            () => _deletePieza(pieza['id']),
+                                          ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
         ),
       ],
     );
@@ -1236,20 +1589,25 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
       child: Row(
         children: List.generate(snap.length * 2 - 1, (i) {
           if (i.isOdd) {
-            return Container(width: 24, height: 2, color: Colors.grey.withOpacity(0.4));
+            return Container(
+              width: 24,
+              height: 2,
+              color: Colors.grey.withOpacity(0.4),
+            );
           }
           final idx = i ~/ 2;
           if (idx >= snap.length) return const SizedBox.shrink();
           final rev = snap[idx];
-          final isSelected = _selectedRevision != null &&
+          final isSelected =
+              _selectedRevision != null &&
               _selectedRevision['id_revision'] == rev['id_revision'];
           final isAprobada = rev['estado'] == 'Aprobada';
-          final stepColor = isAprobada
-              ? const Color(0xFF2E7D32)
-              : const Color(0xFFF9A825);
+          final stepColor =
+              isAprobada ? const Color(0xFF2E7D32) : const Color(0xFFF9A825);
 
           return Tooltip(
-            message: "Rev ${rev['numero_revision']} - ${rev['estado']} (click para seleccionar)",
+            message:
+                "Rev ${rev['numero_revision']} - ${rev['estado']} (click para seleccionar)",
             child: GestureDetector(
               onTap: () {
                 _clearData();
@@ -1259,26 +1617,42 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
               },
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: isSelected ? stepColor : stepColor.withOpacity(0.15),
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: stepColor, width: isSelected ? 2.5 : 1),
-                  boxShadow: isSelected
-                      ? [BoxShadow(color: stepColor.withOpacity(0.4), blurRadius: 6)]
-                      : [],
+                  border: Border.all(
+                    color: stepColor,
+                    width: isSelected ? 2.5 : 1,
+                  ),
+                  boxShadow:
+                      isSelected
+                          ? [
+                            BoxShadow(
+                              color: stepColor.withOpacity(0.4),
+                              blurRadius: 6,
+                            ),
+                          ]
+                          : [],
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(isAprobada ? FluentIcons.lock : FluentIcons.edit,
-                        size: 12, color: isSelected ? Colors.white : stepColor),
+                    Icon(
+                      isAprobada ? FluentIcons.lock : FluentIcons.edit,
+                      size: 12,
+                      color: isSelected ? Colors.white : stepColor,
+                    ),
                     const SizedBox(width: 4),
                     Text(
                       "Rev ${rev['numero_revision']}",
                       style: TextStyle(
                         fontSize: 12,
-                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                        fontWeight:
+                            isSelected ? FontWeight.bold : FontWeight.normal,
                         color: isSelected ? Colors.white : stepColor,
                       ),
                     ),
@@ -1312,7 +1686,8 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
         builder: (context, constraints) {
           return SizedBox(
             width: constraints.maxWidth,
-            height: constraints.maxHeight.isInfinite ? 600 : constraints.maxHeight,
+            height:
+                constraints.maxHeight.isInfinite ? 600 : constraints.maxHeight,
             child: Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(
@@ -1322,65 +1697,109 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                   Container(
                     decoration: BoxDecoration(
                       color: _accentColor.withOpacity(0.06),
-                      border: Border(bottom: BorderSide(color: _accentColor.withOpacity(0.2), width: 1.5)),
+                      border: Border(
+                        bottom: BorderSide(
+                          color: _accentColor.withOpacity(0.2),
+                          width: 1.5,
+                        ),
+                      ),
                     ),
                     child: Row(
                       children: [
                         Expanded(
                           flex: 4,
                           child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12.0,
+                              vertical: 6.0,
+                            ),
                             child: _buildRevisionStepper(),
                           ),
                         ),
-                        Container(width: 1, height: 24, color: Colors.grey.withOpacity(0.2)),
+                        Container(
+                          width: 1,
+                          height: 24,
+                          color: Colors.grey.withOpacity(0.2),
+                        ),
                         Expanded(
                           child: CommandBar(
-                            overflowBehavior: CommandBarOverflowBehavior.dynamicOverflow,
+                            overflowBehavior:
+                                CommandBarOverflowBehavior.dynamicOverflow,
                             primaryItems: [
                               CommandBarButton(
                                 icon: const Icon(FluentIcons.add),
                                 label: const Text("Nueva Rev."),
-                                onPressed: () => _showAddDialog("Nueva Revisión", _addRevision),
+                                onPressed:
+                                    () => _showAddDialog(
+                                      "Nueva Revisión",
+                                      _addRevision,
+                                    ),
                               ),
-                              if (_selectedRevision != null && _selectedRevision['estado'] != 'Aprobada')
+                              if (_selectedRevision != null &&
+                                  _selectedRevision['estado'] != 'Aprobada')
                                 CommandBarButton(
-                                  icon: Icon(FluentIcons.lock, color: Colors.green),
+                                  icon: Icon(
+                                    FluentIcons.lock,
+                                    color: Colors.green,
+                                  ),
                                   label: const Text("Aprobar"),
                                   onPressed: _aprobarRevision,
                                 ),
                               CommandBarButton(
                                 icon: Icon(
                                   FluentIcons.delete,
-                                  color: _selectedRevision?['estado'] == 'Aprobada' ? Colors.red : Colors.orange,
+                                  color:
+                                      _selectedRevision?['estado'] == 'Aprobada'
+                                          ? Colors.red
+                                          : Colors.orange,
                                 ),
                                 label: const Text("Eliminar"),
-                                onPressed: _selectedRevision == null ? null : _showDeleteRevisionDialog,
+                                onPressed:
+                                    _selectedRevision == null
+                                        ? null
+                                        : _showDeleteRevisionDialog,
                               ),
                             ],
                             secondaryItems: [
                               CommandBarButton(
-                                icon: Icon(FluentIcons.excel_document, color: Colors.green),
+                                icon: Icon(
+                                  FluentIcons.excel_document,
+                                  color: Colors.green,
+                                ),
                                 label: const Text("Exportar BOM"),
-                                onPressed: _selectedRevision == null ? null : _exportarExcel,
+                                onPressed:
+                                    _selectedRevision == null
+                                        ? null
+                                        : _exportarExcel,
                               ),
                               CommandBarButton(
                                 icon: Icon(FluentIcons.car, color: Colors.blue),
                                 label: const Text("Gestionar VINs"),
-                                onPressed: _selectedRevision == null ? null : _showVINManagementDialog,
+                                onPressed:
+                                    _selectedRevision == null
+                                        ? null
+                                        : _showVINManagementDialog,
                               ),
                               const CommandBarSeparator(),
                               CommandBarButton(
                                 icon: const Icon(FluentIcons.download),
                                 label: const Text("Importar Excel"),
-                                onPressed: (_selectedRevision == null || _selectedRevision['estado'] == 'Aprobada')
-                                    ? null : _importarExcel,
+                                onPressed:
+                                    (_selectedRevision == null ||
+                                            _selectedRevision['estado'] ==
+                                                'Aprobada')
+                                        ? null
+                                        : _importarExcel,
                               ),
                               CommandBarButton(
                                 icon: const Icon(FluentIcons.copy),
                                 label: const Text("Clonar BOM"),
-                                onPressed: (_selectedRevision == null || _selectedRevision['estado'] == 'Aprobada')
-                                    ? null : _showClonarDialog,
+                                onPressed:
+                                    (_selectedRevision == null ||
+                                            _selectedRevision['estado'] ==
+                                                'Aprobada')
+                                        ? null
+                                        : _showClonarDialog,
                               ),
                             ],
                           ),
@@ -1404,27 +1823,60 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
                                 Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
                                   children: [
-                                    const Text("ENSAMBLES", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                                    const Text(
+                                      "ENSAMBLES",
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                    ),
                                     Tooltip(
                                       message: "Agregar Estación",
                                       child: IconButton(
-                                        icon: const Icon(FluentIcons.add, size: 14),
-                                        onPressed: () => _showAddDialog("Nueva Estación", _addEstacion),
+                                        icon: const Icon(
+                                          FluentIcons.add,
+                                          size: 14,
+                                        ),
+                                        onPressed:
+                                            () => _showAddDialog(
+                                              "Nueva Estación",
+                                              _addEstacion,
+                                            ),
                                       ),
                                     ),
                                   ],
                                 ),
                                 const Divider(),
                                 Expanded(
-                                  child: _arbol.isEmpty
-                                      ? Center(child: Text("Sin estaciones", style: TextStyle(color: (FluentTheme.of(context).typography.body?.color?.withOpacity(0.5) ?? Colors.grey), fontSize: 12)))
-                                      : TreeView(
-                                          items: _buildTreeItems(),
-                                          selectionMode: TreeViewSelectionMode.single,
-                                          onItemInvoked: (item, reason) async {},
-                                        ),
+                                  child:
+                                      _arbol.isEmpty
+                                          ? Center(
+                                            child: Text(
+                                              "Sin estaciones",
+                                              style: TextStyle(
+                                                color:
+                                                    (FluentTheme.of(context)
+                                                            .typography
+                                                            .body
+                                                            ?.color
+                                                            ?.withOpacity(
+                                                              0.5,
+                                                            ) ??
+                                                        Colors.grey),
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          )
+                                          : TreeView(
+                                            items: _buildTreeItems(),
+                                            selectionMode:
+                                                TreeViewSelectionMode.single,
+                                            onItemInvoked:
+                                                (item, reason) async {},
+                                          ),
                                 ),
                               ],
                             ),
@@ -1436,9 +1888,10 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                         Expanded(
                           child: Card(
                             padding: const EdgeInsets.all(12),
-                            child: _isLoading && _selectedEnsamble == null
-                                ? const Center(child: ProgressRing())
-                                : _buildPiezasTable(),
+                            child:
+                                _isLoading && _selectedEnsamble == null
+                                    ? const Center(child: ProgressRing())
+                                    : _buildPiezasTable(),
                           ),
                         ),
                       ],
