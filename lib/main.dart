@@ -2,6 +2,8 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:typed_data';
+import 'package:file_picker/file_picker.dart';
 
 import 'screens/catalog.dart';
 
@@ -167,6 +169,8 @@ class _MyAppState extends State<MyApp> {
     String gravedad = "Sugerencia";
     String descripcion = "";
     bool enviando = false;
+    Uint8List? capturaBytes;
+    String? capturaBase64;
 
     showDialog(
       context: context,
@@ -228,6 +232,59 @@ class _MyAppState extends State<MyApp> {
                       onChanged: (v) => descripcion = v,
                     ),
                     const SizedBox(height: 12),
+                    const SizedBox(height: 12),
+                    if (capturaBytes != null)
+                      Container(
+                        height: 100,
+                        margin: const EdgeInsets.only(bottom: 12),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey),
+                        ),
+                        child: Center(
+                          child: Stack(
+                            alignment: Alignment.topRight,
+                            children: [
+                              Image.memory(capturaBytes!),
+                              IconButton(
+                                icon: const Icon(
+                                  FluentIcons.cancel,
+                                  color: Color(0xFFE53935),
+                                ),
+                                onPressed:
+                                    () => setDState(() {
+                                      capturaBytes = null;
+                                      capturaBase64 = null;
+                                    }),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    Button(
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(FluentIcons.image_pixel),
+                          SizedBox(width: 8),
+                          Text("Adjuntar Captura"),
+                        ],
+                      ),
+                      onPressed: () async {
+                        final result = await FilePicker.platform.pickFiles(
+                          type: FileType.image,
+                        );
+                        if (result != null &&
+                            result.files.single.path != null) {
+                          final bytes =
+                              await result.files.single.xFile.readAsBytes();
+                          setDState(() {
+                            capturaBytes = bytes;
+                            capturaBase64 = base64Encode(bytes);
+                          });
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 12),
                     if (enviando) const ProgressRing(),
                   ],
                 ),
@@ -248,6 +305,7 @@ class _MyAppState extends State<MyApp> {
                             "modulo": modulo,
                             "gravedad": gravedad,
                             "descripcion": descripcion,
+                            "captura": capturaBase64,
                           }),
                         );
                         Navigator.pop(context);

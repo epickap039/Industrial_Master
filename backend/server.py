@@ -197,6 +197,7 @@ class BugReportPayload(BaseModel):
     modulo: str
     gravedad: str
     descripcion: str
+    captura: Optional[str] = None
 
 
 class ClonarPayload(BaseModel):
@@ -2949,9 +2950,9 @@ def nuevo_reporte(payload: BugReportPayload):
             user_ip = "Unknown"
         
         cursor.execute("""
-            INSERT INTO Tbl_Reportes_Beta (Usuario, Fecha_Hora, Modulo, Descripcion, Gravedad, Estado)
-            VALUES (?, GETDATE(), ?, ?, ?, 'Abierto')
-        """, (user_ip, payload.modulo, payload.descripcion, payload.gravedad))
+            INSERT INTO Tbl_Reportes_Beta (Usuario, Fecha_Hora, Modulo, Descripcion, Gravedad, Estado, Captura_Base64)
+            VALUES (?, GETDATE(), ?, ?, ?, 'Abierto', ?)
+        """, (user_ip, payload.modulo, payload.descripcion, payload.gravedad, payload.captura))
         conn.commit()
         return {"status": "success"}
     except Exception as e:
@@ -2965,7 +2966,7 @@ def exportar_reportes():
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT ID_Reporte, Modulo, Descripcion, Gravedad FROM Tbl_Reportes_Beta WHERE Estado = 'Abierto'")
+        cursor.execute("SELECT ID_Reporte, Modulo, Descripcion, Gravedad, Captura_Base64 FROM Tbl_Reportes_Beta WHERE Estado = 'Abierto'")
         rows = cursor.fetchall()
         reportes = []
         for r in rows:
@@ -2973,7 +2974,8 @@ def exportar_reportes():
                 "id": r.ID_Reporte,
                 "modulo": r.Modulo,
                 "error": r.Descripcion,
-                "severidad": r.Gravedad
+                "severidad": r.Gravedad,
+                "captura_base64": r.Captura_Base64
             })
         return reportes
     except Exception as e:
