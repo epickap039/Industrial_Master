@@ -478,7 +478,22 @@ class _MyAppState extends State<MyApp> {
                           PaneItem(
                             icon: const Icon(FluentIcons.car),
                             title: const Text('Expedientes VIN'),
-                            body: const VINDossierScreen(),
+                            body: VINDossierScreen(
+                              onNavigateToBOM:
+                                  (idVersion, versionName, tractoName) {
+                                Navigator.push(
+                                  context,
+                                  FluentPageRoute(
+                                    builder:
+                                        (context) => BOMManagerScreen(
+                                          idVersion: idVersion,
+                                          versionName: versionName,
+                                          tractoName: tractoName,
+                                        ),
+                                  ),
+                                );
+                              },
+                            ),
                           ),
                           PaneItem(
                             icon: const Icon(FluentIcons.test_plan),

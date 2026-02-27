@@ -5,11 +5,15 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:open_file/open_file.dart';
 import 'dart:io';
+import 'bom_manager.dart';
 
 const String API_URL = "http://192.168.1.73:8001";
 
 class VINDossierScreen extends StatefulWidget {
-  const VINDossierScreen({Key? key}) : super(key: key);
+  final Function(int idVersion, String versionName, String tractoName)?
+      onNavigateToBOM;
+
+  const VINDossierScreen({Key? key, this.onNavigateToBOM}) : super(key: key);
 
   @override
   _VINDossierScreenState createState() => _VINDossierScreenState();
@@ -653,9 +657,51 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
                                           "Versión:",
                                           _vinData['version'],
                                         ),
-                                        _buildInfoRow(
-                                          "Estructura / BOM:",
-                                          "Rev ${_vinData['numero_revision']} - ${_vinData['version']}",
+                                        Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            vertical: 4.0,
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              const SizedBox(
+                                                width: 100,
+                                                child: Text(
+                                                  "Estructura / BOM:",
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
+                                              ),
+                                              Expanded(
+                                                child: Text(
+                                                  "Rev ${_vinData['numero_revision']} - ${_vinData['version']}",
+                                                ),
+                                              ),
+                                              if (widget.onNavigateToBOM !=
+                                                  null)
+                                                HyperlinkButton(
+                                                  child: const Row(
+                                                    children: [
+                                                      Icon(
+                                                        FluentIcons
+                                                            .open_in_new_window,
+                                                        size: 14,
+                                                      ),
+                                                      SizedBox(width: 4),
+                                                      Text("Ver Lista Asignada"),
+                                                    ],
+                                                  ),
+                                                  onPressed: () {
+                                                    widget.onNavigateToBOM!(
+                                                      _vinData['id_version'] ??
+                                                          0,
+                                                      _vinData['version'] ?? '',
+                                                      _vinData['tracto'] ?? '',
+                                                    );
+                                                  },
+                                                ),
+                                            ],
+                                          ),
                                         ),
                                         const SizedBox(height: 12),
                                         Text(
