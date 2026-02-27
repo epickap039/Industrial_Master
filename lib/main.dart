@@ -479,19 +479,10 @@ class _MyAppState extends State<MyApp> {
                             icon: const Icon(FluentIcons.car),
                             title: const Text('Expedientes VIN'),
                             body: VINDossierScreen(
-                              onNavigateToBOM:
-                                  (idVersion, versionName, tractoName) {
-                                Navigator.push(
-                                  context,
-                                  FluentPageRoute(
-                                    builder:
-                                        (context) => BOMManagerScreen(
-                                          idVersion: idVersion,
-                                          versionName: versionName,
-                                          tractoName: tractoName,
-                                        ),
-                                  ),
-                                );
+                              onNavigateToBOM: () {
+                                setState(() {
+                                  topIndex = 9; // Índice de Mapa de Ingeniería
+                                });
                               },
                             ),
                           ),
