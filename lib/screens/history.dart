@@ -1,7 +1,10 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:io';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:open_file/open_file.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
@@ -70,17 +73,24 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   Color _getActionColor(String action) {
-    if (action.toUpperCase().contains('CREACION') || action.toUpperCase() == 'NUEVO') {
+    if (action.toUpperCase().contains('CREACION') ||
+        action.toUpperCase() == 'NUEVO') {
       return Colors.green;
-    } else if (action.toUpperCase().contains('MODIFICACION') || action.toUpperCase() == 'UPDATE') {
-      return Colors.blue; 
-    } else if (action.toUpperCase().contains('ELIMINACION') || action.toUpperCase() == 'DELETE') {
+    } else if (action.toUpperCase().contains('MODIFICACION') ||
+        action.toUpperCase() == 'UPDATE') {
+      return Colors.blue;
+    } else if (action.toUpperCase().contains('ELIMINACION') ||
+        action.toUpperCase() == 'DELETE') {
       return Colors.red;
     }
     return Colors.orange; // Default/Unknown
   }
 
-  Widget _buildDiffView(dynamic oldData, dynamic newData, BuildContext context) {
+  Widget _buildDiffView(
+    dynamic oldData,
+    dynamic newData,
+    BuildContext context,
+  ) {
     // 1. LÓGICA DE PARSEO INTELIGENTE
     Map<String, dynamic>? tryParseJson(dynamic data) {
       if (data == null) return null;
@@ -89,7 +99,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
         try {
           String sanitized = data
               .replaceAll('"', '\\"') // 1. Protege las pulgadas primero
-              .replaceAll("'", '"')   // 2. Convierte sintaxis Python a JSON
+              .replaceAll("'", '"') // 2. Convierte sintaxis Python a JSON
               .replaceAll("None", "null")
               .replaceAll("True", "true")
               .replaceAll("False", "false");
@@ -109,60 +119,130 @@ class _HistoryScreenState extends State<HistoryScreen> {
     if (isDict) {
       final safeOld = oldMap ?? {};
       final safeNew = newMap ?? {};
-      
+
       final allKeys = {...safeOld.keys, ...safeNew.keys}.toList();
       List<Widget> changes = [];
 
       for (var key in allKeys) {
         final oldVal = safeOld[key]?.toString() ?? 'N/A';
         final newVal = safeNew[key]?.toString() ?? 'N/A';
-        
+
         if (oldVal != newVal) {
-           changes.add(
-             Wrap(
-               crossAxisAlignment: WrapCrossAlignment.center,
-               children: [
-                 Text('$key: ', style: const TextStyle(fontWeight: FontWeight.bold)),
-                 Text(oldVal, style: TextStyle(color: Colors.red, decoration: TextDecoration.lineThrough)),
-                 const Text(' ➔ ', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
-                 Text(newVal, style: TextStyle(color: Colors.green)),
-               ],
-             )
-           );
+          changes.add(
+            Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text(
+                  '$key: ',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                Text(
+                  oldVal,
+                  style: TextStyle(
+                    color: Colors.red,
+                    decoration: TextDecoration.lineThrough,
+                  ),
+                ),
+                const Text(
+                  ' ➔ ',
+                  style: TextStyle(
+                    color: Colors.grey,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(newVal, style: TextStyle(color: Colors.green)),
+              ],
+            ),
+          );
         }
       }
-      
-      if (changes.isEmpty) {
-         return const Text('Sin cambios identificados en estructura.', style: TextStyle(fontStyle: FontStyle.italic));
-      }
-      
-      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: changes);
 
+      if (changes.isEmpty) {
+        return const Text(
+          'Sin cambios identificados en estructura.',
+          style: TextStyle(fontStyle: FontStyle.italic),
+        );
+      }
+
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: changes,
+      );
     } else {
-       // 2B. CONSTRUCCIÓN VISUAL (TEXTO SIMPLE)
-       return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-             if (oldData != null && oldData.toString().isNotEmpty)
-               Row(
-                 crossAxisAlignment: CrossAxisAlignment.start,
-                 children: [
-                    const Text('Anterior: ', style: TextStyle(color: Colors.grey)),
-                    Expanded(child: Text(oldData.toString(), style: TextStyle(color: Colors.red))),
-                 ],
-               ),
-             if (newData != null && newData.toString().isNotEmpty) ...[
-               const SizedBox(height: 4),
-               Row(
-                 crossAxisAlignment: CrossAxisAlignment.start,
-                 children: [
-                    const Text('Nuevo: ', style: TextStyle(color: Colors.grey)),
-                    Expanded(child: Text(newData.toString(), style: TextStyle(color: Colors.green))),
-                 ],
-               ),
-             ]
-          ]
-       );
+      // 2B. CONSTRUCCIÓN VISUAL (TEXTO SIMPLE)
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (oldData != null && oldData.toString().isNotEmpty)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Anterior: ', style: TextStyle(color: Colors.grey)),
+                Expanded(
+                  child: Text(
+                    oldData.toString(),
+                    style: TextStyle(color: Colors.red),
+                  ),
+                ),
+              ],
+            ),
+          if (newData != null && newData.toString().isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Nuevo: ', style: TextStyle(color: Colors.grey)),
+                Expanded(
+                  child: Text(
+                    newData.toString(),
+                    style: TextStyle(color: Colors.green),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      );
+    }
+  }
+
+  Future<void> _exportarBugs() async {
+    setState(() => _isLoading = true);
+    try {
+      final response = await http.get(
+        Uri.parse('http://192.168.1.73:8001/api/reportes/exportar_gemini'),
+      );
+      if (response.statusCode == 200) {
+        final dir = await getDownloadsDirectory();
+        final filePath =
+            '${dir?.path ?? "C:\\"}\\Tbl_Reportes_Beta_Gemini.json';
+        final file = File(filePath);
+        await file.writeAsString(response.body);
+
+        displayInfoBar(
+          context,
+          builder: (context, close) {
+            return InfoBar(
+              title: const Text('Exportado'),
+              content: Text('Reporte JSON guardado en Descargas: $filePath'),
+              severity: InfoBarSeverity.success,
+              action: Button(
+                child: const Text("Abrir"),
+                onPressed: () {
+                  OpenFile.open(filePath);
+                },
+              ),
+              onClose: close,
+            );
+          },
+        );
+      } else {
+        _showErrorDialog("Error al generar reporte de Bugs.");
+      }
+    } catch (e) {
+      _showErrorDialog(e.toString());
+    } finally {
+      setState(() => _isLoading = false);
     }
   }
 
@@ -171,6 +251,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
     return ScaffoldPage(
       header: PageHeader(
         title: const Text('Historial Global de Cambios'),
+        commandBar: FilledButton(
+          onPressed: _exportarBugs,
+          child: const Text("Generar Reporte para IA"),
+        ),
       ),
       content: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -183,98 +267,130 @@ class _HistoryScreenState extends State<HistoryScreen> {
               suffix: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                   if (_searchController.text.isNotEmpty)
+                  if (_searchController.text.isNotEmpty)
                     IconButton(
-                        icon: Icon(FluentIcons.clear),
-                        onPressed: () {
-                          _searchController.clear();
-                          _fetchHistory();
-                        },
+                      icon: Icon(FluentIcons.clear),
+                      onPressed: () {
+                        _searchController.clear();
+                        _fetchHistory();
+                      },
                     ),
-                   IconButton(
+                  IconButton(
                     icon: Icon(FluentIcons.search),
-                    onPressed: () => _fetchHistory(query: _searchController.text),
+                    onPressed:
+                        () => _fetchHistory(query: _searchController.text),
                   ),
                   IconButton(
                     icon: Icon(FluentIcons.refresh),
-                    onPressed: () => _fetchHistory(query: _searchController.text),
+                    onPressed:
+                        () => _fetchHistory(query: _searchController.text),
                   ),
                 ],
               ),
               onSubmitted: (value) => _fetchHistory(query: value),
             ),
             const SizedBox(height: 20),
-            
+
             // LISTA DE RESULTADOS
             Expanded(
-              child: _isLoading
-                  ? const Center(child: ProgressRing())
-                  : _history.isEmpty
-                      ? const Center(child: Text('No se encontraron registros.'))
+              child:
+                  _isLoading
+                      ? const Center(child: ProgressRing())
+                      : _history.isEmpty
+                      ? const Center(
+                        child: Text('No se encontraron registros.'),
+                      )
                       : ListView.builder(
-                          itemCount: _history.length,
-                          itemBuilder: (context, index) {
-                            final item = _history[index];
-                            final actionColor = _getActionColor(item['accion'] ?? '');
-                            
-                            return Card(
-                              margin: const EdgeInsets.only(bottom: 10),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  // Encabezado
-                                  Row(
-                                    children: [
-                                      Text(
-                                        item['fecha'] ?? 'Sin fecha',
-                                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                        itemCount: _history.length,
+                        itemBuilder: (context, index) {
+                          final item = _history[index];
+                          final actionColor = _getActionColor(
+                            item['accion'] ?? '',
+                          );
+
+                          return Card(
+                            margin: const EdgeInsets.only(bottom: 10),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // Encabezado
+                                Row(
+                                  children: [
+                                    Text(
+                                      item['fecha'] ?? 'Sin fecha',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey,
                                       ),
-                                      const SizedBox(width: 10),
-                                      Text(
-                                        '| Usuario: ${item['usuario'] ?? "Desconocido"}',
-                                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                                      ),
-                                      // 3. MEJORA DE BADGES (Etiqueta de Acción)
-                                      const Spacer(),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                        decoration: BoxDecoration(
-                                          color: Colors.orange.withOpacity(0.2), // Naranja tenue
-                                          borderRadius: BorderRadius.circular(4),
-                                        ),
-                                        child: Text(
-                                          item['accion'] ?? 'ACCIÓN',
-                                          style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 12),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 8),
-                                  
-                                  // Título (Código)
-                                  SelectableText(
-                                    item['codigo'] ?? 'SIN CÓDIGO',
-                                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  
-                                  // Cuerpo (Cambios - Diff View)
-                                  Container(
-                                    width: double.infinity,
-                                    padding: const EdgeInsets.all(8),
-                                    decoration: BoxDecoration(
-                                      color: FluentTheme.of(context).brightness == Brightness.dark 
-                                          ? Colors.black.withOpacity(0.2) 
-                                          : Colors.grey[20], // Still using grey[20] as it seemed fine before, just non-const
-                                      borderRadius: BorderRadius.circular(4),
                                     ),
-                                    child: _buildDiffView(item['valor_anterior'], item['valor_nuevo'], context),
+                                    const SizedBox(width: 10),
+                                    Text(
+                                      '| Usuario: ${item['usuario'] ?? "Desconocido"}',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    // 3. MEJORA DE BADGES (Etiqueta de Acción)
+                                    const Spacer(),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.orange.withOpacity(
+                                          0.2,
+                                        ), // Naranja tenue
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        item['accion'] ?? 'ACCIÓN',
+                                        style: TextStyle(
+                                          color: Colors.orange,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+
+                                // Título (Código)
+                                SelectableText(
+                                  item['codigo'] ?? 'SIN CÓDIGO',
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
                                   ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
+                                ),
+                                const SizedBox(height: 8),
+
+                                // Cuerpo (Cambios - Diff View)
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color:
+                                        FluentTheme.of(context).brightness ==
+                                                Brightness.dark
+                                            ? Colors.black.withOpacity(0.2)
+                                            : Colors
+                                                .grey[20], // Still using grey[20] as it seemed fine before, just non-const
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: _buildDiffView(
+                                    item['valor_anterior'],
+                                    item['valor_nuevo'],
+                                    context,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
             ),
           ],
         ),

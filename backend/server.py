@@ -193,6 +193,12 @@ class DeleteVinPayload(BaseModel):
     password: str
     motivo: Optional[str] = None
 
+class BugReportPayload(BaseModel):
+    modulo: str
+    gravedad: str
+    descripcion: str
+
+
 class ClonarPayload(BaseModel):
     id_revision_origen: int
     id_revision_destino: int
@@ -2926,6 +2932,51 @@ async def actualizar_masivo(payload: MasivoUpdate):
     except Exception as e:
         conn.rollback()
         print(f"ERROR MASIVO: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+# === BUG TRACKER ===
+@app.post("/api/reportes/nuevo")
+def nuevo_reporte(payload: BugReportPayload):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Extraer IP simple
+        try:
+            user_ip = socket.gethostbyname(socket.gethostname())
+        except:
+            user_ip = "Unknown"
+        
+        cursor.execute("""
+            INSERT INTO Tbl_Reportes_Beta (Usuario, Fecha_Hora, Modulo, Descripcion, Gravedad, Estado)
+            VALUES (?, GETDATE(), ?, ?, ?, 'Abierto')
+        """, (user_ip, payload.modulo, payload.descripcion, payload.gravedad))
+        conn.commit()
+        return {"status": "success"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+@app.get("/api/reportes/exportar_gemini")
+def exportar_reportes():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT ID_Reporte, Modulo, Descripcion, Gravedad FROM Tbl_Reportes_Beta WHERE Estado = 'Abierto'")
+        rows = cursor.fetchall()
+        reportes = []
+        for r in rows:
+            reportes.append({
+                "id": r.ID_Reporte,
+                "modulo": r.Modulo,
+                "error": r.Descripcion,
+                "severidad": r.Gravedad
+            })
+        return reportes
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()

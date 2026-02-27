@@ -89,54 +89,68 @@ class _MyAppState extends State<MyApp> {
   void _showVINResult(dynamic vin) {
     showDialog(
       context: context,
-      builder: (context) => ContentDialog(
-        title: Text("Resumen de VIN: ${vin['vin']}"),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text("Tracto: ${vin['tracto']}"),
-            Text("Tipo: ${vin['tipo']}"),
-            Text("Versión: ${vin['version']}"),
-            Text("Cliente: ${vin['cliente']}"),
-            Text("Revisión: ${vin['numero_revision']}"),
-            const SizedBox(height: 8),
-            Text("Notas: ${vin['notas'] ?? 'Sin notas'}", style: const TextStyle(fontStyle: FontStyle.italic)),
-          ],
-        ),
-        actions: [
-          Button(child: const Text("Cerrar"), onPressed: () => Navigator.pop(context)),
-          FilledButton(
-            child: const Text("Ir a la Lista"),
-            onPressed: () {
-              Navigator.pop(context);
-              // Cambiar a la pestaña de BOM Manager (índice 9 en la lista actual)
-              setState(() {
-                topIndex = 11; // 0-5 Ingeniería, 6 Header, 7 Proyecto, 8 BOM, pero recalculando índices...
-                // Según PaneItem list:
-                // 0: Header Ing.
-                // 1: Catalogo
-                // 2: Importar
-                // 3: Auditor
-                // 4: Historial
-                // 5: Estandarizacion
-                // 6: Materiales
-                // 7: Header Estr.
-                // 8: Gestión Proyectos
-                // 9: Gestor BOM
-              });
-              // Para pasar parámetros dinámicos, necesitamos que BOMManagerScreen soporte navegación tipada o usar un GlobalKey/Provider.
-              // Por ahora, como es un NavigationView simple, pasaremos los datos vía Navigator si es necesario, 
-              // pero aquí el PaneItem ya está instanciado. 
-              // Una mejor opción es usar Navigator.push si queremos pasar ID directamente.
-              Navigator.push(context, FluentPageRoute(builder: (context) => BOMManagerScreen(
-                idCliente: vin['id_cliente'],
-                clientName: vin['cliente'],
-              )));
-            },
+      builder:
+          (context) => ContentDialog(
+            title: Text("Resumen de VIN: ${vin['vin']}"),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text("Tracto: ${vin['tracto']}"),
+                Text("Tipo: ${vin['tipo']}"),
+                Text("Versión: ${vin['version']}"),
+                Text("Cliente: ${vin['cliente']}"),
+                Text("Revisión: ${vin['numero_revision']}"),
+                const SizedBox(height: 8),
+                Text(
+                  "Notas: ${vin['notas'] ?? 'Sin notas'}",
+                  style: const TextStyle(fontStyle: FontStyle.italic),
+                ),
+              ],
+            ),
+            actions: [
+              Button(
+                child: const Text("Cerrar"),
+                onPressed: () => Navigator.pop(context),
+              ),
+              FilledButton(
+                child: const Text("Ir a la Lista"),
+                onPressed: () {
+                  Navigator.pop(context);
+                  // Cambiar a la pestaña de BOM Manager (índice 9 en la lista actual)
+                  setState(() {
+                    topIndex =
+                        11; // 0-5 Ingeniería, 6 Header, 7 Proyecto, 8 BOM, pero recalculando índices...
+                    // Según PaneItem list:
+                    // 0: Header Ing.
+                    // 1: Catalogo
+                    // 2: Importar
+                    // 3: Auditor
+                    // 4: Historial
+                    // 5: Estandarizacion
+                    // 6: Materiales
+                    // 7: Header Estr.
+                    // 8: Gestión Proyectos
+                    // 9: Gestor BOM
+                  });
+                  // Para pasar parámetros dinámicos, necesitamos que BOMManagerScreen soporte navegación tipada o usar un GlobalKey/Provider.
+                  // Por ahora, como es un NavigationView simple, pasaremos los datos vía Navigator si es necesario,
+                  // pero aquí el PaneItem ya está instanciado.
+                  // Una mejor opción es usar Navigator.push si queremos pasar ID directamente.
+                  Navigator.push(
+                    context,
+                    FluentPageRoute(
+                      builder:
+                          (context) => BOMManagerScreen(
+                            idCliente: vin['id_cliente'],
+                            clientName: vin['cliente'],
+                          ),
+                    ),
+                  );
+                },
+              ),
+            ],
           ),
-        ],
-      ),
     );
   }
 
@@ -146,6 +160,121 @@ class _MyAppState extends State<MyApp> {
     setState(() {
       _isLoggedIn = false;
     });
+  }
+
+  void _showBugDialog(BuildContext context) {
+    String modulo = "Otros";
+    String gravedad = "Sugerencia";
+    String descripcion = "";
+    bool enviando = false;
+
+    showDialog(
+      context: context,
+      builder:
+          (context) => StatefulBuilder(
+            builder: (context, setDState) {
+              return ContentDialog(
+                title: const Text("Reportar un Bug o Sugerencia"),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ComboBox<String>(
+                      isExpanded: true,
+                      value: modulo,
+                      placeholder: const Text("¿Dónde ocurrió el error?"),
+                      items:
+                          [
+                                "BOM",
+                                "VINs",
+                                "Login",
+                                "Gestión Proyectos",
+                                "Importador Excel",
+                                "Otros",
+                              ]
+                              .map(
+                                (e) => ComboBoxItem(value: e, child: Text(e)),
+                              )
+                              .toList(),
+                      onChanged: (v) => setDState(() => modulo = v ?? "Otros"),
+                    ),
+                    const SizedBox(height: 12),
+                    ComboBox<String>(
+                      isExpanded: true,
+                      value: gravedad,
+                      placeholder: const Text("Nivel de gravedad"),
+                      items: [
+                        const ComboBoxItem(
+                          value: "Crítico",
+                          child: Text("Rojo: Crítico (Bloquea el uso)"),
+                        ),
+                        const ComboBoxItem(
+                          value: "Visual",
+                          child: Text("Amarillo: Visual o Menor"),
+                        ),
+                        const ComboBoxItem(
+                          value: "Sugerencia",
+                          child: Text("Azul: Sugerencia de mejora"),
+                        ),
+                      ],
+                      onChanged:
+                          (v) => setDState(() => gravedad = v ?? "Sugerencia"),
+                    ),
+                    const SizedBox(height: 12),
+                    TextBox(
+                      maxLines: 4,
+                      placeholder:
+                          "Describe qué pasó, pasos para reproducirlo...",
+                      onChanged: (v) => descripcion = v,
+                    ),
+                    const SizedBox(height: 12),
+                    if (enviando) const ProgressRing(),
+                  ],
+                ),
+                actions: [
+                  Button(
+                    child: const Text("Cancelar"),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                  FilledButton(
+                    onPressed: () async {
+                      if (descripcion.isEmpty) return;
+                      setDState(() => enviando = true);
+                      try {
+                        await http.post(
+                          Uri.parse('$API_URL/api/reportes/nuevo'),
+                          headers: {"Content-Type": "application/json"},
+                          body: json.encode({
+                            "modulo": modulo,
+                            "gravedad": gravedad,
+                            "descripcion": descripcion,
+                          }),
+                        );
+                        Navigator.pop(context);
+                        displayInfoBar(
+                          context,
+                          builder: (context, close) {
+                            return InfoBar(
+                              title: const Text('Éxito'),
+                              content: const Text(
+                                'Reporte enviado. Gracias por ayudar a mejorar el sistema.',
+                              ),
+                              severity: InfoBarSeverity.success,
+                              onClose: close,
+                            );
+                          },
+                        );
+                      } catch (e) {
+                        setDState(() => enviando = false);
+                      }
+                    },
+                    child: const Text("Enviar Reporte"),
+                  ),
+                ],
+              );
+            },
+          ),
+    );
   }
 
   @override
@@ -166,93 +295,106 @@ class _MyAppState extends State<MyApp> {
         brightness: Brightness.dark,
         accentColor: Colors.blue,
       ),
-        home: _isLoggedIn
-          ? NavigationView(
-              appBar: NavigationAppBar(
-                title: const Text('Industrial Master v60.0'),
-                automaticallyImplyLeading: false,
-                leading: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 12.0),
-                  child: Icon(FluentIcons.factory),
-                ),
-                actions: Padding(
-                  padding: const EdgeInsets.only(right: 12.0),
-                  child: Align(
-                    alignment: Alignment.centerRight,
-                    child: IconButton(
-                      icon: const Icon(FluentIcons.sign_out), 
-                      onPressed: _logout,
+      home:
+          _isLoggedIn
+              ? Builder(
+                builder:
+                    (navContext) => NavigationView(
+                      appBar: NavigationAppBar(
+                        title: const Text('Industrial Master v60.0'),
+                        automaticallyImplyLeading: false,
+                        leading: const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12.0),
+                          child: Icon(FluentIcons.factory),
+                        ),
+                        actions: Padding(
+                          padding: const EdgeInsets.only(right: 12.0),
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            child: IconButton(
+                              icon: const Icon(FluentIcons.sign_out),
+                              onPressed: _logout,
+                            ),
+                          ),
+                        ),
+                      ),
+                      pane: NavigationPane(
+                        size: const NavigationPaneSize(openWidth: 220.0),
+                        selected: topIndex,
+                        onChanged: (index) => setState(() => topIndex = index),
+                        displayMode: PaneDisplayMode.auto,
+                        items: [
+                          PaneItemHeader(header: const Text('Ingeniería')),
+                          PaneItem(
+                            icon: const Icon(FluentIcons.database),
+                            title: const Text('Catálogo Maestro'),
+                            body: const CatalogScreen(),
+                          ),
+                          PaneItem(
+                            icon: const Icon(FluentIcons.excel_document),
+                            title: const Text('Importar Excel'),
+                            body: const ArbitrationScreen(),
+                          ),
+                          PaneItem(
+                            icon: const Icon(FluentIcons.search_and_apps),
+                            title: const Text('Auditor de Archivos'),
+                            body:
+                                const AuditorScreen(), // Nueva pantalla Fase 12
+                          ),
+                          PaneItem(
+                            icon: const Icon(FluentIcons.history),
+                            title: const Text('Historial de Cambios'),
+                            body: const HistoryScreen(),
+                          ),
+                          PaneItem(
+                            icon: const Icon(FluentIcons.edit),
+                            title: const Text('Estandarización'),
+                            body: StandardizationScreen(),
+                          ),
+                          PaneItem(
+                            icon: const Icon(FluentIcons.paste),
+                            title: const Text('Materiales Oficiales'),
+                            body: const MaterialsListScreen(),
+                          ),
+                          PaneItemHeader(header: const Text('Estructuras')),
+                          PaneItem(
+                            icon: const Icon(FluentIcons.org),
+                            title: const Text('Gestión de Proyectos'),
+                            body: const ProjectManagementScreen(),
+                          ),
+                          PaneItem(
+                            icon: const Icon(FluentIcons.map_layers),
+                            title: const Text('Mapa de Ingeniería'),
+                            body: const EngineeringMapScreen(),
+                          ),
+                          PaneItem(
+                            icon: const Icon(FluentIcons.car),
+                            title: const Text('Expedientes VIN'),
+                            body: const VINDossierScreen(),
+                          ),
+                        ],
+                        footerItems: [
+                          PaneItemAction(
+                            icon: const Icon(FluentIcons.bug),
+                            title: const Text("Reportar Bug"),
+                            onTap: () => _showBugDialog(navContext),
+                          ),
+                          PaneItem(
+                            icon: const Icon(FluentIcons.settings),
+                            title: const Text('Configuración'),
+                            body: SettingsScreen(
+                              isDarkMode: _themeMode == ThemeMode.dark,
+                              onThemeChanged:
+                                  (isDark) => _updateTheme(
+                                    isDark ? ThemeMode.dark : ThemeMode.light,
+                                  ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ),
-              ),
-              pane: NavigationPane(
-                size: const NavigationPaneSize(openWidth: 220.0),
-                selected: topIndex,
-                onChanged: (index) => setState(() => topIndex = index),
-                displayMode: PaneDisplayMode.auto,
-                items: [
-                  PaneItemHeader(header: const Text('Ingeniería')),
-                  PaneItem(
-                    icon: const Icon(FluentIcons.database),
-                    title: const Text('Catálogo Maestro'),
-                    body: const CatalogScreen(),
-                  ),
-                  PaneItem(
-                    icon: const Icon(FluentIcons.excel_document),
-                    title: const Text('Importar Excel'),
-                    body: const ArbitrationScreen(),
-                  ),
-                  PaneItem(
-                    icon: const Icon(FluentIcons.search_and_apps),
-                    title: const Text('Auditor de Archivos'),
-                    body: const AuditorScreen(), // Nueva pantalla Fase 12
-                  ),
-                  PaneItem(
-                    icon: const Icon(FluentIcons.history),
-                    title: const Text('Historial de Cambios'),
-                    body: const HistoryScreen(),
-                  ),
-                  PaneItem(
-                    icon: const Icon(FluentIcons.edit),
-                    title: const Text('Estandarización'),
-                    body: StandardizationScreen(),
-                  ),
-                  PaneItem(
-                    icon: const Icon(FluentIcons.paste),
-                    title: const Text('Materiales Oficiales'),
-                    body: const MaterialsListScreen(),
-                  ),
-                  PaneItemHeader(header: const Text('Estructuras')),
-                  PaneItem(
-                    icon: const Icon(FluentIcons.org),
-                    title: const Text('Gestión de Proyectos'),
-                    body: const ProjectManagementScreen(),
-                  ),
-                  PaneItem(
-                    icon: const Icon(FluentIcons.map_layers),
-                    title: const Text('Mapa de Ingeniería'),
-                    body: const EngineeringMapScreen(),
-                  ),
-                  PaneItem(
-                    icon: const Icon(FluentIcons.car),
-                    title: const Text('Expedientes VIN'),
-                    body: const VINDossierScreen(),
-                  ),
-                ],
-                footerItems: [
-                  PaneItem(
-                    icon: const Icon(FluentIcons.settings),
-                    title: const Text('Configuración'),
-                    body: SettingsScreen(
-                      isDarkMode: _themeMode == ThemeMode.dark,
-                      onThemeChanged: (isDark) => _updateTheme(isDark ? ThemeMode.dark : ThemeMode.light),
-                    ),
-                  ),
-                ],
-              ),
-            )
-          : LoginScreen(onLoginSuccess: _onLoginSuccess),
+              )
+              : LoginScreen(onLoginSuccess: _onLoginSuccess),
     );
   }
 }
