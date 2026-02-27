@@ -275,84 +275,45 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
   }
 
   void _showVincularDialog() {
-    String searchVin = "";
-    List<dynamic> resultados = [];
-    bool buscando = false;
-
     showDialog(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDState) {
-          return ContentDialog(
-            title: const Text("Vincular a Combo C3"),
-            content: SizedBox(
-              width: 400,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextBox(
-                          placeholder: "Buscar VIN de socio...",
-                          onChanged: (v) => searchVin = v,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Button(
-                        child: const Text("Buscar"),
-                        onPressed: () async {
-                          if (searchVin.trim().isEmpty) return;
-                          setDState(() => buscando = true);
-                          try {
-                            final r = await http.get(Uri.parse('$API_URL/api/vins/buscar?q=${searchVin.trim()}'));
-                            if(r.statusCode == 200) {
-                              setDState(() {
-                                resultados = json.decode(r.body);
-                                buscando = false;
-                              });
-                            }
-                          } catch(e) {
-                            setDState(() => buscando = false);
-                          }
-                        },
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  if (buscando) const ProgressRing()
-                  else if (resultados.isEmpty) const Text("Ingresa un VIN para buscar")
-                  else ConstrainedBox(
-                    constraints: const BoxConstraints(maxHeight: 200),
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: resultados.length,
-                      itemBuilder: (ctx, idx) {
-                        final socio = resultados[idx];
-                        if (socio['id_unidad'] == _vinData['id_unidad']) return const SizedBox.shrink();
-                        return ListTile(
-                          title: Text(socio['vin']),
-                          subtitle: Text(socio['tracto']),
-                          trailing: FilledButton(
-                            child: const Text("Vincular"),
-                            onPressed: () {
-                              Navigator.pop(context);
-                              _vincularSocio(socio['id_unidad']);
-                            },
-                          ),
-                        );
-                      }
-                    )
-                  )
-                ],
-              ),
+      builder: (context) {
+        return ContentDialog(
+          title: const Text("Vincular a Combo C3"),
+          content: SizedBox(
+            width: 400,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 12.0),
+                  child: Text("Busca o selecciona un VIN de la lista para vincularlo a esta unidad."),
+                ),
+                AutoSuggestBox<String>(
+                  placeholder: "Buscar VIN de socio...",
+                  items: _allVins
+                      .where((v) => v['id_unidad'] != _vinData['id_unidad'])
+                      .map<AutoSuggestBoxItem<String>>((v) => AutoSuggestBoxItem<String>(
+                            value: v['id_unidad'].toString(),
+                            label: "${v['vin']} - ${v['tracto']}",
+                          ))
+                      .toList(),
+                  onSelected: (item) {
+                    final idSocio = int.tryParse(item.value ?? "0") ?? 0;
+                    if (idSocio > 0) {
+                      Navigator.pop(context);
+                      _vincularSocio(idSocio);
+                    }
+                  },
+                ),
+              ],
             ),
-            actions: [
-              Button(child: const Text("Cancelar"), onPressed: () => Navigator.pop(context)),
-            ],
-          );
-        }
-      ),
+          ),
+          actions: [
+            Button(child: const Text("Cancelar"), onPressed: () => Navigator.pop(context)),
+          ],
+        );
+      },
     );
   }
 
@@ -463,88 +424,95 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
                         : Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Card(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text("Detalles del Vehículo", style: FluentTheme.of(context).typography.subtitle),
-                                    const Divider(),
-                                    const SizedBox(height: 8),
-                                    _buildInfoRow("VIN:", _vinData['vin']),
-                                    _buildInfoRow("Cliente:", _vinData['cliente']),
-                                    _buildInfoRow("Tracto:", _vinData['tracto']),
-                                    _buildInfoRow("Tipo:", _vinData['tipo']),
-                                    _buildInfoRow("Versión:", _vinData['version']),
-                                    _buildInfoRow("BOM Rev:", "Rev ${_vinData['numero_revision']}"),
-                                    const SizedBox(height: 12),
-                                    Text("Unidad Vinculada (Combo C3)", style: FluentTheme.of(context).typography.subtitle),
-                                    const Divider(),
-                                    if (_vinData['id_socio'] == null)
-                                      Padding(
-                                        padding: const EdgeInsets.symmetric(vertical: 8.0),
-                                        child: Button(
-                                          onPressed: _showVincularDialog,
-                                          child: const Text("Vincular con Head Ramp / Remolque"),
-                                        ),
-                                      )
-                                    else
-                                      Padding(
-                                        padding: const EdgeInsets.symmetric(vertical: 8.0),
-                                        child: Row(
+                              Expanded(
+                                flex: 3,
+                                child: SingleChildScrollView(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Card(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
                                           children: [
-                                            Icon(FluentIcons.link, color: Colors.blue),
-                                            const SizedBox(width: 8),
-                                            Text(_vinData['vin_socio'] ?? "Socio Desconocido", style: const TextStyle(fontWeight: FontWeight.bold)),
-                                            const SizedBox(width: 16),
+                                            Text("Detalles del Vehículo", style: FluentTheme.of(context).typography.subtitle),
+                                            const Divider(),
+                                            const SizedBox(height: 8),
+                                            _buildInfoRow("VIN:", _vinData['vin']),
+                                            _buildInfoRow("Cliente:", _vinData['cliente']),
+                                            _buildInfoRow("Tracto:", _vinData['tracto']),
+                                            _buildInfoRow("Tipo:", _vinData['tipo']),
+                                            _buildInfoRow("Versión:", _vinData['version']),
+                                            _buildInfoRow("BOM Rev:", "Rev ${_vinData['numero_revision']}"),
+                                            const SizedBox(height: 12),
+                                            Text("Unidad Vinculada (Combo C3)", style: FluentTheme.of(context).typography.subtitle),
+                                            const Divider(),
+                                            if (_vinData['id_socio'] == null)
+                                              Padding(
+                                                padding: const EdgeInsets.symmetric(vertical: 8.0),
+                                                child: Button(
+                                                  onPressed: _showVincularDialog,
+                                                  child: const Text("Vincular con Head Ramp / Remolque"),
+                                                ),
+                                              )
+                                            else
+                                              Padding(
+                                                padding: const EdgeInsets.symmetric(vertical: 8.0),
+                                                child: Row(
+                                                  children: [
+                                                    Icon(FluentIcons.link, color: Colors.blue),
+                                                    const SizedBox(width: 8),
+                                                    Text(_vinData['vin_socio'] ?? "Socio Desconocido", style: const TextStyle(fontWeight: FontWeight.bold)),
+                                                    const SizedBox(width: 16),
+                                                    Button(
+                                                      onPressed: () => _vincularSocio(0),
+                                                      child: const Text("Desvincular"),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            const SizedBox(height: 12),
+                                            // v60.0: Botón ADN de Ingeniería
                                             Button(
-                                              onPressed: () => _vincularSocio(0),
-                                              child: const Text("Desvincular"),
+                                              onPressed: _showADNIngenieria,
+                                              child: const Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Icon(FluentIcons.history, size: 14),
+                                                  SizedBox(width: 6),
+                                                  Text("Ver ADN de Ingeniería"),
+                                                ],
+                                              ),
                                             ),
                                           ],
                                         ),
                                       ),
-                                    const SizedBox(height: 12),
-                                    // v60.0: Botón ADN de Ingeniería
-                                    Button(
-                                      onPressed: _showADNIngenieria,
-                                      child: const Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(FluentIcons.history, size: 14),
-                                          SizedBox(width: 6),
-                                          Text("Ver ADN de Ingeniería"),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              Expanded(
-                                child: Card(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          Text("Notas de Modificación / Piso", style: FluentTheme.of(context).typography.subtitle),
-                                          FilledButton(
-                                            child: const Text("Guardar Notas"),
-                                            onPressed: _saveNotes,
-                                          ),
-                                        ],
-                                      ),
-                                      const Divider(),
-                                      const SizedBox(height: 8),
-                                      Expanded(
-                                        child: TextBox(
-                                          controller: _notesController,
-                                          maxLines: null,
-                                          placeholder: "Escribe aquí las modificaciones realizadas en piso...",
+                                      const SizedBox(height: 16),
+                                      Card(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                              children: [
+                                                Text("Notas de Modificación / Piso", style: FluentTheme.of(context).typography.subtitle),
+                                                FilledButton(
+                                                  child: const Text("Guardar Notas"),
+                                                  onPressed: _saveNotes,
+                                                ),
+                                              ],
+                                            ),
+                                            const Divider(),
+                                            const SizedBox(height: 8),
+                                            TextBox(
+                                              controller: _notesController,
+                                              maxLines: null,
+                                              minLines: 4,
+                                              placeholder: "Escribe aquí las modificaciones realizadas en piso...",
+                                            ),
+                                            const SizedBox(height: 8),
+                                          ],
                                         ),
                                       ),
-                                                                            const SizedBox(height: 8),
                                     ],
                                   ),
                                 ),
@@ -552,6 +520,7 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
                               const SizedBox(height: 12),
                               // === v60.0: NUBE DE ARCHIVOS ===
                               Expanded(
+                                flex: 2,
                                 child: Card(
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
