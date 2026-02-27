@@ -2983,5 +2983,79 @@ def exportar_reportes():
     finally:
         conn.close()
 
+@app.get("/api/reportes")
+def listar_reportes():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT ID_Reporte, Usuario, Fecha_Hora, Modulo, Descripcion, Gravedad, Estado, Captura_Base64 FROM Tbl_Reportes_Beta ORDER BY Fecha_Hora DESC")
+        rows = cursor.fetchall()
+        reportes = []
+        for r in rows:
+            reportes.append({
+                "id": r.ID_Reporte,
+                "usuario": r.Usuario,
+                "fecha": r.Fecha_Hora.strftime("%Y-%m-%d %H:%M:%S") if r.Fecha_Hora else None,
+                "modulo": r.Modulo,
+                "descripcion": r.Descripcion,
+                "gravedad": r.Gravedad,
+                "estado": r.Estado,
+                "captura_base64": r.Captura_Base64
+            })
+        return reportes
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+@app.get("/api/reportes/exportar")
+def exportar_reportes_excel():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT ID_Reporte, Usuario, Fecha_Hora, Modulo, Descripcion, Gravedad, Estado FROM Tbl_Reportes_Beta ORDER BY Fecha_Hora DESC")
+        rows = cursor.fetchall()
+        
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Reportes Beta"
+        
+        headers = ["ID", "Usuario", "Fecha", "Módulo", "Gravedad", "Estado", "Descripción"]
+        ws.append(headers)
+        
+        # Estilos para cabecera
+        for col, _ in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col)
+            cell.font = Font(bold=True)
+            cell.fill = PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid")
+            
+        for r in rows:
+            fecha_str = r.Fecha_Hora.strftime("%Y-%m-%d %H:%M:%S") if r.Fecha_Hora else "Sin fecha"
+            ws.append([
+                r.ID_Reporte, 
+                r.Usuario, 
+                fecha_str, 
+                r.Modulo, 
+                r.Gravedad, 
+                r.Estado, 
+                r.Descripcion
+            ])
+            
+        stream = io.BytesIO()
+        wb.save(stream)
+        stream.seek(0)
+        
+        return StreamingResponse(
+            stream,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": "attachment; filename=Reportes_Beta.xlsx"
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8001)

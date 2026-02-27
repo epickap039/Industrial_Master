@@ -19,6 +19,9 @@ import 'screens/project_management.dart';
 import 'screens/bom_manager.dart';
 import 'screens/vin_dossier.dart';
 import 'screens/engineering_map.dart'; // v60.0: Mapa de Ingeniería
+import 'screens/qa_dashboard.dart'; // Centro de QA
+import 'package:pasteboard/pasteboard.dart';
+import 'package:flutter/services.dart';
 
 const String API_URL = "http://192.168.1.73:8001";
 
@@ -177,158 +180,200 @@ class _MyAppState extends State<MyApp> {
       builder:
           (context) => StatefulBuilder(
             builder: (context, setDState) {
-              return ContentDialog(
-                title: const Text("Reportar un Bug o Sugerencia"),
-                content: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    ComboBox<String>(
-                      isExpanded: true,
-                      value: modulo,
-                      placeholder: const Text("¿Dónde ocurrió el error?"),
-                      items:
-                          [
-                                "BOM",
-                                "VINs",
-                                "Login",
-                                "Gestión Proyectos",
-                                "Importador Excel",
-                                "Otros",
-                              ]
-                              .map(
-                                (e) => ComboBoxItem(value: e, child: Text(e)),
-                              )
-                              .toList(),
-                      onChanged: (v) => setDState(() => modulo = v ?? "Otros"),
-                    ),
-                    const SizedBox(height: 12),
-                    ComboBox<String>(
-                      isExpanded: true,
-                      value: gravedad,
-                      placeholder: const Text("Nivel de gravedad"),
-                      items: [
-                        const ComboBoxItem(
-                          value: "Crítico",
-                          child: Text("Rojo: Crítico (Bloquea el uso)"),
-                        ),
-                        const ComboBoxItem(
-                          value: "Visual",
-                          child: Text("Amarillo: Visual o Menor"),
-                        ),
-                        const ComboBoxItem(
-                          value: "Sugerencia",
-                          child: Text("Azul: Sugerencia de mejora"),
-                        ),
-                      ],
-                      onChanged:
-                          (v) => setDState(() => gravedad = v ?? "Sugerencia"),
-                    ),
-                    const SizedBox(height: 12),
-                    TextBox(
-                      maxLines: 4,
-                      placeholder:
-                          "Describe qué pasó, pasos para reproducirlo...",
-                      onChanged: (v) => descripcion = v,
-                    ),
-                    const SizedBox(height: 12),
-                    const SizedBox(height: 12),
-                    if (capturaBytes != null)
-                      Container(
-                        height: 100,
-                        margin: const EdgeInsets.only(bottom: 12),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: Colors.grey),
-                        ),
-                        child: Center(
-                          child: Stack(
-                            alignment: Alignment.topRight,
-                            children: [
-                              Image.memory(capturaBytes!),
-                              IconButton(
-                                icon: const Icon(
-                                  FluentIcons.cancel,
-                                  color: Color(0xFFE53935),
+              return Focus(
+                autofocus: true,
+                onKeyEvent: (node, event) {
+                  if (event is KeyDownEvent &&
+                      (HardwareKeyboard.instance.isControlPressed ||
+                          HardwareKeyboard.instance.isMetaPressed) &&
+                      event.logicalKey == LogicalKeyboardKey.keyV) {
+                    Pasteboard.image.then((bytes) {
+                      if (bytes != null) {
+                        setDState(() {
+                          capturaBytes = bytes;
+                          capturaBase64 = base64Encode(bytes);
+                        });
+                      }
+                    });
+                    return KeyEventResult.handled;
+                  }
+                  return KeyEventResult.ignored;
+                },
+                child: ContentDialog(
+                  title: const Text("Reportar un Bug o Sugerencia"),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      ComboBox<String>(
+                        isExpanded: true,
+                        value: modulo,
+                        placeholder: const Text("¿Dónde ocurrió el error?"),
+                        items:
+                            [
+                                  "BOM",
+                                  "VINs",
+                                  "Login",
+                                  "Gestión Proyectos",
+                                  "Importador Excel",
+                                  "Otros",
+                                ]
+                                .map(
+                                  (e) => ComboBoxItem(value: e, child: Text(e)),
+                                )
+                                .toList(),
+                        onChanged:
+                            (v) => setDState(() => modulo = v ?? "Otros"),
+                      ),
+                      const SizedBox(height: 12),
+                      ComboBox<String>(
+                        isExpanded: true,
+                        value: gravedad,
+                        placeholder: const Text("Nivel de gravedad"),
+                        items: [
+                          const ComboBoxItem(
+                            value: "Crítico",
+                            child: Text("Rojo: Crítico (Bloquea el uso)"),
+                          ),
+                          const ComboBoxItem(
+                            value: "Visual",
+                            child: Text("Amarillo: Visual o Menor"),
+                          ),
+                          const ComboBoxItem(
+                            value: "Sugerencia",
+                            child: Text("Azul: Sugerencia de mejora"),
+                          ),
+                        ],
+                        onChanged:
+                            (v) =>
+                                setDState(() => gravedad = v ?? "Sugerencia"),
+                      ),
+                      const SizedBox(height: 12),
+                      TextBox(
+                        maxLines: 4,
+                        placeholder:
+                            "Describe qué pasó, pasos para reproducirlo...",
+                        onChanged: (v) => descripcion = v,
+                      ),
+                      const SizedBox(height: 12),
+                      const SizedBox(height: 12),
+                      if (capturaBytes != null)
+                        Container(
+                          height: 100,
+                          margin: const EdgeInsets.only(bottom: 12),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.grey),
+                          ),
+                          child: Center(
+                            child: Stack(
+                              alignment: Alignment.topRight,
+                              children: [
+                                Image.memory(capturaBytes!),
+                                IconButton(
+                                  icon: const Icon(
+                                    FluentIcons.cancel,
+                                    color: Color(0xFFE53935),
+                                  ),
+                                  onPressed:
+                                      () => setDState(() {
+                                        capturaBytes = null;
+                                        capturaBase64 = null;
+                                      }),
                                 ),
-                                onPressed:
-                                    () => setDState(() {
-                                      capturaBytes = null;
-                                      capturaBase64 = null;
-                                    }),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
+                      Button(
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(FluentIcons.image_pixel),
+                            SizedBox(width: 8),
+                            Text("Adjuntar Captura"),
+                          ],
+                        ),
+                        onPressed: () async {
+                          final result = await FilePicker.platform.pickFiles(
+                            type: FileType.image,
+                          );
+                          if (result != null &&
+                              result.files.single.path != null) {
+                            final bytes =
+                                await result.files.single.xFile.readAsBytes();
+                            setDState(() {
+                              capturaBytes = bytes;
+                              capturaBase64 = base64Encode(bytes);
+                            });
+                          }
+                        },
                       ),
+                      const SizedBox(height: 8),
+                      Button(
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(FluentIcons.paste),
+                            SizedBox(width: 8),
+                            Text("Pegar del Portapapeles (Ctrl+V)"),
+                          ],
+                        ),
+                        onPressed: () async {
+                          final bytes = await Pasteboard.image;
+                          if (bytes != null) {
+                            setDState(() {
+                              capturaBytes = bytes;
+                              capturaBase64 = base64Encode(bytes);
+                            });
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      if (enviando) const ProgressRing(),
+                    ],
+                  ),
+                  actions: [
                     Button(
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(FluentIcons.image_pixel),
-                          SizedBox(width: 8),
-                          Text("Adjuntar Captura"),
-                        ],
-                      ),
+                      child: const Text("Cancelar"),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                    FilledButton(
                       onPressed: () async {
-                        final result = await FilePicker.platform.pickFiles(
-                          type: FileType.image,
-                        );
-                        if (result != null &&
-                            result.files.single.path != null) {
-                          final bytes =
-                              await result.files.single.xFile.readAsBytes();
-                          setDState(() {
-                            capturaBytes = bytes;
-                            capturaBase64 = base64Encode(bytes);
-                          });
+                        if (descripcion.isEmpty) return;
+                        setDState(() => enviando = true);
+                        try {
+                          await http.post(
+                            Uri.parse('$API_URL/api/reportes/nuevo'),
+                            headers: {"Content-Type": "application/json"},
+                            body: json.encode({
+                              "modulo": modulo,
+                              "gravedad": gravedad,
+                              "descripcion": descripcion,
+                              "captura": capturaBase64,
+                            }),
+                          );
+                          Navigator.pop(context);
+                          displayInfoBar(
+                            context,
+                            builder: (context, close) {
+                              return InfoBar(
+                                title: const Text('Éxito'),
+                                content: const Text(
+                                  'Reporte enviado. Gracias por ayudar a mejorar el sistema.',
+                                ),
+                                severity: InfoBarSeverity.success,
+                                onClose: close,
+                              );
+                            },
+                          );
+                        } catch (e) {
+                          setDState(() => enviando = false);
                         }
                       },
+                      child: const Text("Enviar Reporte"),
                     ),
-                    const SizedBox(height: 12),
-                    if (enviando) const ProgressRing(),
                   ],
                 ),
-                actions: [
-                  Button(
-                    child: const Text("Cancelar"),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                  FilledButton(
-                    onPressed: () async {
-                      if (descripcion.isEmpty) return;
-                      setDState(() => enviando = true);
-                      try {
-                        await http.post(
-                          Uri.parse('$API_URL/api/reportes/nuevo'),
-                          headers: {"Content-Type": "application/json"},
-                          body: json.encode({
-                            "modulo": modulo,
-                            "gravedad": gravedad,
-                            "descripcion": descripcion,
-                            "captura": capturaBase64,
-                          }),
-                        );
-                        Navigator.pop(context);
-                        displayInfoBar(
-                          context,
-                          builder: (context, close) {
-                            return InfoBar(
-                              title: const Text('Éxito'),
-                              content: const Text(
-                                'Reporte enviado. Gracias por ayudar a mejorar el sistema.',
-                              ),
-                              severity: InfoBarSeverity.success,
-                              onClose: close,
-                            );
-                          },
-                        );
-                      } catch (e) {
-                        setDState(() => enviando = false);
-                      }
-                    },
-                    child: const Text("Enviar Reporte"),
-                  ),
-                ],
               );
             },
           ),
@@ -429,6 +474,11 @@ class _MyAppState extends State<MyApp> {
                             icon: const Icon(FluentIcons.car),
                             title: const Text('Expedientes VIN'),
                             body: const VINDossierScreen(),
+                          ),
+                          PaneItem(
+                            icon: const Icon(FluentIcons.test_plan),
+                            title: const Text('Centro de QA'),
+                            body: const QADashboardScreen(),
                           ),
                         ],
                         footerItems: [
