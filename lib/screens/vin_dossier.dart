@@ -327,7 +327,7 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
       builder: (context) => StatefulBuilder(
         builder: (context, setDState) {
           return ContentDialog(
-            title: const Text("Eliminar Expediente VIN", style: TextStyle(color: Colors.red)),
+            title: const Text("Eliminar Expediente VIN", style: TextStyle(color: Color(0xFFE53935))),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -514,7 +514,7 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
                                                 Tooltip(
                                                   message: "Eliminar Expediente",
                                                   child: IconButton(
-                                                    icon: const Icon(FluentIcons.delete, color: Colors.red),
+                                                    icon: const Icon(FluentIcons.delete, color: Color(0xFFE53935)),
                                                     onPressed: _showDeleteVinDialog,
                                                   ),
                                                 ),
