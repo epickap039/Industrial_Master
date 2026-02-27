@@ -124,6 +124,24 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
     }
   }
 
+  Future<void> _resolverReporte(int id) async {
+    setState(() => _isLoading = true);
+    try {
+      final res = await http.put(
+        Uri.parse('$API_URL/api/reportes/$id/resolver'),
+      );
+      if (res.statusCode == 200) {
+        _fetchReportes();
+      } else {
+        _showError("Error al resolver: ${res.statusCode}");
+        setState(() => _isLoading = false);
+      }
+    } catch (e) {
+      _showError("Excepción: $e");
+      setState(() => _isLoading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return ScaffoldPage(
@@ -246,20 +264,36 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
                                     fontStyle: FontStyle.italic,
                                   ),
                                 ),
-                                if (rep['captura_base64'] != null)
-                                  Tooltip(
-                                    message: "Ver captura adjunta",
-                                    child: IconButton(
-                                      icon: Icon(
-                                        FluentIcons.photo2,
-                                        color: Colors.blue,
-                                      ),
-                                      onPressed:
-                                          () => _showImageDialog(
-                                            rep['captura_base64'],
+                                Row(
+                                  children: [
+                                    if (rep['captura_base64'] != null)
+                                      Tooltip(
+                                        message: "Ver captura adjunta",
+                                        child: IconButton(
+                                          icon: Icon(
+                                            FluentIcons.photo2,
+                                            color: Colors.blue,
                                           ),
+                                          onPressed:
+                                              () => _showImageDialog(
+                                                rep['captura_base64'],
+                                              ),
+                                        ),
+                                      ),
+                                    const SizedBox(width: 8),
+                                    Tooltip(
+                                      message: "Marcar como resuelto",
+                                      child: IconButton(
+                                        icon: Icon(
+                                          FluentIcons.check_mark,
+                                          color: Colors.green,
+                                        ),
+                                        onPressed:
+                                            () => _resolverReporte(rep['id']),
+                                      ),
                                     ),
-                                  ),
+                                  ],
+                                ),
                               ],
                             ),
                           ],

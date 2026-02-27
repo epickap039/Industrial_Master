@@ -342,10 +342,15 @@ class _MyAppState extends State<MyApp> {
                         if (descripcion.isEmpty) return;
                         setDState(() => enviando = true);
                         try {
+                          final prefs = await SharedPreferences.getInstance();
+                          final currentUser =
+                              prefs.getString('username') ?? "Desconocido";
+
                           await http.post(
                             Uri.parse('$API_URL/api/reportes/nuevo'),
                             headers: {"Content-Type": "application/json"},
                             body: json.encode({
+                              "usuario": currentUser,
                               "modulo": modulo,
                               "gravedad": gravedad,
                               "descripcion": descripcion,

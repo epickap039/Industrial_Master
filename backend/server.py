@@ -194,6 +194,7 @@ class DeleteVinPayload(BaseModel):
     motivo: Optional[str] = None
 
 class BugReportPayload(BaseModel):
+    usuario: str
     modulo: str
     gravedad: str
     descripcion: str
@@ -2943,16 +2944,10 @@ def nuevo_reporte(payload: BugReportPayload):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Extraer IP simple
-        try:
-            user_ip = socket.gethostbyname(socket.gethostname())
-        except:
-            user_ip = "Unknown"
-        
         cursor.execute("""
             INSERT INTO Tbl_Reportes_Beta (Usuario, Fecha_Hora, Modulo, Descripcion, Gravedad, Estado, Captura_Base64)
             VALUES (?, GETDATE(), ?, ?, ?, 'Abierto', ?)
-        """, (user_ip, payload.modulo, payload.descripcion, payload.gravedad, payload.captura))
+        """, (payload.usuario, payload.modulo, payload.descripcion, payload.gravedad, payload.captura))
         conn.commit()
         return {"status": "success"}
     except Exception as e:
@@ -2988,7 +2983,7 @@ def listar_reportes():
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT ID_Reporte, Usuario, Fecha_Hora, Modulo, Descripcion, Gravedad, Estado, Captura_Base64 FROM Tbl_Reportes_Beta ORDER BY Fecha_Hora DESC")
+        cursor.execute("SELECT ID_Reporte, Usuario, Fecha_Hora, Modulo, Descripcion, Gravedad, Estado, Captura_Base64 FROM Tbl_Reportes_Beta WHERE Estado = 'Abierto' ORDER BY Fecha_Hora DESC")
         rows = cursor.fetchall()
         reportes = []
         for r in rows:
@@ -3053,6 +3048,20 @@ def exportar_reportes_excel():
             }
         )
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+@app.put("/api/reportes/{id_reporte}/resolver")
+def resolver_reporte(id_reporte: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("UPDATE Tbl_Reportes_Beta SET Estado = 'Cerrado' WHERE ID_Reporte = ?", (id_reporte,))
+        conn.commit()
+        return {"status": "success"}
+    except Exception as e:
+        conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
