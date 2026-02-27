@@ -317,6 +317,79 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
     );
   }
 
+  void _showDeleteVinDialog() {
+    String password = "";
+    String motivo = "";
+    bool eliminando = false;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDState) {
+          return ContentDialog(
+            title: const Text("Eliminar Expediente VIN", style: TextStyle(color: Colors.red)),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text("Esta acción es irreversible e impactará en auditoría global. Ingresa tus credenciales para continuar."),
+                const SizedBox(height: 12),
+                TextBox(
+                  placeholder: "Contraseña de Admin",
+                  obscureText: true,
+                  onChanged: (v) => password = v,
+                ),
+                const SizedBox(height: 8),
+                TextBox(
+                  placeholder: "Motivo de la eliminación (Opcional)",
+                  onChanged: (v) => motivo = v,
+                ),
+                const SizedBox(height: 12),
+                if (eliminando) const ProgressRing()
+              ],
+            ),
+            actions: [
+              Button(child: const Text("Cancelar"), onPressed: () => Navigator.pop(context)),
+              FilledButton(
+                style: ButtonStyle(backgroundColor: ButtonState.all(Colors.red)),
+                onPressed: () async {
+                  if (password.isEmpty) return;
+                  setDState(() => eliminando = true);
+                  try {
+                    final res = await http.delete(
+                      Uri.parse('$API_URL/api/vins/${_vinData['vin']}'),
+                      headers: {"Content-Type": "application/json"},
+                      body: json.encode({"password": password.trim(), "motivo": motivo.trim()}),
+                    );
+                    if (res.statusCode == 200) {
+                      Navigator.pop(context);
+                      setState(() {
+                        _vinData = null;
+                        _archivos = [];
+                        _notesController.clear();
+                      });
+                      _fetchAllVins();
+                      _showError("Expediente eliminado", isError: false);
+                    } else if (res.statusCode == 401) {
+                      setDState(() => eliminando = false);
+                      _showError("Contraseña incorrecta");
+                    } else {
+                      setDState(() => eliminando = false);
+                      _showError("Error: ${res.body}");
+                    }
+                  } catch (e) {
+                    setDState(() => eliminando = false);
+                    _showError("Error: $e");
+                  }
+                },
+                child: const Text("Eliminar Definitivamente"),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   void _showError(String message, {bool isError = true}) {
     displayInfoBar(context, builder: (context, close) {
       return InfoBar(
@@ -434,7 +507,19 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
                                         child: Column(
                                           crossAxisAlignment: CrossAxisAlignment.start,
                                           children: [
-                                            Text("Detalles del Vehículo", style: FluentTheme.of(context).typography.subtitle),
+                                            Row(
+                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                              children: [
+                                                Text("Detalles del Vehículo", style: FluentTheme.of(context).typography.subtitle),
+                                                Tooltip(
+                                                  message: "Eliminar Expediente",
+                                                  child: IconButton(
+                                                    icon: const Icon(FluentIcons.delete, color: Colors.red),
+                                                    onPressed: _showDeleteVinDialog,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
                                             const Divider(),
                                             const SizedBox(height: 8),
                                             _buildInfoRow("VIN:", _vinData['vin']),

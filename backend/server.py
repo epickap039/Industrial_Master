@@ -14,6 +14,7 @@ import io
 import os
 import re
 import uuid
+import shutil
 
 # 1. CONFIGURACIÓN SQL (Auto-Detectada con Driver 18 Prioritario)
 DB_SERVER = '192.168.1.73'
@@ -187,6 +188,10 @@ class VINPayload(BaseModel):
     vin: str
     notas: Optional[str] = None
     observaciones: Optional[str] = None
+
+class DeleteVinPayload(BaseModel):
+    password: str
+    motivo: Optional[str] = None
 
 class ClonarPayload(BaseModel):
     id_revision_origen: int
@@ -1159,6 +1164,53 @@ def update_vin_notas(id_unidad: int, payload: VINPayload):
         cursor.execute("UPDATE Tbl_Unidades_Fisicas SET Observaciones = ? WHERE ID_Unidad = ?", (val, id_unidad))
         conn.commit()
         return {"status": "success"}
+    finally:
+        conn.close()
+
+@app.delete("/api/vins/{serie}")
+def delete_vin(serie: str, payload: DeleteVinPayload):
+    if payload.password != "ADMIN_ING_2024":
+        raise HTTPException(status_code=401, detail="Contraseña incorrecta")
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Check if VIN exists and get ID_Unidad and ID_Revision (for logging context)
+        cursor.execute("SELECT ID_Unidad FROM Tbl_Unidades_Fisicas WHERE Serie = ?", (serie,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="VIN no encontrado")
+        id_unidad = row.ID_Unidad
+
+        # 1. Unlink from C3 if associated
+        cursor.execute("UPDATE Tbl_Unidades_Fisicas SET ID_VIN_Asociado = NULL WHERE ID_VIN_Asociado = ?", (id_unidad,))
+
+        # 2. Add audit log
+        motivo_str = payload.motivo if payload.motivo else "Eliminación autorizada por administrador"
+        cursor.execute(
+            "INSERT INTO Tbl_Auditoria_Cambios (Codigo_Pieza, Accion, Valor_Anterior, Valor_Nuevo, Usuario, Fecha_Hora) VALUES (?, 'ELIMINAR_VIN', ?, ?, 'SISTEMA_VIN', GETDATE())",
+            (f"VIN-{serie}", serie, motivo_str)
+        )
+
+        # 3. Delete Physical record
+        cursor.execute("DELETE FROM Tbl_Unidades_Fisicas WHERE ID_Unidad = ?", (id_unidad,))
+        conn.commit()
+        
+        # 4. Delete files related to this VIN
+        try:
+            folder_path = os.path.join(VIN_FILES_BASE, str(id_unidad))
+            if os.path.exists(folder_path):
+                shutil.rmtree(folder_path, ignore_errors=True)
+        except Exception as e:
+            pass # No bloqueamos si falla el borrado de archivos.
+
+        return {"status": "success", "message": f"VIN {serie} eliminado correctamente"}
+    except pyodbc.IntegrityError as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=f"No se puede eliminar por restricciones de BD: {str(e)}")
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
 
