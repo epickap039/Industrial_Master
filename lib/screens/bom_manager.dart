@@ -1263,14 +1263,14 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                   if (errorMsg.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 12.0),
-                      child: Text(errorMsg, style: const TextStyle(color: Colors.red)),
+                      child: Text(errorMsg, style: TextStyle(color: Colors.red)),
                     ),
                   Row(
                     children: [
                       Expanded(
                         child: InfoLabel(
                           label: "Largo Placa (mm)",
-                          child: TextBox(
+                          child: TextFormBox(
                             initialValue: largoPlaca.toString(),
                             onChanged: (v) => setDState(() => largoPlaca = double.tryParse(v) ?? largoPlaca),
                           ),
@@ -1280,7 +1280,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                       Expanded(
                         child: InfoLabel(
                           label: "Ancho Placa (mm)",
-                          child: TextBox(
+                          child: TextFormBox(
                             initialValue: anchoPlaca.toString(),
                             onChanged: (v) => setDState(() => anchoPlaca = double.tryParse(v) ?? anchoPlaca),
                           ),
@@ -1290,7 +1290,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                       Expanded(
                         child: InfoLabel(
                           label: "Desperdicio (%)",
-                          child: TextBox(
+                          child: TextFormBox(
                             initialValue: margenDesperdicio.toString(),
                             onChanged: (v) => setDState(() => margenDesperdicio = double.tryParse(v) ?? margenDesperdicio),
                           ),
@@ -1332,7 +1332,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                                   ),
                                   Text(
                                     "${placasNecesarias.toStringAsFixed(2)} Placas necesarias",
-                                    style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold),
+                                    style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold),
                                   ),
                                 ],
                               ),
