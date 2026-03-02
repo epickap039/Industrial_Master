@@ -473,10 +473,10 @@ class _CADScannerScreenState extends State<CADScannerScreen> {
                   ),
                 ],
               ),
-              ),
             ),
           ],
         ),
+      ),
       ),
     );
   }
