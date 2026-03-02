@@ -3,7 +3,7 @@ import uvicorn
 import pyodbc
 import pandas as pd
 import openpyxl
-from fastapi import FastAPI, HTTPException, Request, Response, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Request, Response, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from fastapi.middleware.cors import CORSMiddleware
@@ -3065,6 +3065,135 @@ def resolver_reporte(id_reporte: int):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
+
+# === MÓDULO: ESCÁNER CAD (Fase 1) ===
+
+class ScanCADPayload(BaseModel):
+    root_path: str
+
+scan_status = {
+    "progress": 0,
+    "total": 0,
+    "status": "idle",
+    "excel_path": "",
+    "error": ""
+}
+
+def bg_scan_cad_task(root_path: str):
+    global scan_status
+    import datetime
+    
+    scan_status["status"] = "scanning"
+    scan_status["progress"] = 0
+    scan_status["total"] = 0
+    scan_status["excel_path"] = ""
+    scan_status["error"] = ""
+    
+    # Búsqueda de archivos
+    cad_files = {} # Key: filename without extension, Value: dict of details
+    
+    extensions_to_look = {".dxf", ".dwg", ".sldprt"}
+    
+    try:
+        processed_count = 0
+        for dirpath, _, filenames in os.walk(root_path):
+            if scan_status["status"] == "cancelled":
+                break
+            
+            for f in filenames:
+                if scan_status["status"] == "cancelled":
+                    break
+                    
+                ext = os.path.splitext(f)[1].lower()
+                if ext in extensions_to_look:
+                    codigo_pieza = os.path.splitext(f)[0]
+                    abspath = os.path.join(dirpath, f)
+                    
+                    try:
+                        mtime = os.path.getmtime(abspath)
+                        if codigo_pieza in cad_files:
+                            if mtime > cad_files[codigo_pieza]["mtime"]:
+                                cad_files[codigo_pieza] = {
+                                    "mtime": mtime,
+                                    "abspath": abspath,
+                                    "ext": ext,
+                                    "codigo": codigo_pieza
+                                }
+                        else:
+                            cad_files[codigo_pieza] = {
+                                "mtime": mtime,
+                                "abspath": abspath,
+                                "ext": ext,
+                                "codigo": codigo_pieza
+                            }
+                    except OSError:
+                        pass # Ignore restricted or missing files
+                
+                processed_count += 1
+                if processed_count % 50 == 0: # Update progress every 50 files
+                    scan_status["progress"] = processed_count
+                    
+        scan_status["progress"] = processed_count
+        
+        if scan_status["status"] == "cancelled":
+            scan_status["status"] = "idle"
+            return
+            
+        scan_status["status"] = "generating_excel"
+        
+        # Generar Excel
+        data = []
+        for info in cad_files.values():
+            dt = datetime.datetime.fromtimestamp(info["mtime"]).strftime("%Y-%m-%d %H:%M:%S")
+            data.append({
+                "Codigo_Pieza": info["codigo"],
+                "Extension": info["ext"],
+                "Fecha": dt,
+                "Largo_CAD": "",
+                "Ancho_CAD": "",
+                "Material": "",
+                "Ruta_Archivo": info["abspath"]
+            })
+            
+        df = pd.DataFrame(data)
+        if df.empty:
+            df = pd.DataFrame(columns=["Codigo_Pieza", "Extension", "Fecha", "Largo_CAD", "Ancho_CAD", "Material", "Ruta_Archivo"])
+        else:
+             df = df[["Codigo_Pieza", "Extension", "Fecha", "Largo_CAD", "Ancho_CAD", "Material", "Ruta_Archivo"]]
+            
+        reports_dir = os.path.join(os.getcwd(), "reportes")
+        os.makedirs(reports_dir, exist_ok=True)
+        report_filename = f"Reporte_CAD.xlsx"
+        report_path = os.path.join(reports_dir, report_filename)
+        
+        df.to_excel(report_path, index=False)
+        
+        scan_status["status"] = "completed"
+        scan_status["excel_path"] = report_path
+        
+    except Exception as e:
+        scan_status["status"] = "error"
+        scan_status["error"] = str(e)
+
+
+@app.post("/api/cad/scan")
+def start_cad_scan(payload: ScanCADPayload, background_tasks: BackgroundTasks):
+    global scan_status
+    
+    if payload.root_path == "cancel":
+        scan_status["status"] = "cancelled"
+        return {"message": "Cancelado"}
+
+    if scan_status["status"] == "scanning":
+         return {"message": "Ya hay un escaneo en curso"}
+         
+    background_tasks.add_task(bg_scan_cad_task, payload.root_path)
+    return {"message": "Escaneo iniciado en segundo plano"}
+
+@app.get("/api/cad/status")
+def get_cad_status():
+    global scan_status
+    return scan_status
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8001)
