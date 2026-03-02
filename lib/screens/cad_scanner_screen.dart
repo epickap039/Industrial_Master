@@ -312,16 +312,17 @@ class _CADScannerScreenState extends State<CADScannerScreen> {
       header: const PageHeader(
         title: Text('Escáner de Directorios CAD'),
       ),
-      content: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Sección de Input
-            const Text(
-              'Ruta a escanear (Búsqueda Recursiva):',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
+      content: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Sección de Input
+              const Text(
+                'Ruta a escanear (Búsqueda Recursiva):',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
             const SizedBox(height: 8),
             Row(
               children: [
@@ -471,6 +472,7 @@ class _CADScannerScreenState extends State<CADScannerScreen> {
                     ),
                   ),
                 ],
+              ),
               ),
             ),
           ],
