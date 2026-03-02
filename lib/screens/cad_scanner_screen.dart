@@ -3,6 +3,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:async';
+import 'dart:io';
 import '../main.dart'; // Para API_URL
 
 class CADScannerScreen extends StatefulWidget {
@@ -171,6 +172,138 @@ class _CADScannerScreenState extends State<CADScannerScreen> {
     }
   }
 
+  Future<void> _downloadExcel() async {
+    String? outputFile = await FilePicker.platform.saveFile(
+      dialogTitle: 'Guardar Reporte',
+      fileName: 'Reporte_CAD.xlsx',
+      type: FileType.custom,
+      allowedExtensions: ['xlsx'],
+    );
+
+    if (outputFile == null) return;
+    
+    try {
+      final response = await http.get(Uri.parse('$API_URL/api/cad/download'));
+      if (response.statusCode == 200) {
+        final file = File(outputFile);
+        await file.writeAsBytes(response.bodyBytes);
+        displayInfoBar(context, builder: (context, close) {
+          return InfoBar(
+            title: const Text('Descarga Completa'),
+            content: Text('Guardado en:\n$outputFile'),
+            severity: InfoBarSeverity.success,
+            onClose: close,
+          );
+        });
+      } else {
+        throw Exception('Error al descargar: ${response.statusCode}');
+      }
+    } catch (e) {
+      displayInfoBar(context, builder: (context, close) {
+        return InfoBar(
+          title: const Text('Error Descargando'),
+          content: Text('$e'),
+          severity: InfoBarSeverity.error,
+          onClose: close,
+        );
+      });
+    }
+  }
+
+  Future<void> _uploadModifiedExcel() async {
+    FilePickerResult? result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['xlsx'],
+      dialogTitle: 'Seleccionar Archivo Modificado',
+    );
+
+    if (result == null || result.files.single.path == null) return;
+    String filePath = result.files.single.path!;
+    
+    // Mostrar que está cargando...
+    bool isUploading = true;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return const ContentDialog(
+          title: Text('Subiendo e Importando...'),
+          content: Center(child: ProgressRing()),
+        );
+      }
+    );
+
+    try {
+      var request = http.MultipartRequest('POST', Uri.parse('$API_URL/api/cad/upload'));
+      request.files.add(await http.MultipartFile.fromPath('file', filePath));
+      
+      var response = await request.send();
+      var responseData = await http.Response.fromStream(response);
+      
+      Navigator.pop(context); // Cerrar diálogo de carga
+      isUploading = false;
+
+      if (response.statusCode == 200) {
+        final data = json.decode(responseData.body);
+        int act = data['actualizadas'] ?? 0;
+        int err = data['errores'] ?? 0;
+        List<dynamic> det = data['detalles_errores'] ?? [];
+        
+        showDialog(
+          context: context,
+          builder: (context) {
+            return ContentDialog(
+              title: const Text('Resultado de la Actualización'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Piezas actualizadas correctamente: $act'),
+                  Text('Filas con error o ignoradas: $err'),
+                  if (det.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    const Text('Detalles de errores:', style: TextStyle(fontWeight: FontWeight.bold)),
+                    Container(
+                      height: 100,
+                      decoration: BoxDecoration(border: Border.all(color: Colors.grey)),
+                      child: ListView.builder(
+                        itemCount: det.length,
+                        itemBuilder: (context, idx) {
+                          return Padding(
+                            padding: const EdgeInsets.all(4.0),
+                            child: Text('- ${det[idx]}'),
+                          );
+                        },
+                      ),
+                    )
+                  ]
+                ],
+              ),
+              actions: [
+                Button(
+                   child: const Text('Cerrar'), 
+                   onPressed: () => Navigator.pop(context),
+                )
+              ],
+            );
+          }
+        );
+      } else {
+        throw Exception('El servidor devolvió Error ${response.statusCode}: ${responseData.body}');
+      }
+    } catch (e) {
+      if (isUploading) Navigator.pop(context);
+      displayInfoBar(context, builder: (context, close) {
+        return InfoBar(
+          title: const Text('Error de subida'),
+          content: Text(e.toString()),
+          severity: InfoBarSeverity.error,
+          onClose: close,
+        );
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final bool isScanning = _status == 'scanning' || _status == 'generating_excel';
@@ -287,17 +420,7 @@ class _CADScannerScreenState extends State<CADScannerScreen> {
                     Text('Se encontraron y procesaron $_progress archivos CAD únicos.'),
                     const SizedBox(height: 24),
                     FilledButton(
-                      onPressed: () {
-                        // Aquí se podría implementar la descarga del Excel
-                        displayInfoBar(context, builder: (context, close) {
-                          return InfoBar(
-                            title: const Text('Descarga'),
-                            content: Text('El archivo se encuentra en el servidor en la ruta:\n$_excelPath'),
-                            severity: InfoBarSeverity.info,
-                            onClose: close,
-                          );
-                        });
-                      },
+                      onPressed: _downloadExcel,
                       style: ButtonStyle(
                         backgroundColor: ButtonState.all(Colors.blue),
                       ),
@@ -312,7 +435,43 @@ class _CADScannerScreenState extends State<CADScannerScreen> {
                   ],
                 ),
               ),
-            ],
+            const SizedBox(height: 48),
+
+            // Tarjeta de actualización BD
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Actualizar Base de Datos',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text('Sube el archivo Excel previament descargado con las columnas Largo_CAD y Ancho_CAD debidamente llenadas para actualizar el Catálogo Maestro.'),
+                  const SizedBox(height: 16),
+                  Button(
+                    onPressed: isScanning ? null : _uploadModifiedExcel,
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(FluentIcons.upload),
+                          SizedBox(width: 8),
+                          Text('Cargar Excel Modificado', style: TextStyle(fontSize: 16)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),

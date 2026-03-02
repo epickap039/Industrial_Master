@@ -3104,6 +3104,9 @@ def bg_scan_cad_task(root_path: str):
                 if scan_status["status"] == "cancelled":
                     break
                     
+                if f.startswith("~$"):
+                    continue
+                    
                 ext = os.path.splitext(f)[1].lower()
                 if ext in extensions_to_look:
                     codigo_pieza = os.path.splitext(f)[0]
@@ -3194,6 +3197,107 @@ def start_cad_scan(payload: ScanCADPayload, background_tasks: BackgroundTasks):
 def get_cad_status():
     global scan_status
     return scan_status
+
+from fastapi.responses import FileResponse
+import math
+
+@app.get("/api/cad/download")
+def download_cad_report():
+    global scan_status
+    excel_path = scan_status.get("excel_path", "")
+    if not excel_path or not os.path.exists(excel_path):
+        raise HTTPException(status_code=404, detail="Archivo Excel no encontrado.")
+    return FileResponse(excel_path, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", filename="Reporte_CAD.xlsx")
+
+@app.post("/api/cad/upload")
+async def upload_cad_modifications(file: UploadFile = File(...)):
+    if not file.filename.endswith('.xlsx'):
+         raise HTTPException(status_code=400, detail="Formato no admitido. Debe ser un archivo .xlsx")
+         
+    try:
+        contents = await file.read()
+        df = pd.read_excel(io.BytesIO(contents))
+        
+        # Validar que tenga las columnas requeridas
+        required_cols = ["Codigo_Pieza", "Largo_CAD", "Ancho_CAD"]
+        for col in required_cols:
+            if col not in df.columns:
+                raise HTTPException(status_code=400, detail=f"Falta la columna requerida: {col}")
+                
+        actualizadas = 0
+        errores = 0
+        detalles_errores = []
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        try:
+            for index, row in df.iterrows():
+                codigo = str(row["Codigo_Pieza"]).strip()
+                if not codigo or codigo.lower() == 'nan':
+                     continue
+                     
+                largo = row.get("Largo_CAD")
+                ancho = row.get("Ancho_CAD")
+                material = row.get("Material", "")
+                ruta = row.get("Ruta_Archivo", "")
+                
+                # Tratar nulos o cadenas vacías
+                if pd.isna(largo) or largo == "" or pd.isna(ancho) or ancho == "":
+                    # Se ignora según requerimientos
+                    continue
+                    
+                try:
+                    largo_float = float(largo)
+                    ancho_float = float(ancho)
+                except ValueError:
+                    errores += 1
+                    detalles_errores.append(f"Fila {index+2} ({codigo}): Valores de medidas no son numéricos.")
+                    continue
+                    
+                material_str = str(material).strip() if not pd.isna(material) else ""
+                ruta_str = str(ruta).strip() if not pd.isna(ruta) else ""
+                
+                # Update Catalogo de piezas
+                cursor.execute("""
+                    UPDATE Tbl_Catalogo_Piezas 
+                    SET Largo_CAD = ?, Ancho_CAD = ?, Material = ?, Ruta_Archivo = ?
+                    WHERE Codigo_Pieza = ?
+                """, (largo_float, ancho_float, material_str, ruta_str, codigo))
+                
+                if cursor.rowcount > 0:
+                    actualizadas += 1
+                    # Opcional: Registrar en auditoria global si queremos
+                    registrar_log_global(cursor, codigo, "UPDATE_MEDIDAS_CAD", "", f"L:{largo_float}, A:{ancho_float}", "SISTEMA_CAD")
+                else:
+                    errores += 1
+                    detalles_errores.append(f"Fila {index+2} ({codigo}): Pieza no encontrada en el catálogo.")
+                    
+            conn.commit()
+            
+        except Exception as inner_e:
+            conn.rollback()
+            raise inner_e
+        finally:
+            conn.close()
+            
+        return {
+            "status": "success",
+            "actualizadas": actualizadas,
+            "errores": errores,
+            "detalles_errores": detalles_errores
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+        
+def registrar_log_global(cursor, codigo_pieza, accion, anterior, nuevo, usuario):
+    try:
+        cursor.execute("""
+            INSERT INTO Tbl_Auditoria_Cambios (Codigo_Pieza, Accion, Valor_Anterior, Valor_Nuevo, Usuario, Fecha_Hora)
+            VALUES (?, ?, ?, ?, ?, GETDATE())
+        """, (codigo_pieza, accion, anterior[:250], nuevo[:250], usuario))
+    except Exception:
+        pass
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8001)
