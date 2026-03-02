@@ -3260,10 +3260,18 @@ async def upload_cad_modifications(file: UploadFile = File(...)):
                 
                 # Update Catalogo de piezas
                 cursor.execute("""
-                    UPDATE Tbl_Catalogo_Piezas 
+                    UPDATE Tbl_Maestro_Piezas 
                     SET Largo_CAD = ?, Ancho_CAD = ?, Material = ?, Ruta_Archivo = ?
                     WHERE Codigo_Pieza = ?
                 """, (largo_float, ancho_float, material_str, ruta_str, codigo))
+
+                if cursor.rowcount == 0:
+                     # Fallback for alternative column name as used elsewhere
+                     cursor.execute("""
+                        UPDATE Tbl_Maestro_Piezas 
+                        SET Largo_CAD = ?, Ancho_CAD = ?, Material = ?, Ruta_Archivo = ?
+                        WHERE Codigo = ?
+                     """, (largo_float, ancho_float, material_str, ruta_str, codigo))
                 
                 if cursor.rowcount > 0:
                     actualizadas += 1
