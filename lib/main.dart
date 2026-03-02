@@ -20,6 +20,7 @@ import 'screens/bom_manager.dart';
 import 'screens/vin_dossier.dart';
 import 'screens/engineering_map.dart'; // v60.0: Mapa de Ingeniería
 import 'screens/qa_dashboard.dart'; // Centro de QA
+import 'screens/cad_scanner_screen.dart'; // Módulo CAD
 import 'package:pasteboard/pasteboard.dart';
 import 'package:flutter/services.dart';
 
@@ -438,6 +439,11 @@ class _MyAppState extends State<MyApp> {
                             icon: const Icon(FluentIcons.database),
                             title: const Text('Catálogo Maestro'),
                             body: const CatalogScreen(),
+                          ),
+                          PaneItem(
+                            icon: const Icon(FluentIcons.folder_search),
+                            title: const Text('Escáner CAD'),
+                            body: const CADScannerScreen(),
                           ),
                           PaneItem(
                             icon: const Icon(FluentIcons.excel_document),
