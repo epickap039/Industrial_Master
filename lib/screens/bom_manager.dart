@@ -1213,6 +1213,149 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     );
   }
 
+  void _showCalculadorDialog() {
+    if (_selectedRevision == null) return;
+    
+    double largoPlaca = 3050.0;
+    double anchoPlaca = 1220.0;
+    double margenDesperdicio = 15.0;
+    
+    bool dialogLoading = true;
+    Map<String, dynamic> resultados = {};
+    String errorMsg = "";
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDState) {
+          if (dialogLoading) {
+            http.get(Uri.parse('$API_URL/api/bom/${_selectedRevision['id_revision']}/calcular_placas')).then((res) {
+              if (res.statusCode == 200) {
+                setDState(() {
+                  resultados = json.decode(res.body);
+                  dialogLoading = false;
+                });
+              } else {
+                setDState(() {
+                  errorMsg = "Error al calcular: ${res.statusCode}";
+                  dialogLoading = false;
+                });
+              }
+            }).catchError((e) {
+              setDState(() {
+                errorMsg = "Error de conexión: $e";
+                dialogLoading = false;
+              });
+            });
+            return const ContentDialog(content: ProgressRing());
+          }
+
+          final double areaPlaca = largoPlaca * anchoPlaca;
+
+          return ContentDialog(
+            title: const Text("Calculador de Placas / Materia Prima"),
+            content: SizedBox(
+              width: 500,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (errorMsg.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12.0),
+                      child: Text(errorMsg, style: const TextStyle(color: Colors.red)),
+                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: InfoLabel(
+                          label: "Largo Placa (mm)",
+                          child: TextBox(
+                            initialValue: largoPlaca.toString(),
+                            onChanged: (v) => setDState(() => largoPlaca = double.tryParse(v) ?? largoPlaca),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: InfoLabel(
+                          label: "Ancho Placa (mm)",
+                          child: TextBox(
+                            initialValue: anchoPlaca.toString(),
+                            onChanged: (v) => setDState(() => anchoPlaca = double.tryParse(v) ?? anchoPlaca),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: InfoLabel(
+                          label: "Desperdicio (%)",
+                          child: TextBox(
+                            initialValue: margenDesperdicio.toString(),
+                            onChanged: (v) => setDState(() => margenDesperdicio = double.tryParse(v) ?? margenDesperdicio),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  const Text("Resultados Estimados:", style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  if (resultados.isEmpty)
+                    const Text("No se encontraron piezas con medidas CAD en este BOM.")
+                  else
+                    Flexible(
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: resultados.keys.length,
+                        itemBuilder: (context, idx) {
+                          String paramMaterial = resultados.keys.elementAt(idx);
+                          var data = resultados[paramMaterial];
+                          double areaTotal = (data['area_total_mm2'] ?? 0).toDouble();
+                          int numPiezas = data['piezas_involucradas'] ?? 0;
+                          
+                          double factor = 1 + (margenDesperdicio / 100);
+                          double placasNecesarias = areaPlaca > 0 ? (areaTotal * factor) / areaPlaca : 0;
+                          
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 6.0),
+                            child: Card(
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(paramMaterial, style: const TextStyle(fontWeight: FontWeight.w600)),
+                                      Text("$numPiezas piezas agrupadas", style: const TextStyle(fontSize: 12)),
+                                    ],
+                                  ),
+                                  Text(
+                                    "${placasNecesarias.toStringAsFixed(2)} Placas necesarias",
+                                    style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            actions: [
+              Button(
+                child: const Text("Cerrar"),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   List<TreeViewItem> _buildTreeItems() {
     final bool isAprobada =
         _selectedRevision != null && _selectedRevision['estado'] == 'Aprobada';
@@ -1779,6 +1922,14 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                                     _selectedRevision == null
                                         ? null
                                         : _showVINManagementDialog,
+                              ),
+                              CommandBarButton(
+                                icon: Icon(FluentIcons.calculator, color: Colors.purple),
+                                label: const Text("Calcular Materia Prima"),
+                                onPressed:
+                                    _selectedRevision == null
+                                        ? null
+                                        : _showCalculadorDialog,
                               ),
                               const CommandBarSeparator(),
                               CommandBarButton(

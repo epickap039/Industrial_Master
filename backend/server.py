@@ -1398,6 +1398,42 @@ def add_ensamble(payload: EnsamblePayload):
     finally:
         conn.close()
 
+@app.get("/api/bom/{id_revision}/calcular_placas")
+def calcular_placas(id_revision: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT m.Material, m.Largo_CAD, m.Ancho_CAD, e.Cantidad
+            FROM Tbl_BOM_Estructura e
+            INNER JOIN Tbl_Maestro_Piezas m ON e.Codigo_Pieza = m.Codigo_Pieza
+            INNER JOIN Tbl_Ensambles en ON e.ID_Ensamble = en.ID_Ensamble
+            INNER JOIN Tbl_Estaciones es ON en.ID_Estacion = es.ID_Estacion
+            WHERE es.ID_Revision = ? AND m.Largo_CAD > 0 AND m.Ancho_CAD > 0 AND m.Material IS NOT NULL AND m.Material != ''
+        """, (id_revision,))
+        
+        resultados = {}
+        for row in cursor.fetchall():
+            material = str(row.Material).strip() if row.Material else "Sin Especificar"
+            largo = float(row.Largo_CAD)
+            ancho = float(row.Ancho_CAD)
+            cantidad = float(row.Cantidad)
+            
+            area_pieza = largo * ancho
+            area_total = area_pieza * cantidad
+            
+            if material not in resultados:
+                resultados[material] = {"area_total_mm2": 0.0, "piezas_involucradas": 0}
+            
+            resultados[material]["area_total_mm2"] += area_total
+            resultados[material]["piezas_involucradas"] += int(cantidad)
+            
+        return resultados
+    except pyodbc.Error as e:
+        raise HTTPException(status_code=500, detail=f"Error SQL en cálculo de placas: {str(e)}")
+    finally:
+        conn.close()
+
 @app.delete("/api/bom/ensambles/{id_ensamble}")
 def delete_ensamble(id_ensamble: int):
     conn = get_db_connection()
