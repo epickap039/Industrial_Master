@@ -3218,45 +3218,50 @@ async def upload_cad_modifications(file: UploadFile = File(...)):
         contents = await file.read()
         df = pd.read_excel(io.BytesIO(contents))
         
+        # Validación robusta de NaN de Pandas
+        df = df.fillna('')
+        
         # Validar que tenga las columnas requeridas
         required_cols = ["Codigo_Pieza", "Largo_CAD", "Ancho_CAD"]
         for col in required_cols:
             if col not in df.columns:
+                print(f"ERROR: Falta columna {col}")
                 raise HTTPException(status_code=400, detail=f"Falta la columna requerida: {col}")
                 
         actualizadas = 0
-        errores = 0
-        detalles_errores = []
+        ignoradas = 0
+        no_encontradas = 0
         
         conn = get_db_connection()
         cursor = conn.cursor()
         
+        print(f"=== INICIANDO LECTURA DE {len(df)} FILAS DEL EXCEL ===")
+        
         try:
             for index, row in df.iterrows():
                 codigo = str(row["Codigo_Pieza"]).strip()
-                if not codigo or codigo.lower() == 'nan':
+                if not codigo:
+                     ignoradas += 1
                      continue
                      
-                largo = row.get("Largo_CAD")
-                ancho = row.get("Ancho_CAD")
-                material = row.get("Material", "")
-                ruta = row.get("Ruta_Archivo", "")
+                largo = str(row.get("Largo_CAD", "")).strip()
+                ancho = str(row.get("Ancho_CAD", "")).strip()
+                material_str = str(row.get("Material", "")).strip()
+                ruta_str = str(row.get("Ruta_Archivo", "")).strip()
                 
-                # Tratar nulos o cadenas vacías
-                if pd.isna(largo) or largo == "" or pd.isna(ancho) or ancho == "":
-                    # Se ignora según requerimientos
+                # Tratar vacíos
+                if not largo or not ancho:
+                    print(f"IGNORADA (Fila {index+2}): {codigo} - Medidas vacías")
+                    ignoradas += 1
                     continue
                     
                 try:
                     largo_float = float(largo)
                     ancho_float = float(ancho)
                 except ValueError:
-                    errores += 1
-                    detalles_errores.append(f"Fila {index+2} ({codigo}): Valores de medidas no son numéricos.")
+                    print(f"IGNORADA (Fila {index+2}): {codigo} - No son números (L:{largo}, A:{ancho})")
+                    ignoradas += 1
                     continue
-                    
-                material_str = str(material).strip() if not pd.isna(material) else ""
-                ruta_str = str(ruta).strip() if not pd.isna(ruta) else ""
                 
                 # Update Catalogo de piezas
                 cursor.execute("""
@@ -3266,14 +3271,16 @@ async def upload_cad_modifications(file: UploadFile = File(...)):
                 """, (largo_float, ancho_float, material_str, ruta_str, codigo))
                 
                 if cursor.rowcount > 0:
+                    print(f"ACTUALIZADA: {codigo} (L:{largo_float}, A:{ancho_float})")
                     actualizadas += 1
-                    # Opcional: Registrar en auditoria global si queremos
+                    # Opcional: Registrar en auditoria global
                     registrar_log_global(cursor, codigo, "UPDATE_MEDIDAS_CAD", "", f"L:{largo_float}, A:{ancho_float}", "SISTEMA_CAD")
                 else:
-                    errores += 1
-                    detalles_errores.append(f"Fila {index+2} ({codigo}): Pieza no encontrada en el catálogo.")
+                    print(f"NO ENCONTRADA: {codigo} - No existe la llave en DB")
+                    no_encontradas += 1
                     
             conn.commit()
+            print("=== ESCRITURA FINALIZADA CON ÉXITO ===")
             
         except Exception as inner_e:
             conn.rollback()
@@ -3284,8 +3291,8 @@ async def upload_cad_modifications(file: UploadFile = File(...)):
         return {
             "status": "success",
             "actualizadas": actualizadas,
-            "errores": errores,
-            "detalles_errores": detalles_errores
+            "ignoradas": ignoradas,
+            "no_encontradas": no_encontradas
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
