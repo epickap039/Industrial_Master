@@ -3180,19 +3180,94 @@ def bg_scan_cad_task(root_path: str):
             
         scan_status["status"] = "generating_excel"
         
-        # Generar Excel
+        # Generar Excel y extraer metadata CAD
         data = []
+        try:
+            import ezdxf
+            from ezdxf import bbox
+        except ImportError:
+            pass
+            
+        try:
+            import win32com.client
+        except ImportError:
+            pass
+            
+        has_sldprt = any(info["ext"] == ".sldprt" for info in cad_files.values())
+        sw_app = None
+        if has_sldprt:
+            try:
+                sw_app = win32com.client.Dispatch("SldWorks.Application")
+                sw_app.Visible = False
+            except Exception as e:
+                print(f"ADVERTENCIA: Motor SolidWorks inaccesible para .sldprt: {e}")
+                
+        total_a_extraer = len(cad_files)
+        extraidos = 0
+        scan_status["total"] = total_a_extraer
+        
+        print(f"=== INICIANDO EXTRACCIÓN CAD ({total_a_extraer} archivos únicos) ===")
+
         for info in cad_files.values():
+            if scan_status["status"] == "cancelled":
+                if sw_app: 
+                    try: sw_app.ExitApp()
+                    except: pass
+                scan_status["status"] = "idle"
+                return
+
             dt = datetime.datetime.fromtimestamp(info["mtime"]).strftime("%Y-%m-%d %H:%M:%S")
+            ext = info["ext"]
+            abspath = info["abspath"]
+            codigo = info["codigo"]
+            
+            largo_cad = 0.0
+            ancho_cad = 0.0
+            
+            try:
+                if ext == ".dxf":
+                    doc = ezdxf.readfile(abspath)
+                    msp = doc.modelspace()
+                    extents = bbox.extents(msp)
+                    if extents.has_data:
+                        dx = extents.extmax.x - extents.extmin.x
+                        dy = extents.extmax.y - extents.extmin.y
+                        largo_cad = max(dx, dy)
+                        ancho_cad = min(dx, dy)
+                        
+                elif ext == ".sldprt" and sw_app:
+                    # OpenDoc6 (Name, type, options, config, errors, warnings)
+                    # 1 = swDocPART, 2 = ReadOnly + 1 = Silent
+                    swModel = sw_app.OpenDoc6(abspath, 1, 1 | 2, "", None, None)
+                    if swModel:
+                        box = swModel.GetBox(False)
+                        if box:
+                            # [0]=Xmin, [1]=Ymin, [2]=Zmin, [3]=Xmax, [4]=Ymax, [5]=Zmax
+                            dims = sorted([abs(box[3]-box[0]), abs(box[4]-box[1]), abs(box[5]-box[2])], reverse=True)
+                            # SolidWorks devuelve en metros
+                            largo_cad = dims[0] * 1000.0
+                            ancho_cad = dims[1] * 1000.0
+                        sw_app.CloseDoc(abspath)
+                        
+            except Exception as extract_err:
+                print(f"Error extrayendo {codigo}: {extract_err}")
+
             data.append({
-                "Codigo_Pieza": info["codigo"],
-                "Extension": info["ext"],
+                "Codigo_Pieza": codigo,
+                "Extension": ext,
                 "Fecha": dt,
-                "Largo_CAD": "",
-                "Ancho_CAD": "",
+                "Largo_CAD": round(largo_cad, 2) if largo_cad > 0 else "",
+                "Ancho_CAD": round(ancho_cad, 2) if ancho_cad > 0 else "",
                 "Material": "",
-                "Ruta_Archivo": info["abspath"]
+                "Ruta_Archivo": abspath
             })
+            extraidos += 1
+            scan_status["progress"] = extraidos
+            
+        print("=== EXTRACCIÓN CAD FINALIZADA ===")
+        if sw_app:
+            try: sw_app.ExitApp()
+            except: pass
             
         df = pd.DataFrame(data)
         if df.empty:
