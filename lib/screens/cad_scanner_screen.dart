@@ -308,12 +308,12 @@ class _CADScannerScreenState extends State<CADScannerScreen> {
   Widget build(BuildContext context) {
     final bool isScanning = _status == 'scanning' || _status == 'generating_excel';
 
-    return ScaffoldPage(
+    return ScaffoldPage.scrollable(
       header: const PageHeader(
         title: Text('Escáner de Directorios CAD'),
       ),
-      content: SingleChildScrollView(
-        child: Padding(
+      children: [
+        Padding(
           padding: const EdgeInsets.all(24.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -477,7 +477,7 @@ class _CADScannerScreenState extends State<CADScannerScreen> {
           ],
         ),
       ),
-      ),
+      ],
     );
   }
 }
