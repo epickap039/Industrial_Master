@@ -435,6 +435,7 @@ class _CADScannerScreenState extends State<CADScannerScreen> {
                   ],
                 ),
               ),
+            ],
             const SizedBox(height: 48),
 
             // Tarjeta de actualización BD
