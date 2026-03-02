@@ -277,7 +277,7 @@ class _CADScannerScreenState extends State<CADScannerScreen> {
                 ),
                 child: Column(
                   children: [
-                    const Icon(FluentIcons.completed_solid, size: 48, color: Colors.green),
+                    Icon(FluentIcons.completed_solid, size: 48, color: Colors.green),
                     const SizedBox(height: 16),
                     const Text(
                       '¡Escaneo Finalizado con Éxito!',
