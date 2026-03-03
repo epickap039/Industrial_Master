@@ -1,5 +1,6 @@
 import os
 import sys
+import shutil
 
 def main():
     print("=========================================================")
@@ -8,7 +9,6 @@ def main():
     
     folder_path = input("Ingresa la ruta absoluta de la carpeta de prueba: ").strip()
     
-    # Limpiar comillas si el usuario arrastra y suelta la carpeta en la consola
     if folder_path.startswith('"') and folder_path.endswith('"'):
         folder_path = folder_path[1:-1]
         
@@ -37,9 +37,10 @@ def main():
         return
         
     print("\nIniciando motor de SolidWorks en segundo plano (Auto-sanación)...")
+    
+    try:
         import win32com.client
         import pythoncom
-        import shutil
         
         # NUCLEAR CLEAN: Borrar la "memoria corrupta" de gen_py antes de iniciar
         try:
@@ -50,7 +51,7 @@ def main():
             gen_py_path = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Temp', 'gen_py')
             if os.path.exists(gen_py_path):
                 shutil.rmtree(gen_py_path, ignore_errors=True)
-        except:
+        except Exception:
             pass
             
     except ImportError:
@@ -75,8 +76,7 @@ def main():
             arg_errors = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
             arg_warnings = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
             
-            # Abrir archivo silenciosamente EN MODO EDICIÓN (No podemos usar ReadOnly que es 2)
-            # 1 = swDocPART, 1 = swOpenDocOptions_Silent
+            # Abrir archivo silenciosamente EN MODO EDICIÓN
             swModel = swApp.OpenDoc6(abspath, 1, 1, "", arg_errors, arg_warnings)
             
             if swModel is None:
@@ -85,7 +85,7 @@ def main():
                 continue
                 
             try:
-                # 1. Validar que sea una pieza (swDocPART = 1)
+                # 1. Validar que sea una pieza
                 if swModel.GetType() != 1:
                     print(f"[OMITIDO] {filename}: No es una pieza 3D.")
                     swApp.CloseDoc(abspath)
@@ -100,14 +100,12 @@ def main():
                         # Buscar nombres comunes en español e inglés
                         for prop in ["Largo de la chapa desplegada", "Ancho de la chapa desplegada", "Bounding Box Length", "Bounding Box Width", "Length", "Largo", "Width", "Ancho"]:
                             res = cust_prop_mgr.Get6(prop, False, "", "", False)
-                            if res and len(res) > 1 and res[1]: # Si encontró valor
-                                # Guardar medida y marcar como éxito
+                            if res and len(res) > 1 and res[1]:
                                 found_in_cut_list = True
                     feat = feat.GetNextFeature()
 
                 # B. Si no es chapa o no tiene lista de cortes, INYECTAR Bounding Box Global
                 if not found_in_cut_list:
-                    # Resiliencia: si ya tiene Bounding Box, no re-inyectar
                     has_bbox = False
                     f_check = swModel.FirstFeature()
                     while f_check:
@@ -118,23 +116,15 @@ def main():
 
                     if not has_bbox:
                         try:
-                            # 1. Tratar vía Dynamic Dispatch puro
-                            feat_mgr = win32com.client.dynamic.Dispatch(swModel.FeatureManager)
-                            feat_mgr.InsertGlobalBoundingBox(0, False, False, 0)
-                        except Exception:
-                            try:
-                                # 2. Fuerza OLEOBJ Invoke por nombre (DISPID) para evadir error de type (Late Binding puro)
-                                dispid = swModel.FeatureManager._oleobj_.GetIDsOfNames("InsertGlobalBoundingBox")
-                                # args: dispid, lcid, wFlags (1=METHOD), bstrArg1, bstrArg2...
-                                swModel.FeatureManager._oleobj_.Invoke(dispid, 0, 1, 1, 0, False, False, 0)
-                            except Exception as fallback_err:
-                                raise Exception(f"El Motor COM rechazó la inyección. Detalle: {str(fallback_err)[:50]}")
+                            # Usamos 'getattr' dinámico para evitar el error 'int' object is not callable
+                            getattr(swModel.FeatureManager, "InsertGlobalBoundingBox")(0, False, False, 0)
+                        except Exception as e:
+                            raise Exception(f"No se pudo inyectar Bounding Box: {str(e)}")
 
-                
-                # 4. Reconstruir para que las Custom Properties se generen (Ctrl+Q en SW)
+                # 4. Reconstruir para que las Custom Properties se generen
                 swModel.ForceRebuild3(False)
                 
-                # 5. Guardar silenciosamente y cerrar (swSaveAsOptions_Silent = 1)
+                # 5. Guardar silenciosamente y cerrar
                 swModel.Save3(1, 0, 0)
                 swApp.CloseDoc(abspath)
                 
