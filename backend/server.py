@@ -3268,64 +3268,45 @@ def bg_scan_cad_task(root_path: str):
 
                     if swModel is None:
                         observacion = "No se pudo abrir el archivo"
-                        raise Exception("OpenDoc6 falló (Archivo corrupto o con referencias rotas)")
-                        
-                    try:
-                        swCustPropMgr = swModel.Extension.CustomPropertyManager("")
-                        len_val = 0.0
-                        wid_val = 0.0
-                        if swCustPropMgr:
-                            names = swCustPropMgr.GetNames()
-                            if names: print(f"Propiedades en {codigo}: {names}")
-                            
-                            posibles_largos = ["Bounding Box Length", "Largo de cuadro delimitador", "Length", "Largo"]
-                            posibles_anchos = ["Bounding Box Width", "Ancho de cuadro delimitador", "Width", "Ancho"]
-                            
-                            for ln in posibles_largos:
-                                try:
-                                    valOut = swCustPropMgr.Get5(ln, True)
-                                except: valOut = None
-                                if valOut and isinstance(valOut, tuple) and len(valOut) > 1 and valOut[1]:
-                                    try: len_val = float(str(valOut[1]).replace(',', '.').strip().split(' ')[0])
-                                    except: pass
-                                    if len_val > 0: break
-                                    
-                            for wn in posibles_anchos:
-                                try:
-                                    valOut = swCustPropMgr.Get5(wn, True)
-                                except: valOut = None
-                                if valOut and isinstance(valOut, tuple) and len(valOut) > 1 and valOut[1]:
-                                    try: wid_val = float(str(valOut[1]).replace(',', '.').strip().split(' ')[0])
-                                    except: pass
-                                    if wid_val > 0: break
-                        
-                        if len_val > 0 and wid_val > 0:
-                            largo_cad = len_val
-                            ancho_cad = wid_val
-                            observacion = "OK"
-                        else:
-                            # Fallback: Usar Boundary Box
-                            box = None
-                            try:
-                                box = swModel.GetBox(False)
-                            except TypeError: 
-                                box = swModel.GetBox
-                            except: pass
-
-                            if box and isinstance(box, tuple) and len(box) >= 6:
-                                dims = sorted([abs(box[3]-box[0]), abs(box[4]-box[1]), abs(box[5]-box[2])], reverse=True)
-                                largo_cad = dims[0] * 1000.0
-                                ancho_cad = dims[1] * 1000.0
-                                observacion = "OK"
-                            else:
-                                observacion = "No se encontró medida"
-                    except Exception as math_err:
-                        observacion = f"Error: {str(math_err)[:50]}"
-                        print(f"Error matemático extrayendo {codigo}: {math_err}")
-                    finally:
+                        # No lanzamos excepción para que permita llenar el DataFrame en blanco
+                    else:
                         try:
-                            sw_app.CloseDoc(abspath)
-                        except: pass
+                            # Intentar leer Bounding Box directamente de las Custom Properties
+                            prop_mgr = swModel.Extension.CustomPropertyManager("")
+                            
+                            # SolidWorks suele guardar las medidas automáticamente aquí
+                            # prop_mgr.Get devuelve (ValOut, ResolvedValOut, WasResolved)
+                            # El valor resuelto suele estar en el índice 1
+                            get_largo = prop_mgr.Get("Bounding Box Length")
+                            get_ancho = prop_mgr.Get("Bounding Box Width")
+                            
+                            largo_val = get_largo[1] if (get_largo and len(get_largo) > 1) else ""
+                            ancho_val = get_ancho[1] if (get_ancho and len(get_ancho) > 1) else ""
+
+                            if largo_val and ancho_val:
+                                 # Limpiar el texto (quitar comillas o letras, dejar solo números)
+                                 import re
+                                 largo = float(re.sub(r'[^\d.]', '', str(largo_val).replace(',', '.')) or 0)
+                                 ancho = float(re.sub(r'[^\d.]', '', str(ancho_val).replace(',', '.')) or 0)
+                                 
+                                 # Asegurar que el Largo sea el mayor
+                                 largo_cad = max(largo, ancho)
+                                 ancho_cad = min(largo, ancho)
+                                 
+                                 if largo_cad > 0 and ancho_cad > 0:
+                                     observacion = "OK"
+                                 else:
+                                     observacion = "No se encontró Bounding Box en las propiedades"
+                            else:
+                                 observacion = "No se encontró Bounding Box en las propiedades"
+                                 
+                        except Exception as math_err:
+                            observacion = f"Error matemático: {str(math_err)[:50]}"
+                            print(f"Error matemático extrayendo {codigo}: {math_err}")
+                        finally:
+                            try:
+                                sw_app.CloseDoc(abspath)
+                            except: pass
                         
             except Exception as extract_err:
                 if not observacion:
