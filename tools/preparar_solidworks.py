@@ -40,6 +40,14 @@ def main():
     try:
         import win32com.client
         import pythoncom
+        import shutil
+        # Intentar limpiar la caché COM (gen_py) que provoca los errores de callable en Python
+        try:
+            cache_dir = win32com.client.gencache.GetGeneratePath()
+            if cache_dir and os.path.exists(cache_dir):
+                shutil.rmtree(cache_dir, ignore_errors=True)
+        except:
+            pass
     except ImportError:
         print("\n[X] Error: Faltan dependencias. Primero ejecuta: pip install pywin32")
         return
@@ -85,9 +93,9 @@ def main():
                     if feat.GetTypeName2() == "CutListFolder":
                         cust_prop_mgr = feat.CustomPropertyManager
                         # Buscar nombres comunes en español e inglés
-                        for prop in ["Largo de la chapa desplegada", "Ancho de la chapa desplegada", "Bounding Box Length", "Bounding Box Width"]:
+                        for prop in ["Largo de la chapa desplegada", "Ancho de la chapa desplegada", "Bounding Box Length", "Bounding Box Width", "Length", "Largo", "Width", "Ancho"]:
                             res = cust_prop_mgr.Get6(prop, False, "", "", False)
-                            if res[1]: # Si encontró valor
+                            if res and len(res) > 1 and res[1]: # Si encontró valor
                                 # Guardar medida y marcar como éxito
                                 found_in_cut_list = True
                     feat = feat.GetNextFeature()
@@ -95,10 +103,8 @@ def main():
                 # B. Si no es chapa o no tiene lista de cortes, INYECTAR Bounding Box Global
                 if not found_in_cut_list:
                     try:
-                        # Usamos 'Invoke' implicitamente vía Dispatch dinámico sobre la propiedad/método
-                        # swFeatureManager.InsertGlobalBoundingBox (0=Best Fit, False, False, status)
-                        status = 0
-                        swModel.FeatureManager.InsertGlobalBoundingBox(0, False, False, status)
+                        # Usamos 'getattr' dinámico para evitar el error 'int' object is not callable
+                        getattr(swModel.FeatureManager, "InsertGlobalBoundingBox")(0, False, False, 0)
                     except Exception as e:
                         raise Exception(f"No se pudo inyectar Bounding Box ni leer Chapa Metálica: {str(e)}")
 
