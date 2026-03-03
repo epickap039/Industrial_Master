@@ -37,17 +37,22 @@ def main():
         return
         
     print("\nIniciando motor de SolidWorks en segundo plano (Auto-sanación)...")
-    try:
         import win32com.client
         import pythoncom
         import shutil
-        # Intentar limpiar la caché COM (gen_py) que provoca los errores de callable en Python
+        
+        # NUCLEAR CLEAN: Borrar la "memoria corrupta" de gen_py antes de iniciar
         try:
             cache_dir = win32com.client.gencache.GetGeneratePath()
             if cache_dir and os.path.exists(cache_dir):
                 shutil.rmtree(cache_dir, ignore_errors=True)
+                
+            gen_py_path = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Temp', 'gen_py')
+            if os.path.exists(gen_py_path):
+                shutil.rmtree(gen_py_path, ignore_errors=True)
         except:
             pass
+            
     except ImportError:
         print("\n[X] Error: Faltan dependencias. Primero ejecuta: pip install pywin32")
         return
@@ -102,11 +107,28 @@ def main():
 
                 # B. Si no es chapa o no tiene lista de cortes, INYECTAR Bounding Box Global
                 if not found_in_cut_list:
-                    try:
-                        # Usamos 'getattr' dinámico para evitar el error 'int' object is not callable
-                        getattr(swModel.FeatureManager, "InsertGlobalBoundingBox")(0, False, False, 0)
-                    except Exception as e:
-                        raise Exception(f"No se pudo inyectar Bounding Box ni leer Chapa Metálica: {str(e)}")
+                    # Resiliencia: si ya tiene Bounding Box, no re-inyectar
+                    has_bbox = False
+                    f_check = swModel.FirstFeature()
+                    while f_check:
+                        if f_check.GetTypeName2() in ["GlobalBoundingBox", "BoundingBoxFeature"]:
+                            has_bbox = True
+                            break
+                        f_check = f_check.GetNextFeature()
+
+                    if not has_bbox:
+                        try:
+                            # 1. Tratar vía Dynamic Dispatch puro
+                            feat_mgr = win32com.client.dynamic.Dispatch(swModel.FeatureManager)
+                            feat_mgr.InsertGlobalBoundingBox(0, False, False, 0)
+                        except Exception:
+                            try:
+                                # 2. Fuerza OLEOBJ Invoke por nombre (DISPID) para evadir error de type (Late Binding puro)
+                                dispid = swModel.FeatureManager._oleobj_.GetIDsOfNames("InsertGlobalBoundingBox")
+                                # args: dispid, lcid, wFlags (1=METHOD), bstrArg1, bstrArg2...
+                                swModel.FeatureManager._oleobj_.Invoke(dispid, 0, 1, 1, 0, False, False, 0)
+                            except Exception as fallback_err:
+                                raise Exception(f"El Motor COM rechazó la inyección. Detalle: {str(fallback_err)[:50]}")
 
                 
                 # 4. Reconstruir para que las Custom Properties se generen (Ctrl+Q en SW)
