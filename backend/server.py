@@ -3409,21 +3409,34 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 def bg_procesar_cad_task(ruta_raiz: str):
     logging.info(f"Iniciando procesamiento CAD masivo en: {ruta_raiz}")
-    script_dwg = os.path.join(os.getcwd(), "tools", "convertir_dwg.py")
-    script_sw = os.path.join(os.getcwd(), "tools", "preparar_solidworks.py")
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    script_dwg = os.path.join(base_dir, "tools", "convertir_dwg.py")
+    script_sw = os.path.join(base_dir, "tools", "preparar_solidworks.py")
     
-    try:
-        logging.info("Ejecutando convertir_dwg.py...")
-        subprocess.run(["python", script_dwg, ruta_raiz], check=True)
-    except Exception as e:
-        logging.error(f"Error al ejecutar convertir_dwg.py: {e}")
-        
-    try:
-        logging.info("Ejecutando preparar_solidworks.py...")
-        subprocess.run(["python", script_sw, ruta_raiz], check=True)
-    except Exception as e:
-        logging.error(f"Error al ejecutar preparar_solidworks.py: {e}")
-        
+    if not os.path.exists(script_dwg):
+        logging.error(f"Error: No se encontró el script DWG en la ruta absoluta: {script_dwg}")
+    else:
+        try:
+            logging.info("Ejecutando convertir_dwg.py...")
+            res_dwg = subprocess.run([sys.executable, script_dwg, ruta_raiz], capture_output=True, text=True, check=True)
+            logging.info(f"Resultado DWG: {res_dwg.stdout}")
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Error al ejecutar convertir_dwg.py: {e.output} {e.stderr}")
+        except Exception as e:
+            logging.error(f"Error al ejecutar convertir_dwg.py: {e}")
+            
+    if not os.path.exists(script_sw):
+        logging.error(f"Error: No se encontró el script SolidWorks en la ruta absoluta: {script_sw}")
+    else:
+        try:
+            logging.info("Ejecutando preparar_solidworks.py...")
+            res_sw = subprocess.run([sys.executable, script_sw, ruta_raiz], capture_output=True, text=True, check=True)
+            logging.info(f"Resultado SW: {res_sw.stdout}")
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Error al ejecutar preparar_solidworks.py: {e.output} {e.stderr}")
+        except Exception as e:
+            logging.error(f"Error al ejecutar preparar_solidworks.py: {e}")
+            
     logging.info("Procesamiento CAD completado")
 
 @app.post("/api/cad/procesar-directorio")
