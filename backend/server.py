@@ -3199,17 +3199,21 @@ def bg_scan_cad_task(root_path: str):
             
         try:
             import win32com.client
+            import pythoncom
         except ImportError:
             pass
             
-        has_sldprt = any(info["ext"] == ".sldprt" for info in cad_files.values())
-        sw_app = None
-        if has_sldprt:
+        def get_sw_app():
             try:
-                sw_app = win32com.client.Dispatch("SldWorks.Application")
-                sw_app.Visible = False
+                app = win32com.client.Dispatch("SldWorks.Application")
+                app.Visible = False
+                return app
             except Exception as e:
-                print(f"ADVERTENCIA: Motor SolidWorks inaccesible para .sldprt: {e}")
+                print(f"ADVERTENCIA: Motor SolidWorks inaccesible: {e}")
+                return None
+
+        has_sldprt = any(info["ext"] == ".sldprt" for info in cad_files.values())
+        sw_app = get_sw_app() if has_sldprt else None
                 
         total_a_extraer = len(cad_files)
         extraidos = 0
@@ -3248,12 +3252,21 @@ def bg_scan_cad_task(root_path: str):
                     print(f"⚠️ DWG omitido: Requiere conversión a DXF -> {abspath}")
                     
                 elif ext == ".sldprt" and sw_app:
-                    # OpenDoc6 (Name, type, options, config, errors, warnings)
-                    # 1 = swDocPART, 2 = ReadOnly + 1 = Silent
-                    arg_errors = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
-                    arg_warnings = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
-                    swModel = sw_app.OpenDoc6(abspath, 1, 1 | 2, "", arg_errors, arg_warnings)
-                    if swModel:
+                    try:
+                        arg_errors = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+                        arg_warnings = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+                        swModel = sw_app.OpenDoc6(abspath, 1, 1 | 2, "", arg_errors, arg_warnings)
+                    except Exception as try_open_err:
+                        # RPC Unavailable o Crash de COM
+                        print(f"CRÍTICO - COM Crash intentando abrir {codigo}: {try_open_err}")
+                        os.system("taskkill /F /IM SLDWORKS.exe 2>nul")
+                        sw_app = get_sw_app()
+                        raise Exception("Servidor SolidWorks reiniciado por Crash RPC")
+
+                    if swModel is None:
+                        raise Exception("OpenDoc6 falló (Archivo corrupto o con referencias rotas)")
+                        
+                    try:
                         swCustPropMgr = swModel.Extension.CustomPropertyManager("")
                         len_val = 0.0
                         wid_val = 0.0
@@ -3265,16 +3278,20 @@ def bg_scan_cad_task(root_path: str):
                             posibles_anchos = ["Bounding Box Width", "Ancho de cuadro delimitador", "Width", "Ancho"]
                             
                             for ln in posibles_largos:
-                                valOut = swCustPropMgr.Get5(ln, True)
-                                if valOut and len(valOut) > 1 and valOut[1]:
-                                    try: len_val = float(valOut[1].replace(',', '.').strip().split(' ')[0])
+                                try:
+                                    valOut = swCustPropMgr.Get5(ln, True)
+                                except: valOut = None
+                                if valOut and isinstance(valOut, tuple) and len(valOut) > 1 and valOut[1]:
+                                    try: len_val = float(str(valOut[1]).replace(',', '.').strip().split(' ')[0])
                                     except: pass
                                     if len_val > 0: break
                                     
                             for wn in posibles_anchos:
-                                valOut = swCustPropMgr.Get5(wn, True)
-                                if valOut and len(valOut) > 1 and valOut[1]:
-                                    try: wid_val = float(valOut[1].replace(',', '.').strip().split(' ')[0])
+                                try:
+                                    valOut = swCustPropMgr.Get5(wn, True)
+                                except: valOut = None
+                                if valOut and isinstance(valOut, tuple) and len(valOut) > 1 and valOut[1]:
+                                    try: wid_val = float(str(valOut[1]).replace(',', '.').strip().split(' ')[0])
                                     except: pass
                                     if wid_val > 0: break
                         
@@ -3283,12 +3300,21 @@ def bg_scan_cad_task(root_path: str):
                             ancho_cad = wid_val
                         else:
                             # Fallback: Usar Boundary Box
-                            box = swModel.GetBox(False)
+                            box = None
+                            try:
+                                box = swModel.GetBox(False)
+                            except TypeError: 
+                                box = swModel.GetBox
+                            except: pass
+
                             if box:
                                 dims = sorted([abs(box[3]-box[0]), abs(box[4]-box[1]), abs(box[5]-box[2])], reverse=True)
                                 largo_cad = dims[0] * 1000.0
                                 ancho_cad = dims[1] * 1000.0
-                        sw_app.CloseDoc(abspath)
+                    finally:
+                        try:
+                            sw_app.CloseDoc(abspath)
+                        except: pass
                         
             except Exception as extract_err:
                 print(f"❌ Error leyendo {abspath}: {str(extract_err)}")
