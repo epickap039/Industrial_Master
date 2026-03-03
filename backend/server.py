@@ -3104,6 +3104,14 @@ def resolver_reporte(id_reporte: int):
 
 # === MÓDULO: ESCÁNER CAD (Fase 1) ===
 
+try:
+    import ezdxf
+    import win32com.client
+    print("Módulos CAD asíncronos (ezdxf, win32com) importados exitosamente.")
+except ImportError as e:
+    raise RuntimeError(f"LIBRERÍA FALTANTE: Asegúrate de correr 'pip install ezdxf pywin32'. Error: {e}")
+
+
 class ScanCADPayload(BaseModel):
     root_path: str
 
@@ -3235,22 +3243,52 @@ def bg_scan_cad_task(root_path: str):
                         largo_cad = max(dx, dy)
                         ancho_cad = min(dx, dy)
                         
+                elif ext == ".dwg":
+                    print(f"⚠️ DWG omitido: Requiere conversión a DXF -> {abspath}")
+                    
                 elif ext == ".sldprt" and sw_app:
                     # OpenDoc6 (Name, type, options, config, errors, warnings)
                     # 1 = swDocPART, 2 = ReadOnly + 1 = Silent
                     swModel = sw_app.OpenDoc6(abspath, 1, 1 | 2, "", None, None)
                     if swModel:
-                        box = swModel.GetBox(False)
-                        if box:
-                            # [0]=Xmin, [1]=Ymin, [2]=Zmin, [3]=Xmax, [4]=Ymax, [5]=Zmax
-                            dims = sorted([abs(box[3]-box[0]), abs(box[4]-box[1]), abs(box[5]-box[2])], reverse=True)
-                            # SolidWorks devuelve en metros
-                            largo_cad = dims[0] * 1000.0
-                            ancho_cad = dims[1] * 1000.0
+                        swCustPropMgr = swModel.Extension.CustomPropertyManager("")
+                        len_val = 0.0
+                        wid_val = 0.0
+                        if swCustPropMgr:
+                            names = swCustPropMgr.GetNames()
+                            if names: print(f"Propiedades en {codigo}: {names}")
+                            
+                            posibles_largos = ["Bounding Box Length", "Largo de cuadro delimitador", "Length", "Largo"]
+                            posibles_anchos = ["Bounding Box Width", "Ancho de cuadro delimitador", "Width", "Ancho"]
+                            
+                            for ln in posibles_largos:
+                                valOut = swCustPropMgr.Get5(ln, True)
+                                if valOut and len(valOut) > 1 and valOut[1]:
+                                    try: len_val = float(valOut[1].replace(',', '.').strip().split(' ')[0])
+                                    except: pass
+                                    if len_val > 0: break
+                                    
+                            for wn in posibles_anchos:
+                                valOut = swCustPropMgr.Get5(wn, True)
+                                if valOut and len(valOut) > 1 and valOut[1]:
+                                    try: wid_val = float(valOut[1].replace(',', '.').strip().split(' ')[0])
+                                    except: pass
+                                    if wid_val > 0: break
+                        
+                        if len_val > 0 and wid_val > 0:
+                            largo_cad = len_val
+                            ancho_cad = wid_val
+                        else:
+                            # Fallback: Usar Boundary Box
+                            box = swModel.GetBox(False)
+                            if box:
+                                dims = sorted([abs(box[3]-box[0]), abs(box[4]-box[1]), abs(box[5]-box[2])], reverse=True)
+                                largo_cad = dims[0] * 1000.0
+                                ancho_cad = dims[1] * 1000.0
                         sw_app.CloseDoc(abspath)
                         
             except Exception as extract_err:
-                print(f"Error extrayendo {codigo}: {extract_err}")
+                print(f"❌ Error leyendo {abspath}: {str(extract_err)}")
 
             data.append({
                 "Codigo_Pieza": codigo,
