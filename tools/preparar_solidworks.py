@@ -116,10 +116,14 @@ def main():
 
                     if not has_bbox:
                         try:
-                            # Usamos 'getattr' dinámico para evitar el error 'int' object is not callable
+                            # ID del comando InsertGlobalBoundingBox en la API de SolidWorks
+                            swModel.FeatureManager._oleobj_.Invoke(
+                                111516, # DISPID para InsertGlobalBoundingBox (Valor típico para SW 2021)
+                                0, 1, 1, 0, False, False, 0 # type lcid, wFlags (METHOD=1), bstrArg1...
+                            )
+                        except Exception:
+                            # Fallback si el ID cambia
                             getattr(swModel.FeatureManager, "InsertGlobalBoundingBox")(0, False, False, 0)
-                        except Exception as e:
-                            raise Exception(f"No se pudo inyectar Bounding Box: {str(e)}")
 
                 # 4. Reconstruir para que las Custom Properties se generen
                 swModel.ForceRebuild3(False)
