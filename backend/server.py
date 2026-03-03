@@ -1763,37 +1763,36 @@ def get_db_connection():
         print(f"Error de conexión SQL: {e}")
         raise HTTPException(status_code=500, detail=f"Database Connection Error: {str(e)}")
 
+import hashlib
+
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
+
 def init_auth_db():
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
+        # Recrear tabla para ajustar nombres de columnas según fase 3
         cursor.execute("""
-            IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Tbl_Usuarios' AND xtype='U')
+            IF OBJECT_ID('Tbl_Usuarios', 'U') IS NOT NULL DROP TABLE Tbl_Usuarios;
             CREATE TABLE Tbl_Usuarios (
-                ID INT PRIMARY KEY IDENTITY(1,1),
-                Username NVARCHAR(50) UNIQUE NOT NULL,
-                Password NVARCHAR(50) NOT NULL,
-                Role NVARCHAR(20) DEFAULT 'User'
+                id INT PRIMARY KEY IDENTITY(1,1),
+                username NVARCHAR(50) UNIQUE NOT NULL,
+                password_hash NVARCHAR(255) NOT NULL,
+                rol NVARCHAR(20) DEFAULT 'USER'
             )
         """)
         conn.commit()
         
         users_to_seed = [
-            ("jaes_admin", "Industrial.2026", "Admin"),
-            ("ing_01", "Ing.2026", "User"),
-            ("ing_02", "Ing.2026", "User"),
-            ("ing_03", "Ing.2026", "User"),
-            ("ing_04", "Ing.2026", "User"),
-            ("ing_05", "Ing.2026", "User"),
-            ("ing_06", "Ing.2026", "User"),
+            ("jaes_admin", "Industrial.2026", "ADMIN"),
+            ("ing_01", "Ing.2026", "USER"),
+            ("ing_02", "Ing.2026", "USER"),
         ]
         
         for user, password, role in users_to_seed:
-            cursor.execute("SELECT ID FROM Tbl_Usuarios WHERE Username = ?", (user,))
-            if cursor.fetchone():
-                cursor.execute("UPDATE Tbl_Usuarios SET Password = ?, Role = ? WHERE Username = ?", (password, role, user))
-            else:
-                cursor.execute("INSERT INTO Tbl_Usuarios (Username, Password, Role) VALUES (?, ?, ?)", (user, password, role))
+            hashed = hash_password(password)
+            cursor.execute("INSERT INTO Tbl_Usuarios (username, password_hash, rol) VALUES (?, ?, ?)", (user, hashed, role))
         
         conn.commit()
     finally:
@@ -1805,13 +1804,14 @@ def login(request: LoginRequest):
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        cursor.execute("SELECT Role FROM Tbl_Usuarios WHERE Username = ? AND Password = ?", (request.username, request.password))
+        hashed_password = hash_password(request.password)
+        cursor.execute("SELECT rol FROM Tbl_Usuarios WHERE username = ? AND password_hash = ?", (request.username, hashed_password))
         user = cursor.fetchone()
         
         conn.close()
         
         if user:
-            return {"success": True, "role": user[0]}
+            return {"success": True, "rol": user[0]}
         else:
             from fastapi import HTTPException
             raise HTTPException(status_code=401, detail="Credenciales incorrectas")
@@ -3288,6 +3288,8 @@ def bg_scan_cad_task(root_path: str):
                 elif ext == ".dwg" and not acad_app:
                     observacion = "Requiere AutoCAD Instalado"
                     print(f"⚠️ DWG omitido: Sin conexión a AutoCAD COM -> {abspath}")
+
+                elif ext == ".sldprt" and sw_app:
                     try:
                         arg_errors = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
                         arg_warnings = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
@@ -3304,34 +3306,33 @@ def bg_scan_cad_task(root_path: str):
                         # No lanzamos excepción para que permita llenar el DataFrame en blanco
                     else:
                         try:
-                            # Intentar leer Bounding Box directamente de las Custom Properties
                             prop_mgr = swModel.Extension.CustomPropertyManager("")
                             
-                            # SolidWorks suele guardar las medidas automáticamente aquí
-                            # prop_mgr.Get devuelve (ValOut, ResolvedValOut, WasResolved)
-                            # El valor resuelto suele estar en el índice 1
-                            get_largo = prop_mgr.Get("Bounding Box Length")
-                            get_ancho = prop_mgr.Get("Bounding Box Width")
+                            # Intentar sobrescribir codigo pieza si está en custom properties
+                            get_codigo = prop_mgr.Get("CODIGO_PIEZA")
+                            if get_codigo and len(get_codigo) > 1 and get_codigo[1]:
+                                codigo = str(get_codigo[1]).strip()
+
+                            get_largo = prop_mgr.Get("Largo_CAD")
+                            get_ancho = prop_mgr.Get("Ancho_CAD")
                             
                             largo_val = get_largo[1] if (get_largo and len(get_largo) > 1) else ""
                             ancho_val = get_ancho[1] if (get_ancho and len(get_ancho) > 1) else ""
 
                             if largo_val and ancho_val:
-                                 # Limpiar el texto (quitar comillas o letras, dejar solo números)
                                  import re
                                  largo = float(re.sub(r'[^\d.]', '', str(largo_val).replace(',', '.')) or 0)
                                  ancho = float(re.sub(r'[^\d.]', '', str(ancho_val).replace(',', '.')) or 0)
                                  
-                                 # Asegurar que el Largo sea el mayor
                                  largo_cad = max(largo, ancho)
                                  ancho_cad = min(largo, ancho)
                                  
                                  if largo_cad > 0 and ancho_cad > 0:
                                      observacion = "OK"
                                  else:
-                                     observacion = "No se encontró Bounding Box en las propiedades"
+                                     observacion = "No detectado"
                             else:
-                                 observacion = "No se encontró Bounding Box en las propiedades"
+                                 observacion = "No detectado"
                                  
                         except Exception as math_err:
                             observacion = f"Error matemático: {str(math_err)[:50]}"
@@ -3349,11 +3350,10 @@ def bg_scan_cad_task(root_path: str):
             data.append({
                 "Codigo_Pieza": codigo,
                 "Extension": ext,
-                "Fecha": dt,
                 "Largo_CAD": round(largo_cad, 2) if largo_cad > 0 else "",
                 "Ancho_CAD": round(ancho_cad, 2) if ancho_cad > 0 else "",
                 "Material": "",
-                "Observaciones": observacion if observacion else "No extraído",
+                "Observaciones": observacion if observacion else "No detectado",
                 "Ruta_Archivo": abspath
             })
             extraidos += 1
@@ -3369,9 +3369,9 @@ def bg_scan_cad_task(root_path: str):
             
         df = pd.DataFrame(data)
         if df.empty:
-            df = pd.DataFrame(columns=["Codigo_Pieza", "Extension", "Fecha", "Largo_CAD", "Ancho_CAD", "Material", "Observaciones", "Ruta_Archivo"])
+            df = pd.DataFrame(columns=["Codigo_Pieza", "Extension", "Largo_CAD", "Ancho_CAD", "Material", "Observaciones", "Ruta_Archivo"])
         else:
-             df = df[["Codigo_Pieza", "Extension", "Fecha", "Largo_CAD", "Ancho_CAD", "Material", "Observaciones", "Ruta_Archivo"]]
+             df = df[["Codigo_Pieza", "Extension", "Largo_CAD", "Ancho_CAD", "Material", "Observaciones", "Ruta_Archivo"]]
             
         reports_dir = os.path.join(os.getcwd(), "reportes")
         os.makedirs(reports_dir, exist_ok=True)

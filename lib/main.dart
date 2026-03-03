@@ -46,6 +46,7 @@ class _MyAppState extends State<MyApp> {
   late ThemeMode _themeMode;
   bool _isLoggedIn = false;
   bool _isLoadingAuth = true;
+  String _userRole = 'USER';
   int topIndex = 0;
   int? targetRevisionId;
   List<AutoSuggestBoxItem<dynamic>> _searchItems = [];
@@ -61,6 +62,7 @@ class _MyAppState extends State<MyApp> {
     final prefs = await SharedPreferences.getInstance();
     final isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
     final loginDateStr = prefs.getString('loginDate');
+    final storedRole = prefs.getString('rol') ?? 'USER';
 
     if (isLoggedIn && loginDateStr != null) {
       final loginDate = DateTime.parse(loginDateStr);
@@ -68,6 +70,7 @@ class _MyAppState extends State<MyApp> {
       if (difference < 7) {
         setState(() {
           _isLoggedIn = true;
+          _userRole = storedRole;
         });
       } else {
         // Caducó la sesión
@@ -87,9 +90,11 @@ class _MyAppState extends State<MyApp> {
     await prefs.setBool('isDarkMode', mode == ThemeMode.dark);
   }
 
-  void _onLoginSuccess() {
+  void _onLoginSuccess() async {
+    final prefs = await SharedPreferences.getInstance();
     setState(() {
       _isLoggedIn = true;
+      _userRole = prefs.getString('rol') ?? 'USER';
     });
   }
 
@@ -440,11 +445,12 @@ class _MyAppState extends State<MyApp> {
                             title: const Text('Catálogo Maestro'),
                             body: const CatalogScreen(),
                           ),
-                          PaneItem(
-                            icon: const Icon(FluentIcons.folder_search),
-                            title: const Text('Escáner CAD'),
-                            body: const CADScannerScreen(),
-                          ),
+                          if (_userRole == 'ADMIN')
+                            PaneItem(
+                              icon: const Icon(FluentIcons.folder_search),
+                              title: const Text('Escáner CAD'),
+                              body: const CADScannerScreen(),
+                            ),
                           PaneItem(
                             icon: const Icon(FluentIcons.excel_document),
                             title: const Text('Importar Excel'),

@@ -3,7 +3,6 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
-
 class LoginScreen extends StatefulWidget {
   final VoidCallback onLoginSuccess;
 
@@ -28,10 +27,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _checkServerStatus() async {
     try {
-      final response = await http.get(
-        Uri.parse('http://192.168.1.73:8001/'),
-      ).timeout(const Duration(seconds: 3));
-      
+      final response = await http
+          .get(Uri.parse('http://192.168.1.73:8001/'))
+          .timeout(const Duration(seconds: 3));
+
       if (mounted) {
         setState(() {
           _isServerOnline = response.statusCode == 200;
@@ -63,11 +62,15 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
       if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final String rol = data['rol'] ?? 'USER';
+
         // Guardar Sesión
         final prefs = await SharedPreferences.getInstance();
         await prefs.setBool('isLoggedIn', true);
         await prefs.setString('loginDate', DateTime.now().toIso8601String());
         await prefs.setString('username', _userController.text);
+        await prefs.setString('rol', rol);
 
         widget.onLoginSuccess();
       } else {
@@ -100,7 +103,13 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text('Iniciar Sesión', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                    const Text(
+                      'Iniciar Sesión',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                     const SizedBox(height: 20),
                     InfoLabel(
                       label: 'Usuario',
@@ -119,7 +128,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     if (_error.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 10),
-                        child: Text(_error, style: TextStyle(color: Colors.red)),
+                        child: Text(
+                          _error,
+                          style: TextStyle(color: Colors.red),
+                        ),
                       ),
                     if (_isLoading)
                       const ProgressRing()
@@ -141,19 +153,23 @@ class _LoginScreenState extends State<LoginScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
-                    FluentIcons.circle_shape_solid, 
-                    color: _isServerOnline ? Colors.green : Colors.red, 
-                    size: 12
+                    FluentIcons.circle_shape_solid,
+                    color: _isServerOnline ? Colors.green : Colors.red,
+                    size: 12,
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    _isServerOnline ? "Servidor Conectado" : "Servidor Desconectado",
-                    style: TextStyle(color: _isServerOnline ? Colors.green : Colors.red),
+                    _isServerOnline
+                        ? "Servidor Conectado"
+                        : "Servidor Desconectado",
+                    style: TextStyle(
+                      color: _isServerOnline ? Colors.green : Colors.red,
+                    ),
                   ),
                   IconButton(
                     icon: const Icon(FluentIcons.refresh),
                     onPressed: _checkServerStatus,
-                  )
+                  ),
                 ],
               ),
             ),
