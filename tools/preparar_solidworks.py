@@ -45,7 +45,7 @@ def main():
         return
         
     try:
-        swApp = win32com.client.Dispatch("SldWorks.Application")
+        swApp = win32com.client.dynamic.Dispatch("SldWorks.Application")
         swApp.Visible = False
     except Exception as e:
         print(f"\n[X] Error fatal: No se pudo conectar a SolidWorks COM. ¿Está instalado? Detalle: {e}")
@@ -78,15 +78,30 @@ def main():
                     swApp.CloseDoc(abspath)
                     continue
 
-                # 2. Preparar el argumento ByRef para el Status usando pythoncom
-                status_arg = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
-                
-                # 3. Inyectar el Bounding Box Global
-                # Params: BestFit (0), IncludeHidden (False), IncludeSurfaces (False), Status (ByRef)
-                bbox_feat = swModel.FeatureManager.InsertGlobalBoundingBox(0, False, False, status_arg)
-                
-                if bbox_feat is None:
-                    raise Exception(f"SolidWorks rechazó la operación. Código de estado API: {status_arg.value}")
+                # A. Intentar por Lista de Cortes (Especial para Chapa Metálica)
+                found_in_cut_list = False
+                feat = swModel.FirstFeature()
+                while feat:
+                    if feat.GetTypeName2() == "CutListFolder":
+                        cust_prop_mgr = feat.CustomPropertyManager
+                        # Buscar nombres comunes en español e inglés
+                        for prop in ["Largo de la chapa desplegada", "Ancho de la chapa desplegada", "Bounding Box Length", "Bounding Box Width"]:
+                            res = cust_prop_mgr.Get6(prop, False, "", "", False)
+                            if res[1]: # Si encontró valor
+                                # Guardar medida y marcar como éxito
+                                found_in_cut_list = True
+                    feat = feat.GetNextFeature()
+
+                # B. Si no es chapa o no tiene lista de cortes, INYECTAR Bounding Box Global
+                if not found_in_cut_list:
+                    try:
+                        # Usamos 'Invoke' implicitamente vía Dispatch dinámico sobre la propiedad/método
+                        # swFeatureManager.InsertGlobalBoundingBox (0=Best Fit, False, False, status)
+                        status = 0
+                        swModel.FeatureManager.InsertGlobalBoundingBox(0, False, False, status)
+                    except Exception as e:
+                        raise Exception(f"No se pudo inyectar Bounding Box ni leer Chapa Metálica: {str(e)}")
+
                 
                 # 4. Reconstruir para que las Custom Properties se generen (Ctrl+Q en SW)
                 swModel.ForceRebuild3(False)
