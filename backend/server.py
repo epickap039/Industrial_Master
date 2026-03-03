@@ -3402,6 +3402,21 @@ def start_cad_scan(payload: ScanCADPayload, background_tasks: BackgroundTasks):
     background_tasks.add_task(bg_scan_cad_task, payload.root_path)
     return {"message": "Escaneo iniciado en segundo plano"}
 
+@app.post("/api/cad/procesar-directorio")
+def procesar_directorio_cad(payload: ScanCADPayload, background_tasks: BackgroundTasks):
+    """
+    ENDPOINT PREPARADO A FUTURO:
+    Desde aquí se invocarán los scripts 'preparar_solidworks.py' y 
+    los conversores de DWG a DXF en batch antes de escanear.
+    """
+    # TODO: Implementar llamada a subprocess o importación de utilerías CAD directas
+    # Ejemplo: subprocess.run(["python", "tools/preparar_solidworks.py", payload.root_path])
+    return {
+        "success": True, 
+        "message": f"Endpoint listo. Directorio recibido: {payload.root_path}. Integración de scripts CAD pendiente."
+    }
+
+
 @app.get("/api/cad/status")
 def get_cad_status():
     global scan_status
