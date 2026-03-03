@@ -72,15 +72,22 @@ def main():
                 continue
                 
             try:
-                # Opciones: 0 = Default. Inyectar o recalcular el Feature "Bounding Box" global
-                swModel.Extension.InsertBoundingBox(0)
-                
-                # Reconstruir la pieza para garantizar que las variables se evalúen
-                swModel.EditRebuild3()
+                # Intentar inyectar el Bounding Box (Sintaxis correcta de 2 argumentos)
+                bbox_feat = swModel.Extension.InsertBoundingBox(0, "")
+
+                if bbox_feat is None:
+                    # Plan B para algunas versiones de SolidWorks
+                    bbox_feat = swModel.FeatureManager.InsertGlobalBoundingBox(0, "", False, False, False)
+
+                if bbox_feat is None:
+                    raise Exception("La API de SolidWorks rechazó la creación del Bounding Box.")
+
+                # Forzar reconstrucción para que las Custom Properties se llenen
+                swModel.ForceRebuild3(False)
                 
                 # Guardar el documento
                 # 1 = swSaveAsOptions_Silent
-                swModel.Save3(1, arg_errors, arg_warnings)
+                swModel.Save3(1, 0, 0)
                 
                 print(f"[OK] {filename}")
                 exitos += 1
