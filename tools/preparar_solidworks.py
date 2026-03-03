@@ -7,7 +7,10 @@ def main():
     print("   UTILERÍA DE PREPARACIÓN DE BOUNDING BOX (SolidWorks)  ")
     print("=========================================================")
     
-    folder_path = input("Ingresa la ruta absoluta de la carpeta de prueba: ").strip()
+    if len(sys.argv) > 1:
+        folder_path = sys.argv[1].strip()
+    else:
+        folder_path = input("Ingresa la ruta absoluta de la carpeta de prueba: ").strip()
     
     if folder_path.startswith('"') and folder_path.endswith('"'):
         folder_path = folder_path[1:-1]
@@ -30,7 +33,10 @@ def main():
         
     print(f"\nSe encontraron [{len(sldprt_files)}] piezas para inyectar Bounding Box.")
     
-    confirm = input("¿Deseas modificar estos archivos y guardarlos? (Y/N): ").strip().upper()
+    if len(sys.argv) > 1:
+        confirm = 'Y'
+    else:
+        confirm = input("¿Deseas modificar estos archivos y guardarlos? (Y/N): ").strip().upper()
     
     if confirm != 'Y':
         print("\nOperación cancelada por el usuario.")

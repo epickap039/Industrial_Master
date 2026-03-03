@@ -161,49 +161,75 @@ class _CADScannerScreenState extends State<CADScannerScreen> {
   }
 
   Future<void> _procesarDirectorio() async {
-    final rootPath = _pathController.text.trim();
-    if (rootPath.isEmpty) {
-      displayInfoBar(context, builder: (context, close) {
-        return InfoBar(
-          title: const Text('Ruta vacía'),
-          content: const Text('Por favor, ingresa una ruta válida para procesar.'),
-          severity: InfoBarSeverity.error,
-          onClose: close,
+    final TextEditingController dialogPathController = TextEditingController(text: _pathController.text);
+    
+    await showDialog(
+      context: context,
+      builder: (context) {
+        return ContentDialog(
+          title: const Text('Procesar Directorio CAD'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Ingresa o pega la ruta de la carpeta con archivos CAD (DWG/SLDPRT). Se inyectarán Bounding Boxes en los .SLDPRT y se generarán .DXF desde los .DWG de forma automática en el servidor:'),
+              const SizedBox(height: 12),
+              TextBox(
+                controller: dialogPathController,
+                placeholder: r'Ej. C:\Ruta\A\Mis\Piezas',
+              ),
+            ],
+          ),
+          actions: [
+            Button(
+              child: const Text('Cancelar'),
+              onPressed: () => Navigator.pop(context),
+            ),
+            FilledButton(
+              child: const Text('Iniciar Procesamiento'),
+              onPressed: () async {
+                final rootPath = dialogPathController.text.trim();
+                if (rootPath.isEmpty) {
+                  return;
+                }
+                
+                Navigator.pop(context); // Cerrar diálogo
+                
+                try {
+                  final response = await http.post(
+                    Uri.parse('$API_URL/api/cad/procesar-directorio'),
+                    headers: {'Content-Type': 'application/json'},
+                    body: json.encode({'root_path': rootPath}),
+                  );
+
+                  if (response.statusCode == 200) {
+                    displayInfoBar(context, builder: (context, close) {
+                      return InfoBar(
+                        title: const Text('Procesamiento Iniciado'),
+                        content: const Text('El procesamiento CAD ha iniciado en segundo plano. Monitorea la consola del servidor.'),
+                        severity: InfoBarSeverity.success,
+                        onClose: close,
+                      );
+                    });
+                  } else {
+                    throw Exception('El servidor devolvió Error ${response.statusCode}');
+                  }
+                } catch (e) {
+                  displayInfoBar(context, builder: (context, close) {
+                    return InfoBar(
+                      title: const Text('Error de procesamiento'),
+                      content: Text(e.toString()),
+                      severity: InfoBarSeverity.error,
+                      onClose: close,
+                    );
+                  });
+                }
+              },
+            ),
+          ],
         );
-      });
-      return;
-    }
-
-    try {
-      final response = await http.post(
-        Uri.parse('$API_URL/api/cad/procesar-directorio'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({'root_path': rootPath}),
-      );
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        displayInfoBar(context, builder: (context, close) {
-          return InfoBar(
-            title: const Text('Procesamiento Iniciado'),
-            content: Text(data['message'] ?? 'Directorio procesado correctamente.'),
-            severity: InfoBarSeverity.success,
-            onClose: close,
-          );
-        });
-      } else {
-        throw Exception('El servidor devolvió Error ${response.statusCode}');
       }
-    } catch (e) {
-      displayInfoBar(context, builder: (context, close) {
-        return InfoBar(
-          title: const Text('Error de procesamiento'),
-          content: Text(e.toString()),
-          severity: InfoBarSeverity.error,
-          onClose: close,
-        );
-      });
-    }
+    );
   }
 
   Future<void> _pickDirectory() async {
