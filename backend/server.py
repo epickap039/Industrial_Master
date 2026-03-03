@@ -3107,7 +3107,8 @@ def resolver_reporte(id_reporte: int):
 try:
     import ezdxf
     import win32com.client
-    print("Módulos CAD asíncronos (ezdxf, win32com) importados exitosamente.")
+    import pythoncom
+    print("Módulos CAD asíncronos (ezdxf, win32com, pythoncom) importados exitosamente.")
 except ImportError as e:
     raise RuntimeError(f"LIBRERÍA FALTANTE: Asegúrate de correr 'pip install ezdxf pywin32'. Error: {e}")
 
@@ -3249,7 +3250,9 @@ def bg_scan_cad_task(root_path: str):
                 elif ext == ".sldprt" and sw_app:
                     # OpenDoc6 (Name, type, options, config, errors, warnings)
                     # 1 = swDocPART, 2 = ReadOnly + 1 = Silent
-                    swModel = sw_app.OpenDoc6(abspath, 1, 1 | 2, "", None, None)
+                    arg_errors = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+                    arg_warnings = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+                    swModel = sw_app.OpenDoc6(abspath, 1, 1 | 2, "", arg_errors, arg_warnings)
                     if swModel:
                         swCustPropMgr = swModel.Extension.CustomPropertyManager("")
                         len_val = 0.0
