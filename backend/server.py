@@ -3211,9 +3211,21 @@ def bg_scan_cad_task(root_path: str):
             except Exception as e:
                 print(f"ADVERTENCIA: Motor SolidWorks inaccesible: {e}")
                 return None
+                
+        def get_acad_app():
+            try:
+                app = win32com.client.Dispatch("AutoCAD.Application")
+                # app.Visible = False # AutoCAD usually resists being hidden natively sometimes, but we can try if needed
+                return app
+            except Exception as e:
+                print(f"ADVERTENCIA: Motor AutoCAD inaccesible: {e}")
+                return None
 
         has_sldprt = any(info["ext"] == ".sldprt" for info in cad_files.values())
         sw_app = get_sw_app() if has_sldprt else None
+        
+        has_dwg = any(info["ext"] == ".dwg" for info in cad_files.values())
+        acad_app = get_acad_app() if has_dwg else None
                 
         total_a_extraer = len(cad_files)
         extraidos = 0
@@ -3225,6 +3237,9 @@ def bg_scan_cad_task(root_path: str):
             if scan_status["status"] == "cancelled":
                 if sw_app: 
                     try: sw_app.ExitApp()
+                    except: pass
+                if acad_app:
+                    try: acad_app.Quit()
                     except: pass
                 scan_status["status"] = "idle"
                 return
@@ -3250,11 +3265,29 @@ def bg_scan_cad_task(root_path: str):
                         ancho_cad = min(dx, dy)
                         observacion = "OK"
                         
-                elif ext == ".dwg":
-                    observacion = "Requiere conversión a DXF"
-                    print(f"⚠️ DWG omitido: Requiere conversión a DXF -> {abspath}")
-                    
-                elif ext == ".sldprt" and sw_app:
+                elif ext == ".dwg" and acad_app:
+                    try:
+                        doc = acad_app.Documents.Open(abspath, True) # True for ReadOnly
+                        extmin = doc.GetVariable("EXTMIN")
+                        extmax = doc.GetVariable("EXTMAX")
+                        
+                        dx = abs(extmax[0] - extmin[0])
+                        dy = abs(extmax[1] - extmin[1])
+                        
+                        largo_cad = max(dx, dy)
+                        ancho_cad = min(dx, dy)
+                        observacion = "OK (AutoCAD EXTENTS)"
+                    except Exception as acad_err:
+                        print(f"Error procesando {codigo} con AutoCAD: {acad_err}")
+                        observacion = "No extraído (Error AutoCAD COM)"
+                    finally:
+                        try:
+                            doc.Close(False)
+                        except: pass
+                        
+                elif ext == ".dwg" and not acad_app:
+                    observacion = "Requiere AutoCAD Instalado"
+                    print(f"⚠️ DWG omitido: Sin conexión a AutoCAD COM -> {abspath}")
                     try:
                         arg_errors = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
                         arg_warnings = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
@@ -3329,6 +3362,9 @@ def bg_scan_cad_task(root_path: str):
         print("=== EXTRACCIÓN CAD FINALIZADA ===")
         if sw_app:
             try: sw_app.ExitApp()
+            except: pass
+        if acad_app:
+            try: acad_app.Quit()
             except: pass
             
         df = pd.DataFrame(data)
