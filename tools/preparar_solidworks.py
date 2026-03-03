@@ -72,22 +72,28 @@ def main():
                 continue
                 
             try:
-                # Intentar inyectar el Bounding Box (Sintaxis correcta de 2 argumentos)
-                bbox_feat = swModel.Extension.InsertBoundingBox(0, "")
+                # 1. Validar que sea una pieza (swDocPART = 1)
+                if swModel.GetType() != 1:
+                    print(f"[OMITIDO] {filename}: No es una pieza 3D.")
+                    swApp.CloseDoc(abspath)
+                    continue
 
+                # 2. Preparar el argumento ByRef para el Status usando pythoncom
+                status_arg = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+                
+                # 3. Inyectar el Bounding Box Global
+                # Params: BestFit (0), IncludeHidden (False), IncludeSurfaces (False), Status (ByRef)
+                bbox_feat = swModel.FeatureManager.InsertGlobalBoundingBox(0, False, False, status_arg)
+                
                 if bbox_feat is None:
-                    # Plan B para algunas versiones de SolidWorks
-                    bbox_feat = swModel.FeatureManager.InsertGlobalBoundingBox(0, "", False, False, False)
-
-                if bbox_feat is None:
-                    raise Exception("La API de SolidWorks rechazó la creación del Bounding Box.")
-
-                # Forzar reconstrucción para que las Custom Properties se llenen
+                    raise Exception(f"SolidWorks rechazó la operación. Código de estado API: {status_arg.value}")
+                
+                # 4. Reconstruir para que las Custom Properties se generen (Ctrl+Q en SW)
                 swModel.ForceRebuild3(False)
                 
-                # Guardar el documento
-                # 1 = swSaveAsOptions_Silent
+                # 5. Guardar silenciosamente y cerrar (swSaveAsOptions_Silent = 1)
                 swModel.Save3(1, 0, 0)
+                swApp.CloseDoc(abspath)
                 
                 print(f"[OK] {filename}")
                 exitos += 1
@@ -95,8 +101,8 @@ def main():
             except Exception as feat_err:
                 print(f"[ERROR] {filename}: Falló inyección Bounding Box - Motivo API: {feat_err}")
                 errores += 1
-            finally:
-                swApp.CloseDoc(abspath)
+                try: swApp.CloseDoc(abspath)
+                except: pass
                 
         except Exception as file_err:
             print(f"[ERROR] {filename}: Excepción general de acceso - {file_err}")
