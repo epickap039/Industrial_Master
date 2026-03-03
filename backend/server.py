@@ -3236,6 +3236,7 @@ def bg_scan_cad_task(root_path: str):
             
             largo_cad = 0.0
             ancho_cad = 0.0
+            observacion = ""
             
             try:
                 if ext == ".dxf":
@@ -3247,8 +3248,10 @@ def bg_scan_cad_task(root_path: str):
                         dy = extents.extmax.y - extents.extmin.y
                         largo_cad = max(dx, dy)
                         ancho_cad = min(dx, dy)
+                        observacion = "OK"
                         
                 elif ext == ".dwg":
+                    observacion = "Requiere conversión a DXF"
                     print(f"⚠️ DWG omitido: Requiere conversión a DXF -> {abspath}")
                     
                 elif ext == ".sldprt" and sw_app:
@@ -3264,6 +3267,7 @@ def bg_scan_cad_task(root_path: str):
                         raise Exception("Servidor SolidWorks reiniciado por Crash RPC")
 
                     if swModel is None:
+                        observacion = "No se pudo abrir el archivo"
                         raise Exception("OpenDoc6 falló (Archivo corrupto o con referencias rotas)")
                         
                     try:
@@ -3298,6 +3302,7 @@ def bg_scan_cad_task(root_path: str):
                         if len_val > 0 and wid_val > 0:
                             largo_cad = len_val
                             ancho_cad = wid_val
+                            observacion = "OK"
                         else:
                             # Fallback: Usar Boundary Box
                             box = None
@@ -3307,16 +3312,24 @@ def bg_scan_cad_task(root_path: str):
                                 box = swModel.GetBox
                             except: pass
 
-                            if box:
+                            if box and isinstance(box, tuple) and len(box) >= 6:
                                 dims = sorted([abs(box[3]-box[0]), abs(box[4]-box[1]), abs(box[5]-box[2])], reverse=True)
                                 largo_cad = dims[0] * 1000.0
                                 ancho_cad = dims[1] * 1000.0
+                                observacion = "OK"
+                            else:
+                                observacion = "No se encontró medida"
+                    except Exception as math_err:
+                        observacion = f"Error: {str(math_err)[:50]}"
+                        print(f"Error matemático extrayendo {codigo}: {math_err}")
                     finally:
                         try:
                             sw_app.CloseDoc(abspath)
                         except: pass
                         
             except Exception as extract_err:
+                if not observacion:
+                    observacion = f"Error: {str(extract_err)[:50]}"
                 print(f"❌ Error leyendo {abspath}: {str(extract_err)}")
 
             data.append({
@@ -3326,6 +3339,7 @@ def bg_scan_cad_task(root_path: str):
                 "Largo_CAD": round(largo_cad, 2) if largo_cad > 0 else "",
                 "Ancho_CAD": round(ancho_cad, 2) if ancho_cad > 0 else "",
                 "Material": "",
+                "Observaciones": observacion if observacion else "No extraído",
                 "Ruta_Archivo": abspath
             })
             extraidos += 1
@@ -3338,9 +3352,9 @@ def bg_scan_cad_task(root_path: str):
             
         df = pd.DataFrame(data)
         if df.empty:
-            df = pd.DataFrame(columns=["Codigo_Pieza", "Extension", "Fecha", "Largo_CAD", "Ancho_CAD", "Material", "Ruta_Archivo"])
+            df = pd.DataFrame(columns=["Codigo_Pieza", "Extension", "Fecha", "Largo_CAD", "Ancho_CAD", "Material", "Observaciones", "Ruta_Archivo"])
         else:
-             df = df[["Codigo_Pieza", "Extension", "Fecha", "Largo_CAD", "Ancho_CAD", "Material", "Ruta_Archivo"]]
+             df = df[["Codigo_Pieza", "Extension", "Fecha", "Largo_CAD", "Ancho_CAD", "Material", "Observaciones", "Ruta_Archivo"]]
             
         reports_dir = os.path.join(os.getcwd(), "reportes")
         os.makedirs(reports_dir, exist_ok=True)
