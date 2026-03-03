@@ -160,6 +160,52 @@ class _CADScannerScreenState extends State<CADScannerScreen> {
     }
   }
 
+  Future<void> _procesarDirectorio() async {
+    final rootPath = _pathController.text.trim();
+    if (rootPath.isEmpty) {
+      displayInfoBar(context, builder: (context, close) {
+        return InfoBar(
+          title: const Text('Ruta vacía'),
+          content: const Text('Por favor, ingresa una ruta válida para procesar.'),
+          severity: InfoBarSeverity.error,
+          onClose: close,
+        );
+      });
+      return;
+    }
+
+    try {
+      final response = await http.post(
+        Uri.parse('$API_URL/api/cad/procesar-directorio'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'root_path': rootPath}),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        displayInfoBar(context, builder: (context, close) {
+          return InfoBar(
+            title: const Text('Procesamiento Iniciado'),
+            content: Text(data['message'] ?? 'Directorio procesado correctamente.'),
+            severity: InfoBarSeverity.success,
+            onClose: close,
+          );
+        });
+      } else {
+        throw Exception('El servidor devolvió Error ${response.statusCode}');
+      }
+    } catch (e) {
+      displayInfoBar(context, builder: (context, close) {
+        return InfoBar(
+          title: const Text('Error de procesamiento'),
+          content: Text(e.toString()),
+          severity: InfoBarSeverity.error,
+          onClose: close,
+        );
+      });
+    }
+  }
+
   Future<void> _pickDirectory() async {
     String? selectedDirectory = await FilePicker.platform.getDirectoryPath(
       dialogTitle: 'Selecciona el directorio raíz de CAD',
@@ -358,6 +404,19 @@ class _CADScannerScreenState extends State<CADScannerScreen> {
                   child: const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     child: Text('Iniciar Escaneo', style: TextStyle(fontSize: 16)),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                FilledButton(
+                  onPressed: isScanning ? null : _procesarDirectorio,
+                  style: ButtonStyle(
+                    backgroundColor: isScanning 
+                      ? ButtonState.all(Colors.grey) 
+                      : ButtonState.all(Colors.orange),
+                  ),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Text('Procesar Directorio (Inyección CAD)', style: TextStyle(fontSize: 16)),
                   ),
                 ),
                 if (isScanning) ...[
