@@ -153,31 +153,26 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
                 children:
                     (tipo['versiones'] as List).map<TreeViewItem>((ver) {
                       final revisiones = ver['revisiones'] as List;
+                      final bool hasRevs = revisiones.isNotEmpty;
+                      
                       return TreeViewItem(
                         leading: Icon(
                           FluentIcons.fabric_open_folder_horizontal,
                           size: 13,
-                          color:
-                              (FluentTheme.of(
-                                    context,
-                                  ).typography.body?.color?.withOpacity(0.3) ??
-                                  Colors.grey),
+                          color: hasRevs
+                              ? _colorByTracto(tractoNombre)
+                              : (FluentTheme.of(context).typography.body?.color?.withOpacity(0.3) ?? Colors.grey),
                         ),
                         content: Text(
                           ver['nombre'],
-                          style: const TextStyle(fontStyle: FontStyle.italic),
+                          style: TextStyle(
+                            fontStyle: FontStyle.italic,
+                            color: hasRevs ? null : Colors.grey.withOpacity(0.6),
+                          ),
                         ),
-                        children:
-                            revisiones.isEmpty
-                                ? [
-                                  TreeViewItem(
-                                    content: const Text(
-                                      'Sin revisiones',
-                                      style: TextStyle(color: Colors.grey),
-                                    ),
-                                  ),
-                                ]
-                                : revisiones.map<TreeViewItem>((rev) {
+                        children: !hasRevs
+                            ? []
+                            : revisiones.map<TreeViewItem>((rev) {
                                   final bool aprobada =
                                       rev['estado'] == 'Aprobada';
                                   return TreeViewItem(

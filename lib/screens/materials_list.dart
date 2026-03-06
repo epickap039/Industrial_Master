@@ -246,11 +246,19 @@ class _MaterialsListScreenState extends State<MaterialsListScreen> {
                 itemCount: filteredList.length,
                 itemBuilder: (context, index) {
                   final material = filteredList[index];
-                  return ListTile(
-                    title: Text(material),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
+                  final isEven = index % 2 == 0;
+                  return Container(
+                    color: isEven ? Colors.transparent : FluentTheme.of(context).typography.body?.color?.withOpacity(0.04),
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 6.0),
+                    child: Row(
                       children: [
+                        Expanded(
+                          flex: 4,
+                          child: Text(material, style: const TextStyle(fontSize: 14)),
+                        ),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
                         IconButton(
                           icon: const Icon(FluentIcons.copy),
                           onPressed: () {
@@ -313,8 +321,11 @@ class _MaterialsListScreenState extends State<MaterialsListScreen> {
                         ),
                       ],
                     ),
-                  );
-                },
+                    const Spacer(flex: 5),
+                  ],
+                ),
+              );
+            },
               ),
             ),
         ],
