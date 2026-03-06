@@ -1,0 +1,1 @@
+import pyodbc; conn=pyodbc.connect('Driver={ODBC Driver 17 for SQL Server};Server=192.168.1.73;Database=DB_Materiales_Industrial;Trusted_Connection=yes;'); cursor=conn.cursor(); cursor.execute('SELECT TOP 1 * FROM Tbl_Clientes_Configuracion'); print([col[0] for col in cursor.description]); print(cursor.fetchone())

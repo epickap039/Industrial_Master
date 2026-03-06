@@ -396,24 +396,22 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
       header: PageHeader(
         title: const Text('Mapa de Ingeniería'),
         commandBar: Row(
-          mainAxisSize: MainAxisSize.min,
           children: [
             SizedBox(
-              width: 220,
+              width: 180,
               child: ComboBox<bool>(
                 value: _groupByClient,
                 items: const [
-                  ComboBoxItem(value: false, child: Text("Agrupar por Proyecto")),
-                  ComboBoxItem(value: true, child: Text("Agrupar por Cliente")),
+                  ComboBoxItem(value: false, child: Text("Por Proyecto")),
+                  ComboBoxItem(value: true, child: Text("Por Cliente")),
                 ],
                 onChanged: (v) {
                   if (v != null) setState(() => _groupByClient = v);
                 },
               ),
             ),
-            const SizedBox(width: 16),
-            SizedBox(
-              width: 200,
+            const SizedBox(width: 8),
+            Expanded(
               child: TextBox(
                 placeholder: 'Crit. de Búsqueda...',
                 prefix: const Padding(

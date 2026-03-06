@@ -427,7 +427,7 @@ def get_mapa_jerarquia():
             JOIN Tbl_Tipos_Proyecto TP ON TP.ID_Tracto = TR.ID_Tracto
             JOIN Tbl_Versiones_Ingenieria V ON V.ID_Tipo = TP.ID_Tipo
             LEFT JOIN Tbl_BOM_Revisiones R ON R.ID_Version = V.ID_Version
-            LEFT JOIN Tbl_Clientes_Configuracion C ON C.ID_Revision_Asignada = R.ID_Revision
+            LEFT JOIN Tbl_Clientes_Configuracion C ON C.ID_Version = V.ID_Version
             ORDER BY TR.Nombre_Tracto, TP.Nombre_Tipo, V.Nombre_Version, R.Numero_Revision
         """)
         rows = cursor.fetchall()
