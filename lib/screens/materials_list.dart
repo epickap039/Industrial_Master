@@ -252,10 +252,6 @@ class _MaterialsListScreenState extends State<MaterialsListScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 6.0),
                     child: Row(
                       children: [
-                        Expanded(
-                          flex: 4,
-                          child: Text(material, style: const TextStyle(fontSize: 14)),
-                        ),
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -319,9 +315,13 @@ class _MaterialsListScreenState extends State<MaterialsListScreen> {
                             );
                           },
                         ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          flex: 4,
+                          child: Text(material, style: const TextStyle(fontSize: 14)),
+                        ),
                       ],
                     ),
-                    const Spacer(flex: 5),
                   ],
                 ),
               );
