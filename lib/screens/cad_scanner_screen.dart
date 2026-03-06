@@ -28,7 +28,7 @@ Sub main()
     Set swApp = Application.SldWorks
     Set fso = CreateObject("Scripting.FileSystemObject")
     Dim rootPath As String
-    rootPath = "$rootPath"
+    rootPath = "\$rootPath"
     If Not fso.FolderExists(rootPath) Then
         MsgBox "Ruta no encontrada.", vbCritical
         Exit Sub
@@ -56,51 +56,73 @@ Sub ProcessPart(filePath As String)
     Dim nErrors As Long, nWarnings As Long
     Dim largo As Double, ancho As Double, espesorPerfil As Double
     Dim valOut As String, valEval As String
-    Dim fileName As String
+    Dim fileName As String, isSheetMetal As Boolean
+    Dim swSheetMetal As Object
     fileName = fso.GetBaseName(filePath)
     If InStr(1, fileName, "Chapa desplegada -", vbTextCompare) > 0 Then
         fileName = Trim(Replace(fileName, "Chapa desplegada -", "", , , vbTextCompare))
     End If
     Set swModel = swApp.OpenDoc6(filePath, 1, 1, "", nErrors, nWarnings)
     If Not swModel Is Nothing Then
-        largo = 0: ancho = 0: espesorPerfil = 0
+        largo = 0: ancho = 0: espesorPerfil = 0: isSheetMetal = False
+        Set propMgr = swModel.Extension.CustomPropertyManager("")
+        propMgr.Get2 "Espesor", valOut, valEval
+        If valEval <> "" Then espesorPerfil = Val(valEval)
+        If espesorPerfil = 0 Then
+            propMgr.Get2 "Thickness", valOut, valEval
+            If valEval <> "" Then espesorPerfil = Val(valEval)
+        End If
         Set swFeat = swModel.FirstFeature
         Do While Not swFeat Is Nothing
+            If swFeat.GetTypeName2() = "SheetMetal" Then
+                isSheetMetal = True
+                Set swSheetMetal = swFeat.GetDefinition()
+                If Not swSheetMetal Is Nothing Then
+                    If espesorPerfil = 0 Then espesorPerfil = swSheetMetal.Thickness * 1000
+                End If
+            ElseIf swFeat.GetTypeName2() = "FlatPattern" Then
+                isSheetMetal = True
+            End If
             If swFeat.GetTypeName2() = "CutListFolder" Then
                 Set custPropMgr = swFeat.CustomPropertyManager
                 custPropMgr.Get2 "Largo del envolvente", valOut, valEval
-                If valEval <> "" Then largo = Val(valEval)
+                If valEval <> "" And largo = 0 Then largo = Val(valEval)
                 custPropMgr.Get2 "Ancho del envolvente", valOut, valEval
-                If valEval <> "" Then ancho = Val(valEval)
-                
-                custPropMgr.Get2 "Espesor de chapa", valOut, valEval
-                If valEval <> "" Then
-                    espesorPerfil = Val(valEval)
-                Else
+                If valEval <> "" And ancho = 0 Then ancho = Val(valEval)
+                If espesorPerfil = 0 And Not isSheetMetal Then
                     custPropMgr.Get2 "Longitud", valOut, valEval
                     If valEval <> "" Then espesorPerfil = Val(valEval)
                 End If
             End If
             Set swFeat = swFeat.GetNextFeature
         Loop
-        If largo = 0 Then
+        If largo = 0 Or ancho = 0 Or (espesorPerfil = 0 And Not isSheetMetal) Then
             Dim vBox As Variant
             vBox = swModel.GetPartBox(True)
             If Not IsEmpty(vBox) Then
-                largo = Abs(vBox(3) - vBox(0)) * 1000
-                ancho = Abs(vBox(4) - vBox(1)) * 1000
-                espesorPerfil = Abs(vBox(5) - vBox(2)) * 1000
+                Dim dx As Double, dy As Double, dz As Double, temp As Double
+                dx = Abs(vBox(3) - vBox(0)) * 1000: dy = Abs(vBox(4) - vBox(1)) * 1000: dz = Abs(vBox(5) - vBox(2)) * 1000
+                If dx < dy Then temp = dx: dx = dy: dy = temp
+                If dx < dz Then temp = dx: dx = dz: dz = temp
+                If dy < dz Then temp = dy: dy = dz: dz = temp
+                If largo = 0 Then largo = dx
+                If ancho = 0 Then ancho = dy
+                If espesorPerfil = 0 And Not isSheetMetal Then espesorPerfil = dz
             End If
         End If
-        Set propMgr = swModel.Extension.CustomPropertyManager("")
         propMgr.Add3 "CODIGO_PIEZA", 30, fileName, 1
         propMgr.Set "CODIGO_PIEZA", fileName
         propMgr.Add3 "Largo_CAD", 30, Round(largo, 2) & " mm", 1
         propMgr.Set "Largo_CAD", Round(largo, 2) & " mm"
         propMgr.Add3 "Ancho_CAD", 30, Round(ancho, 2) & " mm", 1
         propMgr.Set "Ancho_CAD", Round(ancho, 2) & " mm"
-        propMgr.Add3 "Espesor_Perfil_CAD", 30, Round(espesorPerfil, 2) & " mm", 1
-        propMgr.Set "Espesor_Perfil_CAD", Round(espesorPerfil, 2) & " mm"
+        If espesorPerfil > 0 Then
+            propMgr.Add3 "Espesor_Perfil_CAD", 30, Round(espesorPerfil, 2) & " mm", 1
+            propMgr.Set "Espesor_Perfil_CAD", Round(espesorPerfil, 2) & " mm"
+        Else
+            propMgr.Add3 "Espesor_Perfil_CAD", 30, "-", 1
+            propMgr.Set "Espesor_Perfil_CAD", "-"
+        End If
         swModel.Save3 1, nErrors, nWarnings
         swApp.CloseDoc swModel.GetTitle
     End If

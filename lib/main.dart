@@ -23,27 +23,23 @@ import 'screens/qa_dashboard.dart'; // Centro de QA
 import 'screens/cad_scanner_screen.dart'; // Módulo CAD
 import 'package:pasteboard/pasteboard.dart';
 import 'package:flutter/services.dart';
+import 'theme/app_themes.dart';
 
 const String API_URL = "http://192.168.1.73:8001";
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final prefs = await SharedPreferences.getInstance();
-  final isDarkMode = prefs.getBool('isDarkMode') ?? false;
-
-  runApp(MyApp(isDarkMode: isDarkMode));
+  runApp(const MyApp());
 }
 
 class MyApp extends StatefulWidget {
-  final bool isDarkMode;
-  const MyApp({super.key, required this.isDarkMode});
+  const MyApp({super.key});
 
   @override
   State<MyApp> createState() => _MyAppState();
 }
 
 class _MyAppState extends State<MyApp> {
-  late ThemeMode _themeMode;
   bool _isLoggedIn = false;
   bool _isLoadingAuth = true;
   String _userRole = 'USER';
@@ -54,7 +50,6 @@ class _MyAppState extends State<MyApp> {
   @override
   void initState() {
     super.initState();
-    _themeMode = widget.isDarkMode ? ThemeMode.dark : ThemeMode.light;
     _checkLoginStatus();
   }
 
@@ -83,11 +78,8 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> _updateTheme(ThemeMode mode) async {
-    setState(() {
-      _themeMode = mode;
-    });
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('isDarkMode', mode == ThemeMode.dark);
+    // Legacy method
+    appTheme.setTheme(mode == ThemeMode.dark ? AppThemeMode.dark : AppThemeMode.light);
   }
 
   void _onLoginSuccess() async {
@@ -398,41 +390,51 @@ class _MyAppState extends State<MyApp> {
       return const FluentApp(home: Center(child: ProgressRing()));
     }
 
-    return FluentApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Industrial Master v60.0',
-      themeMode: _themeMode,
-      theme: FluentThemeData(
-        brightness: Brightness.light,
-        accentColor: Colors.blue,
-      ),
-      darkTheme: FluentThemeData(
-        brightness: Brightness.dark,
-        accentColor: Colors.blue,
-      ),
-      home:
-          _isLoggedIn
-              ? Builder(
-                builder:
-                    (navContext) => NavigationView(
-                      appBar: NavigationAppBar(
-                        title: const Text('Industrial Master v60.0'),
-                        automaticallyImplyLeading: false,
-                        leading: const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 12.0),
-                          child: Icon(FluentIcons.factory),
-                        ),
-                        actions: Padding(
-                          padding: const EdgeInsets.only(right: 12.0),
-                          child: Align(
-                            alignment: Alignment.centerRight,
-                            child: IconButton(
-                              icon: const Icon(FluentIcons.sign_out),
-                              onPressed: _logout,
+    return ListenableBuilder(
+      listenable: appTheme,
+      builder: (context, child) {
+        return FluentApp(
+          debugShowCheckedModeBanner: false,
+          title: 'Industrial Master v60.0',
+          theme: appTheme.currentTheme,
+          home:
+              _isLoggedIn
+                  ? Builder(
+                    builder:
+                        (navContext) => NavigationView(
+                          appBar: NavigationAppBar(
+                            title: const Text('Industrial Master v60.0'),
+                            automaticallyImplyLeading: false,
+                            leading: const Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 12.0),
+                              child: Icon(FluentIcons.factory),
+                            ),
+                            actions: Padding(
+                              padding: const EdgeInsets.only(right: 12.0),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  ComboBox<AppThemeMode>(
+                                    value: appTheme.currentMode,
+                                    items: AppThemeMode.values.map((mode) {
+                                      return ComboBoxItem(
+                                        value: mode,
+                                        child: Text(mode.name.toUpperCase()),
+                                      );
+                                    }).toList(),
+                                    onChanged: (v) {
+                                      if (v != null) appTheme.setTheme(v);
+                                    },
+                                  ),
+                                  const SizedBox(width: 8),
+                                  IconButton(
+                                    icon: const Icon(FluentIcons.sign_out),
+                                    onPressed: _logout,
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                      ),
                       pane: NavigationPane(
                         size: const NavigationPaneSize(openWidth: 220.0),
                         selected: topIndex,
@@ -519,10 +521,10 @@ class _MyAppState extends State<MyApp> {
                             icon: const Icon(FluentIcons.settings),
                             title: const Text('Configuración'),
                             body: SettingsScreen(
-                              isDarkMode: _themeMode == ThemeMode.dark,
+                              isDarkMode: appTheme.currentMode == AppThemeMode.dark || appTheme.currentMode == AppThemeMode.cyberpunk,
                               onThemeChanged:
-                                  (isDark) => _updateTheme(
-                                    isDark ? ThemeMode.dark : ThemeMode.light,
+                                  (isDark) => appTheme.setTheme(
+                                    isDark ? AppThemeMode.dark : AppThemeMode.light,
                                   ),
                             ),
                           ),
@@ -531,6 +533,8 @@ class _MyAppState extends State<MyApp> {
                     ),
               )
               : LoginScreen(onLoginSuccess: _onLoginSuccess),
+        );
+      },
     );
   }
 }
