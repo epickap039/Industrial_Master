@@ -98,13 +98,13 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
     }
   }
 
-  List<TreeViewItem> _buildTree() {
+  List<Widget> _buildTree() {
     final filterLow = _filter.toLowerCase();
     final primaryColor = FluentTheme.of(context).accentColor;
     final bodyColor = FluentTheme.of(context).typography.body?.color ?? Colors.black;
     final dividerColor = FluentTheme.of(context).resources.dividerStrokeColorDefault ?? bodyColor.withOpacity(0.1);
 
-    return _arbol.map<TreeViewItem>((tracto) {
+    return _arbol.map<Widget>((tracto) {
       final tractoNombre = tracto['nombre'] as String;
 
       // Filtrar tipos/versiones por el texto de búsqueda
@@ -118,124 +118,138 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
             );
           }).toList();
 
-      return TreeViewItem(
-        expanded: false,
-        content: Container(
-          margin: const EdgeInsets.only(top: 8, bottom: 8),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
-            color: FluentTheme.of(context).cardColor,
-            border: Border.all(color: dividerColor.withOpacity(0.5)),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(width: 12, height: 12, decoration: BoxDecoration(color: primaryColor, shape: BoxShape.circle)),
-              const SizedBox(width: 8),
-              Text(tractoNombre, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: primaryColor)),
-            ],
+      return _CustomNode(
+        initiallyExpanded: false,
+        header: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 400),
+          child: Container(
+            margin: const EdgeInsets.only(top: 8, bottom: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: FluentTheme.of(context).cardColor,
+              border: Border.all(color: dividerColor.withOpacity(0.5)),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(width: 12, height: 12, decoration: BoxDecoration(color: primaryColor, shape: BoxShape.circle)),
+                const SizedBox(width: 8),
+                Expanded(child: Text(tractoNombre, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: primaryColor))),
+              ],
+            ),
           ),
         ),
         children:
-            tipos.map<TreeViewItem>((tipo) {
-              return TreeViewItem(
-                expanded: false,
-                content: Container(
-                  margin: const EdgeInsets.only(left: 40.0, top: 6, bottom: 6),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: FluentTheme.of(context).cardColor,
-                    border: Border.all(color: dividerColor.withOpacity(0.4)),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(FluentIcons.build_definition, size: 14, color: primaryColor.withOpacity(0.7)),
-                      const SizedBox(width: 8),
-                      Text(tipo['nombre'], style: TextStyle(fontWeight: FontWeight.w600, color: bodyColor)),
-                    ],
+            tipos.map<Widget>((tipo) {
+              return _CustomNode(
+                initiallyExpanded: false,
+                header: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 400),
+                  child: Container(
+                    margin: const EdgeInsets.only(top: 6, bottom: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: FluentTheme.of(context).cardColor,
+                      border: Border.all(color: dividerColor.withOpacity(0.4)),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(FluentIcons.build_definition, size: 14, color: primaryColor.withOpacity(0.7)),
+                        const SizedBox(width: 8),
+                        Expanded(child: Text(tipo['nombre'], style: TextStyle(fontWeight: FontWeight.w600, color: bodyColor))),
+                      ],
+                    ),
                   ),
                 ),
                 children:
-                    (tipo['versiones'] as List).map<TreeViewItem>((ver) {
+                    (tipo['versiones'] as List).map<Widget>((ver) {
                       final revisiones = ver['revisiones'] as List;
                       final bool hasRevs = revisiones.isNotEmpty;
                       
-                      return TreeViewItem(
-                        expanded: false,
-                        content: Container(
-                          margin: const EdgeInsets.only(left: 40.0, top: 4, bottom: 4),
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: FluentTheme.of(context).cardColor,
-                            border: Border.all(color: dividerColor.withOpacity(0.3)),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(FluentIcons.fabric_open_folder_horizontal, size: 13, color: hasRevs ? primaryColor : bodyColor.withOpacity(0.3)),
-                              const SizedBox(width: 8),
-                              Text(ver['nombre'], style: TextStyle(fontStyle: FontStyle.italic, color: hasRevs ? bodyColor : bodyColor.withOpacity(0.6))),
-                            ],
+                      return _CustomNode(
+                        initiallyExpanded: false,
+                        header: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 400),
+                          child: Container(
+                            margin: const EdgeInsets.only(top: 4, bottom: 4),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: FluentTheme.of(context).cardColor,
+                              border: Border.all(color: dividerColor.withOpacity(0.3)),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(FluentIcons.fabric_open_folder_horizontal, size: 13, color: hasRevs ? primaryColor : bodyColor.withOpacity(0.3)),
+                                const SizedBox(width: 8),
+                                Expanded(child: Text(ver['nombre'], style: TextStyle(fontStyle: FontStyle.italic, color: hasRevs ? bodyColor : bodyColor.withOpacity(0.6)))),
+                              ],
+                            ),
                           ),
                         ),
                         children: !hasRevs
                             ? []
-                            : revisiones.map<TreeViewItem>((rev) {
+                            : revisiones.map<Widget>((rev) {
                                   final bool aprobada =
                                       rev['estado'] == 'Aprobada';
-                                  return TreeViewItem(
-                                    expanded: false,
-                                    content: Container(
-                                      margin: const EdgeInsets.only(left: 40.0, top: 4, bottom: 4),
-                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                      decoration: BoxDecoration(
-                                        color: FluentTheme.of(context).cardColor,
-                                        border: Border.all(color: dividerColor.withOpacity(0.2)),
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          // Semáforo de estado
-                                          Tooltip(
-                                            message: rev['estado'],
-                                            child: Container(
-                                              width: 10,
-                                              height: 10,
-                                              margin: const EdgeInsets.only(right: 8),
-                                              decoration: BoxDecoration(
-                                                color: aprobada ? Colors.green : Colors.orange,
-                                                shape: BoxShape.circle,
+                                  return _CustomNode(
+                                    initiallyExpanded: false,
+                                    header: ConstrainedBox(
+                                      constraints: const BoxConstraints(maxWidth: 400),
+                                      child: Container(
+                                        margin: const EdgeInsets.only(top: 4, bottom: 4),
+                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                        decoration: BoxDecoration(
+                                          color: FluentTheme.of(context).cardColor,
+                                          border: Border.all(color: dividerColor.withOpacity(0.2)),
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            // Semáforo de estado
+                                            Tooltip(
+                                              message: rev['estado'],
+                                              child: Container(
+                                                width: 10,
+                                                height: 10,
+                                                margin: const EdgeInsets.only(right: 8),
+                                                decoration: BoxDecoration(
+                                                  color: aprobada ? Colors.green : Colors.orange,
+                                                  shape: BoxShape.circle,
+                                                ),
                                               ),
                                             ),
-                                          ),
-                                          Text(
-                                            "Rev ${rev['numero_revision']}  •  ${rev['estado']}",
-                                            style: TextStyle(fontSize: 13, color: bodyColor),
-                                          ),
-                                          const SizedBox(width: 16),
-                                          // Botón abrir BOM
-                                          Tooltip(
-                                            message: "Abrir Gestor de BOM para esta revisión",
-                                            child: IconButton(
-                                              icon: Icon(FluentIcons.open_in_new_window, size: 14, color: primaryColor),
-                                              onPressed: () => Navigator.push(
-                                                context,
-                                                FluentPageRoute(
-                                                  builder: (_) => BOMManagerScreen(
-                                                    idVersion: ver['id'] as int,
-                                                    versionName: ver['nombre'] as String,
-                                                    tractoName: tractoNombre,
+                                            Expanded(
+                                              child: Text(
+                                                "Rev ${rev['numero_revision']}  •  ${rev['estado']}",
+                                                style: TextStyle(fontSize: 13, color: bodyColor),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 16),
+                                            // Botón abrir BOM
+                                            Tooltip(
+                                              message: "Abrir Gestor de BOM para esta revisión",
+                                              child: IconButton(
+                                                icon: Icon(FluentIcons.open_in_new_window, size: 14, color: primaryColor),
+                                                onPressed: () => Navigator.push(
+                                                  context,
+                                                  FluentPageRoute(
+                                                    builder: (_) => BOMManagerScreen(
+                                                      idVersion: ver['id'] as int,
+                                                      versionName: ver['nombre'] as String,
+                                                      tractoName: tractoNombre,
+                                                    ),
                                                   ),
                                                 ),
                                               ),
                                             ),
-                                          ),
-                                        ],
+                                          ],
+                                        ),
                                       ),
                                     ),
                                   );
@@ -303,20 +317,68 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
                   ],
                 ),
               )
-              : InteractiveViewer(
-                  constrained: false,
-                  minScale: 0.5,
-                  maxScale: 2.0,
-                  boundaryMargin: const EdgeInsets.all(double.infinity),
-                  child: Padding(
-                    padding: const EdgeInsets.all(40.0),
-                    child: TreeView(
-                      items: _buildTree(),
-                      selectionMode: TreeViewSelectionMode.single,
-                      onItemInvoked: (item, reason) async {},
+              : Column(
+                  children: [
+                    Expanded(
+                      child: InteractiveViewer(
+                        constrained: false,
+                        minScale: 0.5,
+                        maxScale: 2.0,
+                        boundaryMargin: const EdgeInsets.all(double.infinity),
+                        child: Padding(
+                          padding: const EdgeInsets.all(40.0),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: _buildTree(),
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 ),
+    );
+  }
+}
+
+class _CustomNode extends StatefulWidget {
+  final Widget header;
+  final List<Widget> children;
+  final bool initiallyExpanded;
+  
+  const _CustomNode({required this.header, this.children = const [], this.initiallyExpanded = false});
+
+  @override
+  State<_CustomNode> createState() => _CustomNodeState();
+}
+
+class _CustomNodeState extends State<_CustomNode> {
+  late bool expanded;
+  @override
+  void initState() {
+    super.initState();
+    expanded = widget.initiallyExpanded;
+  }
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        GestureDetector(
+          onTap: widget.children.isEmpty ? null : () => setState(() => expanded = !expanded),
+          child: MouseRegion(cursor: widget.children.isEmpty ? SystemMouseCursors.basic : SystemMouseCursors.click, child: widget.header),
+        ),
+        if (expanded && widget.children.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(left: 40.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: widget.children,
+            ),
+          ),
+      ],
     );
   }
 }
