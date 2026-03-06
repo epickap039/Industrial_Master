@@ -24,7 +24,9 @@ class _MaterialsListScreenState extends State<MaterialsListScreen> {
   Future<void> _fetchMaterials() async {
     setState(() => _isLoading = true);
     try {
-      final response = await http.get(Uri.parse('http://192.168.1.73:8001/api/config/materiales'));
+      final response = await http.get(
+        Uri.parse('http://192.168.1.73:8001/api/config/materiales'),
+      );
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
         setState(() {
@@ -37,14 +39,17 @@ class _MaterialsListScreenState extends State<MaterialsListScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
-        displayInfoBar(context, builder: (context, close) {
-          return InfoBar(
-            title: const Text('Error'),
-            content: Text('No se pudieron cargar los materiales: $e'),
-            severity: InfoBarSeverity.error,
-            onClose: close,
-          );
-        });
+        displayInfoBar(
+          context,
+          builder: (context, close) {
+            return InfoBar(
+              title: const Text('Error'),
+              content: Text('No se pudieron cargar los materiales: $e'),
+              severity: InfoBarSeverity.error,
+              onClose: close,
+            );
+          },
+        );
       }
     }
   }
@@ -99,29 +104,37 @@ class _MaterialsListScreenState extends State<MaterialsListScreen> {
       if (response.statusCode == 200) {
         await _fetchMaterials();
         if (mounted) {
-          displayInfoBar(context, duration: const Duration(seconds: 3), builder: (context, close) {
-            return InfoBar(
-              title: const Text('Éxito'),
-              content: Text('Material "$material" agregado correctamente.'),
-              severity: InfoBarSeverity.success,
-              onClose: close,
-            );
-          });
+          displayInfoBar(
+            context,
+            duration: const Duration(seconds: 3),
+            builder: (context, close) {
+              return InfoBar(
+                title: const Text('Éxito'),
+                content: Text('Material "$material" agregado correctamente.'),
+                severity: InfoBarSeverity.success,
+                onClose: close,
+              );
+            },
+          );
         }
       } else {
-        final error = json.decode(response.body)['detail'] ?? 'Error desconocido';
+        final error =
+            json.decode(response.body)['detail'] ?? 'Error desconocido';
         throw Exception(error);
       }
     } catch (e) {
       if (mounted) {
-        displayInfoBar(context, builder: (context, close) {
-          return InfoBar(
-            title: const Text('Error al Guardar'),
-            content: Text(e.toString()),
-            severity: InfoBarSeverity.error,
-            onClose: close,
-          );
-        });
+        displayInfoBar(
+          context,
+          builder: (context, close) {
+            return InfoBar(
+              title: const Text('Error al Guardar'),
+              content: Text(e.toString()),
+              severity: InfoBarSeverity.error,
+              onClose: close,
+            );
+          },
+        );
       }
     }
   }
@@ -130,7 +143,9 @@ class _MaterialsListScreenState extends State<MaterialsListScreen> {
     try {
       final encodedMaterial = Uri.encodeComponent(material);
       final response = await http.delete(
-        Uri.parse('http://192.168.1.73:8001/api/config/materiales/$encodedMaterial'),
+        Uri.parse(
+          'http://192.168.1.73:8001/api/config/materiales/$encodedMaterial',
+        ),
       );
 
       if (response.statusCode == 200) {
@@ -138,29 +153,37 @@ class _MaterialsListScreenState extends State<MaterialsListScreen> {
           _descripcionesOficiales.remove(material);
         });
         if (mounted) {
-          displayInfoBar(context, duration: const Duration(seconds: 3), builder: (context, close) {
-            return InfoBar(
-              title: const Text('Eliminado'),
-              content: Text('Material "$material" eliminado exitosamente.'),
-              severity: InfoBarSeverity.success,
-              onClose: close,
-            );
-          });
+          displayInfoBar(
+            context,
+            duration: const Duration(seconds: 3),
+            builder: (context, close) {
+              return InfoBar(
+                title: const Text('Eliminado'),
+                content: Text('Material "$material" eliminado exitosamente.'),
+                severity: InfoBarSeverity.success,
+                onClose: close,
+              );
+            },
+          );
         }
       } else {
-        final error = json.decode(response.body)['detail'] ?? 'Error desconocido';
+        final error =
+            json.decode(response.body)['detail'] ?? 'Error desconocido';
         throw Exception(error);
       }
     } catch (e) {
       if (mounted) {
-        displayInfoBar(context, builder: (context, close) {
-          return InfoBar(
-            title: const Text('Error al Eliminar'),
-            content: Text(e.toString()),
-            severity: InfoBarSeverity.error,
-            onClose: close,
-          );
-        });
+        displayInfoBar(
+          context,
+          builder: (context, close) {
+            return InfoBar(
+              title: const Text('Error al Eliminar'),
+              content: Text(e.toString()),
+              severity: InfoBarSeverity.error,
+              onClose: close,
+            );
+          },
+        );
       }
     }
   }
@@ -168,9 +191,13 @@ class _MaterialsListScreenState extends State<MaterialsListScreen> {
   @override
   Widget build(BuildContext context) {
     // Filtrado de la lista
-    final filteredList = _descripcionesOficiales
-        .where((material) => material.toLowerCase().contains(_searchQuery.toLowerCase()))
-        .toList();
+    final filteredList =
+        _descripcionesOficiales
+            .where(
+              (material) =>
+                  material.toLowerCase().contains(_searchQuery.toLowerCase()),
+            )
+            .toList();
 
     return ScaffoldPage(
       header: PageHeader(
@@ -191,7 +218,10 @@ class _MaterialsListScreenState extends State<MaterialsListScreen> {
         children: [
           // Barra de Búsqueda
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 24.0,
+              vertical: 8.0,
+            ),
             child: TextBox(
               placeholder: "Buscar material...",
               prefix: const Padding(
@@ -203,11 +233,13 @@ class _MaterialsListScreenState extends State<MaterialsListScreen> {
               },
             ),
           ),
-          
+
           if (_isLoading)
             const Expanded(child: Center(child: ProgressRing()))
           else if (filteredList.isEmpty)
-             const Expanded(child: Center(child: Text("No se encontraron materiales.")))
+            const Expanded(
+              child: Center(child: Text("No se encontraron materiales.")),
+            )
           else
             Expanded(
               child: ListView.builder(
@@ -223,40 +255,61 @@ class _MaterialsListScreenState extends State<MaterialsListScreen> {
                           icon: const Icon(FluentIcons.copy),
                           onPressed: () {
                             Clipboard.setData(ClipboardData(text: material));
-                            displayInfoBar(context, duration: const Duration(seconds: 2), builder: (context, close) {
-                              return InfoBar(
-                                title: const Text('Copiado'),
-                                content: Text("'$material' copiado al portapapeles"),
-                                severity: InfoBarSeverity.success,
-                                onClose: close,
-                              );
-                            });
+                            displayInfoBar(
+                              context,
+                              duration: const Duration(seconds: 2),
+                              builder: (context, close) {
+                                return InfoBar(
+                                  title: const Text('Copiado'),
+                                  content: Text(
+                                    "'$material' copiado al portapapeles",
+                                  ),
+                                  severity: InfoBarSeverity.success,
+                                  onClose: close,
+                                );
+                              },
+                            );
                           },
                         ),
                         const SizedBox(width: 8),
                         IconButton(
                           icon: const Icon(FluentIcons.delete),
-                          style: ButtonStyle(foregroundColor: WidgetStateProperty.all(Colors.red)),
+                          style: ButtonStyle(
+                            foregroundColor: WidgetStateProperty.all(
+                              Colors.red,
+                            ),
+                          ),
                           onPressed: () {
                             showDialog(
-                              context: context, 
-                              builder: (context) => ContentDialog(
-                                title: const Text("Confirmar Eliminación"), 
-                                content: Text("¿Estás seguro de eliminar el material oficial '$material'?"), 
-                                actions: [
-                                  Button(child: const Text("Cancelar"), onPressed: () => Navigator.pop(context)),
-                                  FilledButton(
-                                    style: ButtonStyle(backgroundColor: WidgetStateProperty.all(Colors.red)),
-                                    child: const Text("Eliminar"), 
-                                    onPressed: () {
-                                      Navigator.pop(context);
-                                      _deleteMaterial(material);
-                                    }
-                                  )
-                                ]
-                              )
+                              context: context,
+                              builder:
+                                  (context) => ContentDialog(
+                                    title: const Text("Confirmar Eliminación"),
+                                    content: Text(
+                                      "¿Estás seguro de eliminar el material oficial '$material'?",
+                                    ),
+                                    actions: [
+                                      Button(
+                                        child: const Text("Cancelar"),
+                                        onPressed: () => Navigator.pop(context),
+                                      ),
+                                      FilledButton(
+                                        style: ButtonStyle(
+                                          backgroundColor:
+                                              WidgetStateProperty.all(
+                                                Colors.red,
+                                              ),
+                                        ),
+                                        child: const Text("Eliminar"),
+                                        onPressed: () {
+                                          Navigator.pop(context);
+                                          _deleteMaterial(material);
+                                        },
+                                      ),
+                                    ],
+                                  ),
                             );
-                          }
+                          },
                         ),
                       ],
                     ),

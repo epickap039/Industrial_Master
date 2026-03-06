@@ -4,16 +4,111 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/services.dart';
 import '../main.dart'; // Para API_URL
 
 class CADScannerScreen extends StatefulWidget {
   const CADScannerScreen({Key? key}) : super(key: key);
 
-  @override
   State<CADScannerScreen> createState() => _CADScannerScreenState();
 }
 
-class _CADScannerScreenState extends State<CADScannerScreen> {
+
+class _CADScannerScreenState extends State<CADScannerScreen> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  String get _macroVbaText {
+    final rootPath = _pathController.text.replaceAll(r'\', r'\\');
+    return '''
+Option Explicit
+Dim fso As Object
+Dim swApp As Object
+Sub main()
+    Set swApp = Application.SldWorks
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    Dim rootPath As String
+    rootPath = "$rootPath"
+    If Not fso.FolderExists(rootPath) Then
+        MsgBox "Ruta no encontrada.", vbCritical
+        Exit Sub
+    End If
+    On Error Resume Next
+    ProcessFolder rootPath
+    On Error GoTo 0
+    MsgBox "Procesamiento masivo completado con éxito.", vbInformation
+End Sub
+Sub ProcessFolder(folderPath As String)
+    Dim folder As Object, subFolder As Object, file As Object
+    Set folder = fso.GetFolder(folderPath)
+    For Each file In folder.Files
+        If UCase(fso.GetExtensionName(file.Path)) = "SLDPRT" Then
+            ProcessPart file.Path
+        End If
+    Next file
+    For Each subFolder In folder.SubFolders
+        ProcessFolder subFolder.Path
+    Next subFolder
+End Sub
+Sub ProcessPart(filePath As String)
+    Dim swModel As Object, swFeat As Object
+    Dim propMgr As Object, custPropMgr As Object
+    Dim nErrors As Long, nWarnings As Long
+    Dim largo As Double, ancho As Double, espesorPerfil As Double
+    Dim valOut As String, valEval As String
+    Dim fileName As String
+    fileName = fso.GetBaseName(filePath)
+    If InStr(1, fileName, "Chapa desplegada -", vbTextCompare) > 0 Then
+        fileName = Trim(Replace(fileName, "Chapa desplegada -", "", , , vbTextCompare))
+    End If
+    Set swModel = swApp.OpenDoc6(filePath, 1, 1, "", nErrors, nWarnings)
+    If Not swModel Is Nothing Then
+        largo = 0: ancho = 0: espesorPerfil = 0
+        Set swFeat = swModel.FirstFeature
+        Do While Not swFeat Is Nothing
+            If swFeat.GetTypeName2() = "CutListFolder" Then
+                Set custPropMgr = swFeat.CustomPropertyManager
+                custPropMgr.Get2 "Largo del envolvente", valOut, valEval
+                If valEval <> "" Then largo = Val(valEval)
+                custPropMgr.Get2 "Ancho del envolvente", valOut, valEval
+                If valEval <> "" Then ancho = Val(valEval)
+                
+                custPropMgr.Get2 "Espesor de chapa", valOut, valEval
+                If valEval <> "" Then
+                    espesorPerfil = Val(valEval)
+                Else
+                    custPropMgr.Get2 "Longitud", valOut, valEval
+                    If valEval <> "" Then espesorPerfil = Val(valEval)
+                End If
+            End If
+            Set swFeat = swFeat.GetNextFeature
+        Loop
+        If largo = 0 Then
+            Dim vBox As Variant
+            vBox = swModel.GetPartBox(True)
+            If Not IsEmpty(vBox) Then
+                largo = Abs(vBox(3) - vBox(0)) * 1000
+                ancho = Abs(vBox(4) - vBox(1)) * 1000
+                espesorPerfil = Abs(vBox(5) - vBox(2)) * 1000
+            End If
+        End If
+        Set propMgr = swModel.Extension.CustomPropertyManager("")
+        propMgr.Add3 "CODIGO_PIEZA", 30, fileName, 1
+        propMgr.Set "CODIGO_PIEZA", fileName
+        propMgr.Add3 "Largo_CAD", 30, Round(largo, 2) & " mm", 1
+        propMgr.Set "Largo_CAD", Round(largo, 2) & " mm"
+        propMgr.Add3 "Ancho_CAD", 30, Round(ancho, 2) & " mm", 1
+        propMgr.Set "Ancho_CAD", Round(ancho, 2) & " mm"
+        propMgr.Add3 "Espesor_Perfil_CAD", 30, Round(espesorPerfil, 2) & " mm", 1
+        propMgr.Set "Espesor_Perfil_CAD", Round(espesorPerfil, 2) & " mm"
+        swModel.Save3 1, nErrors, nWarnings
+        swApp.CloseDoc swModel.GetTitle
+    End If
+    DoEvents
+End Sub
+''';
+  }
+
   final TextEditingController _pathController = TextEditingController();
   
   String _status = 'idle';
@@ -22,12 +117,17 @@ class _CADScannerScreenState extends State<CADScannerScreen> {
   String _excelPath = '';
   String _errorMessage = '';
   
+  String _procesarStatus = 'idle';
+  List<String> _cadLogs = [];
+  final ScrollController _logsScrollController = ScrollController();
+  
   Timer? _statusTimer;
 
   @override
   void dispose() {
     _statusTimer?.cancel();
     _pathController.dispose();
+    _logsScrollController.dispose();
     super.dispose();
   }
 
@@ -55,10 +155,27 @@ class _CADScannerScreenState extends State<CADScannerScreen> {
             _total = data['total'] ?? 0;
             _excelPath = data['excel_path'] ?? '';
             _errorMessage = data['error'] ?? '';
+            
+            _procesarStatus = data['procesar_status'] ?? 'idle';
+            if (data['logs'] != null) {
+              int oldLength = _cadLogs.length;
+              _cadLogs = List<String>.from(data['logs']);
+              if (_cadLogs.length > oldLength) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (_logsScrollController.hasClients) {
+                    _logsScrollController.jumpTo(_logsScrollController.position.maxScrollExtent);
+                  }
+                });
+              }
+            }
           });
 
-          if (_status == 'completed' || _status == 'cancelled' || _status == 'error') {
+          bool isScanning = _status == 'scanning' || _status == 'generating_excel';
+          bool isProcessing = _procesarStatus == 'processing';
+
+          if (!isScanning && !isProcessing) {
             _stopPolling();
+            
             if (_status == 'error') {
               displayInfoBar(context, builder: (context, close) {
                 return InfoBar(
@@ -68,6 +185,8 @@ class _CADScannerScreenState extends State<CADScannerScreen> {
                   onClose: close,
                 );
               });
+              // avoid showing it repeatedly, set to idle
+              _status = 'idle'; 
             } else if (_status == 'cancelled') {
               displayInfoBar(context, builder: (context, close) {
                 return InfoBar(
@@ -77,6 +196,7 @@ class _CADScannerScreenState extends State<CADScannerScreen> {
                   onClose: close,
                 );
               });
+              _status = 'idle';
             }
           }
         }
@@ -161,75 +281,56 @@ class _CADScannerScreenState extends State<CADScannerScreen> {
   }
 
   Future<void> _procesarDirectorio() async {
-    final TextEditingController dialogPathController = TextEditingController(text: _pathController.text);
-    
-    await showDialog(
-      context: context,
-      builder: (context) {
-        return ContentDialog(
-          title: const Text('Procesar Directorio CAD'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Ingresa o pega la ruta de la carpeta con archivos CAD (DWG/SLDPRT). Se inyectarán Bounding Boxes en los .SLDPRT y se generarán .DXF desde los .DWG de forma automática en el servidor:'),
-              const SizedBox(height: 12),
-              TextBox(
-                controller: dialogPathController,
-                placeholder: r'Ej. C:\Ruta\A\Mis\Piezas',
-              ),
-            ],
-          ),
-          actions: [
-            Button(
-              child: const Text('Cancelar'),
-              onPressed: () => Navigator.pop(context),
-            ),
-            FilledButton(
-              child: const Text('Iniciar Procesamiento'),
-              onPressed: () async {
-                final rootPath = dialogPathController.text.trim();
-                if (rootPath.isEmpty) {
-                  return;
-                }
-                
-                Navigator.pop(context); // Cerrar diálogo
-                
-                try {
-                  final response = await http.post(
-                    Uri.parse('$API_URL/api/cad/procesar-directorio'),
-                    headers: {'Content-Type': 'application/json'},
-                    body: json.encode({'root_path': rootPath}),
-                  );
-
-                  if (response.statusCode == 200) {
-                    displayInfoBar(context, builder: (context, close) {
-                      return InfoBar(
-                        title: const Text('Procesamiento Iniciado'),
-                        content: const Text('El procesamiento CAD ha iniciado en segundo plano. Monitorea la consola del servidor.'),
-                        severity: InfoBarSeverity.success,
-                        onClose: close,
-                      );
-                    });
-                  } else {
-                    throw Exception('El servidor devolvió Error ${response.statusCode}');
-                  }
-                } catch (e) {
-                  displayInfoBar(context, builder: (context, close) {
-                    return InfoBar(
-                      title: const Text('Error de procesamiento'),
-                      content: Text(e.toString()),
-                      severity: InfoBarSeverity.error,
-                      onClose: close,
-                    );
-                  });
-                }
-              },
-            ),
-          ],
+    final rootPath = _pathController.text.trim();
+    if (rootPath.isEmpty) {
+      displayInfoBar(context, builder: (context, close) {
+        return InfoBar(
+          title: const Text('Ruta vacía'),
+          content: const Text('Por favor, ingresa una ruta válida para procesar.'),
+          severity: InfoBarSeverity.error,
+          onClose: close,
         );
+      });
+      return;
+    }
+
+    setState(() {
+      _procesarStatus = 'processing';
+      _cadLogs = [];
+    });
+
+    try {
+      final response = await http.post(
+        Uri.parse('$API_URL/api/cad/procesar-directorio'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'root_path': rootPath}),
+      );
+
+      if (response.statusCode == 200) {
+        _startPolling();
+        displayInfoBar(context, builder: (context, close) {
+          return InfoBar(
+            title: const Text('Procesamiento Iniciado'),
+            content: const Text('El procesamiento CAD ha iniciado. Monitorea el progreso en la consola.'),
+            severity: InfoBarSeverity.success,
+            onClose: close,
+          );
+        });
+      } else {
+        setState(() => _procesarStatus = 'error');
+        throw Exception('El servidor devolvió Error ${response.statusCode}');
       }
-    );
+    } catch (e) {
+      setState(() => _procesarStatus = 'error');
+      displayInfoBar(context, builder: (context, close) {
+        return InfoBar(
+          title: const Text('Error de procesamiento'),
+          content: Text(e.toString()),
+          severity: InfoBarSeverity.error,
+          onClose: close,
+        );
+      });
+    }
   }
 
   Future<void> _pickDirectory() async {
@@ -378,14 +479,20 @@ class _CADScannerScreenState extends State<CADScannerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final bool isScanning = _status == 'scanning' || _status == 'generating_excel';
+    final bool isProcessing = _procesarStatus == 'processing';
+    final bool isBusy = isScanning || isProcessing;
 
     return ScaffoldPage.scrollable(
       header: const PageHeader(
         title: Text('Escáner de Directorios CAD'),
       ),
       children: [
-        Padding(
+        Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1000),
+            child: Padding(
           padding: const EdgeInsets.all(24.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -402,7 +509,7 @@ class _CADScannerScreenState extends State<CADScannerScreen> {
                   child: TextBox(
                     controller: _pathController,
                     placeholder: r'Ej. Z:\Ingenieria\SolidWorks',
-                    enabled: !isScanning,
+                    enabled: !isBusy,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -410,59 +517,172 @@ class _CADScannerScreenState extends State<CADScannerScreen> {
                   message: 'Seleccionar Carpeta',
                   child: IconButton(
                     icon: const Icon(FluentIcons.folder_open, size: 20),
-                    onPressed: isScanning ? null : _pickDirectory,
+                    onPressed: isBusy ? null : _pickDirectory,
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 24),
             
-            // Botones de acción
-            Row(
-              children: [
-                FilledButton(
-                  onPressed: isScanning ? null : _startScan,
-                  style: ButtonStyle(
-                    backgroundColor: isScanning 
-                      ? ButtonState.all(Colors.grey) 
-                      : ButtonState.all(Colors.green),
-                  ),
-                  child: const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    child: Text('Iniciar Escaneo', style: TextStyle(fontSize: 16)),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                FilledButton(
-                  onPressed: isScanning ? null : _procesarDirectorio,
-                  style: ButtonStyle(
-                    backgroundColor: isScanning 
-                      ? ButtonState.all(Colors.grey) 
-                      : ButtonState.all(Colors.orange),
-                  ),
-                  child: const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    child: Text('Procesar Directorio (Inyección CAD)', style: TextStyle(fontSize: 16)),
-                  ),
-                ),
-                if (isScanning) ...[
-                  const SizedBox(width: 16),
-                  Button(
-                    onPressed: _status == 'scanning' ? _cancelScan : null,
-                    style: ButtonStyle(
-                      backgroundColor: ButtonState.all(Colors.red.withOpacity(0.1)),
-                      foregroundColor: ButtonState.all(Colors.red),
+            // Panel de Acción (Flujo Paso a Paso)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Flujo de Trabajo:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withOpacity(0.1),
+                        border: Border.all(color: Colors.orange, width: 1),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(FluentIcons.warning, color: Colors.orange),
+                              SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  '⚠️ ATENCIÓN: SolidWorks debe estar ABIERTO (puede estar minimizado) antes de generar el reporte.',
+                                  style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          const Text(
+                            'Paso 1 (Manual): Asegúrate de ejecutar la Macro de extracción de Cajas (Bounding Box) en SolidWorks sobre esta carpeta primero.',
+                            style: TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          const SizedBox(height: 12),
+                          OutlinedButton(
+                            child: const Text('📋 Copiar Macro al Portapapeles'),
+                            onPressed: () {
+                              Clipboard.setData(ClipboardData(text: _macroVbaText));
+                              displayInfoBar(
+                                context,
+                                builder: (context, close) {
+                                  return InfoBar(
+                                    title: const Text('Macro Copiada'),
+                                    content: const Text('Pégala en SolidWorks VBA para extraer las medidas'),
+                                    severity: InfoBarSeverity.success,
+                                    onClose: close,
+                                  );
+                                },
+                              );
+                            },
+                          ),
+                        ],
+                      ),
                     ),
-                    child: const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      child: Text('Cancelar', style: TextStyle(fontSize: 16)),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        FilledButton(
+                          onPressed: isBusy ? null : _procesarDirectorio,
+                          style: ButtonStyle(
+                            backgroundColor: isBusy 
+                              ? ButtonState.all(Colors.grey) 
+                              : ButtonState.all(Colors.orange),
+                          ),
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            child: Text('Paso 2: Convertir DWG a DXF', style: TextStyle(fontSize: 16)),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        FilledButton(
+                          onPressed: isBusy ? null : _startScan,
+                          style: ButtonStyle(
+                            backgroundColor: isBusy 
+                              ? ButtonState.all(Colors.grey) 
+                              : ButtonState.all(Colors.green),
+                          ),
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            child: Text('Paso 3: Generar Reporte Excel', style: TextStyle(fontSize: 16)),
+                          ),
+                        ),
+                        if (isScanning) ...[
+                          const SizedBox(width: 16),
+                          Button(
+                            onPressed: _status == 'scanning' ? _cancelScan : null,
+                            style: ButtonStyle(
+                              backgroundColor: ButtonState.all(Colors.red.withOpacity(0.1)),
+                              foregroundColor: ButtonState.all(Colors.red),
+                            ),
+                            child: const Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              child: Text('Cancelar Escaneo', style: TextStyle(fontSize: 16)),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
-                  ),
-                ],
-              ],
+                  ],
+                ),
+              ),
             ),
             
-            const SizedBox(height: 48),
+            const SizedBox(height: 24),
+
+            // Consola de Logs (Procesamiento CAD)
+            if (_procesarStatus != 'idle') ...[
+              const Text(
+                'Consola de Procesamiento:',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                height: 250,
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.black,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: ListView.builder(
+                  controller: _logsScrollController,
+                  itemCount: _cadLogs.length,
+                  itemBuilder: (context, index) {
+                    return Text(
+                      _cadLogs[index],
+                      style: TextStyle(
+                        fontFamily: 'Consolas',
+                        color: Colors.green,
+                        fontSize: 13,
+                      ),
+                    );
+                  },
+                ),
+              ),
+              if (isProcessing) ...[
+                const SizedBox(height: 12),
+                const Row(
+                  children: [
+                    ProgressRing(strokeWidth: 3),
+                    SizedBox(width: 12),
+                    Text('Procesando archivos...', style: TextStyle(fontStyle: FontStyle.italic)),
+                  ],
+                ),
+              ],
+              if (_procesarStatus == 'completed') ...[
+                const SizedBox(height: 12),
+                Text(
+                  'El procesamiento ha finalizado con éxito.',
+                  style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+                ),
+              ],
+              const SizedBox(height: 24),
+            ],
+
+            const SizedBox(height: 24),
 
             // Zona de Progreso
             if (isScanning) ...[
@@ -543,7 +763,7 @@ class _CADScannerScreenState extends State<CADScannerScreen> {
                   const Text('Sube el archivo Excel previament descargado con las columnas Largo_CAD y Ancho_CAD debidamente llenadas para actualizar el Catálogo Maestro.'),
                   const SizedBox(height: 16),
                   Button(
-                    onPressed: isScanning ? null : _uploadModifiedExcel,
+                    onPressed: isBusy ? null : _uploadModifiedExcel,
                     child: const Padding(
                       padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                       child: Row(
@@ -561,6 +781,8 @@ class _CADScannerScreenState extends State<CADScannerScreen> {
             ),
           ],
         ),
+      ),
+      ),
       ),
       ],
     );

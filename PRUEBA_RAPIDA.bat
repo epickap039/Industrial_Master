@@ -7,7 +7,7 @@ call MATAR_TODO.bat
 
 echo.
 echo [1/2] Iniciando Backend (FastAPI)...
-start "BACKEND API (No cerrar)" cmd /k "cd backend && .venv\Scripts\activate && python server.py"
+start "BACKEND API (No cerrar)" cmd /k ".venv\Scripts\activate && cd backend && python server.py"
 
 echo.
 echo [2/2] Iniciando Frontend (Flutter Windows)...

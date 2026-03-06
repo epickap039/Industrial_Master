@@ -29,7 +29,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isSyncing = false;
 
   // Estado Regla Espejo (Fase 19)
-  bool _reglaEspejoActiva = true; 
+  bool _reglaEspejoActiva = true;
 
   @override
   void initState() {
@@ -40,7 +40,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _fetchMirrorRuleStatus() async {
     try {
-      final response = await http.get(Uri.parse('http://192.168.1.73:8001/api/config/regla_espejo'));
+      final response = await http.get(
+        Uri.parse('http://192.168.1.73:8001/api/config/regla_espejo'),
+      );
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         if (mounted) {
@@ -67,14 +69,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
       if (response.statusCode == 200) {
         if (mounted) {
-           displayInfoBar(context, builder: (context, close) {
+          displayInfoBar(
+            context,
+            builder: (context, close) {
               return InfoBar(
                 title: const Text('Configuración Actualizada'),
-                content: Text(value ? 'Regla Espejo ACTIVADA' : 'Regla Espejo DESACTIVADA'),
+                content: Text(
+                  value ? 'Regla Espejo ACTIVADA' : 'Regla Espejo DESACTIVADA',
+                ),
                 severity: InfoBarSeverity.success,
                 onClose: close,
               );
-            });
+            },
+          );
         }
       } else {
         // Revertir si falla
@@ -85,19 +92,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // Revertir
       setState(() => _reglaEspejoActiva = !value);
       if (mounted) {
-        displayInfoBar(context, builder: (context, close) {
-          return InfoBar(
-            title: const Text('Error'),
-            content: Row(
-              children: [
-                Expanded(child: SelectableText("No se pudo actualizar la configuración: $e")),
-                IconButton(icon: const Icon(FluentIcons.copy), onPressed: () => Clipboard.setData(ClipboardData(text: "No se pudo actualizar la configuración: $e"))),
-              ],
-            ),
-            severity: InfoBarSeverity.error,
-            onClose: close,
-          );
-        });
+        displayInfoBar(
+          context,
+          builder: (context, close) {
+            return InfoBar(
+              title: const Text('Error'),
+              content: Row(
+                children: [
+                  Expanded(
+                    child: SelectableText(
+                      "No se pudo actualizar la configuración: $e",
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(FluentIcons.copy),
+                    onPressed:
+                        () => Clipboard.setData(
+                          ClipboardData(
+                            text: "No se pudo actualizar la configuración: $e",
+                          ),
+                        ),
+                  ),
+                ],
+              ),
+              severity: InfoBarSeverity.error,
+              onClose: close,
+            );
+          },
+        );
       }
     }
   }
@@ -110,24 +132,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
 
     try {
-      final response = await http.get(Uri.parse('http://192.168.1.73:8001/api/catalog?limit=1')).timeout(const Duration(seconds: 3));
-      
+      final response = await http
+          .get(Uri.parse('http://192.168.1.73:8001/api/catalog?limit=1'))
+          .timeout(const Duration(seconds: 3));
+
       if (response.statusCode == 200) {
         if (mounted) {
           setState(() {
             _connectionStatus = 'Conectado (Online)';
             _statusColor = Colors.successPrimaryColor;
           });
-          
+
           if (!silent) {
-            displayInfoBar(context, builder: (context, close) {
-              return InfoBar(
-                title: const Text('Diagnóstico Exitoso'),
-                content: const Text('✅ El servidor SQL y la API están respondiendo correctamente.'),
-                severity: InfoBarSeverity.success,
-                onClose: close,
-              );
-            });
+            displayInfoBar(
+              context,
+              builder: (context, close) {
+                return InfoBar(
+                  title: const Text('Diagnóstico Exitoso'),
+                  content: const Text(
+                    '✅ El servidor SQL y la API están respondiendo correctamente.',
+                  ),
+                  severity: InfoBarSeverity.success,
+                  onClose: close,
+                );
+              },
+            );
           }
         }
       } else {
@@ -141,19 +170,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
         });
 
         if (!silent) {
-           displayInfoBar(context, builder: (context, close) {
+          displayInfoBar(
+            context,
+            builder: (context, close) {
               return InfoBar(
                 title: const Text('Fallo de Conexión'),
                 content: Row(
                   children: [
-                    Expanded(child: SelectableText('❌ No se pudo conectar al servidor: $e')),
-                    IconButton(icon: const Icon(FluentIcons.copy), onPressed: () => Clipboard.setData(ClipboardData(text: '❌ No se pudo conectar al servidor: $e'))),
+                    Expanded(
+                      child: SelectableText(
+                        '❌ No se pudo conectar al servidor: $e',
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(FluentIcons.copy),
+                      onPressed:
+                          () => Clipboard.setData(
+                            ClipboardData(
+                              text: '❌ No se pudo conectar al servidor: $e',
+                            ),
+                          ),
+                    ),
                   ],
                 ),
                 severity: InfoBarSeverity.error,
                 onClose: close,
               );
-            });
+            },
+          );
         }
       }
     } finally {
@@ -172,7 +216,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (result == null || result.files.single.path == null) return;
 
       setState(() => _isSyncing = true);
-      
+
       final filePath = result.files.single.path!;
       final fileName = result.files.single.name;
 
@@ -189,14 +233,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         if (mounted) {
-          displayInfoBar(context, builder: (context, close) {
-            return InfoBar(
-              title: const Text('Sincronización Exitosa'),
-              content: Text('Se actualizaron ${data['actualizados']} enlaces desde "$fileName".'),
-              severity: InfoBarSeverity.success,
-              onClose: close,
-            );
-          });
+          displayInfoBar(
+            context,
+            builder: (context, close) {
+              return InfoBar(
+                title: const Text('Sincronización Exitosa'),
+                content: Text(
+                  'Se actualizaron ${data['actualizados']} enlaces desde "$fileName".',
+                ),
+                severity: InfoBarSeverity.success,
+                onClose: close,
+              );
+            },
+          );
         }
       } else {
         String errorDetail = response.body;
@@ -206,23 +255,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
             errorDetail = errorData['detail'].toString();
           }
         } catch (_) {}
-        throw Exception("Error del servidor (${response.statusCode}): $errorDetail");
+        throw Exception(
+          "Error del servidor (${response.statusCode}): $errorDetail",
+        );
       }
     } catch (e) {
       if (mounted) {
-        displayInfoBar(context, builder: (context, close) {
-          return InfoBar(
-            title: const Text('Error de Sincronización'),
-            content: Row(
-              children: [
-                Expanded(child: SelectableText(e.toString())),
-                IconButton(icon: const Icon(FluentIcons.copy), onPressed: () => Clipboard.setData(ClipboardData(text: e.toString()))),
-              ],
-            ),
-            severity: InfoBarSeverity.error,
-            onClose: close,
-          );
-        });
+        displayInfoBar(
+          context,
+          builder: (context, close) {
+            return InfoBar(
+              title: const Text('Error de Sincronización'),
+              content: Row(
+                children: [
+                  Expanded(child: SelectableText(e.toString())),
+                  IconButton(
+                    icon: const Icon(FluentIcons.copy),
+                    onPressed:
+                        () => Clipboard.setData(
+                          ClipboardData(text: e.toString()),
+                        ),
+                  ),
+                ],
+              ),
+              severity: InfoBarSeverity.error,
+              onClose: close,
+            );
+          },
+        );
       }
     } finally {
       if (mounted) setState(() => _isSyncing = false);
@@ -238,7 +298,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         children: [
           // 1. APARIENCIA
           Expander(
-            header: const Text('Apariencia', style: TextStyle(fontWeight: FontWeight.bold)),
+            header: const Text(
+              'Apariencia',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
             initiallyExpanded: true,
             content: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -246,7 +309,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ToggleSwitch(
                   checked: widget.isDarkMode,
                   onChanged: widget.onThemeChanged,
-                  content: Text(widget.isDarkMode ? 'Modo Oscuro Activado' : 'Modo Claro Activado'),
+                  content: Text(
+                    widget.isDarkMode
+                        ? 'Modo Oscuro Activado'
+                        : 'Modo Claro Activado',
+                  ),
                 ),
               ],
             ),
@@ -255,27 +322,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           // 2. DIAGNÓSTICO DE RED (Modificado)
           Expander(
-            header: const Text('Diagnóstico de Red', style: TextStyle(fontWeight: FontWeight.bold)),
+            header: const Text(
+              'Diagnóstico de Red',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
             initiallyExpanded: true,
             content: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
-                    const Text('Estado del Servidor:', style: TextStyle(fontWeight: FontWeight.w600)),
+                    const Text(
+                      'Estado del Servidor:',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
                     const SizedBox(width: 10),
                     Container(
                       width: 10,
                       height: 10,
-                      decoration: BoxDecoration(color: _statusColor, shape: BoxShape.circle),
+                      decoration: BoxDecoration(
+                        color: _statusColor,
+                        shape: BoxShape.circle,
+                      ),
                     ),
                     const SizedBox(width: 8),
                     Text(_connectionStatus),
                     const Spacer(),
                     Button(
                       // Acción modificada: usa la nueva lógica con feedback visual
-                      onPressed: _isChecking ? null : () => _checkConnection(silent: false),
-                      child: _isChecking ? const ProgressRing(strokeWidth: 2.0) : const Text('Ejecutar Diagnóstico'),
+                      onPressed:
+                          _isChecking
+                              ? null
+                              : () => _checkConnection(silent: false),
+                      child:
+                          _isChecking
+                              ? const ProgressRing(strokeWidth: 2.0)
+                              : const Text('Ejecutar Diagnóstico'),
                     ),
                   ],
                 ),
@@ -291,7 +373,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           // 3. REGLAS DE NEGOCIO (FASE 19)
           Expander(
-            header: const Text('Reglas de Negocio', style: TextStyle(fontWeight: FontWeight.bold)),
+            header: const Text(
+              'Reglas de Negocio',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
             initiallyExpanded: true,
             content: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -299,9 +384,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ToggleSwitch(
                   checked: _reglaEspejoActiva,
                   onChanged: _toggleMirrorRule,
-                  content: Text(_reglaEspejoActiva 
-                    ? 'Regla Espejo ACTIVADA (Material = Descripción)' 
-                    : 'Regla Espejo DESACTIVADA'),
+                  content: Text(
+                    _reglaEspejoActiva
+                        ? 'Regla Espejo ACTIVADA (Material = Descripción)'
+                        : 'Regla Espejo DESACTIVADA',
+                  ),
                 ),
                 const SizedBox(height: 5),
                 const Text(
@@ -315,23 +402,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           // 4. MANTENIMIENTO
           Expander(
-            header: const Text('Mantenimiento de Datos', style: TextStyle(fontWeight: FontWeight.bold)),
+            header: const Text(
+              'Mantenimiento de Datos',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
             initiallyExpanded: true,
             content: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Sincronización de Enlaces (Drive/PDF)', style: TextStyle(fontWeight: FontWeight.w600)),
+                const Text(
+                  'Sincronización de Enlaces (Drive/PDF)',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
                 const SizedBox(height: 5),
                 const Text(
                   'Carga un archivo Excel ("Listado_PDFs_BD.xlsx") para actualizar masivamente los enlaces de Google Drive en el Catálogo Maestro.',
                   style: TextStyle(fontSize: 12, color: Colors.grey),
                 ),
                 const SizedBox(height: 15),
-                _isSyncing 
-                  ? const ProgressBar()
-                  : Button(
+                _isSyncing
+                    ? const ProgressBar()
+                    : Button(
                       onPressed: _syncDriveLinks,
-                      child: const Text('Actualizar Enlaces Drive (Desde Excel)'),
+                      child: const Text(
+                        'Actualizar Enlaces Drive (Desde Excel)',
+                      ),
                     ),
               ],
             ),

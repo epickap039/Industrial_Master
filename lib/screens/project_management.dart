@@ -9,7 +9,8 @@ class ProjectManagementScreen extends StatefulWidget {
   const ProjectManagementScreen({Key? key}) : super(key: key);
 
   @override
-  _ProjectManagementScreenState createState() => _ProjectManagementScreenState();
+  _ProjectManagementScreenState createState() =>
+      _ProjectManagementScreenState();
 }
 
 class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
@@ -35,7 +36,9 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   Future<void> _fetchTractos() async {
     setState(() => _isLoading = true);
     try {
-      final response = await http.get(Uri.parse('$API_URL/api/proyectos/tractos'));
+      final response = await http.get(
+        Uri.parse('$API_URL/api/proyectos/tractos'),
+      );
       if (response.statusCode == 200) {
         setState(() {
           _tractos = json.decode(response.body);
@@ -74,7 +77,9 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
 
   Future<void> _deleteTracto(int id) async {
     try {
-      final response = await http.delete(Uri.parse('$API_URL/api/proyectos/tractos/$id'));
+      final response = await http.delete(
+        Uri.parse('$API_URL/api/proyectos/tractos/$id'),
+      );
       if (response.statusCode == 200) {
         _fetchTractos();
       }
@@ -87,7 +92,9 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   Future<void> _fetchTipos(int idTracto) async {
     setState(() => _isLoading = true);
     try {
-      final response = await http.get(Uri.parse('$API_URL/api/proyectos/tipos/$idTracto'));
+      final response = await http.get(
+        Uri.parse('$API_URL/api/proyectos/tipos/$idTracto'),
+      );
       if (response.statusCode == 200) {
         setState(() {
           _tipos = json.decode(response.body);
@@ -111,7 +118,10 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
       final response = await http.post(
         Uri.parse('$API_URL/api/proyectos/tipos'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'id_tracto': _selectedTracto['id'], 'nombre': nombre}),
+        body: jsonEncode({
+          'id_tracto': _selectedTracto['id'],
+          'nombre': nombre,
+        }),
       );
       if (response.statusCode == 200) {
         _fetchTipos(_selectedTracto['id']);
@@ -125,7 +135,9 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
 
   Future<void> _deleteTipo(int id) async {
     try {
-      final response = await http.delete(Uri.parse('$API_URL/api/proyectos/tipos/$id'));
+      final response = await http.delete(
+        Uri.parse('$API_URL/api/proyectos/tipos/$id'),
+      );
       if (response.statusCode == 200) {
         _fetchTipos(_selectedTracto['id']);
       }
@@ -138,7 +150,9 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   Future<void> _fetchVersiones(int idTipo) async {
     setState(() => _isLoading = true);
     try {
-      final response = await http.get(Uri.parse('$API_URL/api/proyectos/versiones/$idTipo'));
+      final response = await http.get(
+        Uri.parse('$API_URL/api/proyectos/versiones/$idTipo'),
+      );
       if (response.statusCode == 200) {
         setState(() {
           _versiones = json.decode(response.body);
@@ -174,7 +188,9 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
 
   Future<void> _deleteVersion(int id) async {
     try {
-      final response = await http.delete(Uri.parse('$API_URL/api/proyectos/versiones/$id'));
+      final response = await http.delete(
+        Uri.parse('$API_URL/api/proyectos/versiones/$id'),
+      );
       if (response.statusCode == 200) {
         _fetchVersiones(_selectedTipo['id']);
       }
@@ -187,7 +203,9 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   Future<void> _fetchClientes(int idVersion) async {
     setState(() => _isLoading = true);
     try {
-      final response = await http.get(Uri.parse('$API_URL/api/proyectos/clientes/$idVersion'));
+      final response = await http.get(
+        Uri.parse('$API_URL/api/proyectos/clientes/$idVersion'),
+      );
       if (response.statusCode == 200) {
         setState(() {
           _clientes = json.decode(response.body);
@@ -207,7 +225,10 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
       final response = await http.post(
         Uri.parse('$API_URL/api/proyectos/clientes'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'id_version': _selectedVersion['id'], 'nombre': nombre}),
+        body: jsonEncode({
+          'id_version': _selectedVersion['id'],
+          'nombre': nombre,
+        }),
       );
       if (response.statusCode == 200) {
         _fetchClientes(_selectedVersion['id']);
@@ -221,7 +242,9 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
 
   Future<void> _deleteCliente(int id) async {
     try {
-      final response = await http.delete(Uri.parse('$API_URL/api/proyectos/clientes/$id'));
+      final response = await http.delete(
+        Uri.parse('$API_URL/api/proyectos/clientes/$id'),
+      );
       if (response.statusCode == 200) {
         _fetchClientes(_selectedVersion['id']);
       }
@@ -231,42 +254,53 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   }
 
   void _showError(String message) {
-    displayInfoBar(context, builder: (context, close) {
-      return InfoBar(
-        title: const Text('Error'),
-        content: Text(message),
-        severity: InfoBarSeverity.error,
-        onClose: close,
-      );
-    });
+    displayInfoBar(
+      context,
+      builder: (context, close) {
+        return InfoBar(
+          title: const Text('Error'),
+          content: Text(message),
+          severity: InfoBarSeverity.error,
+          onClose: close,
+        );
+      },
+    );
   }
 
   void _showAddDialog(String title, Function(String) onSave) {
     String inputValue = "";
     showDialog(
       context: context,
-      builder: (context) => ContentDialog(
-        constraints: BoxConstraints(maxWidth: 400, maxHeight: 240),
-        title: Text(title),
-        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          TextBox(
-            placeholder: 'Ingresa el nombre...',
-            onChanged: (v) => inputValue = v,
+      builder:
+          (context) => ContentDialog(
+            constraints: BoxConstraints(maxWidth: 400, maxHeight: 240),
+            title: Text(title),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextBox(
+                  placeholder: 'Ingresa el nombre...',
+                  onChanged: (v) => inputValue = v,
+                ),
+              ],
+            ),
+            actions: [
+              Button(
+                child: const Text('Cancelar'),
+                onPressed: () => Navigator.pop(context),
+              ),
+              FilledButton(
+                child: const Text('Guardar'),
+                onPressed: () {
+                  if (inputValue.trim().isNotEmpty) {
+                    onSave(inputValue.trim());
+                    Navigator.pop(context);
+                  }
+                },
+              ),
+            ],
           ),
-        ]),
-        actions: [
-          Button(child: const Text('Cancelar'), onPressed: () => Navigator.pop(context)),
-          FilledButton(
-            child: const Text('Guardar'),
-            onPressed: () {
-              if (inputValue.trim().isNotEmpty) {
-                onSave(inputValue.trim());
-                Navigator.pop(context);
-              }
-            },
-          )
-        ],
-      ),
     );
   }
 
@@ -290,65 +324,90 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
-                color: isEnabled ? Colors.blue.withOpacity(0.05) : Colors.grey[200],
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
-                border: Border(bottom: BorderSide(color: Colors.grey.withOpacity(0.1))),
+                color:
+                    isEnabled
+                        ? Colors.blue.withOpacity(0.05)
+                        : Colors.grey[200],
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(8),
+                ),
+                border: Border(
+                  bottom: BorderSide(color: Colors.grey.withOpacity(0.1)),
+                ),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Expanded(
                     child: Text(
-                      title.toUpperCase(), 
+                      title.toUpperCase(),
                       style: TextStyle(
-                        fontWeight: FontWeight.w700, 
-                        fontSize: 13, 
-                        color: isEnabled ? Colors.blue : Colors.grey[100]
-                      ), 
-                      overflow: TextOverflow.ellipsis
-                    )
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                        color: isEnabled ? Colors.blue : Colors.grey[100],
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                   if (isEnabled)
                     IconButton(
                       icon: const Icon(FluentIcons.add, size: 14),
                       onPressed: onAdd,
-                    )
+                    ),
                 ],
               ),
             ),
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.all(8.0),
-                child: isEnabled && items.isEmpty && !_isLoading
-                    ? const Center(child: Text("Sin elementos", style: TextStyle(color: Colors.grey, fontSize: 13)))
-                    : ListView.builder(
-                        itemCount: items.length,
-                        itemBuilder: (context, index) {
-                          final item = items[index];
-                          final isSelected = selectedItem != null && selectedItem['id'] == item['id'];
-                          return Container(
-                            margin: const EdgeInsets.symmetric(vertical: 2),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(4),
-                              color: isSelected ? Colors.blue.withOpacity(0.15) : null,
-                            ),
-                            child: ListTile(
-                              title: Text(
-                                item['nombre'], 
-                                style: TextStyle(
-                                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                                  fontSize: 14,
+                child:
+                    isEnabled && items.isEmpty && !_isLoading
+                        ? const Center(
+                          child: Text(
+                            "Sin elementos",
+                            style: TextStyle(color: Colors.grey, fontSize: 13),
+                          ),
+                        )
+                        : ListView.builder(
+                          itemCount: items.length,
+                          itemBuilder: (context, index) {
+                            final item = items[index];
+                            final isSelected =
+                                selectedItem != null &&
+                                selectedItem['id'] == item['id'];
+                            return Container(
+                              margin: const EdgeInsets.symmetric(vertical: 2),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(4),
+                                color:
+                                    isSelected
+                                        ? Colors.blue.withOpacity(0.15)
+                                        : null,
+                              ),
+                              child: ListTile(
+                                title: Text(
+                                  item['nombre'],
+                                  style: TextStyle(
+                                    fontWeight:
+                                        isSelected
+                                            ? FontWeight.w600
+                                            : FontWeight.normal,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                onPressed: () => onSelect(item),
+                                trailing: IconButton(
+                                  icon: Icon(
+                                    FluentIcons.delete,
+                                    color: Colors.red.withOpacity(0.6),
+                                    size: 12,
+                                  ),
+                                  onPressed: () => onDelete(item['id']),
                                 ),
                               ),
-                              onPressed: () => onSelect(item),
-                              trailing: IconButton(
-                                icon: Icon(FluentIcons.delete, color: Colors.red.withOpacity(0.6), size: 12),
-                                onPressed: () => onDelete(item['id']),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
+                            );
+                          },
+                        ),
               ),
             ),
           ],
@@ -399,7 +458,11 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
                       setState(() => _selectedTipo = item);
                       _fetchVersiones(item['id']);
                     },
-                    onAdd: () => _showAddDialog("Nuevo Tipo para ${_selectedTracto?['nombre'] ?? ''}", _addTipo),
+                    onAdd:
+                        () => _showAddDialog(
+                          "Nuevo Tipo para ${_selectedTracto?['nombre'] ?? ''}",
+                          _addTipo,
+                        ),
                     onDelete: _deleteTipo,
                   ),
                   const SizedBox(width: 16),
@@ -412,7 +475,11 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
                       setState(() => _selectedVersion = item);
                       _fetchClientes(item['id']);
                     },
-                    onAdd: () => _showAddDialog("Nueva Versión para ${_selectedTipo?['nombre'] ?? ''}", _addVersion),
+                    onAdd:
+                        () => _showAddDialog(
+                          "Nueva Versión para ${_selectedTipo?['nombre'] ?? ''}",
+                          _addVersion,
+                        ),
                     onDelete: _deleteVersion,
                   ),
                   const SizedBox(width: 16),
@@ -426,14 +493,19 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
                       Navigator.push(
                         context,
                         FluentPageRoute(
-                          builder: (context) => BOMManagerScreen(
-                            idCliente: item['id'],
-                            clientName: item['nombre'],
-                          ),
+                          builder:
+                              (context) => BOMManagerScreen(
+                                idCliente: item['id'],
+                                clientName: item['nombre'],
+                              ),
                         ),
                       );
                     },
-                    onAdd: () => _showAddDialog("Nuevo Cliente para ${_selectedVersion?['nombre'] ?? ''}", _addCliente),
+                    onAdd:
+                        () => _showAddDialog(
+                          "Nuevo Cliente para ${_selectedVersion?['nombre'] ?? ''}",
+                          _addCliente,
+                        ),
                     onDelete: _deleteCliente,
                   ),
                 ],

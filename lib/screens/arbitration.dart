@@ -17,11 +17,11 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
   List<dynamic> _conflicts = [];
   int _totalProcessed = 0;
   bool _isLoading = false;
-  
+
   // Filtros y Selección
   String _filterStatus = 'TODOS'; // TODOS, NUEVO, CONFLICTO
   final Set<String> _selectedUpdates = {};
-  
+
   // UI Scroll
   final ScrollController _scrollController = ScrollController();
 
@@ -34,7 +34,8 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
   // ACCIONES MASIVAS
   void _selectAllVisible() {
     setState(() {
-      final idsVisible = _filteredList.map((c) => c['Codigo_Pieza'] as String).toSet();
+      final idsVisible =
+          _filteredList.map((c) => c['Codigo_Pieza'] as String).toSet();
       // Si todos los visibles ya están seleccionados, deseleccionar
       if (idsVisible.every((id) => _selectedUpdates.contains(id))) {
         _selectedUpdates.removeWhere((id) => idsVisible.contains(id));
@@ -47,7 +48,9 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
   void _selectOnlyNew() {
     setState(() {
       _filterStatus = 'NUEVO'; // Cambiar vista para feedback visual
-      final newItems = _conflicts.where((c) => c['Estado'] == 'NUEVO').map((c) => c['Codigo_Pieza'] as String);
+      final newItems = _conflicts
+          .where((c) => c['Estado'] == 'NUEVO')
+          .map((c) => c['Codigo_Pieza'] as String);
       _selectedUpdates.addAll(newItems);
     });
   }
@@ -63,17 +66,19 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
 
       if (result != null) {
         setState(() => _isLoading = true);
-        
+
         var request = http.MultipartRequest(
-          'POST', 
-          Uri.parse('http://192.168.1.73:8001/api/excel/procesar')
+          'POST',
+          Uri.parse('http://192.168.1.73:8001/api/excel/procesar'),
         );
-        
-        request.files.add(http.MultipartFile.fromBytes(
-          'file',
-          result.files.first.bytes!,
-          filename: result.files.first.name,
-        ));
+
+        request.files.add(
+          http.MultipartFile.fromBytes(
+            'file',
+            result.files.first.bytes!,
+            filename: result.files.first.name,
+          ),
+        );
 
         var streamedResponse = await request.send();
         var response = await http.Response.fromStream(streamedResponse);
@@ -99,78 +104,104 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
 
   // 2. SINCRONIZACIÓN
   Future<void> _syncSelected() async {
-     setState(() => _isLoading = true);
-     final prefs = await SharedPreferences.getInstance();
-     final username = prefs.getString('username') ?? 'Admin_Arbitraje';
+    setState(() => _isLoading = true);
+    final prefs = await SharedPreferences.getInstance();
+    final username = prefs.getString('username') ?? 'Admin_Arbitraje';
 
-     try {
-       // Preparar payload con origen de estado para el backend
-       final updatesToSend = _conflicts
-           .where((c) => _selectedUpdates.contains(c['Codigo_Pieza']))
-           .map((c) => {
-             // MAPEO CRÍTICO PARA BACKEND (ERROR 422 FIX)
-             'Codigo_Pieza': c['Codigo_Pieza'],
-             'Descripcion': c['Excel_Data']['Descripcion_Excel'],
-             'Medida': c['Excel_Data']['Medida_Excel'],
-             'Material': c['Excel_Data']['Material_Excel'],
-             'Simetria': c['Excel_Data']['Simetria'] ?? "No",
-             'Proceso_Primario': c['Excel_Data']['Proceso_Primario'],
-             'Proceso_1': c['Excel_Data']['Proceso_1'],
-             'Proceso_2': c['Excel_Data']['Proceso_2'],
-             'Proceso_3': c['Excel_Data']['Proceso_3'],
-             'Link_Drive': c['Excel_Data']['Link_Drive'],
-             'Estado': c['Estado'],
-             // Meta-datos internos (no esquema)
-             'usuario': username,
-             'Modificado_Por': username, // AUDITORÍA DE USUARIO
-             '_Estado_Origen': c['Estado'] 
-           })
-           .toList();
+    try {
+      // Preparar payload con origen de estado para el backend
+      final updatesToSend =
+          _conflicts
+              .where((c) => _selectedUpdates.contains(c['Codigo_Pieza']))
+              .map(
+                (c) => {
+                  // MAPEO CRÍTICO PARA BACKEND (ERROR 422 FIX)
+                  'Codigo_Pieza': c['Codigo_Pieza'],
+                  'Descripcion': c['Excel_Data']['Descripcion_Excel'],
+                  'Medida': c['Excel_Data']['Medida_Excel'],
+                  'Material': c['Excel_Data']['Material_Excel'],
+                  'Simetria': c['Excel_Data']['Simetria'] ?? "No",
+                  'Proceso_Primario': c['Excel_Data']['Proceso_Primario'],
+                  'Proceso_1': c['Excel_Data']['Proceso_1'],
+                  'Proceso_2': c['Excel_Data']['Proceso_2'],
+                  'Proceso_3': c['Excel_Data']['Proceso_3'],
+                  'Link_Drive': c['Excel_Data']['Link_Drive'],
+                  'Estado': c['Estado'],
+                  // Meta-datos internos (no esquema)
+                  'usuario': username,
+                  'Modificado_Por': username, // AUDITORÍA DE USUARIO
+                  '_Estado_Origen': c['Estado'],
+                },
+              )
+              .toList();
 
-       if (updatesToSend.isEmpty) return;
+      if (updatesToSend.isEmpty) return;
 
-       final response = await http.post(
-         Uri.parse('http://192.168.1.73:8001/api/excel/sincronizar'),
-         headers: {'Content-Type': 'application/json'},
-         body: json.encode(updatesToSend), // Enviar lista directa si el backend lo espera así, o envolver en {'updates': ...}
-       );
+      final response = await http.post(
+        Uri.parse('http://192.168.1.73:8001/api/excel/sincronizar'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode(
+          updatesToSend,
+        ), // Enviar lista directa si el backend lo espera así, o envolver en {'updates': ...}
+      );
 
-       // NOTA: El backend espera List<SincronizacionItem>, no un objeto con clave 'updates'.
-       // CORRECCIÓN: server.py definía `async def sincronizar_excel(items: List[SincronizacionItem]):`
-       // Por tanto, debemos enviar la lista directamente.
-       
-       if (response.statusCode == 200) {
-         final result = json.decode(response.body);
-         
-         await showDialog(context: context, builder: (c) => ContentDialog(
-             title: const Text("Sincronización Completada"),
-             content: Text("Mensaje: ${result['message']}"),
-             actions: [Button(child: const Text("OK"), onPressed: () => Navigator.pop(c))]
-         ));
+      // NOTA: El backend espera List<SincronizacionItem>, no un objeto con clave 'updates'.
+      // CORRECCIÓN: server.py definía `async def sincronizar_excel(items: List[SincronizacionItem]):`
+      // Por tanto, debemos enviar la lista directamente.
 
-         // Limpiar lista visualmente
-         setState(() {
-           _conflicts.removeWhere((c) => _selectedUpdates.contains(c['Codigo_Pieza']));
-           _selectedUpdates.clear();
-           if (_conflicts.isEmpty) _totalProcessed = 0;
-         });
+      if (response.statusCode == 200) {
+        final result = json.decode(response.body);
 
-       } else {
-         throw Exception("Error Backend: ${response.statusCode} - ${response.body}");
-       }
-     } catch (e) {
-       _showError(e.toString());
-     } finally {
-       if (mounted) setState(() => _isLoading = false);
-     }
+        await showDialog(
+          context: context,
+          builder:
+              (c) => ContentDialog(
+                title: const Text("Sincronización Completada"),
+                content: Text("Mensaje: ${result['message']}"),
+                actions: [
+                  Button(
+                    child: const Text("OK"),
+                    onPressed: () => Navigator.pop(c),
+                  ),
+                ],
+              ),
+        );
+
+        // Limpiar lista visualmente
+        setState(() {
+          _conflicts.removeWhere(
+            (c) => _selectedUpdates.contains(c['Codigo_Pieza']),
+          );
+          _selectedUpdates.clear();
+          if (_conflicts.isEmpty) _totalProcessed = 0;
+        });
+      } else {
+        throw Exception(
+          "Error Backend: ${response.statusCode} - ${response.body}",
+        );
+      }
+    } catch (e) {
+      _showError(e.toString());
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   void _showError(String msg) {
-    showDialog(context: context, builder: (c) => ContentDialog(
-      title: const Text("Error"),
-      content: Text(msg),
-      actions: [Button(child: const Text("OK"), onPressed: () => Navigator.pop(c))],
-    ));
+    showDialog(
+      context: context,
+      builder:
+          (c) => ContentDialog(
+            title: const Text("Error"),
+            content: Text(msg),
+            actions: [
+              Button(
+                child: const Text("OK"),
+                onPressed: () => Navigator.pop(c),
+              ),
+            ],
+          ),
+    );
   }
 
   // 3. EDICIÓN Y RESOLUCIÓN (LÓGICA "RESOLVER Y DESAPARECER")
@@ -186,53 +217,59 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
 
       if (result is Map) {
         final action = result['action'];
-        
+
         // OPCIÓN A: USAR EXCEL (SINCRONIZAR YA)
         if (action == 'SYNC_EXCEL') {
-           // 1. Mostrar carga
-           setState(() => _isLoading = true);
-           
-           // 2. Preparar ítem único para sync
-           final itemToSync = {
-             'Codigo_Pieza': item['Codigo_Pieza'],
-             'Descripcion': result['data']['Descripcion_Excel'],
-             'Medida': result['data']['Medida_Excel'],
-             'Material': result['data']['Material_Excel'],
-             'Simetria': result['data']['Simetria'] ?? "No",
-             'Proceso_Primario': result['data']['Proceso_Primario'],
-             'Proceso_1': result['data']['Proceso_1'],
-             'Proceso_2': result['data']['Proceso_2'],
-             'Proceso_3': result['data']['Proceso_3'],
-             'Link_Drive': result['data']['Link_Drive'],
-             'Estado': 'CONFLICTO', // Para que el backend sepa que es update
-             'usuario': 'Arbitro Rapido',
-             'Modificado_Por': 'Arbitro Rapido', 
-           };
+          // 1. Mostrar carga
+          setState(() => _isLoading = true);
 
-           // 3. Llamar al backend
-           try {
-             await _syncSingleItem(itemToSync);
-             
-             // 4. Éxito: Desaparecer de la lista
-             if (mounted) {
-               setState(() {
-                 _conflicts.removeWhere((c) => c['Codigo_Pieza'] == item['Codigo_Pieza']);
-                 _selectedUpdates.remove(item['Codigo_Pieza']);
-                 _isLoading = false;
-               });
-               _showSnack("Resolución aplicada: ${item['Codigo_Pieza']} (Datos Excel)");
-             }
-           } catch (e) {
-             if (mounted) setState(() => _isLoading = false);
-             _showError("Error al sincronizar: $e");
-           }
-           return;
+          // 2. Preparar ítem único para sync
+          final itemToSync = {
+            'Codigo_Pieza': item['Codigo_Pieza'],
+            'Descripcion': result['data']['Descripcion_Excel'],
+            'Medida': result['data']['Medida_Excel'],
+            'Material': result['data']['Material_Excel'],
+            'Simetria': result['data']['Simetria'] ?? "No",
+            'Proceso_Primario': result['data']['Proceso_Primario'],
+            'Proceso_1': result['data']['Proceso_1'],
+            'Proceso_2': result['data']['Proceso_2'],
+            'Proceso_3': result['data']['Proceso_3'],
+            'Link_Drive': result['data']['Link_Drive'],
+            'Estado': 'CONFLICTO', // Para que el backend sepa que es update
+            'usuario': 'Arbitro Rapido',
+            'Modificado_Por': 'Arbitro Rapido',
+          };
+
+          // 3. Llamar al backend
+          try {
+            await _syncSingleItem(itemToSync);
+
+            // 4. Éxito: Desaparecer de la lista
+            if (mounted) {
+              setState(() {
+                _conflicts.removeWhere(
+                  (c) => c['Codigo_Pieza'] == item['Codigo_Pieza'],
+                );
+                _selectedUpdates.remove(item['Codigo_Pieza']);
+                _isLoading = false;
+              });
+              _showSnack(
+                "Resolución aplicada: ${item['Codigo_Pieza']} (Datos Excel)",
+              );
+            }
+          } catch (e) {
+            if (mounted) setState(() => _isLoading = false);
+            _showError("Error al sincronizar: $e");
+          }
+          return;
         }
 
         // OPCIÓN B: MANTENER BD (IGNORAR Y DESAPARECER)
         if (action == 'KEEP_DB') {
           setState(() {
-            _conflicts.removeWhere((c) => c['Codigo_Pieza'] == item['Codigo_Pieza']);
+            _conflicts.removeWhere(
+              (c) => c['Codigo_Pieza'] == item['Codigo_Pieza'],
+            );
             _selectedUpdates.remove(item['Codigo_Pieza']);
           });
           _showSnack("Ignorado: ${item['Codigo_Pieza']} (Se mantiene BD)");
@@ -247,141 +284,211 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
         }
       }
     }
-    
+
     // Flujo normal o post-edición manual
     _showManualEdit(item);
   }
 
   // Helper para sync individual (reutiliza lógica si es posible, o crea nueva)
   Future<void> _syncSingleItem(Map<String, dynamic> itemPayload) async {
-       final response = await http.post(
-         Uri.parse('http://192.168.1.73:8001/api/excel/sincronizar'),
-         headers: {'Content-Type': 'application/json'},
-         body: json.encode([itemPayload]), // Enviar como lista de 1
-       );
+    final response = await http.post(
+      Uri.parse('http://192.168.1.73:8001/api/excel/sincronizar'),
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode([itemPayload]), // Enviar como lista de 1
+    );
 
-       if (response.statusCode != 200) {
-         throw Exception("Error Backend: ${response.statusCode} - ${response.body}");
-       }
+    if (response.statusCode != 200) {
+      throw Exception(
+        "Error Backend: ${response.statusCode} - ${response.body}",
+      );
+    }
   }
 
   void _showSnack(String msg) {
-    displayInfoBar(context, builder: (context, close) {
-      return InfoBar(
-        title: const Text('Éxito'),
-        content: Text(msg),
-        action: IconButton(
-          icon: const Icon(FluentIcons.clear),
-          onPressed: close,
-        ),
-        severity: InfoBarSeverity.success,
-      );
-    });
+    displayInfoBar(
+      context,
+      builder: (context, close) {
+        return InfoBar(
+          title: const Text('Éxito'),
+          content: Text(msg),
+          action: IconButton(
+            icon: const Icon(FluentIcons.clear),
+            onPressed: close,
+          ),
+          severity: InfoBarSeverity.success,
+        );
+      },
+    );
   }
 
   void _showManualEdit(dynamic item) {
     // Inicializar controladores con datos existentes o vacíos
-    final descCtrl = TextEditingController(text: item['Excel_Data']['Descripcion_Excel']);
-    final medidaCtrl = TextEditingController(text: item['Excel_Data']['Medida_Excel']);
-    final matCtrl = TextEditingController(text: item['Excel_Data']['Material_Excel']);
-    final simetriaCtrl = TextEditingController(text: item['Excel_Data']['Simetria'] ?? "No");
-    final procPrimCtrl = TextEditingController(text: item['Excel_Data']['Proceso_Primario'] ?? "Torneado");
-    final proc1Ctrl = TextEditingController(text: item['Excel_Data']['Proceso_1']);
-    final proc2Ctrl = TextEditingController(text: item['Excel_Data']['Proceso_2']);
-    final proc3Ctrl = TextEditingController(text: item['Excel_Data']['Proceso_3']); // Campo Nuevo
-    final linkCtrl = TextEditingController(text: item['Excel_Data']['Link_Drive']);
+    final descCtrl = TextEditingController(
+      text: item['Excel_Data']['Descripcion_Excel'],
+    );
+    final medidaCtrl = TextEditingController(
+      text: item['Excel_Data']['Medida_Excel'],
+    );
+    final matCtrl = TextEditingController(
+      text: item['Excel_Data']['Material_Excel'],
+    );
+    final simetriaCtrl = TextEditingController(
+      text: item['Excel_Data']['Simetria'] ?? "No",
+    );
+    final procPrimCtrl = TextEditingController(
+      text: item['Excel_Data']['Proceso_Primario'] ?? "Torneado",
+    );
+    final proc1Ctrl = TextEditingController(
+      text: item['Excel_Data']['Proceso_1'],
+    );
+    final proc2Ctrl = TextEditingController(
+      text: item['Excel_Data']['Proceso_2'],
+    );
+    final proc3Ctrl = TextEditingController(
+      text: item['Excel_Data']['Proceso_3'],
+    ); // Campo Nuevo
+    final linkCtrl = TextEditingController(
+      text: item['Excel_Data']['Link_Drive'],
+    );
 
     showDialog(
       context: context,
-      builder: (c) => ContentDialog(
-        title: Text("Editar Item: ${item['Codigo_Pieza']}"),
-        content: SizedBox(
-          width: 400, // Ancho fijo para el diálogo
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                InfoLabel(label: "Descripción", child: TextFormBox(controller: descCtrl, maxLines: 2)),
-                const SizedBox(height: 8),
-                Row(children: [
-                   Expanded(child: InfoLabel(label: "Medida", child: TextFormBox(controller: medidaCtrl))),
-                   const SizedBox(width: 8),
-                   Expanded(child: InfoLabel(label: "Material", child: TextFormBox(controller: matCtrl))),
-                ]),
-                const SizedBox(height: 8),
-                const Divider(), 
-                const SizedBox(height: 8),
-                const Text("Procesos y Geometría", style: TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                Row(children: [
-                   Expanded(child: InfoLabel(label: "Simetría", child: TextFormBox(controller: simetriaCtrl))),
-                   const SizedBox(width: 8),
-                   Expanded(child: InfoLabel(label: "Primario", child: TextFormBox(controller: procPrimCtrl))),
-                ]),
-                const SizedBox(height: 8),
-                InfoLabel(label: "Proceso 1", child: TextFormBox(controller: proc1Ctrl)),
-                const SizedBox(height: 4),
-                InfoLabel(label: "Proceso 2", child: TextFormBox(controller: proc2Ctrl)),
-                const SizedBox(height: 4),
-                InfoLabel(label: "Proceso 3", child: TextFormBox(controller: proc3Ctrl)),
-                const SizedBox(height: 8),
-                const Divider(), 
-                const SizedBox(height: 8),
-                InfoLabel(label: "Link Drive", child: TextFormBox(controller: linkCtrl)),
-              ],
+      builder:
+          (c) => ContentDialog(
+            title: Text("Editar Item: ${item['Codigo_Pieza']}"),
+            content: SizedBox(
+              width: 400, // Ancho fijo para el diálogo
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    InfoLabel(
+                      label: "Descripción",
+                      child: TextFormBox(controller: descCtrl, maxLines: 2),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: InfoLabel(
+                            label: "Medida",
+                            child: TextFormBox(controller: medidaCtrl),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: InfoLabel(
+                            label: "Material",
+                            child: TextFormBox(controller: matCtrl),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    const Divider(),
+                    const SizedBox(height: 8),
+                    const Text(
+                      "Procesos y Geometría",
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: InfoLabel(
+                            label: "Simetría",
+                            child: TextFormBox(controller: simetriaCtrl),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: InfoLabel(
+                            label: "Primario",
+                            child: TextFormBox(controller: procPrimCtrl),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    InfoLabel(
+                      label: "Proceso 1",
+                      child: TextFormBox(controller: proc1Ctrl),
+                    ),
+                    const SizedBox(height: 4),
+                    InfoLabel(
+                      label: "Proceso 2",
+                      child: TextFormBox(controller: proc2Ctrl),
+                    ),
+                    const SizedBox(height: 4),
+                    InfoLabel(
+                      label: "Proceso 3",
+                      child: TextFormBox(controller: proc3Ctrl),
+                    ),
+                    const SizedBox(height: 8),
+                    const Divider(),
+                    const SizedBox(height: 8),
+                    InfoLabel(
+                      label: "Link Drive",
+                      child: TextFormBox(controller: linkCtrl),
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ),
-        ),
-        actions: [
-          Button(
-            child: const Text("Cancelar"),
-            onPressed: () => Navigator.pop(c),
-          ),
-          FilledButton(
-            child: const Text("Guardar Cambios"),
-            onPressed: () async {
-              // 1. Mostrar carga
-              setState(() => _isLoading = true);
-              Navigator.pop(c); // Cerrar diálogo
+            actions: [
+              Button(
+                child: const Text("Cancelar"),
+                onPressed: () => Navigator.pop(c),
+              ),
+              FilledButton(
+                child: const Text("Guardar Cambios"),
+                onPressed: () async {
+                  // 1. Mostrar carga
+                  setState(() => _isLoading = true);
+                  Navigator.pop(c); // Cerrar diálogo
 
-              // 2. Preparar payload
-              final itemToSync = {
-                'Codigo_Pieza': item['Codigo_Pieza'],
-                'Descripcion': descCtrl.text,
-                'Medida': medidaCtrl.text,
-                'Material': matCtrl.text,
-                'Simetria': simetriaCtrl.text,
-                'Proceso_Primario': procPrimCtrl.text,
-                'Proceso_1': proc1Ctrl.text,
-                'Proceso_2': proc2Ctrl.text,
-                'Proceso_3': proc3Ctrl.text,
-                'Link_Drive': linkCtrl.text,
-                'Estado': 'CONFLICTO', // Forzar UPDATE
-                'usuario': 'Arbitro Manual',
-                'Modificado_Por': 'Arbitro Manual',
-              };
+                  // 2. Preparar payload
+                  final itemToSync = {
+                    'Codigo_Pieza': item['Codigo_Pieza'],
+                    'Descripcion': descCtrl.text,
+                    'Medida': medidaCtrl.text,
+                    'Material': matCtrl.text,
+                    'Simetria': simetriaCtrl.text,
+                    'Proceso_Primario': procPrimCtrl.text,
+                    'Proceso_1': proc1Ctrl.text,
+                    'Proceso_2': proc2Ctrl.text,
+                    'Proceso_3': proc3Ctrl.text,
+                    'Link_Drive': linkCtrl.text,
+                    'Estado': 'CONFLICTO', // Forzar UPDATE
+                    'usuario': 'Arbitro Manual',
+                    'Modificado_Por': 'Arbitro Manual',
+                  };
 
-              // 3. Sincronizar
-              try {
-                await _syncSingleItem(itemToSync);
-                
-                if (mounted) {
-                  setState(() {
-                    _conflicts.removeWhere((c) => c['Codigo_Pieza'] == item['Codigo_Pieza']);
-                    _selectedUpdates.remove(item['Codigo_Pieza']);
-                    _isLoading = false;
-                  });
-                  _showSnack("Edición Manual aplicada: ${item['Codigo_Pieza']}");
-                }
-              } catch (e) {
-                if (mounted) setState(() => _isLoading = false);
-                _showError("Error al guardar edición manual: $e");
-              }
-            },
+                  // 3. Sincronizar
+                  try {
+                    await _syncSingleItem(itemToSync);
+
+                    if (mounted) {
+                      setState(() {
+                        _conflicts.removeWhere(
+                          (c) => c['Codigo_Pieza'] == item['Codigo_Pieza'],
+                        );
+                        _selectedUpdates.remove(item['Codigo_Pieza']);
+                        _isLoading = false;
+                      });
+                      _showSnack(
+                        "Edición Manual aplicada: ${item['Codigo_Pieza']}",
+                      );
+                    }
+                  } catch (e) {
+                    if (mounted) setState(() => _isLoading = false);
+                    _showError("Error al guardar edición manual: $e");
+                  }
+                },
+              ),
+            ],
           ),
-        ],
-      ),
     );
   }
 
@@ -395,14 +502,24 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(FluentIcons.excel_document, size: 60, color: Colors.successPrimaryColor),
+              const Icon(
+                FluentIcons.excel_document,
+                size: 60,
+                color: Colors.successPrimaryColor,
+              ),
               const SizedBox(height: 20),
-              const Text("Carga un BOM para comparar con SQL Server", style: TextStyle(fontSize: 18)),
+              const Text(
+                "Carga un BOM para comparar con SQL Server",
+                style: TextStyle(fontSize: 18),
+              ),
               const SizedBox(height: 30),
               FilledButton(
                 onPressed: _pickFile,
-                child: const Padding(padding: EdgeInsets.all(12.0), child: Text("Seleccionar Archivo .xlsx")),
-              )
+                child: const Padding(
+                  padding: EdgeInsets.all(12.0),
+                  child: Text("Seleccionar Archivo .xlsx"),
+                ),
+              ),
             ],
           ),
         ),
@@ -417,18 +534,32 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Button(
-              child: const Row(children: [Icon(FluentIcons.back), SizedBox(width: 8), Text("Limpiar Todo")]), // Botón mejorado para UX
-              onPressed: () => setState(() { _conflicts.clear(); _totalProcessed = 0; }),
+              child: const Row(
+                children: [
+                  Icon(FluentIcons.back),
+                  SizedBox(width: 8),
+                  Text("Limpiar Todo"),
+                ],
+              ), // Botón mejorado para UX
+              onPressed:
+                  () => setState(() {
+                    _conflicts.clear();
+                    _totalProcessed = 0;
+                  }),
             ),
             const SizedBox(width: 20),
             FilledButton(
-               onPressed: _selectedUpdates.isNotEmpty ? _syncSelected : null,
-               child: _isLoading ? const ProgressRing(strokeWidth: 2) : Text("Sincronizar (${_selectedUpdates.length})"),
-             )
+              onPressed: _selectedUpdates.isNotEmpty ? _syncSelected : null,
+              child:
+                  _isLoading
+                      ? const ProgressRing(strokeWidth: 2)
+                      : Text("Sincronizar (${_selectedUpdates.length})"),
+            ),
           ],
         ),
       ),
-      content: SelectionArea( // Habilitar selección de texto
+      content: SelectionArea(
+        // Habilitar selección de texto
         child: Column(
           children: [
             // BARRA DE FILTROS Y ACCIONES (NUEVO DISEÑO PARA EVITAR OVERFLOW)
@@ -438,55 +569,110 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
               decoration: BoxDecoration(
                 color: FluentTheme.of(context).cardColor,
                 borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: FluentTheme.of(context).resources.dividerStrokeColorDefault),
+                border: Border.all(
+                  color:
+                      FluentTheme.of(
+                        context,
+                      ).resources.dividerStrokeColorDefault,
+                ),
               ),
-              child: Wrap( // Usamos Wrap para responsividad total
+              child: Wrap(
+                // Usamos Wrap para responsividad total
                 spacing: 20,
                 runSpacing: 10,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                   // FILTROS
-                   Row(mainAxisSize: MainAxisSize.min, children: [
+                  // FILTROS
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
                       const Icon(FluentIcons.filter, size: 16),
                       const SizedBox(width: 8),
                       ToggleSwitch(
                         checked: _filterStatus == 'NUEVO',
                         content: const Text("Solo Nuevos"),
-                        onChanged: (v) => setState(() => _filterStatus = v ? 'NUEVO' : 'TODOS'),
+                        onChanged:
+                            (v) => setState(
+                              () => _filterStatus = v ? 'NUEVO' : 'TODOS',
+                            ),
                       ),
                       const SizedBox(width: 16),
                       ToggleSwitch(
                         checked: _filterStatus == 'CONFLICTO',
                         content: const Text("Solo Conflictos"),
-                        onChanged: (v) => setState(() => _filterStatus = v ? 'CONFLICTO' : 'TODOS'),
+                        onChanged:
+                            (v) => setState(
+                              () => _filterStatus = v ? 'CONFLICTO' : 'TODOS',
+                            ),
                       ),
-                   ]),
-                   
-                   // ACCIONES MASIVAS
-                   if (_filterStatus != 'CONFLICTO')
-                     Button(
-                        onPressed: _selectOnlyNew,
-                        child: const Row(children: [Icon(FluentIcons.add), SizedBox(width: 5), Text("Aprobar Todos Nuevos")]),
-                     ),
+                    ],
+                  ),
+
+                  // ACCIONES MASIVAS
+                  if (_filterStatus != 'CONFLICTO')
+                    Button(
+                      onPressed: _selectOnlyNew,
+                      child: const Row(
+                        children: [
+                          Icon(FluentIcons.add),
+                          SizedBox(width: 5),
+                          Text("Aprobar Todos Nuevos"),
+                        ],
+                      ),
+                    ),
                 ],
               ),
             ),
-  
+
             // HEADER TABLA
             Container(
               padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
               color: FluentTheme.of(context).cardColor,
               child: Row(
                 children: [
-                  SizedBox(width: 60, child: Center(child: Checkbox(
-                    checked: _selectedUpdates.isNotEmpty && _filteredList.every((c) => _selectedUpdates.contains(c['Codigo_Pieza'])),
-                    onChanged: (v) => _selectAllVisible()
-                  ))),
-                  const Expanded(flex: 2, child: Text("CÓDIGO", style: TextStyle(fontWeight: FontWeight.bold))),
-                  const Expanded(flex: 4, child: Text("VALOR EXCEL", style: TextStyle(color: Colors.successPrimaryColor, fontWeight: FontWeight.bold))),
-                  const SizedBox(width: 30), 
-                  const Expanded(flex: 4, child: Text("COMPARATIVA SQL", style: TextStyle(fontWeight: FontWeight.bold))),
-                  const SizedBox(width: 100, child: Text("ACCIONES")), // Movido aquí
+                  SizedBox(
+                    width: 60,
+                    child: Center(
+                      child: Checkbox(
+                        checked:
+                            _selectedUpdates.isNotEmpty &&
+                            _filteredList.every(
+                              (c) =>
+                                  _selectedUpdates.contains(c['Codigo_Pieza']),
+                            ),
+                        onChanged: (v) => _selectAllVisible(),
+                      ),
+                    ),
+                  ),
+                  const Expanded(
+                    flex: 2,
+                    child: Text(
+                      "CÓDIGO",
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  const Expanded(
+                    flex: 4,
+                    child: Text(
+                      "VALOR EXCEL",
+                      style: TextStyle(
+                        color: Colors.successPrimaryColor,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 30),
+                  const Expanded(
+                    flex: 4,
+                    child: Text(
+                      "COMPARATIVA SQL",
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  const SizedBox(
+                    width: 100,
+                    child: Text("ACCIONES"),
+                  ), // Movido aquí
                   const SizedBox(width: 80, child: Text("ESTADO")),
                 ],
               ),
@@ -504,78 +690,171 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
                   final estado = item['Estado'];
                   final detalles = (item['Detalles'] as String?) ?? "";
                   final isManual = item['is_manual_edit'] == true;
-  
+
                   return Container(
                     decoration: BoxDecoration(
-                      border: Border(bottom: BorderSide(color: FluentTheme.of(context).resources.dividerStrokeColorDefault)),
-                      color: isSelected ? FluentTheme.of(context).accentColor.withOpacity(0.1) : null,
+                      border: Border(
+                        bottom: BorderSide(
+                          color:
+                              FluentTheme.of(
+                                context,
+                              ).resources.dividerStrokeColorDefault,
+                        ),
+                      ),
+                      color:
+                          isSelected
+                              ? FluentTheme.of(
+                                context,
+                              ).accentColor.withOpacity(0.1)
+                              : null,
                     ),
-                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 12,
+                      horizontal: 16,
+                    ),
                     child: Row(
                       children: [
                         // 1. Checkbox Centrado y Espaciado (60px)
-                        SizedBox(width: 60, child: Center(child: Checkbox(
-                          checked: isSelected,
-                          onChanged: (v) => setState(() {
-                            v == true ? _selectedUpdates.add(codigo) : _selectedUpdates.remove(codigo);
-                          })
-                        ))),
-                        
-                        // 2. Código (Flex 2)
-                        Expanded(flex: 2, child: Text(codigo, style: const TextStyle(fontWeight: FontWeight.bold))),
-                        
-                        // 3. Valor Excel (Flex 4)
-                        Expanded(flex: 4, child: Tooltip(
-                          message: "${item['Excel_Data']['Descripcion_Excel']} ${item['Excel_Data']['Medida_Excel']}",
-                          child: Text(
-                            "${item['Excel_Data']['Descripcion_Excel']} ${item['Excel_Data']['Medida_Excel']}", 
-                            style: TextStyle(
-                              color: isManual ? Colors.blue : Colors.successPrimaryColor,
-                              fontWeight: isManual ? FontWeight.bold : FontWeight.normal
+                        SizedBox(
+                          width: 60,
+                          child: Center(
+                            child: Checkbox(
+                              checked: isSelected,
+                              onChanged:
+                                  (v) => setState(() {
+                                    v == true
+                                        ? _selectedUpdates.add(codigo)
+                                        : _selectedUpdates.remove(codigo);
+                                  }),
                             ),
-                            maxLines: 2, 
-                            overflow: TextOverflow.ellipsis
                           ),
-                        )),
-                        
-                        // 4. Icono (30px)
-                        const SizedBox(width: 30, child: Icon(FluentIcons.forward, size: 14, color: Colors.grey)),
-                        
-                        // 5. Comparativa Visual (Flex 4)
-                        Expanded(flex: 4, child: estado == 'NUEVO' 
-                          ? const Text("✨ NUEVA ENTRADA", style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic))
-                          : Tooltip(
-                              message: detalles,
-                              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                 const Text("DIFERENCIA EN SQL:", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
-                                 Text(detalles, style: TextStyle(color: Colors.warningPrimaryColor, fontSize: 11), maxLines: 2, overflow: TextOverflow.ellipsis)
-                              ]),
-                            )
                         ),
-  
+
+                        // 2. Código (Flex 2)
+                        Expanded(
+                          flex: 2,
+                          child: Text(
+                            codigo,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ),
+
+                        // 3. Valor Excel (Flex 4)
+                        Expanded(
+                          flex: 4,
+                          child: Tooltip(
+                            message:
+                                "${item['Excel_Data']['Descripcion_Excel']} ${item['Excel_Data']['Medida_Excel']}",
+                            child: Text(
+                              "${item['Excel_Data']['Descripcion_Excel']} ${item['Excel_Data']['Medida_Excel']}",
+                              style: TextStyle(
+                                color:
+                                    isManual
+                                        ? Colors.blue
+                                        : Colors.successPrimaryColor,
+                                fontWeight:
+                                    isManual
+                                        ? FontWeight.bold
+                                        : FontWeight.normal,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+
+                        // 4. Icono (30px)
+                        const SizedBox(
+                          width: 30,
+                          child: Icon(
+                            FluentIcons.forward,
+                            size: 14,
+                            color: Colors.grey,
+                          ),
+                        ),
+
+                        // 5. Comparativa Visual (Flex 4)
+                        Expanded(
+                          flex: 4,
+                          child:
+                              estado == 'NUEVO'
+                                  ? const Text(
+                                    "✨ NUEVA ENTRADA",
+                                    style: TextStyle(
+                                      color: Colors.grey,
+                                      fontStyle: FontStyle.italic,
+                                    ),
+                                  )
+                                  : Tooltip(
+                                    message: detalles,
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        const Text(
+                                          "DIFERENCIA EN SQL:",
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                        Text(
+                                          detalles,
+                                          style: TextStyle(
+                                            color: Colors.warningPrimaryColor,
+                                            fontSize: 11,
+                                          ),
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                        ),
+
                         // 6. Acciones - Botón Editar (100px)
-                        SizedBox(width: 100, child: Row(
-                          children: [
-                             IconButton(
-                               icon: const Icon(FluentIcons.edit, size: 16),
-                               onPressed: () => _showEditDialog(item),
-                             ),
-                             const Text(" Editar", style: TextStyle(fontSize: 12))
-                          ],
-                        )),
-  
+                        SizedBox(
+                          width: 100,
+                          child: Row(
+                            children: [
+                              IconButton(
+                                icon: const Icon(FluentIcons.edit, size: 16),
+                                onPressed: () => _showEditDialog(item),
+                              ),
+                              const Text(
+                                " Editar",
+                                style: TextStyle(fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+
                         // 7. Badge Estado (80px)
-                        SizedBox(width: 80, child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: estado == "NUEVO" ? Colors.successPrimaryColor : Colors.warningPrimaryColor,
-                            borderRadius: BorderRadius.circular(12)
+                        SizedBox(
+                          width: 80,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color:
+                                  estado == "NUEVO"
+                                      ? Colors.successPrimaryColor
+                                      : Colors.warningPrimaryColor,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              estado,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           ),
-                          child: Text(estado, 
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)
-                          ),
-                        )),
+                        ),
                       ],
                     ),
                   );

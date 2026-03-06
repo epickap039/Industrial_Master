@@ -15,7 +15,7 @@ class AuditorScreen extends StatefulWidget {
 
 class _AuditorScreenState extends State<AuditorScreen> {
   bool _isProcessing = false;
-  List<dynamic>? _errors; 
+  List<dynamic>? _errors;
   List<dynamic>? _detailedReport;
   String? _fileName;
   String? _filePath;
@@ -70,16 +70,23 @@ class _AuditorScreenState extends State<AuditorScreen> {
     // Confirmación
     bool? confirm = await showDialog<bool>(
       context: context,
-      builder: (c) => ContentDialog(
-        title: const Text("Confirmar Autocorrección"),
-        content: const Text(
-          "El servidor analizará tu archivo y te devolverá una versión con las correcciones de base de datos aplicadas.\n\n¿Deseas continuar?"
-        ),
-        actions: [
-          Button(child: const Text("Cancelar"), onPressed: () => Navigator.pop(c, false)),
-          FilledButton(child: const Text("Corregir Archivo"), onPressed: () => Navigator.pop(c, true)),
-        ],
-      ),
+      builder:
+          (c) => ContentDialog(
+            title: const Text("Confirmar Autocorrección"),
+            content: const Text(
+              "El servidor analizará tu archivo y te devolverá una versión con las correcciones de base de datos aplicadas.\n\n¿Deseas continuar?",
+            ),
+            actions: [
+              Button(
+                child: const Text("Cancelar"),
+                onPressed: () => Navigator.pop(c, false),
+              ),
+              FilledButton(
+                child: const Text("Corregir Archivo"),
+                onPressed: () => Navigator.pop(c, true),
+              ),
+            ],
+          ),
     );
 
     if (confirm != true) return;
@@ -91,7 +98,7 @@ class _AuditorScreenState extends State<AuditorScreen> {
         'POST',
         Uri.parse('http://192.168.1.73:8001/api/excel/corregir'),
       );
-      
+
       request.files.add(await http.MultipartFile.fromPath('file', _filePath!));
       request.fields['correcciones'] = json.encode(_errors);
 
@@ -111,19 +118,22 @@ class _AuditorScreenState extends State<AuditorScreen> {
           await file.writeAsBytes(response.bodyBytes);
 
           if (mounted) {
-            displayInfoBar(context, builder: (context, close) {
-              return InfoBar(
-                title: const Text('Corrección Exitosa'),
-                content: Text("Archivo guardado en: $outputFile"),
-                severity: InfoBarSeverity.success,
-                action: Button(
-                  onPressed: () => _openLocalFile(outputFile!), 
-                  child: const Text('Abrir File'),
-                ),
-                onClose: close,
-              );
-            });
-            setState(() => _errors = []); 
+            displayInfoBar(
+              context,
+              builder: (context, close) {
+                return InfoBar(
+                  title: const Text('Corrección Exitosa'),
+                  content: Text("Archivo guardado en: $outputFile"),
+                  severity: InfoBarSeverity.success,
+                  action: Button(
+                    onPressed: () => _openLocalFile(outputFile!),
+                    child: const Text('Abrir File'),
+                  ),
+                  onClose: close,
+                );
+              },
+            );
+            setState(() => _errors = []);
           }
         }
       } else {
@@ -146,7 +156,7 @@ class _AuditorScreenState extends State<AuditorScreen> {
         body: json.encode({'path': _filePath}),
       );
       if (response.statusCode != 200) {
-         throw Exception(response.body);
+        throw Exception(response.body);
       }
     } catch (e) {
       _showErrorDialog("Error al Abrir", e.toString());
@@ -175,24 +185,27 @@ class _AuditorScreenState extends State<AuditorScreen> {
           if (!outputFile.endsWith('.xlsx')) outputFile += '.xlsx';
           final file = File(outputFile);
           await file.writeAsBytes(response.bodyBytes);
-          
+
           if (mounted) {
-             displayInfoBar(context, builder: (context, close) {
-              return InfoBar(
-                title: const Text('Reporte Exportado'),
-                content: Text('Guardado en: $outputFile'),
-                severity: InfoBarSeverity.success,
-                action: Button(
-                  onPressed: () => _openLocalFile(outputFile!), 
-                  child: const Text('Abrir'),
-                ),
-                onClose: close,
-              );
-            });
+            displayInfoBar(
+              context,
+              builder: (context, close) {
+                return InfoBar(
+                  title: const Text('Reporte Exportado'),
+                  content: Text('Guardado en: $outputFile'),
+                  severity: InfoBarSeverity.success,
+                  action: Button(
+                    onPressed: () => _openLocalFile(outputFile!),
+                    child: const Text('Abrir'),
+                  ),
+                  onClose: close,
+                );
+              },
+            );
           }
         }
       } else {
-         throw Exception(response.body);
+        throw Exception(response.body);
       }
     } catch (e) {
       _showErrorDialog("Error Exportando", e.toString());
@@ -200,50 +213,65 @@ class _AuditorScreenState extends State<AuditorScreen> {
   }
 
   Future<void> _openLocalFile(String path) async {
-      try {
-        await http.post(
-          Uri.parse('http://192.168.1.73:8001/api/system/open_file'),
-          body: json.encode({'path': path}),
-          headers: {'Content-Type': 'application/json'},
-        );
-      } catch (_) {}
+    try {
+      await http.post(
+        Uri.parse('http://192.168.1.73:8001/api/system/open_file'),
+        body: json.encode({'path': path}),
+        headers: {'Content-Type': 'application/json'},
+      );
+    } catch (_) {}
   }
 
   void _showErrorDialog(String title, String message) {
     if (!mounted) return;
     showDialog(
       context: context,
-      builder: (c) => ContentDialog(
-        title: Text(title),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-             Row(
-               children: [
-                 Expanded(child: SelectableText(message, style: TextStyle(color: Colors.red))),
-                 IconButton(
-                   icon: const Icon(FluentIcons.copy),
-                   onPressed: () {
-                     Clipboard.setData(ClipboardData(text: message));
-                     displayInfoBar(c, duration: const Duration(seconds: 2), builder: (context, close) {
-                       return InfoBar(
-                         title: const Text('Copiado'),
-                         content: const Text('Error copiado al portapapeles'),
-                         severity: InfoBarSeverity.success,
-                         onClose: close,
-                       );
-                     });
-                   },
-                 ),
-               ],
-             ),
-          ],
-        ),
-        actions: [
-          Button(child: const Text("Cerrar"), onPressed: () => Navigator.pop(c)),
-        ],
-      ),
+      builder:
+          (c) => ContentDialog(
+            title: Text(title),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: SelectableText(
+                        message,
+                        style: TextStyle(color: Colors.red),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(FluentIcons.copy),
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: message));
+                        displayInfoBar(
+                          c,
+                          duration: const Duration(seconds: 2),
+                          builder: (context, close) {
+                            return InfoBar(
+                              title: const Text('Copiado'),
+                              content: const Text(
+                                'Error copiado al portapapeles',
+                              ),
+                              severity: InfoBarSeverity.success,
+                              onClose: close,
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            actions: [
+              Button(
+                child: const Text("Cerrar"),
+                onPressed: () => Navigator.pop(c),
+              ),
+            ],
+          ),
     );
   }
 
@@ -260,43 +288,58 @@ class _AuditorScreenState extends State<AuditorScreen> {
             Card(
               child: Column(
                 children: [
-                   if (_fileName == null) ...[
-                      Icon(FluentIcons.excel_document, size: 40, color: Colors.green),
-                      const SizedBox(height: 10),
-                      const Text('Auditor Multicolumna: Descripción, Medida, Simetría, Procesos', style: TextStyle(fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 20),
-                   ],
-                   
-                   Row(
-                     mainAxisAlignment: MainAxisAlignment.center,
-                     children: [
-                       if (_fileName != null) ...[
-                         Text('📄 $_fileName', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                         const SizedBox(width: 10),
-                         IconButton(
-                           icon: const Icon(FluentIcons.folder_open), 
-                           onPressed: _openFile,
-                           style: ButtonStyle(foregroundColor: ButtonState.all(Colors.blue)),
-                         ),
-                         const SizedBox(width: 20),
-                         Button(
-                           onPressed: _auditExcel,
-                           child: const Text('Analizar Otro Archivo'),
-                         ),
-                       ] else 
-                         FilledButton(
-                            onPressed: _auditExcel,
-                            child: const Text('Seleccionar Archivo Excel'),
-                         ),
-                     ],
-                   ),
-                   
-                   if (_isProcessing) ...[
-                     const SizedBox(height: 20),
-                     const ProgressRing(),
-                     const SizedBox(height: 10),
-                     const Text('Procesando...'),
-                   ]
+                  if (_fileName == null) ...[
+                    Icon(
+                      FluentIcons.excel_document,
+                      size: 40,
+                      color: Colors.green,
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      'Auditor Multicolumna: Descripción, Medida, Simetría, Procesos',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (_fileName != null) ...[
+                        Text(
+                          '📄 $_fileName',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        IconButton(
+                          icon: const Icon(FluentIcons.folder_open),
+                          onPressed: _openFile,
+                          style: ButtonStyle(
+                            foregroundColor: ButtonState.all(Colors.blue),
+                          ),
+                        ),
+                        const SizedBox(width: 20),
+                        Button(
+                          onPressed: _auditExcel,
+                          child: const Text('Analizar Otro Archivo'),
+                        ),
+                      ] else
+                        FilledButton(
+                          onPressed: _auditExcel,
+                          child: const Text('Seleccionar Archivo Excel'),
+                        ),
+                    ],
+                  ),
+
+                  if (_isProcessing) ...[
+                    const SizedBox(height: 20),
+                    const ProgressRing(),
+                    const SizedBox(height: 10),
+                    const Text('Procesando...'),
+                  ],
                 ],
               ),
             ),
@@ -304,7 +347,7 @@ class _AuditorScreenState extends State<AuditorScreen> {
 
             // AREA RESULTADOS
             Expanded(child: _buildResultsArea()),
-            
+
             // FOOTER ACCIONES
             if (_errors != null && _errors!.isNotEmpty && !_isProcessing)
               Padding(
@@ -325,7 +368,9 @@ class _AuditorScreenState extends State<AuditorScreen> {
                     const SizedBox(width: 10),
                     FilledButton(
                       onPressed: _autoCorrect,
-                      style: ButtonStyle(backgroundColor: ButtonState.all(Colors.blue)),
+                      style: ButtonStyle(
+                        backgroundColor: ButtonState.all(Colors.blue),
+                      ),
                       child: const Row(
                         children: [
                           Icon(FluentIcons.repair, color: Colors.white),
@@ -347,7 +392,12 @@ class _AuditorScreenState extends State<AuditorScreen> {
     if (_isProcessing) return const SizedBox.shrink();
 
     if (_errors == null) {
-      return const Center(child: Text('Selecciona un archivo para comenzar.', style: TextStyle(color: Colors.grey)));
+      return const Center(
+        child: Text(
+          'Selecciona un archivo para comenzar.',
+          style: TextStyle(color: Colors.grey),
+        ),
+      );
     }
 
     if (_errors!.isEmpty) {
@@ -355,11 +405,19 @@ class _AuditorScreenState extends State<AuditorScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(FluentIcons.check_mark, size: 64, color: Colors.successPrimaryColor),
+            Icon(
+              FluentIcons.check_mark,
+              size: 64,
+              color: Colors.successPrimaryColor,
+            ),
             const SizedBox(height: 10),
             Text(
-              '✅ Archivo Íntegro', 
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.successPrimaryColor)
+              '✅ Archivo Íntegro',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: Colors.successPrimaryColor,
+              ),
             ),
             const Text('Todos los campos analizados coinciden con la BD.'),
           ],
@@ -384,7 +442,11 @@ class _AuditorScreenState extends State<AuditorScreen> {
       children: [
         Text(
           '⚠️ ${_errors!.length} discrepancias encontradas en ${codigos.length} códigos de pieza:',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.warningPrimaryColor),
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Colors.warningPrimaryColor,
+          ),
         ),
         const SizedBox(height: 5),
         Expanded(
@@ -404,145 +466,257 @@ class _AuditorScreenState extends State<AuditorScreen> {
                       // Encabezado de la Tarjeta (Código)
                       Row(
                         children: [
-                          Icon(FluentIcons.database, size: 20, color: Colors.blue),
+                          Icon(
+                            FluentIcons.database,
+                            size: 20,
+                            color: Colors.blue,
+                          ),
                           const SizedBox(width: 8),
-                          Text(codigo, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.blue)),
+                          Text(
+                            codigo,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blue,
+                            ),
+                          ),
                           const SizedBox(width: 10),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(color: Colors.red.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
-                            child: Text('${items.length} errores', style: TextStyle(color: Colors.red, fontSize: 12)),
-                          )
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.red.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              '${items.length} errores',
+                              style: TextStyle(color: Colors.red, fontSize: 12),
+                            ),
+                          ),
                         ],
                       ),
                       const SizedBox(height: 10),
                       const Divider(),
                       const SizedBox(height: 10),
-                      
+
                       // 2. Agrupación Secundaria (Por "Firma del Error")
-                      Builder(builder: (context) {
-                        Map<String, List<int>> erroresUnicosMap = {};
-                        // Guardar la primera ocurrencia completa del error para extraer 'campo', 'excel', 'bd' al dibujar
-                        Map<String, dynamic> primeraInstancia = {};
+                      Builder(
+                        builder: (context) {
+                          Map<String, List<int>> erroresUnicosMap = {};
+                          // Guardar la primera ocurrencia completa del error para extraer 'campo', 'excel', 'bd' al dibujar
+                          Map<String, dynamic> primeraInstancia = {};
 
-                        for (var item in items) {
-                          final campo = item['campo'] ?? 'N/A';
-                          final valExcel = item['excel']?.toString() ?? 'null';
-                          final valBd = item['bd']?.toString() ?? 'null';
-                          
-                          // Firma Única Combinada
-                          final firma = "Col:$campo|Excel:$valExcel|BD:$valBd";
-                          
-                          if (!erroresUnicosMap.containsKey(firma)) {
-                            erroresUnicosMap[firma] = [];
-                            primeraInstancia[firma] = item;
-                          }
-                          
-                          // Parsear fila de forma segura para evitar crashes si viene como String o double
-                          int filaNum = 0;
-                          if (item['fila'] != null) {
-                            if (item['fila'] is int) {
-                              filaNum = item['fila'];
-                            } else {
-                              filaNum = int.tryParse(item['fila'].toString()) ?? 0;
+                          for (var item in items) {
+                            final campo = item['campo'] ?? 'N/A';
+                            final valExcel =
+                                item['excel']?.toString() ?? 'null';
+                            final valBd = item['bd']?.toString() ?? 'null';
+
+                            // Firma Única Combinada
+                            final firma =
+                                "Col:$campo|Excel:$valExcel|BD:$valBd";
+
+                            if (!erroresUnicosMap.containsKey(firma)) {
+                              erroresUnicosMap[firma] = [];
+                              primeraInstancia[firma] = item;
                             }
+
+                            // Parsear fila de forma segura para evitar crashes si viene como String o double
+                            int filaNum = 0;
+                            if (item['fila'] != null) {
+                              if (item['fila'] is int) {
+                                filaNum = item['fila'];
+                              } else {
+                                filaNum =
+                                    int.tryParse(item['fila'].toString()) ?? 0;
+                              }
+                            }
+                            erroresUnicosMap[firma]!.add(filaNum);
                           }
-                          erroresUnicosMap[firma]!.add(filaNum);
-                        }
 
-                        // 3. Bloque de Error Agrupado
-                        return Column(
-                          children: erroresUnicosMap.keys.map((firma) {
-                            final filas = erroresUnicosMap[firma]!;
-                            final itemRef = primeraInstancia[firma]!;
-                            
-                            // Unir números de fila únicos
-                            filas.sort();
-                            final filasStr = filas.join(', ');
+                          // 3. Bloque de Error Agrupado
+                          return Column(
+                            children:
+                                erroresUnicosMap.keys.map((firma) {
+                                  final filas = erroresUnicosMap[firma]!;
+                                  final itemRef = primeraInstancia[firma]!;
 
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 12.0),
-                              padding: const EdgeInsets.all(12.0),
-                              decoration: BoxDecoration(
-                                color: FluentTheme.of(context).cardColor.withOpacity(0.5),
-                                border: Border.all(color: Colors.grey.withOpacity(0.2)),
-                                borderRadius: BorderRadius.circular(6.0),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  // 1. Encabezado del Error
-                                  Row(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                        decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(4)),
-                                        child: Text(
-                                          filas.length > 1 ? 'Filas: $filasStr' : 'Fila: $filasStr', 
-                                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                                  // Unir números de fila únicos
+                                  filas.sort();
+                                  final filasStr = filas.join(', ');
+
+                                  return Container(
+                                    margin: const EdgeInsets.only(bottom: 12.0),
+                                    padding: const EdgeInsets.all(12.0),
+                                    decoration: BoxDecoration(
+                                      color: FluentTheme.of(
+                                        context,
+                                      ).cardColor.withOpacity(0.5),
+                                      border: Border.all(
+                                        color: Colors.grey.withOpacity(0.2),
+                                      ),
+                                      borderRadius: BorderRadius.circular(6.0),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        // 1. Encabezado del Error
+                                        Row(
+                                          children: [
+                                            Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 8,
+                                                    vertical: 4,
+                                                  ),
+                                              decoration: BoxDecoration(
+                                                color: Colors.red,
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
+                                              ),
+                                              child: Text(
+                                                filas.length > 1
+                                                    ? 'Filas: $filasStr'
+                                                    : 'Fila: $filasStr',
+                                                style: TextStyle(
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            const Text(
+                                              'Columna: ',
+                                              style: TextStyle(
+                                                color: Colors.grey,
+                                                fontSize: 13,
+                                              ),
+                                            ),
+                                            Text(
+                                              itemRef['campo'],
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 14,
+                                              ),
+                                            ),
+                                          ],
                                         ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      const Text('Columna: ', style: TextStyle(color: Colors.grey, fontSize: 13)),
-                                      Text(itemRef['campo'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 12),
-                                  
-                                  // 2. Diseño de 2 Columnas (Excel vs BD)
-                                  Row(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      // Columna Izquierda (Excel)
-                                      Expanded(
-                                        child: Container(
-                                          padding: const EdgeInsets.all(8),
-                                          decoration: BoxDecoration(
-                                            color: Colors.red.withOpacity(0.05),
-                                            border: Border(left: BorderSide(color: Colors.red.withOpacity(0.5), width: 3)),
-                                          ),
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              const Text('En Documento Excel:', style: TextStyle(color: Colors.grey, fontSize: 11)),
-                                              const SizedBox(height: 4),
-                                              SelectableText(itemRef['excel'].toString(), style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600)),
-                                            ],
-                                          ),
+                                        const SizedBox(height: 12),
+
+                                        // 2. Diseño de 2 Columnas (Excel vs BD)
+                                        Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            // Columna Izquierda (Excel)
+                                            Expanded(
+                                              child: Container(
+                                                padding: const EdgeInsets.all(
+                                                  8,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.red.withOpacity(
+                                                    0.05,
+                                                  ),
+                                                  border: Border(
+                                                    left: BorderSide(
+                                                      color: Colors.red
+                                                          .withOpacity(0.5),
+                                                      width: 3,
+                                                    ),
+                                                  ),
+                                                ),
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    const Text(
+                                                      'En Documento Excel:',
+                                                      style: TextStyle(
+                                                        color: Colors.grey,
+                                                        fontSize: 11,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(height: 4),
+                                                    SelectableText(
+                                                      itemRef['excel']
+                                                          .toString(),
+                                                      style: TextStyle(
+                                                        color: Colors.red,
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+
+                                            const Padding(
+                                              padding: EdgeInsets.symmetric(
+                                                horizontal: 12.0,
+                                              ),
+                                              child: Icon(
+                                                FluentIcons.forward,
+                                                size: 16,
+                                                color: Colors.grey,
+                                              ),
+                                            ),
+
+                                            // Columna Derecha (Base de Datos)
+                                            Expanded(
+                                              child: Container(
+                                                padding: const EdgeInsets.all(
+                                                  8,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.green
+                                                      .withOpacity(0.05),
+                                                  border: Border(
+                                                    left: BorderSide(
+                                                      color: Colors.green
+                                                          .withOpacity(0.5),
+                                                      width: 3,
+                                                    ),
+                                                  ),
+                                                ),
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    const Text(
+                                                      'En Base de Datos:',
+                                                      style: TextStyle(
+                                                        color: Colors.grey,
+                                                        fontSize: 11,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(height: 4),
+                                                    SelectableText(
+                                                      itemRef['bd'].toString(),
+                                                      style: TextStyle(
+                                                        color: Colors.green,
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                          ],
                                         ),
-                                      ),
-                                      
-                                      const Padding(
-                                        padding: EdgeInsets.symmetric(horizontal: 12.0),
-                                        child: Icon(FluentIcons.forward, size: 16, color: Colors.grey),
-                                      ),
-                                      
-                                      // Columna Derecha (Base de Datos)
-                                      Expanded(
-                                        child: Container(
-                                          padding: const EdgeInsets.all(8),
-                                          decoration: BoxDecoration(
-                                            color: Colors.green.withOpacity(0.05),
-                                            border: Border(left: BorderSide(color: Colors.green.withOpacity(0.5), width: 3)),
-                                          ),
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              const Text('En Base de Datos:', style: TextStyle(color: Colors.grey, fontSize: 11)),
-                                              const SizedBox(height: 4),
-                                              SelectableText(itemRef['bd'].toString(), style: TextStyle(color: Colors.green, fontWeight: FontWeight.w600)),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            );
-                          }).toList(),
-                        );
-                      }),
+                                      ],
+                                    ),
+                                  );
+                                }).toList(),
+                          );
+                        },
+                      ),
                     ],
                   ),
                 ),

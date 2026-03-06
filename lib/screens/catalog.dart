@@ -18,15 +18,15 @@ class CatalogScreen extends StatefulWidget {
 class _CatalogScreenState extends State<CatalogScreen> {
   // Configuración
   static const String _basePlanosPath = r"Z:\Ingenieria\Planos";
-  
+
   // Datos
   List<Map<String, dynamic>> _allData = [];
   List<Map<String, dynamic>> _filteredData = [];
   List<String> _columns = [];
-  
+
   // Columnas Visibles
   final Map<String, bool> _visibleColumns = {};
-  
+
   // Controllers
   final Map<String, TextEditingController> _filterControllers = {};
   final ScrollController _horizontalScrollController = ScrollController();
@@ -36,7 +36,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
   bool _isLoading = true;
   bool _onlyWithPlano = false;
   String? _errorMessage;
-  
+
   // Ordenamiento
   String _columnaOrden = "";
   bool _ordenAscendente = true;
@@ -60,40 +60,62 @@ class _CatalogScreenState extends State<CatalogScreen> {
   /// Carga datos del backend
   Future<void> _fetchData({bool showLoading = true}) async {
     if (showLoading) {
-      if (mounted) setState(() {
-        _isLoading = true;
-        _errorMessage = null;
-      });
+      if (mounted)
+        setState(() {
+          _isLoading = true;
+          _errorMessage = null;
+        });
     }
 
     try {
-      final response = await http.get(Uri.parse('http://192.168.1.73:8001/api/catalog'));
+      final response = await http.get(
+        Uri.parse('http://192.168.1.73:8001/api/catalog'),
+      );
 
       if (response.statusCode == 200) {
         final List<dynamic> jsonList = json.decode(response.body);
-        List<Map<String, dynamic>> data = List<Map<String, dynamic>>.from(jsonList);
+        List<Map<String, dynamic>> data = List<Map<String, dynamic>>.from(
+          jsonList,
+        );
 
         if (data.isNotEmpty) {
           List<String> allKeys = data.first.keys.toList();
           allKeys.remove('Link_Drive'); // Metadata interna
-          _columns = allKeys;
           
+          // Reordenar Espesor_Perfil_CAD después de Ancho_CAD
+          if (allKeys.contains('Espesor_Perfil_CAD') && allKeys.contains('Ancho_CAD')) {
+            allKeys.remove('Espesor_Perfil_CAD');
+            final indexOfAncho = allKeys.indexOf('Ancho_CAD');
+            allKeys.insert(indexOfAncho + 1, 'Espesor_Perfil_CAD');
+          }
+          
+          _columns = allKeys;
+
           if (_visibleColumns.isEmpty) {
             for (var col in _columns) {
-              if (['Modificado_Por', 'Ultima_Actualizacion', 'Fecha_Creacion', 'Material', 'Simetria'].contains(col)) {
+              if ([
+                'Modificado_Por',
+                'Ultima_Actualizacion',
+                'Fecha_Creacion',
+                'Material',
+                'Simetria',
+                'Tiene_DXF',
+                'Largo_DXF',
+                'Ancho_DXF',
+              ].contains(col)) {
                 _visibleColumns[col] = false;
               } else {
                 _visibleColumns[col] = true;
               }
             }
           } else {
-             for (var col in _columns) {
+            for (var col in _columns) {
               if (!_visibleColumns.containsKey(col)) {
                 _visibleColumns[col] = true;
               }
             }
           }
-          
+
           for (var col in _columns) {
             if (!_filterControllers.containsKey(col)) {
               _filterControllers[col] = TextEditingController();
@@ -109,12 +131,12 @@ class _CatalogScreenState extends State<CatalogScreen> {
           });
         }
       } else {
-         if (mounted) {
-           setState(() {
+        if (mounted) {
+          setState(() {
             _errorMessage = 'Error servidor: ${response.statusCode}';
             _isLoading = false;
           });
-         }
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -129,25 +151,28 @@ class _CatalogScreenState extends State<CatalogScreen> {
   /// Aplica filtros locales
   void _applyFilters({bool resetScroll = true}) {
     setState(() {
-      _filteredData = _allData.where((row) {
-        if (_onlyWithPlano) {
-           final link = row['Link_Drive']?.toString();
-           if (link == null || link.isEmpty || link == '-') return false;
-        }
+      _filteredData =
+          _allData.where((row) {
+            if (_onlyWithPlano) {
+              final link = row['Link_Drive']?.toString();
+              if (link == null || link.isEmpty || link == '-') return false;
+            }
 
-        for (var entry in _filterControllers.entries) {
-          String col = entry.key;
-          String filterText = entry.value.text.toLowerCase();
-          String cellValue = row[col]?.toString().toLowerCase() ?? '';
-          if (!cellValue.contains(filterText)) return false;
-        }
-        return true;
-      }).toList();
+            for (var entry in _filterControllers.entries) {
+              String col = entry.key;
+              String filterText = entry.value.text.toLowerCase();
+              String cellValue = row[col]?.toString().toLowerCase() ?? '';
+              if (!cellValue.contains(filterText)) return false;
+            }
+            return true;
+          }).toList();
     });
-    
+
     // Mantenemos posición de scroll al filtrar/editar, solo reset en carga inicial
-    if (resetScroll && _filteredData.isNotEmpty && _verticalScrollController.hasClients) {
-       _verticalScrollController.jumpTo(0);
+    if (resetScroll &&
+        _filteredData.isNotEmpty &&
+        _verticalScrollController.hasClients) {
+      _verticalScrollController.jumpTo(0);
     }
   }
 
@@ -163,14 +188,16 @@ class _CatalogScreenState extends State<CatalogScreen> {
       _filteredData.sort((a, b) {
         String valA = (a[columna] ?? "").toString().toLowerCase();
         String valB = (b[columna] ?? "").toString().toLowerCase();
-        
+
         // Manejo especial de fechas para última actualización
         if (columna == 'Ultima_Actualizacion') {
-           DateTime? dateA = DateTime.tryParse(valA);
-           DateTime? dateB = DateTime.tryParse(valB);
-           if (dateA != null && dateB != null) {
-              return _ordenAscendente ? dateA.compareTo(dateB) : dateB.compareTo(dateA);
-           }
+          DateTime? dateA = DateTime.tryParse(valA);
+          DateTime? dateB = DateTime.tryParse(valB);
+          if (dateA != null && dateB != null) {
+            return _ordenAscendente
+                ? dateA.compareTo(dateB)
+                : dateB.compareTo(dateA);
+          }
         }
 
         return _ordenAscendente ? valA.compareTo(valB) : valB.compareTo(valA);
@@ -194,16 +221,19 @@ class _CatalogScreenState extends State<CatalogScreen> {
 
     var excel = excel_lib.Excel.createExcel();
     excel_lib.Sheet sheetObject = excel['Catálogo'];
-    excel.delete('Sheet1'); 
+    excel.delete('Sheet1');
 
-    final exportCols = _columns.where((c) => _visibleColumns[c] == true).toList();
-    List<excel_lib.CellValue> headers = exportCols.map((c) => excel_lib.TextCellValue(c)).toList();
+    final exportCols =
+        _columns.where((c) => _visibleColumns[c] == true).toList();
+    List<excel_lib.CellValue> headers =
+        exportCols.map((c) => excel_lib.TextCellValue(c)).toList();
     sheetObject.appendRow(headers);
 
     for (var row in _filteredData) {
-      List<excel_lib.CellValue> rowData = exportCols.map((col) {
-        return excel_lib.TextCellValue(row[col]?.toString() ?? '-');
-      }).toList();
+      List<excel_lib.CellValue> rowData =
+          exportCols.map((col) {
+            return excel_lib.TextCellValue(row[col]?.toString() ?? '-');
+          }).toList();
       sheetObject.appendRow(rowData);
     }
 
@@ -214,40 +244,46 @@ class _CatalogScreenState extends State<CatalogScreen> {
 
     if (outputFile != null) {
       if (!outputFile.endsWith('.xlsx')) outputFile = '$outputFile.xlsx';
-      
+
       var fileBytes = excel.save();
       if (fileBytes != null) {
         File(outputFile)
           ..createSync(recursive: true)
           ..writeAsBytesSync(fileBytes);
-        
+
         if (mounted) {
-          displayInfoBar(context, builder: (context, close) {
-            return InfoBar(
-              title: const Text('Exportado'),
-              content: Text('Guardado en: $outputFile'),
-              severity: InfoBarSeverity.success,
-              onClose: close,
-            );
-          });
+          displayInfoBar(
+            context,
+            builder: (context, close) {
+              return InfoBar(
+                title: const Text('Exportado'),
+                content: Text('Guardado en: $outputFile'),
+                severity: InfoBarSeverity.success,
+                onClose: close,
+              );
+            },
+          );
         }
       }
     }
   }
 
   /// Guarda cambios - Payload Completo
-  Future<void> _updateMaterial(Map<String, dynamic> row, Map<String, dynamic> updates) async {
+  Future<void> _updateMaterial(
+    Map<String, dynamic> row,
+    Map<String, dynamic> updates,
+  ) async {
     final prefs = await SharedPreferences.getInstance();
     final username = prefs.getString('username') ?? 'Usuario_Desconocido';
 
     try {
       // 1. Optimistic Update (UI)
       setState(() {
-         updates.forEach((key, value) {
-           row[key] = value;
-         });
-         row['Modificado_Por'] = username;
-         row['Ultima_Actualizacion'] = DateTime.now().toIso8601String(); 
+        updates.forEach((key, value) {
+          row[key] = value;
+        });
+        row['Modificado_Por'] = username;
+        row['Ultima_Actualizacion'] = DateTime.now().toIso8601String();
       });
 
       // 2. Construir Payload COMPLETO
@@ -264,12 +300,12 @@ class _CatalogScreenState extends State<CatalogScreen> {
         'Proceso_Primario': row['Proceso_Primario'],
         'Proceso_1': row['Proceso_1'],
         'Proceso_2': row['Proceso_2'],
-        'Proceso_3': row['Proceso_3'], 
+        'Proceso_3': row['Proceso_3'],
         // Auditoría
         'usuario': username,
-        'Modificado_Por': username
+        'Modificado_Por': username,
       };
-      
+
       // 3. Enviar al Backend
       final response = await http.put(
         Uri.parse('http://192.168.1.73:8001/api/material/update'),
@@ -282,105 +318,233 @@ class _CatalogScreenState extends State<CatalogScreen> {
       }
 
       if (mounted) {
-        displayInfoBar(context, builder: (context, close) {
-          return InfoBar(
-            title: const Text('Guardado Exitoso'),
-            content: const Text('Registro actualizado correctamente.'),
-            severity: InfoBarSeverity.success,
-            onClose: close,
-          );
-        });
+        displayInfoBar(
+          context,
+          builder: (context, close) {
+            return InfoBar(
+              title: const Text('Guardado Exitoso'),
+              content: const Text('Registro actualizado correctamente.'),
+              severity: InfoBarSeverity.success,
+              onClose: close,
+            );
+          },
+        );
       }
-
     } catch (e) {
       if (mounted) {
-         showDialog(context: context, builder: (context) {
-           return ContentDialog(
-             title: const Text('Error al Guardar'),
-             content: Column(
-               mainAxisSize: MainAxisSize.min,
-               crossAxisAlignment: CrossAxisAlignment.start,
-               children: [
-                 SelectableText(e.toString()),
-                 const SizedBox(height: 10),
-                 Button(
-                   child: const Row(
-                     mainAxisSize: MainAxisSize.min,
-                     children: [
-                       Icon(FluentIcons.copy, size: 12),
-                       SizedBox(width: 8),
-                       Text('Copiar Detalle'),
-                     ],
-                   ),
-                   onPressed: () => Clipboard.setData(ClipboardData(text: e.toString())),
-                 ),
-               ],
-             ),
-             actions: [
-               Button(child: const Text('Ok'), onPressed: () => Navigator.pop(context))
-             ],
-           );
-         });
+        showDialog(
+          context: context,
+          builder: (context) {
+            return ContentDialog(
+              title: const Text('Error al Guardar'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SelectableText(e.toString()),
+                  const SizedBox(height: 10),
+                  Button(
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(FluentIcons.copy, size: 12),
+                        SizedBox(width: 8),
+                        Text('Copiar Detalle'),
+                      ],
+                    ),
+                    onPressed:
+                        () => Clipboard.setData(
+                          ClipboardData(text: e.toString()),
+                        ),
+                  ),
+                ],
+              ),
+              actions: [
+                Button(
+                  child: const Text('Ok'),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            );
+          },
+        );
       }
       // Revertir cambios (sin mover scroll)
       _fetchData(showLoading: false);
     }
   }
 
+  Future<void> _deleteMaterial(String codigo) async {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return ContentDialog(
+          title: const Text('Confirmar Eliminación'),
+          content: Text('¿Estás seguro de que deseas eliminar permanentemente la pieza $codigo? Esta acción no se puede deshacer.'),
+          actions: [
+            Button(
+              child: const Text('Cancelar'),
+              onPressed: () => Navigator.pop(context),
+            ),
+            FilledButton(
+              child: const Text('Eliminar'),
+              style: ButtonStyle(backgroundColor: ButtonState.all(Colors.red)),
+              onPressed: () async {
+                Navigator.pop(context);
+                try {
+                  final response = await http.delete(
+                    Uri.parse('http://192.168.1.73:8001/api/catalog/$codigo'),
+                  );
+                  if (response.statusCode == 200) {
+                    _fetchData();
+                    displayInfoBar(
+                      context,
+                      builder: (context, close) {
+                        return InfoBar(
+                          title: const Text('Eliminada'),
+                          content: Text('La pieza $codigo ha sido eliminada.'),
+                          severity: InfoBarSeverity.success,
+                          onClose: close,
+                        );
+                      },
+                    );
+                  } else {
+                    throw Exception(response.body);
+                  }
+                } catch (e) {
+                  displayInfoBar(
+                    context,
+                    builder: (context, close) {
+                      return InfoBar(
+                        title: const Text('Error al eliminar'),
+                        content: Text(e.toString()),
+                        severity: InfoBarSeverity.error,
+                        onClose: close,
+                      );
+                    },
+                  );
+                }
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   /// Diálogo de Edición COMPLETO (Incluye Proceso 3)
   void _showEditDialog(Map<String, dynamic> row) {
     // Controladores para todos los campos
-    final descCtrl = TextEditingController(text: row['Descripcion']?.toString() ?? '');
-    final medCtrl = TextEditingController(text: row['Medida']?.toString() ?? '');
-    final matCtrl = TextEditingController(text: row['Material']?.toString() ?? '');
-    final linkCtrl = TextEditingController(text: row['Link_Drive']?.toString() ?? '');
+    final descCtrl = TextEditingController(
+      text: row['Descripcion']?.toString() ?? '',
+    );
+    final medCtrl = TextEditingController(
+      text: row['Medida']?.toString() ?? '',
+    );
+    final matCtrl = TextEditingController(
+      text: row['Material']?.toString() ?? '',
+    );
+    final linkCtrl = TextEditingController(
+      text: row['Link_Drive']?.toString() ?? '',
+    );
     // Nuevos Campos
-    final simetriaCtrl = TextEditingController(text: row['Simetria']?.toString() ?? '');
-    final procPrimCtrl = TextEditingController(text: row['Proceso_Primario']?.toString() ?? '');
-    final proc1Ctrl = TextEditingController(text: row['Proceso_1']?.toString() ?? '');
-    final proc2Ctrl = TextEditingController(text: row['Proceso_2']?.toString() ?? '');
-    final proc3Ctrl = TextEditingController(text: row['Proceso_3']?.toString() ?? '');
+    final simetriaCtrl = TextEditingController(
+      text: row['Simetria']?.toString() ?? '',
+    );
+    final procPrimCtrl = TextEditingController(
+      text: row['Proceso_Primario']?.toString() ?? '',
+    );
+    final proc1Ctrl = TextEditingController(
+      text: row['Proceso_1']?.toString() ?? '',
+    );
+    final proc2Ctrl = TextEditingController(
+      text: row['Proceso_2']?.toString() ?? '',
+    );
+    final proc3Ctrl = TextEditingController(
+      text: row['Proceso_3']?.toString() ?? '',
+    );
 
     showDialog(
       context: context,
       builder: (context) {
         return ContentDialog(
           constraints: const BoxConstraints(maxWidth: 600), // Diálogo más ancho
-          title: Text("Editor Maestro: ${row['Codigo_Pieza'] ?? row['Codigo']}"),
+          title: Text(
+            "Editor Maestro: ${row['Codigo_Pieza'] ?? row['Codigo']}",
+          ),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                InfoLabel(label: 'Descripción', child: TextBox(controller: descCtrl, maxLines: 2)),
+                InfoLabel(
+                  label: 'Descripción',
+                  child: TextBox(controller: descCtrl, maxLines: 2),
+                ),
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    Expanded(child: InfoLabel(label: 'Medida', child: TextBox(controller: medCtrl))),
+                    Expanded(
+                      child: InfoLabel(
+                        label: 'Medida',
+                        child: TextBox(controller: medCtrl),
+                      ),
+                    ),
                     const SizedBox(width: 10),
-                    Expanded(child: InfoLabel(label: 'Material', child: TextBox(controller: matCtrl))),
+                    Expanded(
+                      child: InfoLabel(
+                        label: 'Material',
+                        child: TextBox(controller: matCtrl),
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    Expanded(child: InfoLabel(label: 'Simetría', child: TextBox(controller: simetriaCtrl))),
+                    Expanded(
+                      child: InfoLabel(
+                        label: 'Simetría',
+                        child: TextBox(controller: simetriaCtrl),
+                      ),
+                    ),
                     const SizedBox(width: 10),
-                    Expanded(child: InfoLabel(label: 'Proceso Primario', child: TextBox(controller: procPrimCtrl))),
+                    Expanded(
+                      child: InfoLabel(
+                        label: 'Proceso Primario',
+                        child: TextBox(controller: procPrimCtrl),
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    Expanded(child: InfoLabel(label: 'Proceso 1', child: TextBox(controller: proc1Ctrl))),
+                    Expanded(
+                      child: InfoLabel(
+                        label: 'Proceso 1',
+                        child: TextBox(controller: proc1Ctrl),
+                      ),
+                    ),
                     const SizedBox(width: 10),
-                    Expanded(child: InfoLabel(label: 'Proceso 2', child: TextBox(controller: proc2Ctrl))),
+                    Expanded(
+                      child: InfoLabel(
+                        label: 'Proceso 2',
+                        child: TextBox(controller: proc2Ctrl),
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 8),
-                InfoLabel(label: 'Proceso 3', child: TextBox(controller: proc3Ctrl)),
+                InfoLabel(
+                  label: 'Proceso 3',
+                  child: TextBox(controller: proc3Ctrl),
+                ),
                 const SizedBox(height: 8),
-                InfoLabel(label: 'Link Drive / Plano', child: TextBox(controller: linkCtrl)),
+                InfoLabel(
+                  label: 'Link Drive / Plano',
+                  child: TextBox(controller: linkCtrl),
+                ),
               ],
             ),
           ),
@@ -394,12 +558,12 @@ class _CatalogScreenState extends State<CatalogScreen> {
               onPressed: () {
                 Navigator.pop(context);
                 final updates = <String, dynamic>{};
-                
+
                 // Helper para chequear cambios
                 void check(String key, TextEditingController ctrl) {
-                   if (ctrl.text != (row[key]?.toString() ?? '')) {
-                     updates[key] = ctrl.text;
-                   }
+                  if (ctrl.text != (row[key]?.toString() ?? '')) {
+                    updates[key] = ctrl.text;
+                  }
                 }
 
                 check('Descripcion', descCtrl);
@@ -419,7 +583,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
             ),
           ],
         );
-      }
+      },
     );
   }
 
@@ -436,34 +600,69 @@ class _CatalogScreenState extends State<CatalogScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // Solo Codigo Pieza
-                _buildLabelValue("CODIGO PIEZA", row['Codigo_Pieza'] ?? row['Codigo']),
+                _buildLabelValue(
+                  "CODIGO PIEZA",
+                  row['Codigo_Pieza'] ?? row['Codigo'],
+                ),
                 const Divider(),
                 _buildLabelValue("DESCRIPCIÓN", row['Descripcion']),
                 const SizedBox(height: 10),
                 Row(
                   children: [
                     Expanded(child: _buildLabelValue("MEDIDA", row['Medida'])),
-                     Expanded(child: _buildLabelValue("MATERIAL", row['Material'])),
-                  ],
-                ),
-                 Row(
-                  children: [
-                    Expanded(child: _buildLabelValue("SIMETRÍA", row['Simetria'])),
-                     Expanded(child: _buildLabelValue("PROC. PRIMARIO", row['Proceso_Primario'])),
+                    Expanded(
+                      child: _buildLabelValue("MATERIAL", row['Material']),
+                    ),
                   ],
                 ),
                 Row(
                   children: [
-                    Expanded(child: _buildLabelValue("PROC. 1", row['Proceso_1'])),
-                     Expanded(child: _buildLabelValue("PROC. 2", row['Proceso_2'])),
-                      Expanded(child: _buildLabelValue("PROC. 3", row['Proceso_3'])),
+                    Expanded(child: _buildLabelValue("LARGO CAD", row['Largo_CAD'])),
+                    Expanded(child: _buildLabelValue("ANCHO CAD", row['Ancho_CAD'])),
+                    Expanded(child: _buildLabelValue("ESPESOR / PERFIL", row['Espesor_Perfil_CAD'])),
+                  ],
+                ),
+                Row(
+                  children: [
+                    Expanded(child: _buildLabelValue("TIENE DXF", row['Tiene_DXF'])),
+                    Expanded(child: _buildLabelValue("LARGO DXF", row['Largo_DXF'])),
+                    Expanded(child: _buildLabelValue("ANCHO DXF", row['Ancho_DXF'])),
+                  ],
+                ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildLabelValue("SIMETRÍA", row['Simetria']),
+                    ),
+                    Expanded(
+                      child: _buildLabelValue(
+                        "PROC. PRIMARIO",
+                        row['Proceso_Primario'],
+                      ),
+                    ),
+                  ],
+                ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildLabelValue("PROC. 1", row['Proceso_1']),
+                    ),
+                    Expanded(
+                      child: _buildLabelValue("PROC. 2", row['Proceso_2']),
+                    ),
+                    Expanded(
+                      child: _buildLabelValue("PROC. 3", row['Proceso_3']),
+                    ),
                   ],
                 ),
                 const Divider(),
                 _buildLabelValue("LINK PLANO", row['Link_Drive']),
-                 const Divider(),
+                const Divider(),
                 _buildLabelValue("Modificado Por", row['Modificado_Por']),
-                _buildLabelValue("Última Actualización", row['Ultima_Actualizacion']),
+                _buildLabelValue(
+                  "Última Actualización",
+                  row['Ultima_Actualizacion'],
+                ),
               ],
             ),
           ),
@@ -474,43 +673,57 @@ class _CatalogScreenState extends State<CatalogScreen> {
             ),
           ],
         );
-      }
+      },
     );
   }
 
   void _launchDriveLink(String? url) async {
     if (url == null || url.isEmpty || url == '-') return;
-    
+
     final uri = Uri.parse(url);
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri);
     } else {
-       displayInfoBar(context, builder: (context, close) {
-        return InfoBar(
-          title: const Text('Error'),
-          content: Row(
-            children: [
-              const Expanded(child: SelectableText('Link inválido o inaccesible.')),
-              IconButton(icon: const Icon(FluentIcons.copy), onPressed: () => Clipboard.setData(ClipboardData(text: 'Link inválido o inaccesible.'))),
-            ],
-          ),
-          severity: InfoBarSeverity.error,
-          onClose: close,
-        );
-      });
+      displayInfoBar(
+        context,
+        builder: (context, close) {
+          return InfoBar(
+            title: const Text('Error'),
+            content: Row(
+              children: [
+                const Expanded(
+                  child: SelectableText('Link inválido o inaccesible.'),
+                ),
+                IconButton(
+                  icon: const Icon(FluentIcons.copy),
+                  onPressed:
+                      () => Clipboard.setData(
+                        ClipboardData(text: 'Link inválido o inaccesible.'),
+                      ),
+                ),
+              ],
+            ),
+            severity: InfoBarSeverity.error,
+            onClose: close,
+          );
+        },
+      );
     }
   }
 
   void _copyToClipboard(String text) {
     Clipboard.setData(ClipboardData(text: text));
-    displayInfoBar(context, builder: (context, close) {
-      return InfoBar(
-        title: const Text('Copiado'),
-        content: Text(text),
-        severity: InfoBarSeverity.info,
-        onClose: close,
-      );
-    });
+    displayInfoBar(
+      context,
+      builder: (context, close) {
+        return InfoBar(
+          title: const Text('Copiado'),
+          content: Text(text),
+          severity: InfoBarSeverity.info,
+          onClose: close,
+        );
+      },
+    );
   }
 
   void _showColumnSelector() {
@@ -522,27 +735,29 @@ class _CatalogScreenState extends State<CatalogScreen> {
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
-              children: List<Widget>.from(_columns.map((col) {
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4.0),
-                  child: Row(
-                    children: [
-                      Checkbox(
-                        checked: _visibleColumns[col] == true,
-                        onChanged: (v) {
-                          setState(() {
-                            _visibleColumns[col] = v ?? false;
-                          });
-                          Navigator.pop(context);
-                          _showColumnSelector(); 
-                        },
-                      ),
-                      const SizedBox(width: 8),
-                      Text(col.replaceAll('_', ' ')),
-                    ],
-                  ),
-                );
-              })),
+              children: List<Widget>.from(
+                _columns.map((col) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4.0),
+                    child: Row(
+                      children: [
+                        Checkbox(
+                          checked: _visibleColumns[col] == true,
+                          onChanged: (v) {
+                            setState(() {
+                              _visibleColumns[col] = v ?? false;
+                            });
+                            Navigator.pop(context);
+                            _showColumnSelector();
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                        Text(col.replaceAll('_', ' ')),
+                      ],
+                    ),
+                  );
+                }),
+              ),
             ),
           ),
           actions: [
@@ -552,7 +767,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
             ),
           ],
         );
-      }
+      },
     );
   }
 
@@ -562,7 +777,14 @@ class _CatalogScreenState extends State<CatalogScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: TextStyle(fontSize: 10, color: Colors.blue, fontWeight: FontWeight.bold)),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              color: Colors.blue,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
           SelectableText(
             value?.toString() ?? '-',
             style: TextStyle(fontSize: 13),
@@ -572,13 +794,145 @@ class _CatalogScreenState extends State<CatalogScreen> {
     );
   }
 
+  Future<void> _searchDXF() async {
+    final TextEditingController searchController = TextEditingController();
+    final TextEditingController pathController = TextEditingController();
+    bool isSearching = false;
+
+    final prefs = await SharedPreferences.getInstance();
+    pathController.text = prefs.getString('dxf_master_path') ?? r'C:\Libreria_DXF';
+
+    await showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setStateDialog) {
+            return ContentDialog(
+              title: const Text('Buscador Rápido DXF / DWG'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Ruta Maestra de Búsqueda (Red/Local):'),
+                  const SizedBox(height: 8),
+                  TextBox(
+                    controller: pathController,
+                    placeholder: r'Ej. C:\Libreria_DXF',
+                    suffix: IconButton(
+                      icon: const Icon(FluentIcons.folder_open),
+                      onPressed: () async {
+                        String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
+                        if (selectedDirectory != null) {
+                           pathController.text = selectedDirectory.replaceAll('/', r'\');
+                        }
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('Ingresa el código de la pieza:'),
+                  const SizedBox(height: 12),
+                  TextBox(
+                    controller: searchController,
+                    placeholder: 'Ej. PTR-L200-XZ',
+                    autofocus: true,
+                    suffix: IconButton(
+                      icon: const Icon(FluentIcons.paste),
+                      onPressed: () async {
+                        final data = await Clipboard.getData(Clipboard.kTextPlain);
+                        if (data != null && data.text != null) {
+                          searchController.text = data.text!;
+                        }
+                      },
+                    ),
+                  ),
+                  if (isSearching)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 12.0),
+                      child: ProgressRing(),
+                    ),
+                ],
+              ),
+              actions: [
+                Button(
+                  child: const Text('Cerrar'),
+                  onPressed: () => Navigator.pop(context),
+                ),
+                FilledButton(
+                  onPressed: isSearching ? null : () async {
+                    if (searchController.text.isEmpty || pathController.text.isEmpty) return;
+                    
+                    final plainPath = pathController.text.trim().replaceAll('"', '').replaceAll("'", "");
+                    await prefs.setString('dxf_master_path', plainPath);
+                    setStateDialog(() => isSearching = true);
+                    
+                    try {
+                      final urlPath = Uri.encodeComponent(plainPath);
+                      final uri = Uri.parse('http://192.168.1.73:8001/api/dxf/search/${searchController.text.trim()}?base_path=$urlPath');
+                      final req = await http.get(uri);
+                      setStateDialog(() => isSearching = false);
+                      if (req.statusCode == 200) {
+                        final data = json.decode(req.body);
+                        final dxfPath = data['dxf_path'];
+                        Navigator.pop(context); // close search dialog
+                        // show success
+                        showDialog(context: context, builder: (ctx) => ContentDialog(
+                          title: const Text('Archivo Encontrado'),
+                          content: Text('Ruta: $dxfPath'),
+                          actions: [
+                            Button(child: const Text('Cerrar'), onPressed: () => Navigator.pop(ctx)),
+                            FilledButton(child: const Text('Abrir Ubicación'), onPressed: () {
+                              Process.run('explorer.exe', ['/select,', dxfPath]);
+                              Navigator.pop(ctx);
+                            }),
+                          ]
+                        ));
+                      } else {
+                        final err = json.decode(req.body);
+                        displayInfoBar(
+                          context, 
+                          builder: (c, close) => InfoBar(
+                            title: const Text('No encontrado'), 
+                            content: Text(err['detail'] ?? 'No se encontraron archivos válidos.'), 
+                            severity: InfoBarSeverity.warning, 
+                            onClose: close
+                          )
+                        );
+                      }
+                    } catch (e) {
+                       setStateDialog(() => isSearching = false);
+                       displayInfoBar(
+                         context, 
+                         builder: (c, close) => InfoBar(
+                           title: const Text('Error de Red'), 
+                           content: Text(e.toString()), 
+                           severity: InfoBarSeverity.error, 
+                           onClose: close
+                         )
+                       );
+                    }
+                  },
+                  child: const Text('Buscar'),
+                ),
+              ],
+            );
+          }
+        );
+      }
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ScaffoldPage(
       // Padding compactado en header
       padding: EdgeInsets.zero,
       header: Padding(
-        padding: const EdgeInsets.only(left: 10.0, right: 10.0, top: 4.0, bottom: 0.0), // Compactado severamente debajo del titulo
+        padding: const EdgeInsets.only(
+          left: 10.0,
+          right: 10.0,
+          top: 4.0,
+          bottom: 0.0,
+        ), // Compactado severamente debajo del titulo
         child: PageHeader(
           title: const Text('Catálogo Maestro'),
           commandBar: _buildCommandBar(),
@@ -632,6 +986,21 @@ class _CatalogScreenState extends State<CatalogScreen> {
         ),
         const SizedBox(width: 10),
         Tooltip(
+          message: "Buscar DXF",
+          child: Button(
+            onPressed: _searchDXF,
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(FluentIcons.search),
+                SizedBox(width: 8),
+                Text('Buscar DXF'),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Tooltip(
           message: "Exportar a Excel",
           child: IconButton(
             icon: const Icon(FluentIcons.excel_logo),
@@ -647,6 +1016,8 @@ class _CatalogScreenState extends State<CatalogScreen> {
     if (col == 'Codigo_Pieza' || col == 'Codigo') return 120.0;
     if (col == 'Proceso_Primario') return 135.0; // Fit text
     if (col == 'Medida') return 100.0;
+    if (col == 'Espesor_Perfil_CAD') return 150.0;
+    if (col == 'Tiene_DXF' || col == 'Largo_DXF' || col == 'Ancho_DXF') return 100.0;
     if (col.startsWith('Proceso_')) return 100.0;
     return 130.0; // Restante (Link Drive, etc.)
   }
@@ -662,16 +1033,21 @@ class _CatalogScreenState extends State<CatalogScreen> {
             const SizedBox(height: 10),
             IconButton(
               icon: const Icon(FluentIcons.copy),
-              onPressed: () => Clipboard.setData(ClipboardData(text: _errorMessage!)),
+              onPressed:
+                  () => Clipboard.setData(ClipboardData(text: _errorMessage!)),
             ),
-            const Text("Copiar Error", style: TextStyle(fontSize: 10, color: Colors.grey)),
+            const Text(
+              "Copiar Error",
+              style: TextStyle(fontSize: 10, color: Colors.grey),
+            ),
           ],
         ),
       );
     }
     if (_allData.isEmpty) return const Center(child: Text('Sin datos.'));
 
-    final activeCols = _columns.where((c) => _visibleColumns[c] == true).toList();
+    final activeCols =
+        _columns.where((c) => _visibleColumns[c] == true).toList();
 
     return Padding(
       padding: const EdgeInsets.all(8.0),
@@ -684,16 +1060,22 @@ class _CatalogScreenState extends State<CatalogScreen> {
               color: Colors.black.withOpacity(0.1),
               blurRadius: 10,
               offset: const Offset(0, 4),
-            )
+            ),
           ],
         ),
         padding: const EdgeInsets.all(8.0),
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final double actionsWidth = 110.0;
-            final double colsWidth = activeCols.fold(0.0, (sum, col) => sum + _getColumnWidth(col));
-            final minWidth = colsWidth + actionsWidth; 
-            final viewWidth = minWidth > constraints.maxWidth ? minWidth : constraints.maxWidth;
+            final double actionsWidth = 145.0;
+            final double colsWidth = activeCols.fold(
+              0.0,
+              (sum, col) => sum + _getColumnWidth(col),
+            );
+            final minWidth = colsWidth + actionsWidth;
+            final viewWidth =
+                minWidth > constraints.maxWidth
+                    ? minWidth
+                    : constraints.maxWidth;
 
             // 1. ELIMINAR EXPANDED REDUNDANTES (Se quitó el Expanded raíz que causaba el crash en ScaffoldPage)
             // 2. Y 3. ORDEN CORRECTO CON LISTA PEREZOSA PARA 60 FPS
@@ -721,7 +1103,9 @@ class _CatalogScreenState extends State<CatalogScreen> {
                     controller: _horizontalScrollController,
                     scrollDirection: Axis.horizontal,
                     child: Padding(
-                      padding: const EdgeInsets.only(bottom: 20.0), // Carril exclusivo inferior
+                      padding: const EdgeInsets.only(
+                        bottom: 20.0,
+                      ), // Carril exclusivo inferior
                       child: SizedBox(
                         width: viewWidth,
                         child: Column(
@@ -734,10 +1118,16 @@ class _CatalogScreenState extends State<CatalogScreen> {
                             // Esto habilita ListView como renderizado perezoso (60 FPS puros).
                             Expanded(
                               child: ListView.builder(
-                                controller: _verticalScrollController, // Vinculado al Scrollbar vertical maestro
+                                controller:
+                                    _verticalScrollController, // Vinculado al Scrollbar vertical maestro
                                 itemCount: _filteredData.length,
                                 itemBuilder: (context, index) {
-                                  return _buildDataRow(_filteredData[index], index, activeCols, actionsWidth);
+                                  return _buildDataRow(
+                                    _filteredData[index],
+                                    index,
+                                    activeCols,
+                                    actionsWidth,
+                                  );
                                 },
                               ),
                             ),
@@ -758,8 +1148,8 @@ class _CatalogScreenState extends State<CatalogScreen> {
   Widget _buildHeaderRow(List<String> activeCols, double actionsWidth) {
     return Row(
       children: [
-         // Espacio acciones (Sin Settings Icon)
-         SizedBox(width: actionsWidth, child: Container()), 
+        // Espacio acciones (Sin Settings Icon)
+        SizedBox(width: actionsWidth, child: Container()),
         ...activeCols.map((col) {
           return SizedBox(
             width: _getColumnWidth(col),
@@ -774,8 +1164,11 @@ class _CatalogScreenState extends State<CatalogScreen> {
                     children: [
                       Expanded(
                         child: Text(
-                          col.replaceAll('_', ' '), 
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12.0), 
+                          col == 'Espesor_Perfil_CAD' ? 'Espesor / Long. Perfil' : col.replaceAll('_', ' '),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12.0,
+                          ),
                           overflow: TextOverflow.ellipsis,
                           maxLines: 1,
                         ),
@@ -784,17 +1177,21 @@ class _CatalogScreenState extends State<CatalogScreen> {
                         message: 'Ordenar por $col',
                         child: IconButton(
                           icon: Icon(
-                            _columnaOrden == col 
-                              ? (_ordenAscendente ? FluentIcons.sort_up : FluentIcons.sort_down)
-                              : FluentIcons.sort, 
-                            size: 10
+                            _columnaOrden == col
+                                ? (_ordenAscendente
+                                    ? FluentIcons.sort_up
+                                    : FluentIcons.sort_down)
+                                : FluentIcons.sort,
+                            size: 10,
                           ),
                           onPressed: () => _ordenarTabla(col),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 4.0), // Separación justa sin paddings extra
+                  const SizedBox(
+                    height: 4.0,
+                  ), // Separación justa sin paddings extra
                   SizedBox(
                     width: _getColumnWidth(col),
                     child: TextBox(
@@ -808,16 +1205,25 @@ class _CatalogScreenState extends State<CatalogScreen> {
               ),
             ),
           );
-        }),
+        }).toList(),
       ],
     );
   }
 
-  Widget _buildDataRow(Map<String, dynamic> row, int index, List<String> activeCols, double actionsWidth) {
-    final hasLink = row['Link_Drive'] != null && row['Link_Drive'].toString().isNotEmpty && row['Link_Drive'].toString() != '-';
+  Widget _buildDataRow(
+    Map<String, dynamic> row,
+    int index,
+    List<String> activeCols,
+    double actionsWidth,
+  ) {
+    final hasLink =
+        row['Link_Drive'] != null &&
+        row['Link_Drive'].toString().isNotEmpty &&
+        row['Link_Drive'].toString() != '-';
 
     return Container(
-      color: index % 2 == 0 ? Colors.transparent : Colors.black.withOpacity(0.03),
+      color:
+          index % 2 == 0 ? Colors.transparent : Colors.black.withOpacity(0.03),
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         children: [
@@ -829,34 +1235,76 @@ class _CatalogScreenState extends State<CatalogScreen> {
                 Tooltip(
                   message: 'Información',
                   child: IconButton(
-                    icon: Icon(FluentIcons.info, size: 14, color: Colors.blue), // BLUE
+                    icon: Icon(
+                      FluentIcons.info,
+                      size: 14,
+                      color: Colors.blue,
+                    ), // BLUE
                     onPressed: () => _showInfoDetails(row),
                   ),
                 ),
                 Tooltip(
                   message: 'Editar',
                   child: IconButton(
-                    icon: Icon(FluentIcons.edit, size: 14, color: Colors.orange), // NARANJA VIBRANTE
+                    icon: Icon(
+                      FluentIcons.edit,
+                      size: 14,
+                      color: Colors.orange,
+                    ), // NARANJA VIBRANTE
                     onPressed: () => _showEditDialog(row),
                   ),
                 ),
-                
+
                 if (hasLink)
-                   Tooltip(
+                  Tooltip(
                     message: 'Abrir Drive/Plano',
                     child: IconButton(
-                      icon: Icon(FluentIcons.cloud, size: 14, color: Colors.teal), // TEAL (VERDE PASTEL VIBRANTE)
-                      onPressed: () => _launchDriveLink(row['Link_Drive']?.toString()),
+                      icon: Icon(
+                        FluentIcons.cloud,
+                        size: 14,
+                        color: Colors.teal,
+                      ), // TEAL (VERDE PASTEL VIBRANTE)
+                      onPressed:
+                          () => _launchDriveLink(row['Link_Drive']?.toString()),
                     ),
                   )
                 else
-                   const SizedBox(width: 30), 
+                  const SizedBox(width: 30),
 
                 Tooltip(
                   message: 'Copiar Código',
                   child: IconButton(
-                    icon: Icon(FluentIcons.copy, size: 14, color: Colors.magenta), // MAGENTA/MORADO PARA RESALTAR
-                    onPressed: () => _copyToClipboard(row['Codigo']?.toString() ?? ''),
+                    icon: Icon(
+                      FluentIcons.copy,
+                      size: 14,
+                      color: Colors.magenta,
+                    ), // MAGENTA/MORADO PARA RESALTAR
+                    onPressed: () {
+                      final codigoCopiar = row['Codigo_Pieza']?.toString() ?? row['Codigo']?.toString() ?? '';
+                      Clipboard.setData(ClipboardData(text: codigoCopiar));
+                      displayInfoBar(
+                        context,
+                        builder: (context, close) {
+                          return InfoBar(
+                            title: const Text('Código Copiado'),
+                            content: Text(codigoCopiar),
+                            severity: InfoBarSeverity.success,
+                            onClose: close,
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+                Tooltip(
+                  message: 'Eliminar Pieza',
+                  child: IconButton(
+                    icon: Icon(
+                      FluentIcons.delete,
+                      size: 14,
+                      color: Colors.red,
+                    ),
+                    onPressed: () => _deleteMaterial(row['Codigo_Pieza']?.toString() ?? row['Codigo']?.toString() ?? ''),
                   ),
                 ),
               ],

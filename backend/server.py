@@ -10,8 +10,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel, ConfigDict
+from pathlib import Path
 import io
 import os
+import sys
 import re
 import uuid
 import shutil
@@ -2041,6 +2043,59 @@ async def get_catalog():
     finally:
         conn.close()
 
+@app.delete("/api/catalog/{codigo}")
+async def delete_material_catalog(codigo: str):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Check existence first
+        cursor.execute("SELECT Codigo_Pieza FROM Tbl_Maestro_Piezas WHERE Codigo_Pieza = ?", (codigo,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Pieza no encontrada en el catálogo")
+            
+        cursor.execute("DELETE FROM Tbl_Maestro_Piezas WHERE Codigo_Pieza = ?", (codigo,))
+        conn.commit()
+        return {"status": "success", "message": f"Pieza {codigo} eliminada correctamente"}
+    except HTTPException as he:
+        conn.rollback()
+        raise he
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+DIRECTORIO_MAESTRO_DXF = os.environ.get("DIRECTORIO_MAESTRO_DXF", r"Y:\2026")
+
+@app.get("/api/dxf/search/{codigo}")
+async def search_dxf_catalog(codigo: str, base_path: str):
+    try:
+        clean_base_path = base_path.strip('"').strip("'")
+        target_dir = Path(clean_base_path)
+        if not target_dir.exists() or not target_dir.is_dir():
+             raise HTTPException(status_code=500, detail=f"Ruta maestra no encontrada o no es un directorio: {clean_base_path}")
+             
+        # Búsqueda global con comodines
+        archivos_encontrados = list(target_dir.rglob(f"*{codigo}*.*"))
+        
+        # Filtrar solo archivos con extensiones dxf o dwg
+        valid_files = [
+            p for p in archivos_encontrados
+            if p.is_file() and p.suffix.lower() in ['.dxf', '.dwg']
+        ]
+        
+        if not valid_files:
+             raise HTTPException(status_code=404, detail=f"No se encontraron archivos .dxf o .dwg válidos para '{codigo}' dentro de {clean_base_path}")
+
+        # Manejo de Duplicados/Revisiones: Obtener el archivo más reciente (última modificación)
+        newest_file = max(valid_files, key=lambda f: os.path.getmtime(f))
+
+        return {"status": "success", "codigo": codigo, "dxf_path": str(newest_file.resolve())}
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # 6. EDICIÓN DE MATERIALES (ESPECÍFICA + CAMPOS NUEVOS + PROCESO 3)
 @app.put("/api/material/update")
 async def update_material(request: Request, payload: Dict[str, Any]):
@@ -3127,6 +3182,12 @@ scan_status = {
 def bg_scan_cad_task(root_path: str):
     global scan_status
     import datetime
+    try:
+        import pythoncom
+        import logging
+        pythoncom.CoInitialize()
+    except Exception:
+        pass
     
     scan_status["status"] = "scanning"
     scan_status["progress"] = 0
@@ -3137,7 +3198,7 @@ def bg_scan_cad_task(root_path: str):
     # Búsqueda de archivos
     cad_files = {} # Key: filename without extension, Value: dict of details
     
-    extensions_to_look = {".dxf", ".dwg", ".sldprt"}
+    extensions_to_look = {".sldprt"}
     
     try:
         processed_count = 0
@@ -3252,6 +3313,9 @@ def bg_scan_cad_task(root_path: str):
             largo_cad = 0.0
             ancho_cad = 0.0
             observacion = ""
+            tiene_dxf = "No"
+            largo_dxf = ""
+            ancho_dxf = ""
             
             try:
                 if ext == ".dxf":
@@ -3291,10 +3355,14 @@ def bg_scan_cad_task(root_path: str):
 
                 elif ext == ".sldprt" and sw_app:
                     try:
-                        arg_errors = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
-                        arg_warnings = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
-                        swModel = sw_app.OpenDoc6(abspath, 1, 1 | 2, "", arg_errors, arg_warnings)
+                        ruta_abs = os.path.abspath(abspath)
+                        swDocPART = 1
+                        # Simplificamos a OpenDoc para evitar errores de ByRef y TypeErrors en hilos
+                        swModel = sw_app.OpenDoc(ruta_abs, swDocPART)
                     except Exception as try_open_err:
+                        import logging
+                        ruta_err = os.path.abspath(abspath)
+                        logging.error(f"Error crítico en SW con {ruta_err}: {repr(try_open_err)}")
                         # RPC Unavailable o Crash de COM
                         print(f"CRÍTICO - COM Crash intentando abrir {codigo}: {try_open_err}")
                         os.system("taskkill /F /IM SLDWORKS.exe 2>nul")
@@ -3308,31 +3376,56 @@ def bg_scan_cad_task(root_path: str):
                         try:
                             prop_mgr = swModel.Extension.CustomPropertyManager("")
                             
+                            def safe_get_prop(prop_val):
+                                if not prop_val: return ""
+                                if isinstance(prop_val, str): return prop_val
+                                if isinstance(prop_val, (tuple, list)):
+                                    if len(prop_val) > 1 and prop_val[1]: return str(prop_val[1])
+                                    if len(prop_val) > 0 and prop_val[0]: return str(prop_val[0])
+                                return str(prop_val)
+
                             # Intentar sobrescribir codigo pieza si está en custom properties
                             get_codigo = prop_mgr.Get("CODIGO_PIEZA")
-                            if get_codigo and len(get_codigo) > 1 and get_codigo[1]:
-                                codigo = str(get_codigo[1]).strip()
+                            codigo_val = safe_get_prop(get_codigo).strip()
+                            if codigo_val:
+                                codigo = codigo_val
 
                             get_largo = prop_mgr.Get("Largo_CAD")
                             get_ancho = prop_mgr.Get("Ancho_CAD")
+                            get_espesor = prop_mgr.Get("Espesor_Perfil_CAD")
                             
-                            largo_val = get_largo[1] if (get_largo and len(get_largo) > 1) else ""
-                            ancho_val = get_ancho[1] if (get_ancho and len(get_ancho) > 1) else ""
+                            largo_val = safe_get_prop(get_largo)
+                            ancho_val = safe_get_prop(get_ancho)
+                            espesor_val = safe_get_prop(get_espesor)
 
                             if largo_val and ancho_val:
                                  import re
-                                 largo = float(re.sub(r'[^\d.]', '', str(largo_val).replace(',', '.')) or 0)
-                                 ancho = float(re.sub(r'[^\d.]', '', str(ancho_val).replace(',', '.')) or 0)
-                                 
-                                 largo_cad = max(largo, ancho)
-                                 ancho_cad = min(largo, ancho)
-                                 
-                                 if largo_cad > 0 and ancho_cad > 0:
-                                     observacion = "OK"
-                                 else:
-                                     observacion = "No detectado"
+                                 try:
+                                     l_clean = str(largo_val).lower().replace("mm", "").strip().replace(',', '.')
+                                     a_clean = str(ancho_val).lower().replace("mm", "").strip().replace(',', '.')
+                                     l_str = re.sub(r'[^\d.]', '', l_clean)
+                                     a_str = re.sub(r'[^\d.]', '', a_clean)
+                                     
+                                     largo = float(l_str) if l_str and l_str != '.' else 0.0
+                                     ancho = float(a_str) if a_str and a_str != '.' else 0.0
+                                     
+                                     largo_cad = max(largo, ancho)
+                                     ancho_cad = min(largo, ancho)
+                                     
+                                     espesor_cad = 0.0
+                                     if espesor_val:
+                                         e_clean = str(espesor_val).lower().replace("mm", "").strip().replace(',', '.')
+                                         e_str = re.sub(r'[^\d.]', '', e_clean)
+                                         espesor_cad = float(e_str) if e_str and e_str != '.' else 0.0
+                                     
+                                     if largo_cad > 0 and ancho_cad > 0:
+                                         observacion = "OK"
+                                     else:
+                                         observacion = "No detectado (valores incompletos)"
+                                 except ValueError as ve:
+                                     observacion = f"Error métrico: {ve}"
                             else:
-                                 observacion = "No detectado"
+                                 observacion = "No detectado (faltan propiedades)"
                                  
                         except Exception as math_err:
                             observacion = f"Error matemático: {str(math_err)[:50]}"
@@ -3343,17 +3436,48 @@ def bg_scan_cad_task(root_path: str):
                             except: pass
                         
             except Exception as extract_err:
+                import traceback
                 if not observacion:
                     observacion = f"Error: {str(extract_err)[:50]}"
                 print(f"❌ Error leyendo {abspath}: {str(extract_err)}")
+                traceback.print_exc()
+
+            # Lógica de DXF (Auditoría Cruzada 2D)
+            dxf_path = os.path.join(root_path, "BIBLIOTECA_DXF", f'{info["codigo"]}.dxf')
+            if not os.path.exists(dxf_path) and codigo != info["codigo"]:
+                dxf_path_alt = os.path.join(root_path, "BIBLIOTECA_DXF", f'{codigo}.dxf')
+                if os.path.exists(dxf_path_alt):
+                    dxf_path = dxf_path_alt
+
+            if os.path.exists(dxf_path):
+                tiene_dxf = "Sí"
+                try:
+                    import ezdxf
+                    from ezdxf import bbox
+                    dxf_doc = ezdxf.readfile(dxf_path)
+                    msp = dxf_doc.modelspace()
+                    extents = bbox.extents(msp)
+                    if extents.has_data:
+                        dx = extents.extmax.x - extents.extmin.x
+                        dy = extents.extmax.y - extents.extmin.y
+                        lx = max(dx, dy)
+                        ax = min(dx, dy)
+                        largo_dxf = round(lx, 2)
+                        ancho_dxf = round(ax, 2)
+                except Exception as dxf_err:
+                    print(f"Error parseando DXF {dxf_path}: {dxf_err}")
 
             data.append({
                 "Codigo_Pieza": codigo,
                 "Extension": ext,
                 "Largo_CAD": round(largo_cad, 2) if largo_cad > 0 else "",
                 "Ancho_CAD": round(ancho_cad, 2) if ancho_cad > 0 else "",
+                "Espesor_Perfil_CAD": round(espesor_cad, 2) if espesor_cad > 0 else "",
                 "Material": "",
                 "Observaciones": observacion if observacion else "No detectado",
+                "Tiene_DXF": tiene_dxf,
+                "Largo_DXF": largo_dxf,
+                "Ancho_DXF": ancho_dxf,
                 "Ruta_Archivo": abspath
             })
             extraidos += 1
@@ -3369,9 +3493,9 @@ def bg_scan_cad_task(root_path: str):
             
         df = pd.DataFrame(data)
         if df.empty:
-            df = pd.DataFrame(columns=["Codigo_Pieza", "Extension", "Largo_CAD", "Ancho_CAD", "Material", "Observaciones", "Ruta_Archivo"])
+            df = pd.DataFrame(columns=["Codigo_Pieza", "Extension", "Largo_CAD", "Ancho_CAD", "Espesor_Perfil_CAD", "Material", "Observaciones", "Tiene_DXF", "Largo_DXF", "Ancho_DXF", "Ruta_Archivo"])
         else:
-             df = df[["Codigo_Pieza", "Extension", "Largo_CAD", "Ancho_CAD", "Material", "Observaciones", "Ruta_Archivo"]]
+             df = df[["Codigo_Pieza", "Extension", "Largo_CAD", "Ancho_CAD", "Espesor_Perfil_CAD", "Material", "Observaciones", "Tiene_DXF", "Largo_DXF", "Ancho_DXF", "Ruta_Archivo"]]
             
         reports_dir = os.path.join(os.getcwd(), "reportes")
         os.makedirs(reports_dir, exist_ok=True)
@@ -3407,37 +3531,69 @@ import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+cad_execution_logs = []
+cad_procesar_status = "idle"
+
 def bg_procesar_cad_task(ruta_raiz: str):
-    logging.info(f"Iniciando procesamiento CAD masivo en: {ruta_raiz}")
+    global cad_execution_logs, cad_procesar_status
+    cad_execution_logs.clear()
+    cad_procesar_status = "processing"
+    
+    def log_and_append(msg: str):
+        logging.info(msg)
+        cad_execution_logs.append(msg)
+        
+    log_and_append(f"Iniciando procesamiento CAD masivo en: {ruta_raiz}")
     base_dir = os.path.dirname(os.path.abspath(__file__))
     script_dwg = os.path.join(base_dir, "tools", "convertir_dwg.py")
     script_sw = os.path.join(base_dir, "tools", "preparar_solidworks.py")
     
     if not os.path.exists(script_dwg):
-        logging.error(f"Error: No se encontró el script DWG en la ruta absoluta: {script_dwg}")
+        log_and_append(f"Error: No se encontró el script DWG en la ruta absoluta: {script_dwg}")
     else:
         try:
-            logging.info("Ejecutando convertir_dwg.py...")
-            res_dwg = subprocess.run([sys.executable, script_dwg, ruta_raiz], capture_output=True, text=True, check=True)
-            logging.info(f"Resultado DWG: {res_dwg.stdout}")
-        except subprocess.CalledProcessError as e:
-            logging.error(f"Error al ejecutar convertir_dwg.py: {e.output} {e.stderr}")
+            log_and_append("Ejecutando convertir_dwg.py...")
+            process = subprocess.Popen(
+                [sys.executable, script_dwg, ruta_raiz],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding='cp1252',
+                errors='replace'
+            )
+            for line in iter(process.stdout.readline, ''):
+                if line:
+                    log_and_append(line.strip())
+            process.stdout.close()
+            process.wait()
+            log_and_append(f"convertir_dwg.py terminó (código {process.returncode})")
         except Exception as e:
-            logging.error(f"Error al ejecutar convertir_dwg.py: {e}")
+            log_and_append(f"Error al ejecutar convertir_dwg.py: {e}")
             
     if not os.path.exists(script_sw):
-        logging.error(f"Error: No se encontró el script SolidWorks en la ruta absoluta: {script_sw}")
+        log_and_append(f"Error: No se encontró el script SolidWorks en la ruta absoluta: {script_sw}")
     else:
         try:
-            logging.info("Ejecutando preparar_solidworks.py...")
-            res_sw = subprocess.run([sys.executable, script_sw, ruta_raiz], capture_output=True, text=True, check=True)
-            logging.info(f"Resultado SW: {res_sw.stdout}")
-        except subprocess.CalledProcessError as e:
-            logging.error(f"Error al ejecutar preparar_solidworks.py: {e.output} {e.stderr}")
+            log_and_append("Ejecutando preparar_solidworks.py...")
+            process = subprocess.Popen(
+                [sys.executable, script_sw, ruta_raiz],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding='cp1252',
+                errors='replace'
+            )
+            for line in iter(process.stdout.readline, ''):
+                if line:
+                    log_and_append(line.strip())
+            process.stdout.close()
+            process.wait()
+            log_and_append(f"preparar_solidworks.py terminó (código {process.returncode})")
         except Exception as e:
-            logging.error(f"Error al ejecutar preparar_solidworks.py: {e}")
+            log_and_append(f"Error al ejecutar preparar_solidworks.py: {e}")
             
-    logging.info("Procesamiento CAD completado")
+    log_and_append("Procesamiento CAD completado")
+    cad_procesar_status = "completed"
 
 @app.post("/api/cad/procesar-directorio")
 def procesar_directorio_cad(payload: ScanCADPayload, background_tasks: BackgroundTasks):
@@ -3450,8 +3606,11 @@ def procesar_directorio_cad(payload: ScanCADPayload, background_tasks: Backgroun
 
 @app.get("/api/cad/status")
 def get_cad_status():
-    global scan_status
-    return scan_status
+    global scan_status, cad_procesar_status, cad_execution_logs
+    status_response = scan_status.copy() if scan_status else {}
+    status_response["procesar_status"] = cad_procesar_status
+    status_response["logs"] = cad_execution_logs
+    return status_response
 
 from fastapi.responses import FileResponse
 import math
@@ -3501,8 +3660,13 @@ async def upload_cad_modifications(file: UploadFile = File(...)):
                      
                 largo = str(row.get("Largo_CAD", "")).strip()
                 ancho = str(row.get("Ancho_CAD", "")).strip()
+                espesor = str(row.get("Espesor_Perfil_CAD", "")).strip()
                 material_str = str(row.get("Material", "")).strip()
                 ruta_str = str(row.get("Ruta_Archivo", "")).strip()
+                
+                tiene_dxf = str(row.get("Tiene_DXF", "No")).strip()
+                largo_dxf_str = str(row.get("Largo_DXF", "")).strip()
+                ancho_dxf_str = str(row.get("Ancho_DXF", "")).strip()
                 
                 # Tratar vacíos
                 if not largo or not ancho:
@@ -3513,17 +3677,25 @@ async def upload_cad_modifications(file: UploadFile = File(...)):
                 try:
                     largo_float = float(largo)
                     ancho_float = float(ancho)
+                    espesor_float = float(espesor) if espesor else None
                 except ValueError:
-                    print(f"IGNORADA (Fila {index+2}): {codigo} - No son números (L:{largo}, A:{ancho})")
+                    print(f"IGNORADA (Fila {index+2}): {codigo} - No son números (L:{largo}, A:{ancho}, E:{espesor})")
                     ignoradas += 1
                     continue
+                try:
+                    largo_dxf_float = float(largo_dxf_str) if largo_dxf_str else None
+                    ancho_dxf_float = float(ancho_dxf_str) if ancho_dxf_str else None
+                except ValueError:
+                    largo_dxf_float = None
+                    ancho_dxf_float = None
                 
                 # Update Catalogo de piezas
                 cursor.execute("""
                     UPDATE Tbl_Maestro_Piezas 
-                    SET Largo_CAD = ?, Ancho_CAD = ?, Material = ?, Ruta_Archivo = ?
+                    SET Largo_CAD = ?, Ancho_CAD = ?, Espesor_Perfil_CAD = ?, Material = ?, Ruta_Archivo = ?,
+                        Tiene_DXF = ?, Largo_DXF = ?, Ancho_DXF = ?
                     WHERE Codigo_Pieza = ?
-                """, (largo_float, ancho_float, material_str, ruta_str, codigo))
+                """, (largo_float, ancho_float, espesor_float, material_str, ruta_str, tiene_dxf, largo_dxf_float, ancho_dxf_float, codigo))
                 
                 if cursor.rowcount > 0:
                     print(f"ACTUALIZADA: {codigo} (L:{largo_float}, A:{ancho_float})")

@@ -1,4 +1,3 @@
-
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -29,7 +28,9 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
 
   Future<void> _fetchOfficialMaterials() async {
     try {
-      final response = await http.get(Uri.parse('$API_URL/api/config/materiales'));
+      final response = await http.get(
+        Uri.parse('$API_URL/api/config/materiales'),
+      );
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
         setState(() {
@@ -44,7 +45,9 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
   Future<void> _fetchDescriptions() async {
     setState(() => _isLoading = true);
     try {
-      final response = await http.get(Uri.parse('$API_URL/api/limpieza/descripciones_unicas'));
+      final response = await http.get(
+        Uri.parse('$API_URL/api/limpieza/descripciones_unicas'),
+      );
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
         setState(() {
@@ -61,17 +64,23 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
 
   void _filterDescriptions(String query) {
     setState(() {
-      final baseList = _soloNoEstandarizados 
-          ? _descriptions.where((item) => !_officialMaterials.contains(item['descripcion'])).toList()
-          : _descriptions;
-          
+      final baseList =
+          _soloNoEstandarizados
+              ? _descriptions
+                  .where(
+                    (item) => !_officialMaterials.contains(item['descripcion']),
+                  )
+                  .toList()
+              : _descriptions;
+
       if (query.isEmpty) {
         _filteredDescriptions = baseList;
       } else {
-        _filteredDescriptions = baseList.where((item) {
-          final desc = item['descripcion']?.toString().toLowerCase() ?? '';
-          return desc.contains(query.toLowerCase());
-        }).toList();
+        _filteredDescriptions =
+            baseList.where((item) {
+              final desc = item['descripcion']?.toString().toLowerCase() ?? '';
+              return desc.contains(query.toLowerCase());
+            }).toList();
       }
     });
   }
@@ -89,34 +98,41 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Descripción Actual:', style: TextStyle(fontWeight: FontWeight.bold)),
+              Text(
+                'Descripción Actual:',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
               Text(currentDesc, style: TextStyle(color: Colors.red)),
               SizedBox(height: 10),
-              Text('Afectará a $count pieza(s).', style: TextStyle(fontStyle: FontStyle.italic)),
+              Text(
+                'Afectará a $count pieza(s).',
+                style: TextStyle(fontStyle: FontStyle.italic),
+              ),
               SizedBox(height: 20),
               Text('Nueva Descripción (Seleccionar Oficial):'),
-              
+
               AutoSuggestBox<String>(
                 controller: _autoSuggestController,
-                items: _officialMaterials.map((e) {
-                  return AutoSuggestBoxItem<String>(
-                    value: e,
-                    label: e,
-                    child: Tooltip(
-                      message: e,
-                      child: Text(
-                        e,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  );
-                }).toList(),
+                items:
+                    _officialMaterials.map((e) {
+                      return AutoSuggestBoxItem<String>(
+                        value: e,
+                        label: e,
+                        child: Tooltip(
+                          message: e,
+                          child: Text(
+                            e,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      );
+                    }).toList(),
                 onSelected: (item) {
                   selectedNewDesc = item.value;
                 },
                 onChanged: (text, reason) {
-                   selectedNewDesc = text;
+                  selectedNewDesc = text;
                 },
               ),
             ],
@@ -143,10 +159,10 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
 
   Future<void> _applyStandardization(String oldDesc, String newDesc) async {
     setState(() => _isLoading = true);
-    
+
     // Obtener usuario (Simulado o de contexto real si existiera)
-    String usuario = "Usuario_Estandarizacion"; 
-    
+    String usuario = "Usuario_Estandarizacion";
+
     try {
       final response = await http.post(
         Uri.parse('$API_URL/api/limpieza/actualizar_masivo'),
@@ -154,7 +170,7 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
         body: json.encode({
           "old_desc": oldDesc,
           "new_desc": newDesc,
-          "usuario": usuario 
+          "usuario": usuario,
         }),
       );
 
@@ -165,7 +181,6 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
       } else {
         _showError("Error del servidor: ${response.statusCode}");
       }
-
     } catch (e) {
       _showError("Error de conexión: $e");
     } finally {
@@ -200,7 +215,9 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
     setState(() => _isLoading = true);
     try {
       final response = await http.delete(
-        Uri.parse('$API_URL/api/materiales/oficial/${Uri.encodeComponent(desc)}'),
+        Uri.parse(
+          '$API_URL/api/materiales/oficial/${Uri.encodeComponent(desc)}',
+        ),
       );
 
       if (response.statusCode == 200) {
@@ -217,46 +234,50 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
     }
   }
 
-
   void _showError(String message) {
-    displayInfoBar(context, builder: (context, close) {
-      return InfoBar(
-        title: const Text('Error'),
-        content: Row(
-          children: [
-            Expanded(child: SelectableText(message)),
-            Padding(
-              padding: const EdgeInsets.only(left: 8.0),
-              child: IconButton(
-                icon: const Icon(FluentIcons.copy),
-                onPressed: () => Clipboard.setData(ClipboardData(text: message)),
+    displayInfoBar(
+      context,
+      builder: (context, close) {
+        return InfoBar(
+          title: const Text('Error'),
+          content: Row(
+            children: [
+              Expanded(child: SelectableText(message)),
+              Padding(
+                padding: const EdgeInsets.only(left: 8.0),
+                child: IconButton(
+                  icon: const Icon(FluentIcons.copy),
+                  onPressed:
+                      () => Clipboard.setData(ClipboardData(text: message)),
+                ),
               ),
-            ),
-          ],
-        ),
-        severity: InfoBarSeverity.error,
-        onClose: close,
-      );
-    });
+            ],
+          ),
+          severity: InfoBarSeverity.error,
+          onClose: close,
+        );
+      },
+    );
   }
 
   void _showSuccess(String message) {
-    displayInfoBar(context, builder: (context, close) {
-      return InfoBar(
-        title: Text('Éxito'),
-        content: Text(message),
-        severity: InfoBarSeverity.success,
-        onClose: close,
-      );
-    });
+    displayInfoBar(
+      context,
+      builder: (context, close) {
+        return InfoBar(
+          title: Text('Éxito'),
+          content: Text(message),
+          severity: InfoBarSeverity.success,
+          onClose: close,
+        );
+      },
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return ScaffoldPage(
-      header: PageHeader(
-        title: Text('Estandarización de Datos'),
-      ),
+      header: PageHeader(title: Text('Estandarización de Datos')),
       content: Padding(
         padding: EdgeInsets.all(16),
         child: Column(
@@ -286,117 +307,158 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
             ),
             SizedBox(height: 20),
             Expanded(
-              child: _isLoading
-                  ? Center(child: ProgressRing())
-                  : _filteredDescriptions.isEmpty
+              child:
+                  _isLoading
+                      ? Center(child: ProgressRing())
+                      : _filteredDescriptions.isEmpty
                       ? Center(child: Text("No hay datos para mostrar"))
                       : ListView.builder(
-                          itemCount: _filteredDescriptions.length,
-                          itemBuilder: (context, index) {
-                            final item = _filteredDescriptions[index];
-                            final desc = item['descripcion'] ?? "---";
-                            final total = item['total'] ?? 0;
+                        itemCount: _filteredDescriptions.length,
+                        itemBuilder: (context, index) {
+                          final item = _filteredDescriptions[index];
+                          final desc = item['descripcion'] ?? "---";
+                          final total = item['total'] ?? 0;
 
-                            // Verificar si es oficial
-                            final isOfficial = _officialMaterials.contains(desc);
+                          // Verificar si es oficial
+                          final isOfficial = _officialMaterials.contains(desc);
 
-                            return Card(
-                              margin: EdgeInsets.only(bottom: 8),
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          desc, 
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.bold, 
-                                            fontSize: 16,
-                                            color: isOfficial ? Colors.green : null
-                                          )
-                                        ),
-                                        Text('Total piezas: $total', style: TextStyle(color: Colors.grey)),
-                                        if (isOfficial)
-                                           Text('✅ Estandarizado', style: TextStyle(color: Colors.green, fontSize: 12)),
-                                      ],
-                                    ),
-                                  ),
-                                  Row(
+                          return Card(
+                            margin: EdgeInsets.only(bottom: 8),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
-                                      if (!isOfficial) ...[
-                                        FilledButton(
-                                          child: Text('Hacer Oficial'),
-                                          onPressed: () {
-                                            showDialog(
-                                              context: context, 
-                                              builder: (context) => ContentDialog(
-                                                title: Text("Confirmación"), 
-                                                content: Text("Se agregará [$desc] a Materiales Oficiales."), 
-                                                actions: [
-                                                  Button(child: Text("Cancelar"), onPressed: () => Navigator.pop(context)),
-                                                  FilledButton(
-                                                    child: Text("Hacer Oficial"), 
-                                                    onPressed: () {
-                                                      Navigator.pop(context);
-                                                      _hacerOficial(desc);
-                                                    }
-                                                  )
-                                                ]
-                                              )
-                                            );
-                                          },
+                                      Text(
+                                        desc,
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 16,
+                                          color:
+                                              isOfficial ? Colors.green : null,
                                         ),
-                                        SizedBox(width: 8),
-                                      ],
-                                      Button(
-                                        child: Row(
-                                          children: [
-                                            Icon(FluentIcons.edit),
-                                            SizedBox(width: 8),
-                                            Text('Estandarizar'),
-                                          ],
-                                        ),
-                                        onPressed: () => _showStandardizeDialog(desc, total),
                                       ),
-                                      if (isOfficial) ...[
-                                        SizedBox(width: 8),
-                                        IconButton(
-                                          icon: Icon(FluentIcons.delete, color: Colors.red),
-                                          onPressed: () {
-                                            showDialog(
-                                              context: context,
-                                              builder: (context) => ContentDialog(
-                                                title: Text("Eliminar Material Oficial"),
-                                                content: Text("¿Seguro que deseas eliminar '$desc' del catálogo oficial?"),
-                                                actions: [
-                                                  Button(
-                                                    child: Text("Cancelar"),
-                                                    onPressed: () => Navigator.pop(context),
-                                                  ),
-                                                  FilledButton(
-                                                    style: ButtonStyle(
-                                                      backgroundColor: ButtonState.all(Colors.red),
-                                                    ),
-                                                    child: Text("Eliminar"),
-                                                    onPressed: () {
-                                                      Navigator.pop(context);
-                                                      _eliminarOficial(desc);
-                                                    },
-                                                  ),
-                                                ],
-                                              ),
-                                            );
-                                          },
+                                      Text(
+                                        'Total piezas: $total',
+                                        style: TextStyle(color: Colors.grey),
+                                      ),
+                                      if (isOfficial)
+                                        Text(
+                                          '✅ Estandarizado',
+                                          style: TextStyle(
+                                            color: Colors.green,
+                                            fontSize: 12,
+                                          ),
                                         ),
-                                      ],
                                     ],
                                   ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
+                                ),
+                                Row(
+                                  children: [
+                                    if (!isOfficial) ...[
+                                      FilledButton(
+                                        child: Text('Hacer Oficial'),
+                                        onPressed: () {
+                                          showDialog(
+                                            context: context,
+                                            builder:
+                                                (context) => ContentDialog(
+                                                  title: Text("Confirmación"),
+                                                  content: Text(
+                                                    "Se agregará [$desc] a Materiales Oficiales.",
+                                                  ),
+                                                  actions: [
+                                                    Button(
+                                                      child: Text("Cancelar"),
+                                                      onPressed:
+                                                          () => Navigator.pop(
+                                                            context,
+                                                          ),
+                                                    ),
+                                                    FilledButton(
+                                                      child: Text(
+                                                        "Hacer Oficial",
+                                                      ),
+                                                      onPressed: () {
+                                                        Navigator.pop(context);
+                                                        _hacerOficial(desc);
+                                                      },
+                                                    ),
+                                                  ],
+                                                ),
+                                          );
+                                        },
+                                      ),
+                                      SizedBox(width: 8),
+                                    ],
+                                    Button(
+                                      child: Row(
+                                        children: [
+                                          Icon(FluentIcons.edit),
+                                          SizedBox(width: 8),
+                                          Text('Estandarizar'),
+                                        ],
+                                      ),
+                                      onPressed:
+                                          () => _showStandardizeDialog(
+                                            desc,
+                                            total,
+                                          ),
+                                    ),
+                                    if (isOfficial) ...[
+                                      SizedBox(width: 8),
+                                      IconButton(
+                                        icon: Icon(
+                                          FluentIcons.delete,
+                                          color: Colors.red,
+                                        ),
+                                        onPressed: () {
+                                          showDialog(
+                                            context: context,
+                                            builder:
+                                                (context) => ContentDialog(
+                                                  title: Text(
+                                                    "Eliminar Material Oficial",
+                                                  ),
+                                                  content: Text(
+                                                    "¿Seguro que deseas eliminar '$desc' del catálogo oficial?",
+                                                  ),
+                                                  actions: [
+                                                    Button(
+                                                      child: Text("Cancelar"),
+                                                      onPressed:
+                                                          () => Navigator.pop(
+                                                            context,
+                                                          ),
+                                                    ),
+                                                    FilledButton(
+                                                      style: ButtonStyle(
+                                                        backgroundColor:
+                                                            ButtonState.all(
+                                                              Colors.red,
+                                                            ),
+                                                      ),
+                                                      child: Text("Eliminar"),
+                                                      onPressed: () {
+                                                        Navigator.pop(context);
+                                                        _eliminarOficial(desc);
+                                                      },
+                                                    ),
+                                                  ],
+                                                ),
+                                          );
+                                        },
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
             ),
           ],
         ),
