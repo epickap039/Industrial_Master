@@ -81,8 +81,18 @@ class AppThemes {
     cardColor: const Color(0xFF111111),
     typography: const Typography.raw(
       body: TextStyle(color: Color(0xFF00FFCC), fontFamily: 'Consolas'),
-      title: TextStyle(color: Color(0xFF00FFCC), fontWeight: FontWeight.bold),
-      subtitle: TextStyle(color: Color(0xFF00FFCC)),
+      title: TextStyle(color: Color(0xFF00FFCC), fontWeight: FontWeight.bold, fontFamily: 'Consolas'),
+      subtitle: TextStyle(color: Color(0xFF00FFCC), fontFamily: 'Consolas'),
+    ),
+    buttonTheme: ButtonThemeData(
+      defaultButtonStyle: ButtonStyle(
+        shape: ButtonState.all(BeveledRectangleBorder(borderRadius: BorderRadius.zero, side: const BorderSide(color: Color(0xFF00FFCC)))),
+        elevation: ButtonState.all(0),
+      ),
+      filledButtonStyle: ButtonStyle(
+        shape: ButtonState.all(BeveledRectangleBorder(borderRadius: BorderRadius.zero, side: const BorderSide(color: Color(0xFF00FFCC)))),
+        elevation: ButtonState.all(0),
+      ),
     ),
   );
 
@@ -95,6 +105,16 @@ class AppThemes {
       body: TextStyle(color: Color(0xFF333333)), // Sin negros duros
       title: TextStyle(color: Color(0xFF111111), fontWeight: FontWeight.w600),
     ),
+    buttonTheme: ButtonThemeData(
+      defaultButtonStyle: ButtonStyle(
+        shape: ButtonState.all(RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+        elevation: ButtonState.all(0),
+      ),
+      filledButtonStyle: ButtonStyle(
+        shape: ButtonState.all(RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+        elevation: ButtonState.all(0),
+      ),
+    ),
   );
 
   static final FluentThemeData platziTheme = FluentThemeData(
@@ -105,6 +125,14 @@ class AppThemes {
     typography: const Typography.raw(
       body: TextStyle(color: Color(0xFFF0F0F0)),
       title: TextStyle(color: Color(0xFFFFFFFF), fontWeight: FontWeight.bold),
+    ),
+    buttonTheme: ButtonThemeData(
+      defaultButtonStyle: ButtonStyle(
+        shape: ButtonState.all(RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+      ),
+      filledButtonStyle: ButtonStyle(
+        shape: ButtonState.all(RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+      ),
     ),
   );
 

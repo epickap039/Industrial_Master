@@ -1361,13 +1361,18 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
         _selectedRevision != null && _selectedRevision['estado'] == 'Aprobada';
 
     return _arbol.map((est) {
+      final List ensamblesList = est['ensambles'] as List;
+      final bool hasChildren = ensamblesList.isNotEmpty;
+
       return TreeViewItem(
+        expanded: hasChildren,
         content: Row(
           children: [
             Expanded(
               child: Text(
                 est['nombre'],
                 style: const TextStyle(fontWeight: FontWeight.bold),
+                overflow: TextOverflow.ellipsis,
               ),
             ),
             if (!isAprobada) ...[
@@ -1395,7 +1400,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
           ],
         ),
         children:
-            (est['ensambles'] as List).map((ens) {
+            ensamblesList.map((ens) {
               final isSelected =
                   _selectedEnsamble != null &&
                   _selectedEnsamble['id'] == ens['id'];
@@ -1415,6 +1420,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                           child: Text(
                             "[E-${ens['id'].toString().padLeft(4, '0')}] - ${ens['nombre']}",
                             style: const TextStyle(fontWeight: FontWeight.w500),
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         if (!isAprobada)
