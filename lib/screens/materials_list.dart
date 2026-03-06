@@ -315,12 +315,12 @@ class _MaterialsListScreenState extends State<MaterialsListScreen> {
                             );
                           },
                         ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          flex: 4,
-                          child: Text(material, style: const TextStyle(fontSize: 14)),
-                        ),
                       ],
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      flex: 4,
+                      child: Text(material, style: const TextStyle(fontSize: 14)),
                     ),
                   ],
                 ),

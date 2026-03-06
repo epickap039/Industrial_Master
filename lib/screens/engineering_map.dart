@@ -119,35 +119,43 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
           }).toList();
 
       return TreeViewItem(
-        leading: Container(
-          width: 12,
-          height: 12,
-          decoration: BoxDecoration(color: primaryColor, shape: BoxShape.circle),
-        ),
-        content: Text(
-          tractoNombre,
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 15,
-            color: primaryColor,
+        expanded: false,
+        content: Container(
+          margin: const EdgeInsets.only(top: 8, bottom: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: FluentTheme.of(context).cardColor,
+            border: Border.all(color: dividerColor.withOpacity(0.5)),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(width: 12, height: 12, decoration: BoxDecoration(color: primaryColor, shape: BoxShape.circle)),
+              const SizedBox(width: 8),
+              Text(tractoNombre, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: primaryColor)),
+            ],
           ),
         ),
         children:
             tipos.map<TreeViewItem>((tipo) {
               return TreeViewItem(
-                leading: Icon(
-                  FluentIcons.build_definition,
-                  size: 14,
-                  color: primaryColor.withOpacity(0.7),
-                ),
+                expanded: false,
                 content: Container(
-                  padding: const EdgeInsets.only(left: 8.0, top: 4.0, bottom: 4.0),
+                  margin: const EdgeInsets.only(left: 40.0, top: 6, bottom: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                   decoration: BoxDecoration(
-                    border: Border(left: BorderSide(color: dividerColor, width: 1.0)),
+                    color: FluentTheme.of(context).cardColor,
+                    border: Border.all(color: dividerColor.withOpacity(0.4)),
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Text(
-                    tipo['nombre'],
-                    style: TextStyle(fontWeight: FontWeight.w600, color: bodyColor),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(FluentIcons.build_definition, size: 14, color: primaryColor.withOpacity(0.7)),
+                      const SizedBox(width: 8),
+                      Text(tipo['nombre'], style: TextStyle(fontWeight: FontWeight.w600, color: bodyColor)),
+                    ],
                   ),
                 ),
                 children:
@@ -156,24 +164,22 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
                       final bool hasRevs = revisiones.isNotEmpty;
                       
                       return TreeViewItem(
-                        leading: Icon(
-                          FluentIcons.fabric_open_folder_horizontal,
-                          size: 13,
-                          color: hasRevs
-                              ? primaryColor
-                              : bodyColor.withOpacity(0.3),
-                        ),
+                        expanded: false,
                         content: Container(
-                          padding: const EdgeInsets.only(left: 8.0, top: 2.0, bottom: 2.0),
+                          margin: const EdgeInsets.only(left: 40.0, top: 4, bottom: 4),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                           decoration: BoxDecoration(
-                            border: Border(left: BorderSide(color: dividerColor, width: 1.0)),
+                            color: FluentTheme.of(context).cardColor,
+                            border: Border.all(color: dividerColor.withOpacity(0.3)),
+                            borderRadius: BorderRadius.circular(8),
                           ),
-                          child: Text(
-                            ver['nombre'],
-                            style: TextStyle(
-                              fontStyle: FontStyle.italic,
-                              color: hasRevs ? bodyColor : bodyColor.withOpacity(0.6),
-                            ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(FluentIcons.fabric_open_folder_horizontal, size: 13, color: hasRevs ? primaryColor : bodyColor.withOpacity(0.3)),
+                              const SizedBox(width: 8),
+                              Text(ver['nombre'], style: TextStyle(fontStyle: FontStyle.italic, color: hasRevs ? bodyColor : bodyColor.withOpacity(0.6))),
+                            ],
                           ),
                         ),
                         children: !hasRevs
@@ -182,12 +188,17 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
                                   final bool aprobada =
                                       rev['estado'] == 'Aprobada';
                                   return TreeViewItem(
+                                    expanded: false,
                                     content: Container(
-                                      padding: const EdgeInsets.only(left: 8.0, top: 2.0, bottom: 2.0),
+                                      margin: const EdgeInsets.only(left: 40.0, top: 4, bottom: 4),
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                       decoration: BoxDecoration(
-                                        border: Border(left: BorderSide(color: dividerColor, width: 1.0)),
+                                        color: FluentTheme.of(context).cardColor,
+                                        border: Border.all(color: dividerColor.withOpacity(0.2)),
+                                        borderRadius: BorderRadius.circular(8),
                                       ),
                                       child: Row(
+                                        mainAxisSize: MainAxisSize.min,
                                         children: [
                                           // Semáforo de estado
                                           Tooltip(
@@ -195,49 +206,33 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
                                             child: Container(
                                               width: 10,
                                               height: 10,
-                                              margin: const EdgeInsets.only(
-                                                right: 6,
-                                              ),
+                                              margin: const EdgeInsets.only(right: 8),
                                               decoration: BoxDecoration(
-                                                color:
-                                                    aprobada
-                                                        ? Colors.green
-                                                        : Colors.orange,
+                                                color: aprobada ? Colors.green : Colors.orange,
                                                 shape: BoxShape.circle,
                                               ),
                                             ),
                                           ),
-                                          Expanded(
-                                            child: Text(
-                                              "Rev ${rev['numero_revision']}  •  ${rev['estado']}",
-                                              style: TextStyle(
-                                                fontSize: 13,
-                                                color: bodyColor,
-                                              ),
-                                            ),
+                                          Text(
+                                            "Rev ${rev['numero_revision']}  •  ${rev['estado']}",
+                                            style: TextStyle(fontSize: 13, color: bodyColor),
                                           ),
+                                          const SizedBox(width: 16),
                                           // Botón abrir BOM
                                           Tooltip(
-                                            message:
-                                                "Abrir Gestor de BOM para esta revisión",
+                                            message: "Abrir Gestor de BOM para esta revisión",
                                             child: IconButton(
-                                              icon: Icon(
-                                                FluentIcons.open_in_new_window,
-                                                size: 14,
-                                                color: primaryColor,
-                                              ),
-                                              onPressed:
-                                                  () => Navigator.push(
-                                                    context,
-                                                    FluentPageRoute(
-                                                      builder:
-                                                          (_) => BOMManagerScreen(
-                                                            idVersion: ver['id'] as int,
-                                                            versionName: ver['nombre'] as String,
-                                                            tractoName: tractoNombre,
-                                                          ),
-                                                    ),
+                                              icon: Icon(FluentIcons.open_in_new_window, size: 14, color: primaryColor),
+                                              onPressed: () => Navigator.push(
+                                                context,
+                                                FluentPageRoute(
+                                                  builder: (_) => BOMManagerScreen(
+                                                    idVersion: ver['id'] as int,
+                                                    versionName: ver['nombre'] as String,
+                                                    tractoName: tractoNombre,
                                                   ),
+                                                ),
+                                              ),
                                             ),
                                           ),
                                         ],
@@ -308,14 +303,20 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
                   ],
                 ),
               )
-              : Padding(
-                padding: const EdgeInsets.all(16),
-                child: TreeView(
-                  items: _buildTree(),
-                  selectionMode: TreeViewSelectionMode.single,
-                  onItemInvoked: (item, reason) async {},
+              : InteractiveViewer(
+                  constrained: false,
+                  minScale: 0.5,
+                  maxScale: 2.0,
+                  boundaryMargin: const EdgeInsets.all(double.infinity),
+                  child: Padding(
+                    padding: const EdgeInsets.all(40.0),
+                    child: TreeView(
+                      items: _buildTree(),
+                      selectionMode: TreeViewSelectionMode.single,
+                      onItemInvoked: (item, reason) async {},
+                    ),
+                  ),
                 ),
-              ),
     );
   }
 }
