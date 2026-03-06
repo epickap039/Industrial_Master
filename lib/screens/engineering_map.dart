@@ -15,8 +15,16 @@ class EngineeringMapScreen extends StatefulWidget {
 
 class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
   List<dynamic> _arbol = [];
-  bool _isLoading = true;
-  String _filter = "";
+  String _filter = '';
+  bool _isLoading = false;
+  bool _groupByClient = false;
+  final TransformationController _transformationController = TransformationController();
+
+  @override
+  void dispose() {
+    _transformationController.dispose();
+    super.dispose();
+  }
   int? _lastUsedTargetRevId;
 
   @override
@@ -101,164 +109,284 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
   List<Widget> _buildTree() {
     final filterLow = _filter.toLowerCase();
     final primaryColor = FluentTheme.of(context).accentColor;
-    final bodyColor = FluentTheme.of(context).typography.body?.color ?? Colors.black;
+    final bodyColor = FluentTheme.of(context).typography.body?.color ?? const Color(0xFF000000);
     final dividerColor = FluentTheme.of(context).resources.dividerStrokeColorDefault ?? bodyColor.withOpacity(0.1);
 
+    if (_groupByClient) {
+      return _buildByClient(filterLow, primaryColor, bodyColor, dividerColor);
+    } else {
+      return _buildByProject(filterLow, primaryColor, bodyColor, dividerColor);
+    }
+  }
+
+  Widget _buildCardNode({
+    required Widget child,
+    required bool initiallyExpanded,
+    required List<Widget> children,
+    required Color cardColor,
+    required Color borderColor,
+  }) {
+    return _CustomNode(
+      initiallyExpanded: initiallyExpanded,
+      header: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 400),
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: cardColor,
+            border: Border.all(color: borderColor),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: child,
+        ),
+      ),
+      children: children,
+    );
+  }
+
+  Widget _buildRevisionRow(dynamic rev, Color cardColor, Color dividerColor, Color bodyColor, Color primaryColor, int verId, String versionName, String tractoName) {
+    final bool aprobada = rev['estado'] == 'Aprobada';
+    return _buildCardNode(
+      initiallyExpanded: false,
+      cardColor: cardColor,
+      borderColor: dividerColor.withOpacity(0.2),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Tooltip(
+            message: rev['estado'],
+            child: Container(
+              width: 10,
+              height: 10,
+              margin: const EdgeInsets.only(right: 8),
+              decoration: BoxDecoration(color: aprobada ? const Color(0xFF4CAF50) : const Color(0xFFFF9800), shape: BoxShape.circle),
+            ),
+          ),
+          Text("Rev ${rev['numero_revision']}  •  ${rev['estado']}", style: TextStyle(fontSize: 13, color: bodyColor)),
+          const SizedBox(width: 16),
+          Tooltip(
+            message: "Abrir Gestor de BOM para esta revisión",
+            child: IconButton(
+              icon: Icon(FluentIcons.open_in_new_window, size: 14, color: primaryColor),
+              onPressed: () => Navigator.push(
+                context,
+                FluentPageRoute(
+                  builder: (_) => BOMManagerScreen(
+                    idVersion: verId,
+                    versionName: versionName,
+                    tractoName: tractoName,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+      children: [],
+    );
+  }
+
+  List<Widget> _buildByProject(String filterLow, Color primaryColor, Color bodyColor, Color dividerColor) {
+    final cardColor = FluentTheme.of(context).cardColor;
     return _arbol.map<Widget>((tracto) {
       final tractoNombre = tracto['nombre'] as String;
+      final tipos = (tracto['tipos'] as List).where((tp) {
+        if (filterLow.isEmpty) return true;
+        if ((tp['nombre'] as String).toLowerCase().contains(filterLow)) return true;
+        return (tp['versiones'] as List).any((v) => (v['nombre'] as String).toLowerCase().contains(filterLow));
+      }).toList();
 
-      // Filtrar tipos/versiones por el texto de búsqueda
-      final tipos =
-          (tracto['tipos'] as List).where((tp) {
-            if (filterLow.isEmpty) return true;
-            final tpNombre = (tp['nombre'] as String).toLowerCase();
-            if (tpNombre.contains(filterLow)) return true;
-            return (tp['versiones'] as List).any(
-              (v) => (v['nombre'] as String).toLowerCase().contains(filterLow),
-            );
-          }).toList();
+      if (filterLow.isNotEmpty && tipos.isEmpty && !tractoNombre.toLowerCase().contains(filterLow)) {
+        return const SizedBox.shrink();
+      }
 
-      return _CustomNode(
+      return _buildCardNode(
         initiallyExpanded: false,
-        header: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 400),
-          child: Container(
-            margin: const EdgeInsets.only(top: 8, bottom: 8),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: FluentTheme.of(context).cardColor,
-              border: Border.all(color: dividerColor.withOpacity(0.5)),
-              borderRadius: BorderRadius.circular(8),
-            ),
+        cardColor: cardColor,
+        borderColor: dividerColor.withOpacity(0.5),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(width: 12, height: 12, decoration: BoxDecoration(color: primaryColor, shape: BoxShape.circle)),
+            const SizedBox(width: 8),
+            Expanded(child: Text(tractoNombre, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: bodyColor))),
+          ],
+        ),
+        children: tipos.map<Widget>((tipo) {
+          return _buildCardNode(
+            initiallyExpanded: false,
+            cardColor: cardColor,
+            borderColor: dividerColor.withOpacity(0.4),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Container(width: 12, height: 12, decoration: BoxDecoration(color: primaryColor, shape: BoxShape.circle)),
+                Icon(FluentIcons.build_definition, size: 14, color: primaryColor.withOpacity(0.7)),
                 const SizedBox(width: 8),
-                Expanded(child: Text(tractoNombre, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: primaryColor))),
+                Expanded(child: Text(tipo['nombre'], style: TextStyle(fontWeight: FontWeight.w600, color: bodyColor))),
               ],
             ),
-          ),
-        ),
-        children:
-            tipos.map<Widget>((tipo) {
-              return _CustomNode(
+            children: (tipo['versiones'] as List).map<Widget>((ver) {
+              final revisiones = ver['revisiones'] as List;
+              if (revisiones.isEmpty) {
+                return _buildCardNode(
+                  initiallyExpanded: false,
+                  cardColor: cardColor,
+                  borderColor: dividerColor.withOpacity(0.3),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(FluentIcons.fabric_open_folder_horizontal, size: 13, color: bodyColor.withOpacity(0.3)),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(ver['nombre'], style: TextStyle(fontStyle: FontStyle.italic, color: bodyColor.withOpacity(0.6)))),
+                    ],
+                  ),
+                  children: [],
+                );
+              }
+
+              Map<String, List<dynamic>> byCliente = {};
+              for(var rev in revisiones) {
+                String cl = rev['cliente'] ?? "General";
+                byCliente.putIfAbsent(cl, () => []).add(rev);
+              }
+
+              return _buildCardNode(
                 initiallyExpanded: false,
-                header: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 400),
-                  child: Container(
-                    margin: const EdgeInsets.only(top: 6, bottom: 6),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: FluentTheme.of(context).cardColor,
-                      border: Border.all(color: dividerColor.withOpacity(0.4)),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
+                cardColor: cardColor,
+                borderColor: dividerColor.withOpacity(0.3),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(FluentIcons.fabric_open_folder_horizontal, size: 13, color: primaryColor),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(ver['nombre'], style: TextStyle(fontStyle: FontStyle.italic, color: bodyColor))),
+                  ],
+                ),
+                children: byCliente.entries.map<Widget>((entry) {
+                   String clname = entry.key;
+                   List<dynamic> revs = entry.value;
+                   return _buildCardNode(
+                     initiallyExpanded: false,
+                     cardColor: cardColor,
+                     borderColor: dividerColor.withOpacity(0.25),
+                     child: Row(
+                       mainAxisSize: MainAxisSize.min,
+                       children: [
+                         Icon(FluentIcons.accounts, size: 13, color: primaryColor.withOpacity(0.8)),
+                         const SizedBox(width: 8),
+                         Expanded(child: Text(clname, style: TextStyle(fontWeight: FontWeight.w500, color: bodyColor))),
+                       ],
+                     ),
+                     children: revs.map<Widget>((item) {
+                        return _buildRevisionRow(item, cardColor, dividerColor, bodyColor, primaryColor, ver['id'], ver['nombre'], tractoNombre);
+                     }).toList(),
+                   );
+                }).toList(),
+              );
+            }).toList(),
+          );
+        }).toList(),
+      );
+    }).where((w) => w is! SizedBox).toList();
+  }
+
+  List<Widget> _buildByClient(String filterLow, Color primaryColor, Color bodyColor, Color dividerColor) {
+    final cardColor = FluentTheme.of(context).cardColor;
+    Map<String, Map<String, Map<String, Map<String, List<dynamic>>>>> hierarchy = {};
+    
+    for (var tracto in _arbol) {
+      String trName = tracto['nombre'];
+      for (var tipo in tracto['tipos']) {
+        String tpName = tipo['nombre'];
+        for (var ver in tipo['versiones']) {
+           for (var rev in ver['revisiones']) {
+              String clName = rev['cliente'] ?? 'General';
+              
+              if (filterLow.isNotEmpty) {
+                 if (!trName.toLowerCase().contains(filterLow) &&
+                     !tpName.toLowerCase().contains(filterLow) &&
+                     !ver['nombre'].toLowerCase().contains(filterLow)) {
+                    continue;
+                 }
+              }
+
+              hierarchy.putIfAbsent(clName, () => {});
+              hierarchy[clName]!.putIfAbsent(trName, () => {});
+              hierarchy[clName]![trName]!.putIfAbsent(tpName, () => {});
+              hierarchy[clName]![trName]![tpName]!.putIfAbsent(ver['nombre'], () => []);
+              
+              hierarchy[clName]![trName]![tpName]![ver['nombre']]!.add({
+                "rev": rev,
+                "verId": ver['id'],
+              });
+           }
+        }
+      }
+    }
+
+    return hierarchy.entries.map<Widget>((clEntry) {
+       return _buildCardNode(
+         initiallyExpanded: false,
+         cardColor: cardColor,
+         borderColor: dividerColor.withOpacity(0.5),
+         child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(width: 12, height: 12, decoration: BoxDecoration(color: primaryColor, shape: BoxShape.circle)),
+              const SizedBox(width: 8),
+              Expanded(child: Text(clEntry.key, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: bodyColor))),
+            ],
+         ),
+         children: clEntry.value.entries.map<Widget>((trEntry) {
+             return _buildCardNode(
+               initiallyExpanded: false,
+               cardColor: cardColor,
+               borderColor: dividerColor.withOpacity(0.4),
+               child: Row(
+                 mainAxisSize: MainAxisSize.min,
+                 children: [
+                   Icon(FluentIcons.transportation, size: 14, color: primaryColor.withOpacity(0.7)),
+                   const SizedBox(width: 8),
+                   Expanded(child: Text(trEntry.key, style: TextStyle(fontWeight: FontWeight.w600, color: bodyColor))),
+                 ],
+               ),
+               children: trEntry.value.entries.map<Widget>((tpEntry) {
+                  return _buildCardNode(
+                    initiallyExpanded: false,
+                    cardColor: cardColor,
+                    borderColor: dividerColor.withOpacity(0.3),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(FluentIcons.build_definition, size: 14, color: primaryColor.withOpacity(0.7)),
+                        Icon(FluentIcons.build_definition, size: 13, color: primaryColor.withOpacity(0.8)),
                         const SizedBox(width: 8),
-                        Expanded(child: Text(tipo['nombre'], style: TextStyle(fontWeight: FontWeight.w600, color: bodyColor))),
+                        Expanded(child: Text(tpEntry.key, style: TextStyle(fontWeight: FontWeight.w500, color: bodyColor))),
                       ],
                     ),
-                  ),
-                ),
-                children:
-                    (tipo['versiones'] as List).map<Widget>((ver) {
-                      final revisiones = ver['revisiones'] as List;
-                      final bool hasRevs = revisiones.isNotEmpty;
-                      
-                      return _CustomNode(
-                        initiallyExpanded: false,
-                        header: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 400),
-                          child: Container(
-                            margin: const EdgeInsets.only(top: 4, bottom: 4),
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: FluentTheme.of(context).cardColor,
-                              border: Border.all(color: dividerColor.withOpacity(0.3)),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(FluentIcons.fabric_open_folder_horizontal, size: 13, color: hasRevs ? primaryColor : bodyColor.withOpacity(0.3)),
-                                const SizedBox(width: 8),
-                                Expanded(child: Text(ver['nombre'], style: TextStyle(fontStyle: FontStyle.italic, color: hasRevs ? bodyColor : bodyColor.withOpacity(0.6)))),
-                              ],
-                            ),
-                          ),
-                        ),
-                        children: !hasRevs
-                            ? []
-                            : revisiones.map<Widget>((rev) {
-                                  final bool aprobada =
-                                      rev['estado'] == 'Aprobada';
-                                  return _CustomNode(
-                                    initiallyExpanded: false,
-                                    header: ConstrainedBox(
-                                      constraints: const BoxConstraints(maxWidth: 400),
-                                      child: Container(
-                                        margin: const EdgeInsets.only(top: 4, bottom: 4),
-                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                        decoration: BoxDecoration(
-                                          color: FluentTheme.of(context).cardColor,
-                                          border: Border.all(color: dividerColor.withOpacity(0.2)),
-                                          borderRadius: BorderRadius.circular(8),
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            // Semáforo de estado
-                                            Tooltip(
-                                              message: rev['estado'],
-                                              child: Container(
-                                                width: 10,
-                                                height: 10,
-                                                margin: const EdgeInsets.only(right: 8),
-                                                decoration: BoxDecoration(
-                                                  color: aprobada ? Colors.green : Colors.orange,
-                                                  shape: BoxShape.circle,
-                                                ),
-                                              ),
-                                            ),
-                                            Expanded(
-                                              child: Text(
-                                                "Rev ${rev['numero_revision']}  •  ${rev['estado']}",
-                                                style: TextStyle(fontSize: 13, color: bodyColor),
-                                              ),
-                                            ),
-                                            const SizedBox(width: 16),
-                                            // Botón abrir BOM
-                                            Tooltip(
-                                              message: "Abrir Gestor de BOM para esta revisión",
-                                              child: IconButton(
-                                                icon: Icon(FluentIcons.open_in_new_window, size: 14, color: primaryColor),
-                                                onPressed: () => Navigator.push(
-                                                  context,
-                                                  FluentPageRoute(
-                                                    builder: (_) => BOMManagerScreen(
-                                                      idVersion: ver['id'] as int,
-                                                      versionName: ver['nombre'] as String,
-                                                      tractoName: tractoNombre,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  );
-                                }).toList(),
-                      );
+                    children: tpEntry.value.entries.map<Widget>((vEntry) {
+                       return _buildCardNode(
+                         initiallyExpanded: false,
+                         cardColor: cardColor,
+                         borderColor: dividerColor.withOpacity(0.2),
+                         child: Row(
+                           mainAxisSize: MainAxisSize.min,
+                           children: [
+                             Icon(FluentIcons.fabric_open_folder_horizontal, size: 13, color: primaryColor),
+                             const SizedBox(width: 8),
+                             Expanded(child: Text(vEntry.key, style: TextStyle(fontStyle: FontStyle.italic, color: bodyColor))),
+                           ],
+                         ),
+                         children: vEntry.value.map<Widget>((item) {
+                            return _buildRevisionRow(item['rev'], cardColor, dividerColor, bodyColor, primaryColor, item['verId'], vEntry.key, trEntry.key);
+                         }).toList(),
+                       );
                     }).toList(),
-              );
-            }).toList(),
-      );
+                  );
+               }).toList(),
+             );
+         }).toList(),
+       );
     }).toList();
   }
 
@@ -272,8 +400,22 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
           children: [
             SizedBox(
               width: 220,
+              child: ComboBox<bool>(
+                value: _groupByClient,
+                items: const [
+                  ComboBoxItem(value: false, child: Text("Agrupar por Proyecto")),
+                  ComboBoxItem(value: true, child: Text("Agrupar por Cliente")),
+                ],
+                onChanged: (v) {
+                  if (v != null) setState(() => _groupByClient = v);
+                },
+              ),
+            ),
+            const SizedBox(width: 16),
+            SizedBox(
+              width: 200,
               child: TextBox(
-                placeholder: 'Buscar tipo o versión...',
+                placeholder: 'Crit. de Búsqueda...',
                 prefix: const Padding(
                   padding: EdgeInsets.only(left: 8),
                   child: Icon(FluentIcons.search, size: 14),
@@ -283,7 +425,17 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
             ),
             const SizedBox(width: 8),
             Tooltip(
-              message: "Recargar árbol de ingeniería",
+              message: "Centrar Mapa a Origen",
+              child: IconButton(
+                icon: const Icon(FluentIcons.home),
+                onPressed: () {
+                  _transformationController.value = Matrix4.identity();
+                },
+              ),
+            ),
+            const SizedBox(width: 8),
+            Tooltip(
+              message: "Recargar árbol",
               child: IconButton(
                 icon: const Icon(FluentIcons.refresh),
                 onPressed: _fetchArbol,
@@ -321,6 +473,7 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
                   children: [
                     Expanded(
                       child: InteractiveViewer(
+                        transformationController: _transformationController,
                         constrained: false,
                         minScale: 0.5,
                         maxScale: 2.0,

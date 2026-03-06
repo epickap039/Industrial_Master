@@ -421,11 +421,13 @@ def get_mapa_jerarquia():
                 TR.ID_Tracto, TR.Nombre_Tracto,
                 TP.ID_Tipo, TP.Nombre_Tipo,
                 V.ID_Version, V.Nombre_Version,
-                R.ID_Revision, R.Numero_Revision, R.Estado, R.Fecha_Creacion
+                R.ID_Revision, R.Numero_Revision, R.Estado, R.Fecha_Creacion,
+                ISNULL(C.Nombre_Cliente, 'General') AS Nombre_Cliente
             FROM Tbl_Proyectos_Tracto TR
             JOIN Tbl_Tipos_Proyecto TP ON TP.ID_Tracto = TR.ID_Tracto
             JOIN Tbl_Versiones_Ingenieria V ON V.ID_Tipo = TP.ID_Tipo
             LEFT JOIN Tbl_BOM_Revisiones R ON R.ID_Version = V.ID_Version
+            LEFT JOIN Tbl_Clientes_Configuracion C ON C.ID_Revision_Asignada = R.ID_Revision
             ORDER BY TR.Nombre_Tracto, TP.Nombre_Tipo, V.Nombre_Version, R.Numero_Revision
         """)
         rows = cursor.fetchall()
@@ -448,7 +450,8 @@ def get_mapa_jerarquia():
                     "id_revision": r.ID_Revision,
                     "numero_revision": r.Numero_Revision,
                     "estado": r.Estado,
-                    "fecha_creacion": r.Fecha_Creacion.isoformat() if r.Fecha_Creacion else None
+                    "fecha_creacion": r.Fecha_Creacion.isoformat() if r.Fecha_Creacion else None,
+                    "cliente": r.Nombre_Cliente
                 })
         # Serializar a lista
         result = []
