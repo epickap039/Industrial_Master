@@ -431,6 +431,7 @@ End Sub
     try {
       var request = http.MultipartRequest('POST', Uri.parse('$API_URL/api/cad/upload'));
       request.files.add(await http.MultipartFile.fromPath('file', filePath));
+      request.headers.addAll({'X-Usuario': 'Alejandro'});
       
       var response = await request.send();
       var responseData = await http.Response.fromStream(response);

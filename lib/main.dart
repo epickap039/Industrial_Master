@@ -21,6 +21,7 @@ import 'screens/vin_dossier.dart';
 import 'screens/engineering_map.dart'; // v60.0: Mapa de Ingeniería
 import 'screens/qa_dashboard.dart'; // Centro de QA
 import 'screens/cad_scanner_screen.dart'; // Módulo CAD
+import 'screens/home_screen.dart'; // Gamified Home
 import 'package:pasteboard/pasteboard.dart';
 import 'package:flutter/services.dart';
 import 'theme/app_themes.dart';
@@ -426,6 +427,15 @@ class _MyAppState extends State<MyApp> {
                         onChanged: (index) => setState(() => topIndex = index),
                         displayMode: PaneDisplayMode.auto,
                         items: [
+                          PaneItem(
+                            icon: const Icon(FluentIcons.home),
+                            title: const Text('Lobby Principal'),
+                            body: HomeScreen(
+                              onNavigate: (index) {
+                                setState(() => topIndex = index);
+                              },
+                            ),
+                          ),
                           PaneItemHeader(header: const Text('Ingeniería')),
                           PaneItem(
                             icon: const Icon(FluentIcons.database),

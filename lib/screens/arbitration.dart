@@ -139,7 +139,7 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
 
       final response = await http.post(
         Uri.parse('http://192.168.1.73:8001/api/excel/sincronizar'),
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', 'X-Usuario': 'Alejandro'},
         body: json.encode(
           updatesToSend,
         ), // Enviar lista directa si el backend lo espera así, o envolver en {'updates': ...}
@@ -293,7 +293,7 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
   Future<void> _syncSingleItem(Map<String, dynamic> itemPayload) async {
     final response = await http.post(
       Uri.parse('http://192.168.1.73:8001/api/excel/sincronizar'),
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'X-Usuario': 'Alejandro'},
       body: json.encode([itemPayload]), // Enviar como lista de 1
     );
 

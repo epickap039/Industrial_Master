@@ -3,7 +3,7 @@ import uvicorn
 import pyodbc
 import pandas as pd
 import openpyxl
-from fastapi import FastAPI, HTTPException, Request, Response, UploadFile, File, Form, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Request, Response, UploadFile, File, Form, BackgroundTasks, Header
 from fastapi.responses import StreamingResponse
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from fastapi.middleware.cors import CORSMiddleware
@@ -2360,7 +2360,7 @@ class SincronizacionItem(BaseModel):
     model_config = ConfigDict(extra='ignore')
 
 @app.post("/api/excel/sincronizar")
-async def sincronizar_excel(items: List[SincronizacionItem]):
+async def sincronizar_excel(items: List[SincronizacionItem], x_usuario: Optional[str] = Header(None)):
     conn = get_db_connection()
     cursor = conn.cursor()
     
@@ -2385,7 +2385,7 @@ async def sincronizar_excel(items: List[SincronizacionItem]):
             proc_3 = item.Proceso_3 if item.Proceso_3 is not None else ""
             
             # Auditoría
-            usuario = item.Modificado_Por if item.Modificado_Por else "Importador Excel"
+            usuario = item.Modificado_Por if item.Modificado_Por else (x_usuario if x_usuario else "Importador Excel")
 
             if item.Estado == "NUEVO":
                 # Lógica de Inserción (INSERT COMPLETO)
@@ -3627,7 +3627,7 @@ def download_cad_report():
     return FileResponse(excel_path, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", filename="Reporte_CAD.xlsx")
 
 @app.post("/api/cad/upload")
-async def upload_cad_modifications(file: UploadFile = File(...)):
+async def upload_cad_modifications(file: UploadFile = File(...), x_usuario: Optional[str] = Header(None)):
     if not file.filename.endswith('.xlsx'):
          raise HTTPException(status_code=400, detail="Formato no admitido. Debe ser un archivo .xlsx")
          
@@ -3704,7 +3704,8 @@ async def upload_cad_modifications(file: UploadFile = File(...)):
                     print(f"ACTUALIZADA: {codigo} (L:{largo_float}, A:{ancho_float})")
                     actualizadas += 1
                     # Opcional: Registrar en auditoria global
-                    registrar_log_global(cursor, codigo, "UPDATE_MEDIDAS_CAD", "", f"L:{largo_float}, A:{ancho_float}", "SISTEMA_CAD")
+                    usr_log = f"SISTEMA_CAD (Operador: {x_usuario})" if x_usuario else "SISTEMA_CAD"
+                    registrar_log_global(cursor, codigo, "UPDATE_MEDIDAS_CAD", "", f"L:{largo_float}, A:{ancho_float}", usr_log)
                 else:
                     print(f"NO ENCONTRADA: {codigo} - No existe la llave en DB")
                     no_encontradas += 1
