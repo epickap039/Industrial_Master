@@ -431,6 +431,7 @@ class _MyAppState extends State<MyApp> {
                             icon: const Icon(FluentIcons.home),
                             title: const Text('Lobby Principal'),
                             body: HomeScreen(
+                              isAdmin: _userRole == 'ADMIN',
                               onNavigate: (index) {
                                 setState(() => topIndex = index);
                               },
@@ -493,8 +494,7 @@ class _MyAppState extends State<MyApp> {
                             body: VINDossierScreen(
                               onNavigateToBOM: (id) {
                                 setState(() {
-                                  topIndex =
-                                      7; // Índice 7: Mapa de Ingeniería (Header no cuenta)
+                                  topIndex = _userRole == 'ADMIN' ? 9 : 8; // Mapa de Ingeniería
                                   targetRevisionId = id;
                                 });
                               },
