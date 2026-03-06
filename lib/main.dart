@@ -411,27 +411,12 @@ class _MyAppState extends State<MyApp> {
                             ),
                             actions: Padding(
                               padding: const EdgeInsets.only(right: 12.0),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.end,
-                                children: [
-                                  ComboBox<AppThemeMode>(
-                                    value: appTheme.currentMode,
-                                    items: AppThemeMode.values.map((mode) {
-                                      return ComboBoxItem(
-                                        value: mode,
-                                        child: Text(mode.name.toUpperCase()),
-                                      );
-                                    }).toList(),
-                                    onChanged: (v) {
-                                      if (v != null) appTheme.setTheme(v);
-                                    },
-                                  ),
-                                  const SizedBox(width: 8),
-                                  IconButton(
-                                    icon: const Icon(FluentIcons.sign_out),
-                                    onPressed: _logout,
-                                  ),
-                                ],
+                              child: Align(
+                                alignment: Alignment.centerRight,
+                                child: IconButton(
+                                  icon: const Icon(FluentIcons.sign_out),
+                                  onPressed: _logout,
+                                ),
                               ),
                             ),
                           ),
@@ -512,6 +497,29 @@ class _MyAppState extends State<MyApp> {
                           ),
                         ],
                         footerItems: [
+                          PaneItemHeader(
+                            header: Row(
+                              children: [
+                                const Icon(FluentIcons.color, size: 16),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: ComboBox<AppThemeMode>(
+                                    isExpanded: true,
+                                    value: appTheme.currentMode,
+                                    items: AppThemeMode.values.map((mode) {
+                                      return ComboBoxItem(
+                                        value: mode,
+                                        child: Text(mode.name.toUpperCase()),
+                                      );
+                                    }).toList(),
+                                    onChanged: (v) {
+                                      if (v != null) appTheme.setTheme(v);
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                           PaneItemAction(
                             icon: const Icon(FluentIcons.bug),
                             title: const Text("Reportar Bug"),
