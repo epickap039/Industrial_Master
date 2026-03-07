@@ -80,7 +80,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   description,
                   style: TextStyle(
                     fontSize: 14,
-                    color: isLocked ? Colors.grey : theme.typography.body?.color?.withOpacity(0.8),
+                    color: theme.typography.body?.color?.withOpacity(0.8),
                   ),
                 ),
               ),
