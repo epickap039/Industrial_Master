@@ -240,7 +240,7 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
               children: [
                 Row(
                   children: [
-                    const Icon(FluentIcons.fabric_folder, size: 16, color: Colors.blue),
+                    Icon(FluentIcons.fabric_folder, size: 16, color: Colors.blue),
                     const SizedBox(width: 8),
                     Text(proyecto, style: const TextStyle(fontWeight: FontWeight.w600)),
                   ],
@@ -311,11 +311,13 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  TextBox(
-                    controller: _searchController,
-                    placeholder: "Ej: JA-002",
-                    header: "Código de Pieza a Analizar",
-                    onSubmitted: (_) => _escanearImpacto(),
+                  InfoLabel(
+                    label: "Código de Pieza a Analizar",
+                    child: TextBox(
+                      controller: _searchController,
+                      placeholder: "Ej: JA-002",
+                      onSubmitted: (_) => _escanearImpacto(),
+                    ),
                   ),
                   const SizedBox(height: 16),
                   FilledButton(
