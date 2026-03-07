@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -451,12 +452,16 @@ class _MyAppState extends State<MyApp> {
                             ),
                             actions: Padding(
                               padding: const EdgeInsets.only(right: 12.0),
-                              child: Align(
-                                alignment: Alignment.centerRight,
-                                child: IconButton(
-                                  icon: const Icon(FluentIcons.sign_out),
-                                  onPressed: _logout,
-                                ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const NetworkStatusIndicator(),
+                                  const SizedBox(width: 8),
+                                  IconButton(
+                                    icon: const Icon(FluentIcons.sign_out),
+                                    onPressed: _logout,
+                                  ),
+                                ],
                               ),
                             ),
                           ),
@@ -465,105 +470,113 @@ class _MyAppState extends State<MyApp> {
                         selected: topIndex,
                         onChanged: (index) => _handleNavigation(index, navContext),
                         displayMode: PaneDisplayMode.auto,
-                        items: [
-                          PaneItem(
-                            icon: const Icon(FluentIcons.home),
-                            title: const Text('Lobby Principal'),
-                            body: HomeScreen(
-                              isAdmin: _userRole == 'ADMIN',
-                              onNavigate: (index) {
-                                _handleNavigation(index, navContext);
-                              },
-                            ),
-                          ),
-                          PaneItemExpander(
-                            icon: const Icon(FluentIcons.search),
-                            title: const Text('Consultas Rápidas'),
-                            body: const SizedBox.shrink(),
-                            items: [
-                              PaneItem(
-                                icon: const Icon(FluentIcons.database),
-                                title: const Text('Catálogo Maestro'),
-                                body: const CatalogScreen(),
-                              ),
-                              PaneItem(
-                                icon: const Icon(FluentIcons.set_action),
-                                title: const Text('Materiales Oficiales'),
-                                body: const MaterialsListScreen(),
-                              ),
-                              PaneItem(
-                                icon: const Icon(FluentIcons.map_layers),
-                                title: const Text('Mapa de Ingeniería'),
-                                body: EngineeringMapScreen(
-                                  targetRevisionId: targetRevisionId,
+                        items: _userRole == 'QA'
+                            ? [
+                                PaneItem(
+                                  icon: const Icon(FluentIcons.database),
+                                  title: const Text('Catálogo Maestro'),
+                                  body: const CatalogScreen(),
                                 ),
-                              ),
-                              PaneItem(
-                                icon: const Icon(FluentIcons.build_issue),
-                                title: const Text('Radar de Impacto'),
-                                body: const ImpactRadarScreen(),
-                              ),
-                            ],
-                          ),
-                          PaneItemExpander(
-                            icon: const Icon(FluentIcons.processing),
-                            title: const Text('Procesamiento de Datos'),
-                            body: const SizedBox.shrink(),
-                            items: [
-                              PaneItem(
-                                icon: const Icon(FluentIcons.cube_shape),
-                                title: const Text('Escáner CAD 3D/2D'),
-                                body: const CADScannerScreen(),
-                              ),
-                              PaneItem(
-                                icon: const Icon(FluentIcons.cloud),
-                                title: const Text('Importar Excel'),
-                                body: const ArbitrationScreen(),
-                              ),
-                              PaneItem(
-                                icon: const Icon(FluentIcons.check_list),
-                                title: const Text('Auditor de Archivos'),
-                                body: const AuditorScreen(),
-                              ),
-                              PaneItem(
-                                icon: const Icon(FluentIcons.filter),
-                                title: const Text('Estandarización'),
-                                body: StandardizationScreen(),
-                              ),
-                            ],
-                          ),
-                          PaneItemExpander(
-                            icon: const Icon(FluentIcons.settings),
-                            title: const Text('Control de Producción'),
-                            body: const SizedBox.shrink(),
-                            items: [
-                              PaneItem(
-                                icon: const Icon(FluentIcons.fabric_folder),
-                                title: const Text('Gestión de Proyectos'),
-                                body: const ProjectManagementScreen(),
-                              ),
-                              PaneItem(
-                                icon: const Icon(FluentIcons.car),
-                                title: const Text('Expedientes VIN'),
-                                body: VINDossierScreen(
-                                  onNavigateToBOM: (id) {
-                                    _handleNavigation(4, navContext, id: id); // 4 = Mapa BOM
-                                  },
+                              ]
+                            : [
+                                PaneItem(
+                                  icon: const Icon(FluentIcons.home),
+                                  title: const Text('Lobby Principal'),
+                                  body: HomeScreen(
+                                    isAdmin: _userRole == 'ADMIN',
+                                    onNavigate: (index) {
+                                      _handleNavigation(index, navContext);
+                                    },
+                                  ),
                                 ),
-                              ),
-                              PaneItem(
-                                icon: const Icon(FluentIcons.tablet),
-                                title: const Text('Centro de QA'),
-                                body: const QADashboardScreen(),
-                              ),
-                            ],
-                          ),
-                          PaneItem(
-                            icon: const Icon(FluentIcons.history),
-                            title: const Text('Historial de Cambios'),
-                            body: const HistoryScreen(),
-                          ),
-                        ],
+                                PaneItemExpander(
+                                  icon: const Icon(FluentIcons.search),
+                                  title: const Text('Consultas Rápidas'),
+                                  body: const SizedBox.shrink(),
+                                  items: [
+                                    PaneItem(
+                                      icon: const Icon(FluentIcons.database),
+                                      title: const Text('Catálogo Maestro'),
+                                      body: const CatalogScreen(),
+                                    ),
+                                    PaneItem(
+                                      icon: const Icon(FluentIcons.set_action),
+                                      title: const Text('Materiales Oficiales'),
+                                      body: const MaterialsListScreen(),
+                                    ),
+                                    PaneItem(
+                                      icon: const Icon(FluentIcons.map_layers),
+                                      title: const Text('Mapa de Ingeniería'),
+                                      body: EngineeringMapScreen(
+                                        targetRevisionId: targetRevisionId,
+                                      ),
+                                    ),
+                                    PaneItem(
+                                      icon: const Icon(FluentIcons.build_issue),
+                                      title: const Text('Radar de Impacto'),
+                                      body: const ImpactRadarScreen(),
+                                    ),
+                                  ],
+                                ),
+                                PaneItemExpander(
+                                  icon: const Icon(FluentIcons.processing),
+                                  title: const Text('Procesamiento de Datos'),
+                                  body: const SizedBox.shrink(),
+                                  items: [
+                                    PaneItem(
+                                      icon: const Icon(FluentIcons.cube_shape),
+                                      title: const Text('Escáner CAD 3D/2D'),
+                                      body: const CADScannerScreen(),
+                                    ),
+                                    PaneItem(
+                                      icon: const Icon(FluentIcons.cloud),
+                                      title: const Text('Importar Excel'),
+                                      body: const ArbitrationScreen(),
+                                    ),
+                                    PaneItem(
+                                      icon: const Icon(FluentIcons.check_list),
+                                      title: const Text('Auditor de Archivos'),
+                                      body: const AuditorScreen(),
+                                    ),
+                                    PaneItem(
+                                      icon: const Icon(FluentIcons.filter),
+                                      title: const Text('Estandarización'),
+                                      body: StandardizationScreen(),
+                                    ),
+                                  ],
+                                ),
+                                PaneItemExpander(
+                                  icon: const Icon(FluentIcons.settings),
+                                  title: const Text('Control de Producción'),
+                                  body: const SizedBox.shrink(),
+                                  items: [
+                                    PaneItem(
+                                      icon: const Icon(FluentIcons.fabric_folder),
+                                      title: const Text('Gestión de Proyectos'),
+                                      body: const ProjectManagementScreen(),
+                                    ),
+                                    PaneItem(
+                                      icon: const Icon(FluentIcons.car),
+                                      title: const Text('Expedientes VIN'),
+                                      body: VINDossierScreen(
+                                        onNavigateToBOM: (id) {
+                                          _handleNavigation(4, navContext, id: id); // 4 = Mapa BOM
+                                        },
+                                      ),
+                                    ),
+                                    PaneItem(
+                                      icon: const Icon(FluentIcons.tablet),
+                                      title: const Text('Centro de QA'),
+                                      body: const QADashboardScreen(),
+                                    ),
+                                  ],
+                                ),
+                                PaneItem(
+                                  icon: const Icon(FluentIcons.history),
+                                  title: const Text('Historial de Cambios'),
+                                  body: const HistoryScreen(),
+                                ),
+                              ],
                         footerItems: [
                           PaneItemHeader(
                             header: Row(
@@ -611,6 +624,66 @@ class _MyAppState extends State<MyApp> {
               : LoginScreen(onLoginSuccess: _onLoginSuccess),
         );
       },
+    );
+  }
+}
+
+class NetworkStatusIndicator extends StatefulWidget {
+  const NetworkStatusIndicator({Key? key}) : super(key: key);
+
+  @override
+  State<NetworkStatusIndicator> createState() => _NetworkStatusIndicatorState();
+}
+
+class _NetworkStatusIndicatorState extends State<NetworkStatusIndicator> {
+  Timer? _timer;
+  bool _isConnected = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkHealth();
+    _timer = Timer.periodic(const Duration(seconds: 10), (timer) {
+      _checkHealth();
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _checkHealth() async {
+    try {
+      final response = await http.get(Uri.parse('$API_URL/api/health')).timeout(const Duration(seconds: 5));
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (mounted) {
+          setState(() {
+            _isConnected = data['status'] == 'ok' && data['db_connected'] == true;
+          });
+        }
+      } else {
+        if (mounted) setState(() => _isConnected = false);
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isConnected = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: _isConnected ? 'Servidor Principal Conectado' : 'Desconectado del Servidor Principal',
+      child: Container(
+        width: 12,
+        height: 12,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: _isConnected ? Colors.green : Colors.red,
+        ),
+      ),
     );
   }
 }

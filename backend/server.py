@@ -91,6 +91,16 @@ class LoginRequest(BaseModel):
 def read_root():
     return {"status": "online", "message": "Servidor Industrial Manager Activo"}
 
+@app.get("/api/health")
+def health_check():
+    """Un simple healthcheck de base de datos sin carga."""
+    try:
+        conn = get_db_connection()
+        conn.close()
+        return {"status": "ok", "db_connected": True}
+    except Exception as e:
+        return {"status": "error", "db_connected": False, "detail": str(e)}
+
 @app.get("/api/config/materiales")
 def get_materiales():
     conn = get_db_connection()

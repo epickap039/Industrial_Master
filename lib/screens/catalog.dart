@@ -41,10 +41,22 @@ class _CatalogScreenState extends State<CatalogScreen> {
   String _columnaOrden = "";
   bool _ordenAscendente = true;
 
+  String _userRole = 'USER';
+
   @override
   void initState() {
     super.initState();
+    _loadRole();
     _fetchData();
+  }
+
+  Future<void> _loadRole() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _userRole = prefs.getString('rol') ?? 'USER';
+      });
+    }
   }
 
   @override
@@ -1243,17 +1255,18 @@ class _CatalogScreenState extends State<CatalogScreen> {
                     onPressed: () => _showInfoDetails(row),
                   ),
                 ),
-                Tooltip(
-                  message: 'Editar',
-                  child: IconButton(
-                    icon: Icon(
-                      FluentIcons.edit,
-                      size: 14,
-                      color: Colors.orange,
-                    ), // NARANJA VIBRANTE
-                    onPressed: () => _showEditDialog(row),
+                if (_userRole == 'ADMIN')
+                  Tooltip(
+                    message: 'Editar',
+                    child: IconButton(
+                      icon: Icon(
+                        FluentIcons.edit,
+                        size: 14,
+                        color: Colors.orange,
+                      ), // NARANJA VIBRANTE
+                      onPressed: () => _showEditDialog(row),
+                    ),
                   ),
-                ),
 
                 if (hasLink)
                   Tooltip(
@@ -1296,17 +1309,18 @@ class _CatalogScreenState extends State<CatalogScreen> {
                     },
                   ),
                 ),
-                Tooltip(
-                  message: 'Eliminar Pieza',
-                  child: IconButton(
-                    icon: Icon(
-                      FluentIcons.delete,
-                      size: 14,
-                      color: Colors.red,
+                if (_userRole == 'ADMIN')
+                  Tooltip(
+                    message: 'Eliminar Pieza',
+                    child: IconButton(
+                      icon: Icon(
+                        FluentIcons.delete,
+                        size: 14,
+                        color: Colors.red,
+                      ),
+                      onPressed: () => _deleteMaterial(row['Codigo_Pieza']?.toString() ?? row['Codigo']?.toString() ?? ''),
                     ),
-                    onPressed: () => _deleteMaterial(row['Codigo_Pieza']?.toString() ?? row['Codigo']?.toString() ?? ''),
                   ),
-                ),
               ],
             ),
           ),
