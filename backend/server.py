@@ -517,6 +517,54 @@ def get_where_used(codigo_pieza: str):
     finally:
         conn.close()
 
+# === MRP / ESTADO DE CUENTA DE MATERIALES ===
+@app.get("/api/mrp/calculate/{id_revision}")
+def calculate_mrp(id_revision: int):
+    """Calcula la consolidación de compras (MRP) agrupando requerimientos por Material y Calibre/Espesor."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        query = """
+        WITH PiezasLimpio AS (
+            SELECT 
+                E.Cantidad,
+                M.Material_Oficial,
+                M.Espesor_Perfil_CAD,
+                TRY_CAST(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', '') AS FLOAT) AS Largo,
+                TRY_CAST(REPLACE(REPLACE(M.Ancho_CAD, ' mm', ''), ',', '') AS FLOAT) AS Ancho
+            FROM Tbl_BOM_Estructura E
+            JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
+            JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
+            JOIN Tbl_Maestro_Piezas M ON E.Codigo_Pieza = M.Codigo_Pieza
+            WHERE ES.ID_Revision = ?
+        )
+        SELECT 
+            ISNULL(Material_Oficial, 'SIN MATERIAL DEFINIDO') AS Material,
+            ISNULL(Espesor_Perfil_CAD, 'N/A') AS Calibre_Espesor,
+            SUM(Cantidad) AS Cantidad_Total_Piezas,
+            SUM(Cantidad * ISNULL(Largo, 1.0) * ISNULL(Ancho, 1.0)) AS Requerimiento_Area_mm2
+        FROM PiezasLimpio
+        GROUP BY Material_Oficial, Espesor_Perfil_CAD
+        ORDER BY Material_Oficial, Espesor_Perfil_CAD
+        """
+        cursor.execute(query, (id_revision,))
+        rows = cursor.fetchall()
+        
+        result = []
+        for r in rows:
+            result.append({
+                "Material": r.Material,
+                "Calibre/Espesor": r.Calibre_Espesor,
+                "Cantidad_Total_Piezas": float(r.Cantidad_Total_Piezas),
+                "Requerimiento_Area_mm2": float(r.Requerimiento_Area_mm2)
+            })
+            
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
 # === NUBE DE ARCHIVOS VIN ===
 VIN_FILES_BASE = r"C:\BDIV_Archivos\VINs"
 
