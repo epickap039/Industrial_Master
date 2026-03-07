@@ -235,8 +235,22 @@ class _CatalogScreenState extends State<CatalogScreen> {
     excel_lib.Sheet sheetObject = excel['Catálogo'];
     excel.delete('Sheet1');
 
-    final exportCols =
-        _columns.where((c) => _visibleColumns[c] == true).toList();
+    final exportCols = _columns.where((c) {
+      if (_visibleColumns[c] != true) return false;
+      if (_userRole == 'QA' &&
+          (c == 'Ruta_Archivo' ||
+              c == 'Ruta_Plano' ||
+              c == 'Link_Drive' ||
+              c == 'Ruta' ||
+              c == 'Modificado_Por' ||
+              c == 'Autor' ||
+              c == 'Ultima_Actualizacion' ||
+              c == 'Fecha_Creacion')) {
+        return false;
+      }
+      return true;
+    }).toList();
+
     List<excel_lib.CellValue> headers =
         exportCols.map((c) => excel_lib.TextCellValue(c)).toList();
     sheetObject.appendRow(headers);
