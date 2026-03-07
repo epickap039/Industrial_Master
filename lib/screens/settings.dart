@@ -31,11 +31,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // Estado Regla Espejo (Fase 19)
   bool _reglaEspejoActiva = true;
 
+  // Rol del usuario QA (Fase RBAC)
+  String _userRole = 'USER';
+
   @override
   void initState() {
     super.initState();
+    _loadRole();
     _checkConnection(silent: true);
     _fetchMirrorRuleStatus();
+  }
+
+  Future<void> _loadRole() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _userRole = prefs.getString('rol') ?? 'USER';
+      });
+    }
   }
 
   Future<void> _fetchMirrorRuleStatus() async {
@@ -372,65 +385,67 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 10),
 
           // 3. REGLAS DE NEGOCIO (FASE 19)
-          Expander(
-            header: const Text(
-              'Reglas de Negocio',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            initiallyExpanded: true,
-            content: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                ToggleSwitch(
-                  checked: _reglaEspejoActiva,
-                  onChanged: _toggleMirrorRule,
-                  content: Text(
-                    _reglaEspejoActiva
-                        ? 'Regla Espejo ACTIVADA (Material = Descripción)'
-                        : 'Regla Espejo DESACTIVADA',
-                  ),
-                ),
-                const SizedBox(height: 5),
-                const Text(
-                  'Si se activa, al crear o editar una pieza, el campo "Material" copiará automáticamente el valor de "Descripción".',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 10),
-
-          // 4. MANTENIMIENTO
-          Expander(
-            header: const Text(
-              'Mantenimiento de Datos',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            initiallyExpanded: true,
-            content: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Sincronización de Enlaces (Drive/PDF)',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 5),
-                const Text(
-                  'Carga un archivo Excel ("Listado_PDFs_BD.xlsx") para actualizar masivamente los enlaces de Google Drive en el Catálogo Maestro.',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-                const SizedBox(height: 15),
-                _isSyncing
-                    ? const ProgressBar()
-                    : Button(
-                      onPressed: _syncDriveLinks,
-                      child: const Text(
-                        'Actualizar Enlaces Drive (Desde Excel)',
-                      ),
+          if (_userRole != 'QA') ...[
+            Expander(
+              header: const Text(
+                'Reglas de Negocio',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              initiallyExpanded: true,
+              content: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ToggleSwitch(
+                    checked: _reglaEspejoActiva,
+                    onChanged: _toggleMirrorRule,
+                    content: Text(
+                      _reglaEspejoActiva
+                          ? 'Regla Espejo ACTIVADA (Material = Descripción)'
+                          : 'Regla Espejo DESACTIVADA',
                     ),
-              ],
+                  ),
+                  const SizedBox(height: 5),
+                  const Text(
+                    'Si se activa, al crear o editar una pieza, el campo "Material" copiará automáticamente el valor de "Descripción".',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ],
+              ),
             ),
-          ),
+            const SizedBox(height: 10),
+
+            // 4. MANTENIMIENTO
+            Expander(
+              header: const Text(
+                'Mantenimiento de Datos',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              initiallyExpanded: true,
+              content: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Sincronización de Enlaces (Drive/PDF)',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 5),
+                  const Text(
+                    'Carga un archivo Excel ("Listado_PDFs_BD.xlsx") para actualizar masivamente los enlaces de Google Drive en el Catálogo Maestro.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 15),
+                  _isSyncing
+                      ? const ProgressBar()
+                      : Button(
+                        onPressed: _syncDriveLinks,
+                        child: const Text(
+                          'Actualizar Enlaces Drive (Desde Excel)',
+                        ),
+                      ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );
