@@ -385,6 +385,44 @@ class _MyAppState extends State<MyApp> {
     );
   }
 
+  void _handleNavigation(int index, BuildContext navContext, {int? id}) async {
+    if (id != null) {
+      targetRevisionId = id;
+    }
+    
+    // El índice del Escáner CAD 3D/2D ahora será 6:
+    // 0: Lobby, 1: Consultas, 2: Catálogo, 3: Materiales, 4: Mapa, 5: Procesamiento, 6: CAD
+    if (index == 6) {
+      final result = await showDialog<bool>(
+        context: navContext,
+        builder: (context) => ContentDialog(
+          title: const Text('⚠️ Atención: Operación Crítica', style: TextStyle(color: Colors.warningPrimaryColor)),
+          content: const Text(
+            'Esta herramienta abrirá SolidWorks en segundo plano y sobrescribirá propiedades en masa.\n\n'
+            'Todos los archivos manipulados se guardarán con la fecha de hoy.\n'
+            '¿Deseas continuar?'
+          ),
+          actions: [
+            Button(
+              child: const Text('Cancelar'),
+              onPressed: () => Navigator.pop(context, false),
+            ),
+            FilledButton(
+              child: const Text('Proceder'),
+              onPressed: () => Navigator.pop(context, true),
+            ),
+          ],
+        ),
+      );
+
+      if (result == true) {
+        setState(() => topIndex = index);
+      }
+    } else {
+      setState(() => topIndex = index);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoadingAuth) {
@@ -424,7 +462,7 @@ class _MyAppState extends State<MyApp> {
                       pane: NavigationPane(
                         size: const NavigationPaneSize(openWidth: 220.0),
                         selected: topIndex,
-                        onChanged: (index) => setState(() => topIndex = index),
+                        onChanged: (index) => _handleNavigation(index, navContext),
                         displayMode: PaneDisplayMode.auto,
                         items: [
                           PaneItem(
@@ -433,77 +471,91 @@ class _MyAppState extends State<MyApp> {
                             body: HomeScreen(
                               isAdmin: _userRole == 'ADMIN',
                               onNavigate: (index) {
-                                setState(() => topIndex = index);
+                                _handleNavigation(index, navContext);
                               },
                             ),
                           ),
-                          PaneItemHeader(header: const Text('Ingeniería')),
-                          PaneItem(
-                            icon: const Icon(FluentIcons.database),
-                            title: const Text('Catálogo Maestro'),
-                            body: const CatalogScreen(),
+                          PaneItemExpander(
+                            icon: const Icon(FluentIcons.search),
+                            title: const Text('Consultas Rápidas'),
+                            body: const SizedBox.shrink(),
+                            items: [
+                              PaneItem(
+                                icon: const Icon(FluentIcons.database),
+                                title: const Text('Catálogo Maestro'),
+                                body: const CatalogScreen(),
+                              ),
+                              PaneItem(
+                                icon: const Icon(FluentIcons.set_action),
+                                title: const Text('Materiales Oficiales'),
+                                body: const MaterialsListScreen(),
+                              ),
+                              PaneItem(
+                                icon: const Icon(FluentIcons.map_layers),
+                                title: const Text('Mapa de Ingeniería'),
+                                body: EngineeringMapScreen(
+                                  targetRevisionId: targetRevisionId,
+                                ),
+                              ),
+                            ],
                           ),
-                          if (_userRole == 'ADMIN')
-                            PaneItem(
-                              icon: const Icon(FluentIcons.folder_search),
-                              title: const Text('Escáner CAD'),
-                              body: const CADScannerScreen(),
-                            ),
-                          PaneItem(
-                            icon: const Icon(FluentIcons.excel_document),
-                            title: const Text('Importar Excel'),
-                            body: const ArbitrationScreen(),
+                          PaneItemExpander(
+                            icon: const Icon(FluentIcons.processing),
+                            title: const Text('Procesamiento de Datos'),
+                            body: const SizedBox.shrink(),
+                            items: [
+                              PaneItem(
+                                icon: const Icon(FluentIcons.cube_shape),
+                                title: const Text('Escáner CAD 3D/2D'),
+                                body: const CADScannerScreen(),
+                              ),
+                              PaneItem(
+                                icon: const Icon(FluentIcons.cloud),
+                                title: const Text('Importar Excel'),
+                                body: const ArbitrationScreen(),
+                              ),
+                              PaneItem(
+                                icon: const Icon(FluentIcons.check_list),
+                                title: const Text('Auditor de Archivos'),
+                                body: const AuditorScreen(),
+                              ),
+                              PaneItem(
+                                icon: const Icon(FluentIcons.filter),
+                                title: const Text('Estandarización'),
+                                body: StandardizationScreen(),
+                              ),
+                            ],
                           ),
-                          PaneItem(
-                            icon: const Icon(FluentIcons.search_and_apps),
-                            title: const Text('Auditor de Archivos'),
-                            body:
-                                const AuditorScreen(), // Nueva pantalla Fase 12
+                          PaneItemExpander(
+                            icon: const Icon(FluentIcons.settings),
+                            title: const Text('Control de Producción'),
+                            body: const SizedBox.shrink(),
+                            items: [
+                              PaneItem(
+                                icon: const Icon(FluentIcons.fabric_folder),
+                                title: const Text('Gestión de Proyectos'),
+                                body: const ProjectManagementScreen(),
+                              ),
+                              PaneItem(
+                                icon: const Icon(FluentIcons.car),
+                                title: const Text('Expedientes VIN'),
+                                body: VINDossierScreen(
+                                  onNavigateToBOM: (id) {
+                                    _handleNavigation(4, navContext, id: id); // 4 = Mapa BOM
+                                  },
+                                ),
+                              ),
+                              PaneItem(
+                                icon: const Icon(FluentIcons.tablet),
+                                title: const Text('Centro de QA'),
+                                body: const QADashboardScreen(),
+                              ),
+                            ],
                           ),
                           PaneItem(
                             icon: const Icon(FluentIcons.history),
                             title: const Text('Historial de Cambios'),
                             body: const HistoryScreen(),
-                          ),
-                          PaneItem(
-                            icon: const Icon(FluentIcons.edit),
-                            title: const Text('Estandarización'),
-                            body: StandardizationScreen(),
-                          ),
-                          PaneItem(
-                            icon: const Icon(FluentIcons.paste),
-                            title: const Text('Materiales Oficiales'),
-                            body: const MaterialsListScreen(),
-                          ),
-                          PaneItemHeader(header: const Text('Estructuras')),
-                          PaneItem(
-                            icon: const Icon(FluentIcons.org),
-                            title: const Text('Gestión de Proyectos'),
-                            body: const ProjectManagementScreen(),
-                          ),
-                          PaneItem(
-                            icon: const Icon(FluentIcons.map_layers),
-                            title: const Text('Mapa de Ingeniería'),
-                            body: EngineeringMapScreen(
-                              targetRevisionId: targetRevisionId,
-                            ),
-                          ),
-                          PaneItem(
-                            icon: const Icon(FluentIcons.car),
-                            title: const Text('Expedientes VIN'),
-                            body: VINDossierScreen(
-                              onNavigateToBOM: (id) {
-                                setState(() {
-                                  topIndex = _userRole == 'ADMIN' ? 9 : 8; // Mapa de Ingeniería
-                                  targetRevisionId = id;
-                                });
-                              },
-                            ),
-                          ),
-                          PaneItem(
-                            icon: const Icon(FluentIcons.test_plan),
-                            title: const Text('Centro de QA'),
-                            body: const QADashboardScreen(),
                           ),
                         ],
                         footerItems: [
