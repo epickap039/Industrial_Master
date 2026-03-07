@@ -499,7 +499,7 @@ class _MyAppState extends State<MyApp> {
                                 ),
                               ),
                               PaneItem(
-                                icon: const Icon(FluentIcons.radar),
+                                icon: const Icon(FluentIcons.build_issue),
                                 title: const Text('Radar de Impacto'),
                                 body: const ImpactRadarScreen(),
                               ),
