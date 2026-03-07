@@ -668,13 +668,15 @@ class _CatalogScreenState extends State<CatalogScreen> {
                   ],
                 ),
                 const Divider(),
-                _buildLabelValue("LINK PLANO", row['Link_Drive']),
-                const Divider(),
-                _buildLabelValue("Modificado Por", row['Modificado_Por']),
-                _buildLabelValue(
-                  "Última Actualización",
-                  row['Ultima_Actualizacion'],
-                ),
+                if (_userRole != 'QA') ...[
+                  _buildLabelValue("LINK PLANO", row['Link_Drive']),
+                  const Divider(),
+                  _buildLabelValue("Modificado Por", row['Modificado_Por']),
+                  _buildLabelValue(
+                    "Última Actualización",
+                    row['Ultima_Actualizacion'],
+                  ),
+                ],
               ],
             ),
           ),
@@ -997,21 +999,23 @@ class _CatalogScreenState extends State<CatalogScreen> {
           ),
         ),
         const SizedBox(width: 10),
-        Tooltip(
-          message: "Buscar DXF",
-          child: Button(
-            onPressed: _searchDXF,
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(FluentIcons.search),
-                SizedBox(width: 8),
-                Text('Buscar DXF'),
-              ],
+        if (_userRole != 'QA') ...[
+          Tooltip(
+            message: "Buscar DXF",
+            child: Button(
+              onPressed: _searchDXF,
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(FluentIcons.search),
+                  SizedBox(width: 8),
+                  Text('Buscar DXF'),
+                ],
+              ),
             ),
           ),
-        ),
-        const SizedBox(width: 10),
+          const SizedBox(width: 10),
+        ],
         Tooltip(
           message: "Exportar a Excel",
           child: IconButton(
@@ -1058,8 +1062,21 @@ class _CatalogScreenState extends State<CatalogScreen> {
     }
     if (_allData.isEmpty) return const Center(child: Text('Sin datos.'));
 
-    final activeCols =
-        _columns.where((c) => _visibleColumns[c] == true).toList();
+    final activeCols = _columns.where((c) {
+      if (_visibleColumns[c] != true) return false;
+      if (_userRole == 'QA' &&
+          (c == 'Ruta_Archivo' ||
+              c == 'Ruta_Plano' ||
+              c == 'Link_Drive' ||
+              c == 'Ruta' ||
+              c == 'Modificado_Por' ||
+              c == 'Autor' ||
+              c == 'Ultima_Actualizacion' ||
+              c == 'Fecha_Creacion')) {
+        return false;
+      }
+      return true;
+    }).toList();
 
     return Padding(
       padding: const EdgeInsets.all(8.0),
