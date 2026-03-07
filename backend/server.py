@@ -471,6 +471,52 @@ def get_mapa_jerarquia():
     finally:
         conn.close()
 
+@app.get("/api/bom/where-used/{codigo_pieza}")
+def get_where_used(codigo_pieza: str):
+    """Búsqueda ascendente (Bottom-Up) para encontrar dónde se usa una pieza."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT 
+                EN.ID_Ensamble,
+                EN.Nombre_Ensamble,
+                E.Cantidad,
+                R.Numero_Revision AS Lista_BOM,
+                V.Nombre_Version,
+                TP.Nombre_Tipo AS Proyecto,
+                TR.Nombre_Tracto AS Tracto,
+                ISNULL(C.Nombre_Cliente, 'General') AS Cliente
+            FROM Tbl_BOM_Estructura E
+            JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
+            JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
+            JOIN Tbl_BOM_Revisiones R ON ES.ID_Revision = R.ID_Revision
+            JOIN Tbl_Versiones_Ingenieria V ON R.ID_Version = V.ID_Version
+            JOIN Tbl_Tipos_Proyecto TP ON V.ID_Tipo = TP.ID_Tipo
+            JOIN Tbl_Proyectos_Tracto TR ON TP.ID_Tracto = TR.ID_Tracto
+            LEFT JOIN Tbl_Clientes_Configuracion C ON V.ID_Version = C.ID_Version
+            WHERE E.Codigo_Pieza = ?
+        """, (codigo_pieza.upper(),))
+        rows = cursor.fetchall()
+        
+        result = []
+        for r in rows:
+            result.append({
+                "id_ensamble": r.ID_Ensamble,
+                "nombre_ensamble": r.Nombre_Ensamble,
+                "cantidad": float(r.Cantidad),
+                "lista_bom": f"Rev {r.Lista_BOM}",
+                "version": r.Nombre_Version,
+                "proyecto": r.Proyecto,
+                "tracto": r.Tracto,
+                "cliente": r.Cliente
+            })
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
 # === NUBE DE ARCHIVOS VIN ===
 VIN_FILES_BASE = r"C:\BDIV_Archivos\VINs"
 

@@ -22,6 +22,7 @@ import 'screens/engineering_map.dart'; // v60.0: Mapa de Ingeniería
 import 'screens/qa_dashboard.dart'; // Centro de QA
 import 'screens/cad_scanner_screen.dart'; // Módulo CAD
 import 'screens/home_screen.dart'; // Gamified Home
+import 'screens/impact_radar_screen.dart'; // Módulo Where-Used
 import 'package:pasteboard/pasteboard.dart';
 import 'package:flutter/services.dart';
 import 'theme/app_themes.dart';
@@ -390,9 +391,9 @@ class _MyAppState extends State<MyApp> {
       targetRevisionId = id;
     }
     
-    // El índice del Escáner CAD 3D/2D ahora será 6:
-    // 0: Lobby, 1: Consultas, 2: Catálogo, 3: Materiales, 4: Mapa, 5: Procesamiento, 6: CAD
-    if (index == 6) {
+    // El índice del Escáner CAD 3D/2D ahora será 7 debido al nuevo Radar de Impacto:
+    // 0: Lobby, 1: Consultas, 2: Catálogo, 3: Materiales, 4: Mapa, 5: Radar, 6: Procesamiento, 7: CAD
+    if (index == 7) {
       final result = await showDialog<bool>(
         context: navContext,
         builder: (context) => ContentDialog(
@@ -496,6 +497,11 @@ class _MyAppState extends State<MyApp> {
                                 body: EngineeringMapScreen(
                                   targetRevisionId: targetRevisionId,
                                 ),
+                              ),
+                              PaneItem(
+                                icon: const Icon(FluentIcons.radar),
+                                title: const Text('Radar de Impacto'),
+                                body: const ImpactRadarScreen(),
                               ),
                             ],
                           ),
