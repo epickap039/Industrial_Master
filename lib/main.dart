@@ -24,6 +24,7 @@ import 'screens/qa_dashboard.dart'; // Centro de QA
 import 'screens/cad_scanner_screen.dart'; // Módulo CAD
 import 'screens/home_screen.dart'; // Gamified Home
 import 'screens/impact_radar_screen.dart'; // Módulo Where-Used
+import 'screens/mrp_screen.dart'; // MRP: Requerimiento de Materiales
 import 'package:pasteboard/pasteboard.dart';
 import 'package:flutter/services.dart';
 import 'theme/app_themes.dart';
@@ -392,9 +393,8 @@ class _MyAppState extends State<MyApp> {
       targetRevisionId = id;
     }
     
-    // El índice del Escáner CAD 3D/2D ahora será 7 debido al nuevo Radar de Impacto:
-    // 0: Lobby, 1: Consultas, 2: Catálogo, 3: Materiales, 4: Mapa, 5: Radar, 6: Procesamiento, 7: CAD
-    if (index == 7) {
+    // El índice del Escáner CAD 3D/2D ahora será 8 debido al MRP y Radar de Impacto:
+    if (index == 8) {
       final result = await showDialog<bool>(
         context: navContext,
         builder: (context) => ContentDialog(
@@ -550,6 +550,11 @@ class _MyAppState extends State<MyApp> {
                                   title: const Text('Control de Producción'),
                                   body: const SizedBox.shrink(),
                                   items: [
+                                    PaneItem(
+                                      icon: const Icon(FluentIcons.shopping_cart),
+                                      title: const Text('Requerimientos (MRP)'),
+                                      body: const MRPScreen(),
+                                    ),
                                     PaneItem(
                                       icon: const Icon(FluentIcons.fabric_folder),
                                       title: const Text('Gestión de Proyectos'),
