@@ -531,11 +531,12 @@ def get_where_used(codigo_pieza: str):
 # === MRP / ESTADO DE CUENTA DE MATERIALES ===
 @app.get("/api/mrp/calculate/{id_revision}")
 def calculate_mrp(id_revision: int):
-    """Calcula la consolidación de compras (MRP) con algoritmo de Nesting Sugerido."""
+    """Calcula la consolidación de compras (MRP) y detecta piezas sin medidas CAD."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        query = """
+        # 1. Query MRP Calculado (Con Medidas)
+        query_mrp = """
         WITH PiezasLimpio AS (
             SELECT 
                 E.Cantidad,
@@ -556,14 +557,15 @@ def calculate_mrp(id_revision: int):
             SUM(Cantidad * ISNULL(Largo, 0.0)) AS Requerimiento_Longitud_mm,
             SUM(Cantidad * ISNULL(Area, 0.0)) AS Requerimiento_Area_mm2
         FROM PiezasLimpio
+        WHERE ISNULL(Area, 0) > 0 OR ISNULL(Largo, 0) > 0
         GROUP BY Material, Espesor_Perfil_CAD
         ORDER BY Material, Espesor_Perfil_CAD
         """
-        cursor.execute(query, (id_revision,))
-        rows = cursor.fetchall()
+        cursor.execute(query_mrp, (id_revision,))
+        rows_mrp = cursor.fetchall()
         
-        result = []
-        for r in rows:
+        mrp_calculado = []
+        for r in rows_mrp:
             material_upper = r.Material.upper()
             req_area_mm2 = float(r.Requerimiento_Area_mm2)
             req_long_mm = float(r.Requerimiento_Longitud_mm)
@@ -575,35 +577,29 @@ def calculate_mrp(id_revision: int):
             if any(x in material_upper for x in ['PERFIL', 'TUBO', 'BARRA', 'SOLERA', 'ANGULO', 'CANAL']):
                 metros_totales = req_long_mm / 1000.0
                 tramos_std = 6.0
-                if 'HSS' in material_upper:
-                    tramos_std = 12.0
-                
+                if 'HSS' in material_upper: tramos_std = 12.0
                 cantidad_tramos = math.ceil((metros_totales / tramos_std) * scrap_factor)
                 sugerencia = f"Comprar {cantidad_tramos} Tramos de {int(tramos_std)} MT"
                 
             # Regla de Área (Placas/Láminas)
             elif any(x in material_upper for x in ['PLACA', 'LAMINA']):
                 m2_totales = req_area_mm2 / 1000000.0
-                area_placa_m2 = 3.72 # Default 4x10
+                area_placa_m2 = 3.72 
                 t_str = "4'X10'"
-                
-                if "8'X20'" in material_upper:
+                if "8'X20'" in material_upper: 
                     area_placa_m2 = 14.86
                     t_str = "8'X20'"
-                elif "8'X30'" in material_upper:
+                elif "8'X30'" in material_upper: 
                     area_placa_m2 = 22.30
                     t_str = "8'X30'"
-                elif "5'X24'" in material_upper:
+                elif "5'X24'" in material_upper: 
                     area_placa_m2 = 11.15
                     t_str = "5'X24'"
-                elif "4'X10'" in material_upper:
-                    area_placa_m2 = 3.72
-                    t_str = "4'X10'"
                 
                 cantidad_placas = math.ceil((m2_totales / area_placa_m2) * scrap_factor)
                 sugerencia = f"Comprar {cantidad_placas} Placas de {t_str}"
 
-            result.append({
+            mrp_calculado.append({
                 "Material": r.Material,
                 "Calibre_Espesor": r.Calibre_Espesor,
                 "Cantidad_Total_Piezas": float(r.Cantidad_Total_Piezas),
@@ -612,7 +608,42 @@ def calculate_mrp(id_revision: int):
                 "Sugerencia_Compra": sugerencia
             })
             
-        return result
+        # 2. Query Piezas Sin Medidas (Huérfanas)
+        query_orphans = """
+        WITH PiezasLimpio AS (
+            SELECT 
+                E.Codigo_Pieza,
+                EN.Nombre_Ensamble,
+                M.Material,
+                E.Cantidad,
+                TRY_CAST(REPLACE(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', ''), ' ', '') AS FLOAT) AS Largo,
+                TRY_CAST(REPLACE(REPLACE(REPLACE(M.Area_CAD, ' mm^2', ''), ',', ''), ' ', '') AS FLOAT) AS Area
+            FROM Tbl_BOM_Estructura E
+            JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
+            JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
+            JOIN Tbl_Maestro_Piezas M ON E.Codigo_Pieza = M.Codigo_Pieza
+            WHERE ES.ID_Revision = ?
+        )
+        SELECT Codigo_Pieza, Nombre_Ensamble, Material, Cantidad
+        FROM PiezasLimpio
+        WHERE ISNULL(Area, 0) = 0 AND ISNULL(Largo, 0) = 0
+        """
+        cursor.execute(query_orphans, (id_revision,))
+        rows_orphans = cursor.fetchall()
+        
+        piezas_sin_medidas = []
+        for r in rows_orphans:
+            piezas_sin_medidas.append({
+                "Codigo_Pieza": r.Codigo_Pieza,
+                "Nombre_Ensamble": r.Nombre_Ensamble,
+                "Material": r.Material,
+                "Cantidad": float(r.Cantidad)
+            })
+
+        return {
+            "mrp_calculado": mrp_calculado,
+            "piezas_sin_medidas": piezas_sin_medidas
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:

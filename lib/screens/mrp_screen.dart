@@ -22,6 +22,7 @@ class _MRPScreenState extends State<MRPScreen> {
   List<Map<String, dynamic>> _revisionsList = [];
   int? _selectedRevisionId;
   List<Map<String, dynamic>> _mrpData = [];
+  List<Map<String, dynamic>> _orphanData = [];
   String? _errorMessage;
 
   final NumberFormat _numFormat = NumberFormat('#,##0', 'en_US');
@@ -81,6 +82,7 @@ class _MRPScreenState extends State<MRPScreen> {
       _isCalculating = true;
       _errorMessage = null;
       _mrpData = [];
+      _orphanData = [];
     });
 
     try {
@@ -89,10 +91,11 @@ class _MRPScreenState extends State<MRPScreen> {
       );
 
       if (res.statusCode == 200) {
-        final List<dynamic> data = json.decode(res.body);
+        final Map<String, dynamic> data = json.decode(res.body);
         if (mounted) {
           setState(() {
-            _mrpData = List<Map<String, dynamic>>.from(data);
+            _mrpData = List<Map<String, dynamic>>.from(data['mrp_calculado'] ?? []);
+            _orphanData = List<Map<String, dynamic>>.from(data['piezas_sin_medidas'] ?? []);
           });
         }
       } else {
@@ -261,7 +264,7 @@ class _MRPScreenState extends State<MRPScreen> {
       );
     }
 
-    if (_mrpData.isEmpty) {
+    if (_mrpData.isEmpty && _orphanData.isEmpty) {
       return const Center(
         child: Text(
           "Selecciona una revisión y presiona Calcular.",
@@ -303,6 +306,35 @@ class _MRPScreenState extends State<MRPScreen> {
               ),
             ),
           ),
+          if (_orphanData.isNotEmpty) ...[
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 20.0),
+              child: Container(height: 2, color: Colors.red),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12.0),
+              child: Text(
+                '⚠️ Piezas sin dimensiones CAD (Excluidas del cálculo)',
+                style: FluentTheme.of(context).typography.subtitle?.copyWith(color: Colors.red, fontWeight: FontWeight.bold),
+              ),
+            ),
+            Expanded(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: FluentTheme.of(context).cardColor,
+                  borderRadius: BorderRadius.circular(8.0),
+                ),
+                child: ListView(
+                  padding: const EdgeInsets.all(8.0),
+                  children: [
+                    _buildOrphanHeaderRow(),
+                    const Divider(),
+                    ..._orphanData.map((row) => _buildOrphanDataRow(row)),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -375,6 +407,35 @@ class _MRPScreenState extends State<MRPScreen> {
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOrphanHeaderRow() {
+    final style = FluentTheme.of(context).typography.body?.copyWith(fontWeight: FontWeight.bold, color: Colors.red);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
+      child: Row(
+        children: [
+          Expanded(flex: 3, child: Text('CÓDIGO DE PIEZA', style: style)),
+          Expanded(flex: 3, child: Text('ENSAMBLE', style: style)),
+          Expanded(flex: 3, child: Text('MATERIAL', style: style)),
+          Expanded(flex: 1, child: Text('CANT', style: style, textAlign: TextAlign.right)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOrphanDataRow(Map<String, dynamic> row) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
+      child: Row(
+        children: [
+          Expanded(flex: 3, child: Text(row['Codigo_Pieza']?.toString() ?? '-', style: FluentTheme.of(context).typography.body)),
+          Expanded(flex: 3, child: Text(row['Nombre_Ensamble']?.toString() ?? '-', style: FluentTheme.of(context).typography.body)),
+          Expanded(flex: 3, child: Text(row['Material']?.toString() ?? '-', style: FluentTheme.of(context).typography.body)),
+          Expanded(flex: 1, child: Text(row['Cantidad']?.toString() ?? '0', style: FluentTheme.of(context).typography.body, textAlign: TextAlign.right)),
         ],
       ),
     );
