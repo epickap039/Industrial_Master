@@ -113,36 +113,58 @@ class _MRPScreenState extends State<MRPScreen> {
   }
 
   Future<void> _exportToExcel() async {
-    if (_mrpData.isEmpty) return;
+    if (_mrpData.isEmpty && _orphanData.isEmpty) return;
 
     var excel = excel_lib.Excel.createExcel();
-    excel_lib.Sheet sheetObject = excel['MRP Requerimientos'];
-    excel.delete('Sheet1');
+    
+    // 1. Hoja de Orden de Compra
+    excel_lib.Sheet sheetOC = excel['Orden_Compra'];
+    excel.delete('Sheet1'); // Eliminar la hoja por defecto
 
-    sheetObject.appendRow([
+    sheetOC.appendRow([
       excel_lib.TextCellValue('Material Oficial'),
       excel_lib.TextCellValue('Calibre/Espesor'),
       excel_lib.TextCellValue('Piezas Totales'),
-      excel_lib.TextCellValue('Área Total (Formato Leíble)'),
-      excel_lib.TextCellValue('Área Cruda (mm2)'),
+      excel_lib.TextCellValue('Área / Requerimiento'),
+      excel_lib.TextCellValue('Orden de Compra Sugerida'),
     ]);
 
     for (var row in _mrpData) {
       double areaMm2 = (row['Requerimiento_Area_mm2'] ?? 0).toDouble();
-      String readableArea = _formatArea(areaMm2);
-      
-      sheetObject.appendRow([
+      sheetOC.appendRow([
         excel_lib.TextCellValue(row['Material']?.toString() ?? '-'),
         excel_lib.TextCellValue(row['Calibre_Espesor']?.toString() ?? '-'),
         excel_lib.DoubleCellValue((row['Cantidad_Total_Piezas'] ?? 0).toDouble()),
-        excel_lib.TextCellValue(readableArea),
-        excel_lib.DoubleCellValue(areaMm2),
+        excel_lib.TextCellValue(_formatArea(areaMm2)),
+        excel_lib.TextCellValue(row['Sugerencia_Compra']?.toString() ?? 'N/A'),
       ]);
     }
 
+    // 2. Hoja de Auditoría de Ingeniería (Huérfanos)
+    if (_orphanData.isNotEmpty) {
+      excel_lib.Sheet sheetAudit = excel['Auditoria_Ingenieria'];
+      sheetAudit.appendRow([
+        excel_lib.TextCellValue('Código de Pieza'),
+        excel_lib.TextCellValue('Ensamble'),
+        excel_lib.TextCellValue('Material CAD'),
+        excel_lib.TextCellValue('Cantidad BOM'),
+      ]);
+
+      for (var row in _orphanData) {
+        sheetAudit.appendRow([
+          excel_lib.TextCellValue(row['Codigo_Pieza']?.toString() ?? '-'),
+          excel_lib.TextCellValue(row['Nombre_Ensamble']?.toString() ?? '-'),
+          excel_lib.TextCellValue(row['Material']?.toString() ?? '-'),
+          excel_lib.DoubleCellValue((row['Cantidad'] ?? 0).toDouble()),
+        ]);
+      }
+    }
+
+    String fileName = 'MRP_Requerimiento_Rev_${_selectedRevisionId ?? "Unknown"}.xlsx';
+    
     String? outputFile = await FilePicker.platform.saveFile(
       dialogTitle: 'Exportar Requerimiento de Materiales',
-      fileName: 'Requerimientos_MRP.xlsx',
+      fileName: fileName,
     );
 
     if (outputFile != null) {
@@ -157,13 +179,15 @@ class _MRPScreenState extends State<MRPScreen> {
               context,
               builder: (context, close) => InfoBar(
                 title: const Text('Exportación Exitosa'),
-                content: Text('Se exportaron ${_mrpData.length} materiales a Excel.'),
+                content: Text('Reporte generado: $fileName. ${_mrpData.length} ítems de compra y ${_orphanData.length} huérfanos.'),
                 severity: InfoBarSeverity.success,
                 onClose: close,
               ),
             );
           }
-        } catch(e) { /* ignore for web but works in windows */ }
+        } catch(e) {
+          debugPrint("Error al guardar Excel: $e");
+        }
       }
     }
   }
@@ -231,7 +255,7 @@ class _MRPScreenState extends State<MRPScreen> {
               message: "Exportar a Excel",
               child: IconButton(
                 icon: Icon(FluentIcons.excel_logo, color: Colors.green),
-                onPressed: _mrpData.isEmpty ? null : _exportToExcel,
+                onPressed: (_mrpData.isEmpty && _orphanData.isEmpty) ? null : _exportToExcel,
               ),
             ),
           ],
