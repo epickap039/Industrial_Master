@@ -53,7 +53,7 @@ class _MRPScreenState extends State<MRPScreen> {
                 if (rId != null) {
                   flattened.add({
                     'id': rId,
-                    'name': '$tName - $typeName ($verName) - Rev $rNum',
+                    'name': '$tName - $typeName ($verName) - Rev ${rNum ?? 'N/A'}',
                   });
                 }
               }
@@ -185,21 +185,27 @@ class _MRPScreenState extends State<MRPScreen> {
           children: [
             _isLoadingRevisions
                 ? const ProgressRing(strokeWidth: 2)
-                : ComboBox<int>(
-                    placeholder: const Text('Seleccionar Proyecto (Revisión)'),
-                    value: _selectedRevisionId,
-                    items: _revisionsList.map((rev) {
-                      return ComboBoxItem<int>(
-                        value: rev['id'] as int,
-                        child: Text(rev['name'] as String),
-                      );
-                    }).toList(),
-                    onChanged: (val) {
-                      setState(() {
-                        _selectedRevisionId = val;
-                      });
-                    },
-                    isExpanded: false,
+                : ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 350),
+                    child: ComboBox<int>(
+                      placeholder: const Text('Seleccionar Proyecto (Revisión)'),
+                      value: _selectedRevisionId,
+                      items: _revisionsList.map((rev) {
+                        return ComboBoxItem<int>(
+                          value: rev['id'] as int,
+                          child: Text(
+                            rev['name'] as String,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        setState(() {
+                          _selectedRevisionId = val;
+                        });
+                      },
+                      isExpanded: true,
+                    ),
                   ),
             const SizedBox(width: 15),
             FilledButton(
@@ -246,7 +252,7 @@ class _MRPScreenState extends State<MRPScreen> {
     if (_errorMessage != null) {
       return Center(
         child: Text(
-          "Error: \$_errorMessage",
+          "Error: $_errorMessage",
           style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
         ),
       );
