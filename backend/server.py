@@ -540,11 +540,11 @@ def calculate_mrp(id_revision: int):
         WITH PiezasBase AS (
             SELECT 
                 E.Cantidad,
-                ISNULL(NULLIF(LTRIM(RTRIM(M.Material)), ''), 'FALTA ASIGNAR EN CAD') AS MaterialLimpio,
+                COALESCE(NULLIF(LTRIM(RTRIM(M.Material)), ''), NULLIF(LTRIM(RTRIM(M.Descripcion)), ''), 'FALTA ASIGNAR EN CAD') AS MaterialLimpio,
                 M.Espesor_Perfil_CAD,
-                TRY_CAST(REPLACE(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', ''), ' ', '') AS FLOAT) AS LargoLimpio,
-                TRY_CAST(REPLACE(REPLACE(REPLACE(M.Ancho_CAD, ' mm', ''), ',', ''), ' ', '') AS FLOAT) AS AnchoLimpio,
-                TRY_CAST(REPLACE(REPLACE(REPLACE(M.Area_CAD, ' mm^2', ''), ',', ''), ' ', '') AS FLOAT) AS AreaLimpia
+                TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS LargoLimpio,
+                TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Ancho_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS AnchoLimpio,
+                TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Area_CAD, ' mm^2', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS AreaLimpia
             FROM Tbl_BOM_Estructura E
             JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
             JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
@@ -616,11 +616,11 @@ def calculate_mrp(id_revision: int):
             SELECT 
                 E.Codigo_Pieza,
                 EN.Nombre_Ensamble,
-                ISNULL(NULLIF(LTRIM(RTRIM(M.Material)), ''), 'FALTA ASIGNAR EN CAD') AS MaterialLimpio,
+                COALESCE(NULLIF(LTRIM(RTRIM(M.Material)), ''), NULLIF(LTRIM(RTRIM(M.Descripcion)), ''), 'FALTA ASIGNAR EN CAD') AS MaterialLimpio,
                 E.Cantidad,
-                TRY_CAST(REPLACE(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', ''), ' ', '') AS FLOAT) AS LargoLimpio,
-                TRY_CAST(REPLACE(REPLACE(REPLACE(M.Ancho_CAD, ' mm', ''), ',', ''), ' ', '') AS FLOAT) AS AnchoLimpio,
-                TRY_CAST(REPLACE(REPLACE(REPLACE(M.Area_CAD, ' mm^2', ''), ',', ''), ' ', '') AS FLOAT) AS AreaLimpia
+                TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS LargoLimpio,
+                TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Ancho_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS AnchoLimpio,
+                TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Area_CAD, ' mm^2', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS AreaLimpia
             FROM Tbl_BOM_Estructura E
             JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
             JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
