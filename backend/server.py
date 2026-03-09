@@ -531,19 +531,20 @@ def get_where_used(codigo_pieza: str):
 # === MRP / ESTADO DE CUENTA DE MATERIALES ===
 @app.get("/api/mrp/calculate/{id_revision}")
 def calculate_mrp(id_revision: int):
-    """Calcula la consolidación de compras (MRP) y detecta piezas sin medidas CAD."""
+    """Calcula la consolidación de compras (MRP) con limpieza de materiales y fallback de área."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # 1. Query MRP Calculado (Con Medidas)
+        # 1. Query MRP Calculado (Con Medidas o Fallback)
         query_mrp = """
-        WITH PiezasLimpio AS (
+        WITH PiezasBase AS (
             SELECT 
                 E.Cantidad,
-                M.Material,
+                ISNULL(NULLIF(LTRIM(RTRIM(M.Material)), ''), 'FALTA ASIGNAR EN CAD') AS MaterialLimpio,
                 M.Espesor_Perfil_CAD,
-                TRY_CAST(REPLACE(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', ''), ' ', '') AS FLOAT) AS Largo,
-                TRY_CAST(REPLACE(REPLACE(REPLACE(M.Area_CAD, ' mm^2', ''), ',', ''), ' ', '') AS FLOAT) AS Area
+                TRY_CAST(REPLACE(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', ''), ' ', '') AS FLOAT) AS LargoLimpio,
+                TRY_CAST(REPLACE(REPLACE(REPLACE(M.Ancho_CAD, ' mm', ''), ',', ''), ' ', '') AS FLOAT) AS AnchoLimpio,
+                TRY_CAST(REPLACE(REPLACE(REPLACE(M.Area_CAD, ' mm^2', ''), ',', ''), ' ', '') AS FLOAT) AS AreaLimpia
             FROM Tbl_BOM_Estructura E
             JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
             JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
@@ -551,15 +552,15 @@ def calculate_mrp(id_revision: int):
             WHERE ES.ID_Revision = ?
         )
         SELECT 
-            ISNULL(Material, 'SIN MATERIAL DEFINIDO') AS Material,
+            MaterialLimpio AS Material,
             ISNULL(CAST(Espesor_Perfil_CAD AS VARCHAR(50)), 'N/A') AS Calibre_Espesor,
             SUM(Cantidad) AS Cantidad_Total_Piezas,
-            SUM(Cantidad * ISNULL(Largo, 0.0)) AS Requerimiento_Longitud_mm,
-            SUM(Cantidad * ISNULL(Area, 0.0)) AS Requerimiento_Area_mm2
-        FROM PiezasLimpio
-        WHERE ISNULL(Area, 0) > 0 OR ISNULL(Largo, 0) > 0
-        GROUP BY Material, Espesor_Perfil_CAD
-        ORDER BY Material, Espesor_Perfil_CAD
+            SUM(Cantidad * ISNULL(LargoLimpio, 0.0)) AS Requerimiento_Longitud_mm,
+            SUM(Cantidad * ISNULL(NULLIF(AreaLimpia, 0), (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0)))) AS Requerimiento_Area_mm2
+        FROM PiezasBase
+        WHERE ISNULL(AreaLimpia, 0) > 0 OR ISNULL(LargoLimpio, 0) > 0 OR (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0)) > 0
+        GROUP BY MaterialLimpio, Espesor_Perfil_CAD
+        ORDER BY MaterialLimpio, Espesor_Perfil_CAD
         """
         cursor.execute(query_mrp, (id_revision,))
         rows_mrp = cursor.fetchall()
@@ -610,23 +611,24 @@ def calculate_mrp(id_revision: int):
             
         # 2. Query Piezas Sin Medidas (Huérfanas)
         query_orphans = """
-        WITH PiezasLimpio AS (
+        WITH PiezasBase AS (
             SELECT 
                 E.Codigo_Pieza,
                 EN.Nombre_Ensamble,
-                M.Material,
+                ISNULL(NULLIF(LTRIM(RTRIM(M.Material)), ''), 'FALTA ASIGNAR EN CAD') AS MaterialLimpio,
                 E.Cantidad,
-                TRY_CAST(REPLACE(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', ''), ' ', '') AS FLOAT) AS Largo,
-                TRY_CAST(REPLACE(REPLACE(REPLACE(M.Area_CAD, ' mm^2', ''), ',', ''), ' ', '') AS FLOAT) AS Area
+                TRY_CAST(REPLACE(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', ''), ' ', '') AS FLOAT) AS LargoLimpio,
+                TRY_CAST(REPLACE(REPLACE(REPLACE(M.Ancho_CAD, ' mm', ''), ',', ''), ' ', '') AS FLOAT) AS AnchoLimpio,
+                TRY_CAST(REPLACE(REPLACE(REPLACE(M.Area_CAD, ' mm^2', ''), ',', ''), ' ', '') AS FLOAT) AS AreaLimpia
             FROM Tbl_BOM_Estructura E
             JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
             JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
             JOIN Tbl_Maestro_Piezas M ON E.Codigo_Pieza = M.Codigo_Pieza
             WHERE ES.ID_Revision = ?
         )
-        SELECT Codigo_Pieza, Nombre_Ensamble, Material, Cantidad
-        FROM PiezasLimpio
-        WHERE ISNULL(Area, 0) = 0 AND ISNULL(Largo, 0) = 0
+        SELECT Codigo_Pieza, Nombre_Ensamble, MaterialLimpio AS Material, Cantidad
+        FROM PiezasBase
+        WHERE ISNULL(AreaLimpia, 0) = 0 AND ISNULL(LargoLimpio, 0) = 0 AND (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0)) = 0
         """
         cursor.execute(query_orphans, (id_revision,))
         rows_orphans = cursor.fetchall()

@@ -368,7 +368,10 @@ class _MRPScreenState extends State<MRPScreen> {
             flex: 3,
             child: Text(
               row['Material']?.toString() ?? 'N/A',
-              style: FluentTheme.of(context).typography.body?.copyWith(fontWeight: FontWeight.w600),
+              style: FluentTheme.of(context).typography.body?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: row['Material'] == 'FALTA ASIGNAR EN CAD' ? Colors.orange.darkest : null,
+              ),
             ),
           ),
           Expanded(
