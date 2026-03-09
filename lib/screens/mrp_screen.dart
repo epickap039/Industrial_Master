@@ -180,13 +180,16 @@ class _MRPScreenState extends State<MRPScreen> {
     return ScaffoldPage(
       header: PageHeader(
         title: const Text('MRPII: Requerimiento de Materiales'),
-        commandBar: Row(
-          mainAxisSize: MainAxisSize.min,
+        commandBar: Wrap(
+          alignment: WrapAlignment.end,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 10,
+          runSpacing: 10,
           children: [
             _isLoadingRevisions
                 ? const ProgressRing(strokeWidth: 2)
                 : ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 350),
+                    constraints: const BoxConstraints(maxWidth: 250),
                     child: ComboBox<int>(
                       placeholder: const Text('Seleccionar Proyecto (Revisión)'),
                       value: _selectedRevisionId,
@@ -213,6 +216,7 @@ class _MRPScreenState extends State<MRPScreen> {
                   ? null
                   : _calculateMRP,
               child: const Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(FluentIcons.calculator),
                   SizedBox(width: 8),
@@ -220,7 +224,6 @@ class _MRPScreenState extends State<MRPScreen> {
                 ],
               ),
             ),
-            const SizedBox(width: 10),
             Tooltip(
               message: "Exportar a Excel",
               child: IconButton(
@@ -273,7 +276,7 @@ class _MRPScreenState extends State<MRPScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Consolidación de Materiales (\${_mrpData.length} registros)',
+            'Consolidación de Materiales (${_mrpData.length} registros)',
             style: FluentTheme.of(context).typography.subtitle,
           ),
           const SizedBox(height: 16),
