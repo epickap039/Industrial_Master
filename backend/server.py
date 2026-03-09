@@ -550,7 +550,7 @@ def calculate_mrp(id_revision: int):
         )
         SELECT 
             ISNULL(Material, 'SIN MATERIAL DEFINIDO') AS Material,
-            ISNULL(Espesor_Perfil_CAD, 'N/A') AS Calibre_Espesor,
+            ISNULL(CAST(Espesor_Perfil_CAD AS VARCHAR(50)), 'N/A') AS Calibre_Espesor,
             SUM(Cantidad) AS Cantidad_Total_Piezas,
             SUM(Cantidad * ISNULL(Largo, 1.0) * ISNULL(Ancho, 1.0)) AS Requerimiento_Area_mm2
         FROM PiezasLimpio
