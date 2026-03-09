@@ -148,6 +148,7 @@ class _MRPScreenState extends State<MRPScreen> {
         excel_lib.TextCellValue('Ensamble'),
         excel_lib.TextCellValue('Material CAD'),
         excel_lib.TextCellValue('Cantidad BOM'),
+        excel_lib.TextCellValue('Motivo de Rechazo'),
       ]);
 
       for (var row in _orphanData) {
@@ -156,6 +157,7 @@ class _MRPScreenState extends State<MRPScreen> {
           excel_lib.TextCellValue(row['Nombre_Ensamble']?.toString() ?? '-'),
           excel_lib.TextCellValue(row['Material']?.toString() ?? '-'),
           excel_lib.DoubleCellValue((row['Cantidad'] ?? 0).toDouble()),
+          excel_lib.TextCellValue(row['Motivo_Rechazo']?.toString() ?? '-'),
         ]);
       }
     }
@@ -338,7 +340,7 @@ class _MRPScreenState extends State<MRPScreen> {
             Padding(
               padding: const EdgeInsets.only(bottom: 12.0),
               child: Text(
-                '⚠️ Piezas sin dimensiones CAD (Excluidas del cálculo)',
+                '⚠️ Piezas sin dimensiones CAD o Material (Excluidas del cálculo)',
                 style: FluentTheme.of(context).typography.subtitle?.copyWith(color: Colors.red, fontWeight: FontWeight.bold),
               ),
             ),
@@ -449,6 +451,7 @@ class _MRPScreenState extends State<MRPScreen> {
           Expanded(flex: 3, child: Text('ENSAMBLE', style: style)),
           Expanded(flex: 3, child: Text('MATERIAL', style: style)),
           Expanded(flex: 1, child: Text('CANT', style: style, textAlign: TextAlign.right)),
+          Expanded(flex: 3, child: Text('MOTIVO DE RECHAZO', style: style, textAlign: TextAlign.right)),
         ],
       ),
     );
@@ -463,6 +466,14 @@ class _MRPScreenState extends State<MRPScreen> {
           Expanded(flex: 3, child: Text(row['Nombre_Ensamble']?.toString() ?? '-', style: FluentTheme.of(context).typography.body)),
           Expanded(flex: 3, child: Text(row['Material']?.toString() ?? '-', style: FluentTheme.of(context).typography.body)),
           Expanded(flex: 1, child: Text(row['Cantidad']?.toString() ?? '0', style: FluentTheme.of(context).typography.body, textAlign: TextAlign.right)),
+          Expanded(
+            flex: 3,
+            child: Text(
+              row['Motivo_Rechazo']?.toString() ?? '-',
+              style: FluentTheme.of(context).typography.body?.copyWith(color: Colors.red.darkest, fontWeight: FontWeight.bold),
+              textAlign: TextAlign.right,
+            ),
+          ),
         ],
       ),
     );

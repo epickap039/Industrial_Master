@@ -531,11 +531,11 @@ def get_where_used(codigo_pieza: str):
 # === MRP / ESTADO DE CUENTA DE MATERIALES ===
 @app.get("/api/mrp/calculate/{id_revision}")
 def calculate_mrp(id_revision: int):
-    """Calcula la consolidación de compras (MRP) con limpieza de materiales y fallback de área."""
+    """Calcula la consolidación de compras (MRP) con filtrado estricto y diagnóstico de huérfanos."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # 1. Query MRP Calculado (Con Medidas o Fallback)
+        # 1. Query MRP Calculado (Con Medidas Y Material)
         query_mrp = """
         WITH PiezasBase AS (
             SELECT 
@@ -558,7 +558,8 @@ def calculate_mrp(id_revision: int):
             SUM(Cantidad * ISNULL(LargoLimpio, 0.0)) AS Requerimiento_Longitud_mm,
             SUM(Cantidad * ISNULL(NULLIF(AreaLimpia, 0), (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0)))) AS Requerimiento_Area_mm2
         FROM PiezasBase
-        WHERE ISNULL(AreaLimpia, 0) > 0 OR ISNULL(LargoLimpio, 0) > 0 OR (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0)) > 0
+        WHERE (ISNULL(AreaLimpia, 0) > 0 OR ISNULL(LargoLimpio, 0) > 0 OR (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0)) > 0)
+          AND MaterialLimpio != 'FALTA ASIGNAR EN CAD'
         GROUP BY MaterialLimpio, Espesor_Perfil_CAD
         ORDER BY MaterialLimpio, Espesor_Perfil_CAD
         """
@@ -609,7 +610,7 @@ def calculate_mrp(id_revision: int):
                 "Sugerencia_Compra": sugerencia
             })
             
-        # 2. Query Piezas Sin Medidas (Huérfanas)
+        # 2. Query Piezas Sin Medidas o Sin Material (Huérfanas con Diagnóstico)
         query_orphans = """
         WITH PiezasBase AS (
             SELECT 
@@ -626,9 +627,19 @@ def calculate_mrp(id_revision: int):
             JOIN Tbl_Maestro_Piezas M ON E.Codigo_Pieza = M.Codigo_Pieza
             WHERE ES.ID_Revision = ?
         )
-        SELECT Codigo_Pieza, Nombre_Ensamble, MaterialLimpio AS Material, Cantidad
+        SELECT 
+            Codigo_Pieza, 
+            Nombre_Ensamble, 
+            MaterialLimpio AS Material, 
+            Cantidad,
+            CASE 
+                WHEN MaterialLimpio = 'FALTA ASIGNAR EN CAD' AND (ISNULL(AreaLimpia,0)=0 AND ISNULL(LargoLimpio,0)=0 AND (ISNULL(LargoLimpio,0)*ISNULL(AnchoLimpio,0))=0) THEN 'Sin Material ni Dimensiones'
+                WHEN MaterialLimpio = 'FALTA ASIGNAR EN CAD' THEN 'Falta Asignar Material'
+                ELSE 'Sin Dimensiones CAD'
+            END AS Motivo_Rechazo
         FROM PiezasBase
-        WHERE ISNULL(AreaLimpia, 0) = 0 AND ISNULL(LargoLimpio, 0) = 0 AND (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0)) = 0
+        WHERE (ISNULL(AreaLimpia, 0) = 0 AND ISNULL(LargoLimpio, 0) = 0 AND (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0)) = 0)
+           OR MaterialLimpio = 'FALTA ASIGNAR EN CAD'
         """
         cursor.execute(query_orphans, (id_revision,))
         rows_orphans = cursor.fetchall()
@@ -639,7 +650,8 @@ def calculate_mrp(id_revision: int):
                 "Codigo_Pieza": r.Codigo_Pieza,
                 "Nombre_Ensamble": r.Nombre_Ensamble,
                 "Material": r.Material,
-                "Cantidad": float(r.Cantidad)
+                "Cantidad": float(r.Cantidad),
+                "Motivo_Rechazo": r.Motivo_Rechazo
             })
 
         return {
