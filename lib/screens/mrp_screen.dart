@@ -307,8 +307,8 @@ class _MRPScreenState extends State<MRPScreen> {
             ),
           ),
           if (_orphanData.isNotEmpty) ...[
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 20.0),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 20.0),
               child: Container(height: 2, color: Colors.red),
             ),
             Padding(
