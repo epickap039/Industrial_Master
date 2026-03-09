@@ -538,7 +538,7 @@ def calculate_mrp(id_revision: int):
         WITH PiezasLimpio AS (
             SELECT 
                 E.Cantidad,
-                M.Material_Oficial,
+                M.Material,
                 M.Espesor_Perfil_CAD,
                 TRY_CAST(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', '') AS FLOAT) AS Largo,
                 TRY_CAST(REPLACE(REPLACE(M.Ancho_CAD, ' mm', ''), ',', '') AS FLOAT) AS Ancho
@@ -549,13 +549,13 @@ def calculate_mrp(id_revision: int):
             WHERE ES.ID_Revision = ?
         )
         SELECT 
-            ISNULL(Material_Oficial, 'SIN MATERIAL DEFINIDO') AS Material,
+            ISNULL(Material, 'SIN MATERIAL DEFINIDO') AS Material,
             ISNULL(Espesor_Perfil_CAD, 'N/A') AS Calibre_Espesor,
             SUM(Cantidad) AS Cantidad_Total_Piezas,
             SUM(Cantidad * ISNULL(Largo, 1.0) * ISNULL(Ancho, 1.0)) AS Requerimiento_Area_mm2
         FROM PiezasLimpio
-        GROUP BY Material_Oficial, Espesor_Perfil_CAD
-        ORDER BY Material_Oficial, Espesor_Perfil_CAD
+        GROUP BY Material, Espesor_Perfil_CAD
+        ORDER BY Material, Espesor_Perfil_CAD
         """
         cursor.execute(query, (id_revision,))
         rows = cursor.fetchall()
@@ -564,7 +564,7 @@ def calculate_mrp(id_revision: int):
         for r in rows:
             result.append({
                 "Material": r.Material,
-                "Calibre/Espesor": r.Calibre_Espesor,
+                "Calibre_Espesor": r.Calibre_Espesor,
                 "Cantidad_Total_Piezas": float(r.Cantidad_Total_Piezas),
                 "Requerimiento_Area_mm2": float(r.Requerimiento_Area_mm2)
             })
