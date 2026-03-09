@@ -575,19 +575,21 @@ def calculate_mrp(id_revision: int):
             sugerencia = "N/A"
             scrap_factor = 1.15
             
-            # Regla Lineal (Perfiles/Tubos)
-            if any(x in material_upper for x in ['PERFIL', 'TUBO', 'BARRA', 'SOLERA', 'ANGULO', 'CANAL']):
+            # 1. Regla Lineal (Perfiles / Tubos / HSS)
+            if any(x in material_upper for x in ['PERFIL', 'TUBO', 'BARRA', 'SOLERA', 'ANGULO', 'CANAL', 'HSS']):
                 metros_totales = req_long_mm / 1000.0
                 tramos_std = 6.0
                 if 'HSS' in material_upper: tramos_std = 12.0
                 cantidad_tramos = math.ceil((metros_totales / tramos_std) * scrap_factor)
                 sugerencia = f"Comprar {cantidad_tramos} Tramos de {int(tramos_std)} MT"
                 
-            # Regla de Área (Placas/Láminas)
-            elif any(x in material_upper for x in ['PLACA', 'LAMINA']):
+            # 2. Regla Universal (Chapas / Láminas / Otros) - Por defecto 4'x10'
+            else:
                 m2_totales = req_area_mm2 / 1000000.0
                 area_placa_m2 = 3.72 
                 t_str = "4'X10'"
+                
+                # Búsqueda de tamaños específicos en el nombre del material
                 if "8'X20'" in material_upper: 
                     area_placa_m2 = 14.86
                     t_str = "8'X20'"

@@ -195,13 +195,10 @@ class _MRPScreenState extends State<MRPScreen> {
   }
   
   String _formatArea(double mm2) {
-    if (mm2 == 0) return "0.00 mm²";
-    if (mm2 > 1000000) {
-      double m2 = mm2 / 1000000;
-      return '${_decFormat.format(m2)} m²';
-    } else {
-      return '${_decFormat.format(mm2)} mm²';
-    }
+    if (mm2 == 0) return "0.00 m²  /  0.00 in²";
+    double m2 = mm2 / 1000000.0;
+    double in2 = mm2 / 645.16129; // 1 in = 25.4 mm -> 1 in2 = 645.16129 mm2
+    return '${_decFormat.format(m2)} m²  /  ${_decFormat.format(in2)} in²';
   }
 
   @override
@@ -386,6 +383,13 @@ class _MRPScreenState extends State<MRPScreen> {
     double areaMm2 = (row['Requerimiento_Area_mm2'] ?? 0).toDouble();
     double piezas = (row['Cantidad_Total_Piezas'] ?? 0).toDouble();
     
+    // Estilo base neutral para máxima legibilidad
+    final baseStyle = TextStyle(
+      color: FluentTheme.of(context).typography.body?.color?.withValues(alpha: 0.9) ?? Colors.white,
+      fontWeight: FontWeight.normal,
+      fontSize: 13,
+    );
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 12.0),
       child: Row(
@@ -394,7 +398,7 @@ class _MRPScreenState extends State<MRPScreen> {
             flex: 3,
             child: Text(
               row['Material']?.toString() ?? 'N/A',
-              style: FluentTheme.of(context).typography.body?.copyWith(
+              style: baseStyle.copyWith(
                 fontWeight: FontWeight.w600,
                 color: row['Material'] == 'FALTA ASIGNAR EN CAD' ? Colors.orange.darkest : null,
               ),
@@ -404,7 +408,7 @@ class _MRPScreenState extends State<MRPScreen> {
             flex: 2,
             child: Text(
               row['Calibre_Espesor']?.toString() ?? 'N/A',
-              style: FluentTheme.of(context).typography.body?.copyWith(color: FluentTheme.of(context).accentColor),
+              style: baseStyle,
             ),
           ),
           Expanded(
@@ -412,7 +416,7 @@ class _MRPScreenState extends State<MRPScreen> {
             child: Text(
               _numFormat.format(piezas),
               textAlign: TextAlign.right,
-              style: FluentTheme.of(context).typography.body?.copyWith(fontWeight: FontWeight.bold),
+              style: baseStyle.copyWith(fontWeight: FontWeight.bold),
             ),
           ),
           Expanded(
@@ -421,7 +425,7 @@ class _MRPScreenState extends State<MRPScreen> {
               alignment: Alignment.centerRight,
               child: Text(
                 _formatArea(areaMm2),
-                style: FluentTheme.of(context).typography.body,
+                style: baseStyle,
               ),
             ),
           ),
@@ -430,7 +434,7 @@ class _MRPScreenState extends State<MRPScreen> {
             child: Text(
               row['Sugerencia_Compra']?.toString() ?? 'N/A',
               textAlign: TextAlign.right,
-              style: FluentTheme.of(context).typography.body?.copyWith(
+              style: baseStyle.copyWith(
                 color: Colors.orange.darkest,
                 fontWeight: FontWeight.bold,
               ),
