@@ -96,7 +96,7 @@ class _MRPScreenState extends State<MRPScreen> {
           });
         }
       } else {
-        throw Exception("Error del servidor: \${res.statusCode}");
+        throw Exception("Error del servidor: ${res.statusCode} - ${res.body}");
       }
     } catch (e) {
       if (mounted) {
