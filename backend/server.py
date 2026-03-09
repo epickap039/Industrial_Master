@@ -1,5 +1,6 @@
 import socket
 import uvicorn
+import math
 import pyodbc
 import pandas as pd
 import openpyxl
@@ -530,7 +531,7 @@ def get_where_used(codigo_pieza: str):
 # === MRP / ESTADO DE CUENTA DE MATERIALES ===
 @app.get("/api/mrp/calculate/{id_revision}")
 def calculate_mrp(id_revision: int):
-    """Calcula la consolidación de compras (MRP) agrupando requerimientos por Material y Calibre/Espesor."""
+    """Calcula la consolidación de compras (MRP) con algoritmo de Nesting Sugerido."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -540,8 +541,8 @@ def calculate_mrp(id_revision: int):
                 E.Cantidad,
                 M.Material,
                 M.Espesor_Perfil_CAD,
-                TRY_CAST(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', '') AS FLOAT) AS Largo,
-                TRY_CAST(REPLACE(REPLACE(M.Ancho_CAD, ' mm', ''), ',', '') AS FLOAT) AS Ancho
+                TRY_CAST(REPLACE(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', ''), ' ', '') AS FLOAT) AS Largo,
+                TRY_CAST(REPLACE(REPLACE(REPLACE(M.Area_CAD, ' mm^2', ''), ',', ''), ' ', '') AS FLOAT) AS Area
             FROM Tbl_BOM_Estructura E
             JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
             JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
@@ -552,7 +553,8 @@ def calculate_mrp(id_revision: int):
             ISNULL(Material, 'SIN MATERIAL DEFINIDO') AS Material,
             ISNULL(CAST(Espesor_Perfil_CAD AS VARCHAR(50)), 'N/A') AS Calibre_Espesor,
             SUM(Cantidad) AS Cantidad_Total_Piezas,
-            SUM(Cantidad * ISNULL(Largo, 1.0) * ISNULL(Ancho, 1.0)) AS Requerimiento_Area_mm2
+            SUM(Cantidad * ISNULL(Largo, 0.0)) AS Requerimiento_Longitud_mm,
+            SUM(Cantidad * ISNULL(Area, 0.0)) AS Requerimiento_Area_mm2
         FROM PiezasLimpio
         GROUP BY Material, Espesor_Perfil_CAD
         ORDER BY Material, Espesor_Perfil_CAD
@@ -562,11 +564,52 @@ def calculate_mrp(id_revision: int):
         
         result = []
         for r in rows:
+            material_upper = r.Material.upper()
+            req_area_mm2 = float(r.Requerimiento_Area_mm2)
+            req_long_mm = float(r.Requerimiento_Longitud_mm)
+            
+            sugerencia = "N/A"
+            scrap_factor = 1.15
+            
+            # Regla Lineal (Perfiles/Tubos)
+            if any(x in material_upper for x in ['PERFIL', 'TUBO', 'BARRA', 'SOLERA', 'ANGULO', 'CANAL']):
+                metros_totales = req_long_mm / 1000.0
+                tramos_std = 6.0
+                if 'HSS' in material_upper:
+                    tramos_std = 12.0
+                
+                cantidad_tramos = math.ceil((metros_totales / tramos_std) * scrap_factor)
+                sugerencia = f"Comprar {cantidad_tramos} Tramos de {int(tramos_std)} MT"
+                
+            # Regla de Área (Placas/Láminas)
+            elif any(x in material_upper for x in ['PLACA', 'LAMINA']):
+                m2_totales = req_area_mm2 / 1000000.0
+                area_placa_m2 = 3.72 # Default 4x10
+                t_str = "4'X10'"
+                
+                if "8'X20'" in material_upper:
+                    area_placa_m2 = 14.86
+                    t_str = "8'X20'"
+                elif "8'X30'" in material_upper:
+                    area_placa_m2 = 22.30
+                    t_str = "8'X30'"
+                elif "5'X24'" in material_upper:
+                    area_placa_m2 = 11.15
+                    t_str = "5'X24'"
+                elif "4'X10'" in material_upper:
+                    area_placa_m2 = 3.72
+                    t_str = "4'X10'"
+                
+                cantidad_placas = math.ceil((m2_totales / area_placa_m2) * scrap_factor)
+                sugerencia = f"Comprar {cantidad_placas} Placas de {t_str}"
+
             result.append({
                 "Material": r.Material,
                 "Calibre_Espesor": r.Calibre_Espesor,
                 "Cantidad_Total_Piezas": float(r.Cantidad_Total_Piezas),
-                "Requerimiento_Area_mm2": float(r.Requerimiento_Area_mm2)
+                "Requerimiento_Area_mm2": req_area_mm2,
+                "Requerimiento_Longitud_mm": req_long_mm,
+                "Sugerencia_Compra": sugerencia
             })
             
         return result

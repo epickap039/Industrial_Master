@@ -166,12 +166,12 @@ class _MRPScreenState extends State<MRPScreen> {
   }
   
   String _formatArea(double mm2) {
-    if (mm2 == 0) return "0 mm²";
+    if (mm2 == 0) return "0.00 mm²";
     if (mm2 > 1000000) {
       double m2 = mm2 / 1000000;
       return '${_decFormat.format(m2)} m²';
     } else {
-      return '${_numFormat.format(mm2)} mm²';
+      return '${_decFormat.format(mm2)} mm²';
     }
   }
 
@@ -309,15 +309,16 @@ class _MRPScreenState extends State<MRPScreen> {
   }
 
   Widget _buildHeaderRow() {
-    const style = TextStyle(fontWeight: FontWeight.bold);
-    return const Padding(
-      padding: EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
+    final style = FluentTheme.of(context).typography.body?.copyWith(fontWeight: FontWeight.bold);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
       child: Row(
         children: [
           Expanded(flex: 3, child: Text('MATERIAL OFICIAL', style: style)),
           Expanded(flex: 2, child: Text('CALIBRE / ESPESOR', style: style)),
           Expanded(flex: 2, child: Text('PIEZAS TOTALES', style: style, textAlign: TextAlign.right)),
           Expanded(flex: 3, child: Text('ÁREA TOTAL REQUERIDA', style: style, textAlign: TextAlign.right)),
+          Expanded(flex: 4, child: Text('ORDEN DE COMPRA SUGERIDA', style: style, textAlign: TextAlign.right)),
         ],
       ),
     );
@@ -335,14 +336,14 @@ class _MRPScreenState extends State<MRPScreen> {
             flex: 3,
             child: Text(
               row['Material']?.toString() ?? 'N/A',
-              style: const TextStyle(fontWeight: FontWeight.w600),
+              style: FluentTheme.of(context).typography.body?.copyWith(fontWeight: FontWeight.w600),
             ),
           ),
           Expanded(
             flex: 2,
             child: Text(
               row['Calibre_Espesor']?.toString() ?? 'N/A',
-              style: TextStyle(color: FluentTheme.of(context).accentColor),
+              style: FluentTheme.of(context).typography.body?.copyWith(color: FluentTheme.of(context).accentColor),
             ),
           ),
           Expanded(
@@ -350,19 +351,27 @@ class _MRPScreenState extends State<MRPScreen> {
             child: Text(
               _numFormat.format(piezas),
               textAlign: TextAlign.right,
-              style: const TextStyle(fontWeight: FontWeight.bold),
+              style: FluentTheme.of(context).typography.body?.copyWith(fontWeight: FontWeight.bold),
             ),
           ),
           Expanded(
             flex: 3,
             child: Container(
               alignment: Alignment.centerRight,
-              child: InfoBadge(
-                color: areaMm2 > 1000000 ? Colors.green.darkest : Colors.blue.darkest,
-                source: Text(
-                  _formatArea(areaMm2),
-                  style: const TextStyle(fontSize: 14),
-                ),
+              child: Text(
+                _formatArea(areaMm2),
+                style: FluentTheme.of(context).typography.body,
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 4,
+            child: Text(
+              row['Sugerencia_Compra']?.toString() ?? 'N/A',
+              textAlign: TextAlign.right,
+              style: FluentTheme.of(context).typography.body?.copyWith(
+                color: Colors.orange.darkest,
+                fontWeight: FontWeight.bold,
               ),
             ),
           ),
