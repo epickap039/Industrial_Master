@@ -19,37 +19,82 @@ class _CADScannerScreenState extends State<CADScannerScreen> with AutomaticKeepA
   bool get wantKeepAlive => true;
 
   String get _macroVbaText {
-    final rootPath = _pathController.text.replaceAll(r'\', r'\\');
-    return '''
-Option Explicit
+    return '''Option Explicit
 Dim fso As Object
 Dim swApp As Object
+Dim dictFiles As Object
+
 Sub main()
     Set swApp = Application.SldWorks
     Set fso = CreateObject("Scripting.FileSystemObject")
+    Set dictFiles = CreateObject("Scripting.Dictionary")
+    dictFiles.CompareMode = 1
+    
     Dim rootPath As String
-    rootPath = "\$rootPath"
-    If Not fso.FolderExists(rootPath) Then
-        MsgBox "Ruta no encontrada.", vbCritical
+    Dim ShellApp As Object
+    Dim Folder As Object
+    Set ShellApp = CreateObject("Shell.Application")
+    
+    Set Folder = ShellApp.BrowseForFolder(0, "Selecciona la carpeta del proyecto a escanear:", 0, 17)
+    
+    If Folder Is Nothing Then
+        MsgBox "Operación cancelada. No se seleccionó ninguna carpeta.", vbExclamation
         Exit Sub
     End If
+    
+    rootPath = Folder.Items.Item.Path
+    
+    If Not fso.FolderExists(rootPath) Then
+        MsgBox "Ruta no encontrada: " & rootPath, vbCritical
+        Exit Sub
+    End If
+    
+    ScanAndFilterNewestFiles rootPath
+    
+    Dim key As Variant
+    Dim filePathToProcess As String
+    Dim totalProcesados As Integer
+    totalProcesados = 0
+    
     On Error Resume Next
-    ProcessFolder rootPath
+    For Each key In dictFiles.Keys
+        filePathToProcess = dictFiles(key).Path
+        ProcessPart filePathToProcess
+        totalProcesados = totalProcesados + 1
+    Next key
     On Error GoTo 0
-    MsgBox "Procesamiento masivo completado con éxito.", vbInformation
+    
+    MsgBox "Procesamiento masivo completado." & vbCrLf & _
+           "Se procesaron " & totalProcesados & " archivos únicos (se ignoraron duplicados obsoletos).", vbInformation
 End Sub
-Sub ProcessFolder(folderPath As String)
+
+Sub ScanAndFilterNewestFiles(folderPath As String)
     Dim folder As Object, subFolder As Object, file As Object
+    Dim baseName As String
     Set folder = fso.GetFolder(folderPath)
+    
     For Each file In folder.Files
         If UCase(fso.GetExtensionName(file.Path)) = "SLDPRT" Then
-            ProcessPart file.Path
+            baseName = Trim(fso.GetBaseName(file.Path))
+            If InStr(1, baseName, "Chapa desplegada -", vbTextCompare) > 0 Then
+                baseName = Trim(Replace(baseName, "Chapa desplegada -", "", , , vbTextCompare))
+            End If
+            
+            If dictFiles.Exists(baseName) Then
+                If file.DateLastModified > dictFiles(baseName).DateLastModified Then
+                    Set dictFiles(baseName) = file
+                End If
+            Else
+                Set dictFiles(baseName) = file
+            End If
         End If
     Next file
+    
     For Each subFolder In folder.SubFolders
-        ProcessFolder subFolder.Path
+        ScanAndFilterNewestFiles subFolder.Path
     Next subFolder
 End Sub
+
 Sub ProcessPart(filePath As String)
     Dim swModel As Object, swFeat As Object
     Dim propMgr As Object, custPropMgr As Object
@@ -58,20 +103,25 @@ Sub ProcessPart(filePath As String)
     Dim valOut As String, valEval As String
     Dim fileName As String, isSheetMetal As Boolean
     Dim swSheetMetal As Object
+    
     fileName = fso.GetBaseName(filePath)
     If InStr(1, fileName, "Chapa desplegada -", vbTextCompare) > 0 Then
         fileName = Trim(Replace(fileName, "Chapa desplegada -", "", , , vbTextCompare))
     End If
+    
     Set swModel = swApp.OpenDoc6(filePath, 1, 1, "", nErrors, nWarnings)
+    
     If Not swModel Is Nothing Then
         largo = 0: ancho = 0: espesorPerfil = 0: isSheetMetal = False
         Set propMgr = swModel.Extension.CustomPropertyManager("")
+        
         propMgr.Get2 "Espesor", valOut, valEval
         If valEval <> "" Then espesorPerfil = Val(valEval)
         If espesorPerfil = 0 Then
             propMgr.Get2 "Thickness", valOut, valEval
             If valEval <> "" Then espesorPerfil = Val(valEval)
         End If
+        
         Set swFeat = swModel.FirstFeature
         Do While Not swFeat Is Nothing
             If swFeat.GetTypeName2() = "SheetMetal" Then
@@ -83,6 +133,7 @@ Sub ProcessPart(filePath As String)
             ElseIf swFeat.GetTypeName2() = "FlatPattern" Then
                 isSheetMetal = True
             End If
+            
             If swFeat.GetTypeName2() = "CutListFolder" Then
                 Set custPropMgr = swFeat.CustomPropertyManager
                 custPropMgr.Get2 "Largo del envolvente", valOut, valEval
@@ -96,6 +147,7 @@ Sub ProcessPart(filePath As String)
             End If
             Set swFeat = swFeat.GetNextFeature
         Loop
+        
         If largo = 0 Or ancho = 0 Or (espesorPerfil = 0 And Not isSheetMetal) Then
             Dim vBox As Variant
             vBox = swModel.GetPartBox(True)
@@ -110,12 +162,14 @@ Sub ProcessPart(filePath As String)
                 If espesorPerfil = 0 And Not isSheetMetal Then espesorPerfil = dz
             End If
         End If
+        
         propMgr.Add3 "CODIGO_PIEZA", 30, fileName, 1
         propMgr.Set "CODIGO_PIEZA", fileName
         propMgr.Add3 "Largo_CAD", 30, Round(largo, 2) & " mm", 1
         propMgr.Set "Largo_CAD", Round(largo, 2) & " mm"
         propMgr.Add3 "Ancho_CAD", 30, Round(ancho, 2) & " mm", 1
         propMgr.Set "Ancho_CAD", Round(ancho, 2) & " mm"
+        
         If espesorPerfil > 0 Then
             propMgr.Add3 "Espesor_Perfil_CAD", 30, Round(espesorPerfil, 2) & " mm", 1
             propMgr.Set "Espesor_Perfil_CAD", Round(espesorPerfil, 2) & " mm"
@@ -123,13 +177,13 @@ Sub ProcessPart(filePath As String)
             propMgr.Add3 "Espesor_Perfil_CAD", 30, "-", 1
             propMgr.Set "Espesor_Perfil_CAD", "-"
         End If
+        
         swModel.Save3 1, nErrors, nWarnings
         swApp.CloseDoc swModel.GetTitle
     End If
     DoEvents
-End Sub
-''';
-  }
+End Sub''';
+  }}
 
   final TextEditingController _pathController = TextEditingController();
   
@@ -625,6 +679,27 @@ End Sub
                                 },
                               );
                             },
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withOpacity(0.1),
+                        border: Border.all(color: Colors.blue, width: 1),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(FluentIcons.info, color: Colors.blue),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'NOTA: El Paso 2 (Convertir DWG a DXF) requiere que AutoCAD esté instalado en este equipo.',
+                              style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold),
+                            ),
                           ),
                         ],
                       ),
