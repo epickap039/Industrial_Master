@@ -3742,8 +3742,10 @@ def bg_scan_cad_task(root_path: str):
             abspath = info["abspath"]
             codigo = info["codigo"]
             
+            # FIX: Inicializar TODAS las variables antes del try para evitar UnboundLocalError
             largo_cad = 0.0
             ancho_cad = 0.0
+            espesor_cad = 0.0
             observacion = ""
             tiene_dxf = "No"
             largo_dxf = ""
@@ -3786,79 +3788,93 @@ def bg_scan_cad_task(root_path: str):
                     print(f"⚠️ DWG omitido: Sin conexión a AutoCAD COM -> {abspath}")
 
                 elif ext == ".sldprt" and sw_app:
-                    # ---- Apertura Silenciosa y Segura con OpenDoc6 ----
-                    # Flags de la API de SolidWorks:
-                    #   swDocPART        = 1  (tipo de documento: Part)
-                    #   swOpenDocOptions_Silent    = 1  (modo silencioso, sin diálogos)
-                    #   swOpenDocOptions_ReadOnly  = 2  (solo lectura, no bloquea el archivo)
-                    #   silentMode = 1 | 2 = 3
-                    swDocPART = 1
-                    swSilentReadOnly = 1 | 2  # swOpenDocOptions_Silent | swOpenDocOptions_ReadOnly
-                    swDocErrors = 0
-                    ruta_abs = os.path.abspath(abspath)
-
+                    # FIX: Inicializar flags COM fuera de ramas para evitar NameError
                     _rpc_crash = False
-                    try:
-                        # OpenDoc6(FileName, Type, Options, Configuration, Errors, Warnings)
-                        swModel = sw_app.OpenDoc6(
-                            ruta_abs,
-                            swDocPART,
-                            swSilentReadOnly,  # Options: Silent + ReadOnly
-                            "",               # Configuration (vacío = default)
-                            swDocErrors,      # Errors (ByRef → entero pasado por valor)
-                            0                 # Warnings (ByRef → entero pasado por valor)
-                        )
-                    except Exception as try_open_err:
-                        err_str = repr(try_open_err)
-                        err_code = getattr(try_open_err, 'hresult', None)
+                    swModel = None
+                    # FIX: Filtro estricto — solo procesar archivos .SLDPRT reales
+                    ruta_abs = os.path.abspath(abspath)
+                    if not ruta_abs.upper().endswith(".SLDPRT"):
+                        observacion = "Omitido (no es .SLDPRT)"
+                        print(f"[SW] Omitido por filtro: {ruta_abs}")
+                    else:
+                        # ---- Apertura Silenciosa y Segura con OpenDoc6 ----
+                        # Flags de la API de SolidWorks:
+                        #   swDocPART               = 1  (tipo de documento: Part)
+                        #   swOpenDocOptions_Silent  = 1  (sin diálogos)
+                        #   swOpenDocOptions_ReadOnly= 2  (solo lectura)
+                        #   silentMode = 1 | 2 = 3
+                        swDocPART = 1
+                        swSilentReadOnly = 1 | 2
 
-                        # ---- Auto-Resurrección COM (RPC Crash -2147023170) ----
-                        is_rpc_crash = (
-                            "-2147023170" in err_str
-                            or (err_code is not None and err_code == -2147023170)
-                        )
+                        # FIX TYPE MISMATCH: Usar VARIANTs tipados (VT_BYREF|VT_I4)
+                        # para evitar com_error(-2147352571, 'Los tipos no coinciden').
+                        # pywin32 requiere que los parámetros ByRef sean Variant explícitos.
+                        arg_errors   = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+                        arg_warnings = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
 
-                        if is_rpc_crash:
-                            print(f"[SW-RPC] ⚡ Crash RPC detectado en '{codigo}'. Iniciando resurrección COM...")
-                            import logging as _logging
-                            _logging.error(f"[SW-RPC] Crash en '{ruta_abs}': {err_str}")
+                        _rpc_crash = False
+                        swModel = None
+                        try:
+                            # OpenDoc6(FileName, Type, Options, Configuration, Errors, Warnings)
+                            swModel = sw_app.OpenDoc6(
+                                ruta_abs,
+                                swDocPART,
+                                swSilentReadOnly,  # Options: Silent + ReadOnly
+                                "",               # Configuration (vacío = default)
+                                arg_errors,        # Errors  (ByRef VARIANT I4)
+                                arg_warnings       # Warnings (ByRef VARIANT I4)
+                            )
+                        except Exception as try_open_err:
+                            err_str = repr(try_open_err)
+                            err_code = getattr(try_open_err, 'hresult', None)
 
-                            # 1. Asesinar el proceso SW muerto
-                            try:
-                                os.system("taskkill /F /IM SLDWORKS.exe 2>nul")
-                            except Exception:
-                                pass
+                            # ---- Auto-Resurrección COM (RPC Crash -2147023170) ----
+                            is_rpc_crash = (
+                                "-2147023170" in err_str
+                                or (err_code is not None and err_code == -2147023170)
+                            )
 
-                            # 2. Liberar referencia COM muerta
-                            sw_app = None
+                            if is_rpc_crash:
+                                print(f"[SW-RPC] ⚡ Crash RPC detectado en '{codigo}'. Iniciando resurrección COM...")
+                                import logging as _logging
+                                _logging.error(f"[SW-RPC] Crash en '{ruta_abs}': {err_str}")
 
-                            # 3. Pequeña pausa para que el SO libere el puerto RPC
-                            import time as _time
-                            _time.sleep(3)
+                                # 1. Asesinar el proceso SW muerto
+                                try:
+                                    os.system("taskkill /F /IM SLDWORKS.exe 2>nul")
+                                except Exception:
+                                    pass
 
-                            # 4. Re-inicializar COM y reconectar a SolidWorks
-                            try:
-                                pythoncom.CoUninitialize()
-                            except Exception:
-                                pass
-                            try:
-                                pythoncom.CoInitialize()
-                            except Exception:
-                                pass
-                            sw_app = get_sw_app()  # get_sw_app ya aplica _apply_silent_mode
+                                # 2. Liberar referencia COM muerta
+                                sw_app = None
 
-                            if sw_app:
-                                print(f"[SW-RPC] ✅ Resurrección COM exitosa. Continuando con el siguiente archivo.")
+                                # 3. Pequeña pausa para que el SO libere el puerto RPC
+                                import time as _time
+                                _time.sleep(3)
+
+                                # 4. Re-inicializar COM y reconectar a SolidWorks
+                                try:
+                                    pythoncom.CoUninitialize()
+                                except Exception:
+                                    pass
+                                try:
+                                    pythoncom.CoInitialize()
+                                except Exception:
+                                    pass
+                                sw_app = get_sw_app()  # get_sw_app ya aplica _apply_silent_mode
+
+                                if sw_app:
+                                    print("[SW-RPC] ✅ Resurrección COM exitosa. Continuando con el siguiente archivo.")
+                                else:
+                                    print("[SW-RPC] ❌ No se pudo reconectar a SolidWorks. El escáner continuará sin motor SW.")
+
+                                observacion = "Error/Saltado (RPC Crash - COM Reiniciado)"
+                                _rpc_crash = True
                             else:
-                                print(f"[SW-RPC] ❌ No se pudo reconectar a SolidWorks. El escáner continuará sin motor SW.")
-
-                            observacion = "Error/Saltado (RPC Crash - COM Reiniciado)"
-                            _rpc_crash = True
-                        else:
-                            # Error de apertura no-RPC (archivo corrupto, falta de permiso, etc.)
-                            print(f"[SW] Error abriendo '{codigo}': {err_str}")
-                            observacion = f"Error apertura: {str(try_open_err)[:60]}"
-                            swModel = None
+                                # Error de apertura no-RPC (archivo corrupto, falta de permiso, etc.)
+                                print(f"[SW] Error abriendo '{codigo}': {err_str}")
+                                observacion = f"Error apertura: {str(try_open_err)[:60]}"
+                                swModel = None
 
                     if not _rpc_crash:
                         # Solo procesamos si NO hubo crash RPC
