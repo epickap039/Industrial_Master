@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:excel/excel.dart' as excel_lib;
 import 'package:file_picker/file_picker.dart';
+import '../utils/excel_helper.dart';
 
 class CatalogScreen extends StatefulWidget {
   const CatalogScreen({super.key});
@@ -232,6 +233,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
     if (_filteredData.isEmpty) return;
 
     var excel = excel_lib.Excel.createExcel();
+    final headerStyle = ExcelHelper.getHeaderStyle();
     excel_lib.Sheet sheetObject = excel['Catálogo'];
     excel.delete('Sheet1');
 
@@ -251,17 +253,45 @@ class _CatalogScreenState extends State<CatalogScreen> {
       return true;
     }).toList();
 
-    List<excel_lib.CellValue> headers =
-        exportCols.map((c) => excel_lib.TextCellValue(c)).toList();
-    sheetObject.appendRow(headers);
+    Map<int, int> colWidths = {};
 
-    for (var row in _filteredData) {
-      List<excel_lib.CellValue> rowData =
-          exportCols.map((col) {
-            return excel_lib.TextCellValue(row[col]?.toString() ?? '-');
-          }).toList();
-      sheetObject.appendRow(rowData);
+    for (int i = 0; i < exportCols.length; i++) {
+        sheetObject.updateCell(
+            excel_lib.CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0),
+            excel_lib.TextCellValue(exportCols[i]),
+            cellStyle: headerStyle,
+        );
+        ExcelHelper.updateMaxWith(colWidths, i, exportCols[i]);
     }
+
+    for (int r = 0; r < _filteredData.length; r++) {
+      var row = _filteredData[r];
+      for (int c = 0; c < exportCols.length; c++) {
+        String colName = exportCols[c];
+        excel_lib.CellValue value;
+        
+        // Identificamos columnas numéricas para limpieza estricta
+        if (colName.toLowerCase().contains('area') || 
+            colName.toLowerCase().contains('largo') || 
+            colName.toLowerCase().contains('ancho') ||
+            colName.toLowerCase().contains('espesor') ||
+            colName.toLowerCase().contains('cantidad')) {
+            value = excel_lib.DoubleCellValue(ExcelHelper.cleanToDouble(row[colName]));
+        } else if (colName.toLowerCase() == 'medida') {
+            value = ExcelHelper.parseDynamicCell(row[colName]);
+        } else {
+            value = excel_lib.TextCellValue(row[colName]?.toString() ?? '-');
+        }
+
+        sheetObject.updateCell(
+            excel_lib.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: r + 1),
+            value,
+        );
+        ExcelHelper.updateMaxWith(colWidths, c, value.toString());
+      }
+    }
+
+    ExcelHelper.applyAutoFit(sheetObject, colWidths);
 
     String? outputFile = await FilePicker.platform.saveFile(
       dialogTitle: 'Guardar Catálogo',

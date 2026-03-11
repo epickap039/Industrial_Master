@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class HomeScreen extends StatefulWidget {
   final Function(int) onNavigate;
@@ -11,77 +12,66 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  Widget _buildCard({
+  String _userName = 'Cargando...';
+  String _userRole = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUser();
+  }
+
+  Future<void> _loadUser() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _userName = prefs.getString('username') ?? 'Usuario';
+        _userRole = prefs.getString('rol') ?? 'USER';
+      });
+    }
+  }
+
+  Widget _buildQuickCard({
     required String title,
     required String description,
     required IconData icon,
-    required int navIndex,
-    required BuildContext context,
+    required Color color,
+    required VoidCallback onTap,
   }) {
-    final theme = FluentTheme.of(context);
-
     return HoverButton(
-      onPressed: () {
-        widget.onNavigate(navIndex);
-      },
+      onPressed: onTap,
       builder: (context, states) {
+        final theme = FluentTheme.of(context);
         final isHovered = states.isHovered;
-        final isPressed = states.isPressing;
 
         return AnimatedContainer(
           duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOut,
-          margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-          padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
-            color: isHovered
-                ? theme.accentColor.withOpacity(0.1)
-                : theme.cardColor,
+            color: isHovered ? theme.accentColor.withOpacity(0.1) : theme.cardColor,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: isHovered
-                  ? theme.accentColor.withOpacity(0.5)
-                  : theme.resources.dividerStrokeColorDefault ??
-                      const Color(0xFFE5E5E5),
-              width: isHovered ? 1.5 : 1.0,
+              color: isHovered ? theme.accentColor : theme.resources.dividerStrokeColorDefault!,
+              width: isHovered ? 2 : 1,
             ),
-            boxShadow: isHovered && !isPressed
-                ? [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    )
-                  ]
-                : [],
           ),
+          padding: const EdgeInsets.all(20),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Icon(icon,
-                      size: 40,
-                      color: isHovered ? theme.accentColor : theme.typography.body?.color),
-                ],
-              ),
-              const SizedBox(height: 16),
+              Icon(icon, size: 48, color: isHovered ? theme.accentColor : color),
+              const SizedBox(height: 12),
               Text(
                 title,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
-              Expanded(
-                child: Text(
-                  description,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: theme.typography.body?.color?.withOpacity(0.8),
-                  ),
+              Text(
+                description,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: theme.typography.body?.color?.withOpacity(0.7),
                 ),
               ),
             ],
@@ -93,160 +83,136 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = FluentTheme.of(context);
+
     return ScaffoldPage(
-      header: const PageHeader(
-        title: Text(
-          'Centro de Mando Industrial v15.5',
-          style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+      header: PageHeader(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Hola, $_userName', style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 4),
+            Text('Rol: $_userRole | Bienvenido al Centro de Mando Jaes', 
+              style: TextStyle(fontSize: 14, color: theme.typography.caption?.color)),
+          ],
         ),
       ),
       content: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+        padding: const EdgeInsets.all(32),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              "Bienvenido al nuevo entorno gamificado. Selecciona un ecosistema para comenzar.",
-              style: TextStyle(fontSize: 16, fontStyle: FontStyle.italic),
+              'Accesos Directos Prioritarios',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
+            const SizedBox(height: 24),
+            GridView.count(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisCount: 3,
+              mainAxisSpacing: 24,
+              crossAxisSpacing: 24,
+              childAspectRatio: 1.2,
+              children: [
+                _buildQuickCard(
+                  title: 'Catálogo Maestro',
+                  description: 'Gestión centralizada de materia prima y CAD.',
+                  icon: FluentIcons.database,
+                  color: Colors.blue,
+                  onTap: () => widget.onNavigate(2), // Catalog
+                ),
+                _buildQuickCard(
+                  title: 'Motor MRP',
+                  description: 'Cálculo de compras y requerimientos.',
+                  icon: FluentIcons.shopping_cart,
+                  color: Colors.green,
+                  onTap: () => widget.onNavigate(12), // MRP
+                ),
+                _buildQuickCard(
+                  title: 'Dashboard Analytics',
+                  description: 'Métricas e inteligencia de negocio.',
+                  icon: FluentIcons.pie_single,
+                  color: Colors.orange,
+                  onTap: () => widget.onNavigate(15), // Analytics
+                ),
+              ],
+            ),
+            const Divider(),
             const SizedBox(height: 32),
-            LayoutBuilder(
-              builder: (context, constraints) {
-                int crossAxisCount = 3;
-                if (constraints.maxWidth < 600) {
-                  crossAxisCount = 1;
-                } else if (constraints.maxWidth < 1000) {
-                  crossAxisCount = 2;
-                } else if (constraints.maxWidth > 1400) {
-                  crossAxisCount = 4;
-                }
-
-                Widget buildSection(String title, List<Widget> cards) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 8.0),
-                        child: Text(
-                          title,
-                          style: FluentTheme.of(context).typography.subtitle?.copyWith(fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                      GridView.count(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        crossAxisCount: crossAxisCount,
-                        mainAxisSpacing: 16,
-                        crossAxisSpacing: 16,
-                        childAspectRatio: 1.4,
-                        children: cards,
-                      ),
-                      const SizedBox(height: 16),
-                    ],
-                  );
-                }
-
-                return Column(
-                  children: [
-                    buildSection(
-                      "Zona de Consulta",
-                      [
-                        _buildCard(
-                          context: context,
-                          title: "1. Catálogo Maestro",
-                          description: "La fuente única de la verdad. Visualiza y gestiona el inventario validado. Incluye el motor de búsqueda DXF en red y exportación de metadatos 3D.",
-                          icon: FluentIcons.database,
-                          navIndex: 2, 
-                        ),
-                        _buildCard(
-                          context: context,
-                          title: "2. Materiales Oficiales",
-                          description: "Diccionario de materia prima. Administra los calibres, perfiles y aceros base autorizados para la fabricación, previniendo el inventario fantasma.",
-                          icon: FluentIcons.set_action,
-                          navIndex: 3, 
-                        ),
-                        _buildCard(
-                          context: context,
-                          title: "3. Mapa de Ingeniería (BOM)",
-                          description: "Explorador visual PLM. Navega por el lienzo interactivo para entender el impacto y la jerarquía de las Listas de Materiales por cliente o tracto.",
-                          icon: FluentIcons.graph_symbol,
-                          navIndex: 4, 
-                        ),
-                      ],
-                    ),
-                    buildSection(
-                      "Procesamiento de Datos",
-                      [
-                        _buildCard(
-                          context: context,
-                          title: "4. Escáner CAD 3D/2D",
-                          description: "Extracción geométrica masiva. Corre la macro en SolidWorks y el sistema leerá los Bounding Box (Largo, Ancho, Espesor) y detectará planos de corte de forma autónoma.",
-                          icon: FluentIcons.cube_shape,
-                          navIndex: 7, 
-                        ),
-                        _buildCard(
-                          context: context,
-                          title: "5. Importar Excel / Arbitraje",
-                          description: "El guardián de inyección. Sube los reportes del Escáner CAD. El motor detectará colisiones de datos (Excel vs SQL Server) y te permitirá arbitrar la versión final.",
-                          icon: FluentIcons.cloud,
-                          navIndex: 8, 
-                        ),
-                        _buildCard(
-                          context: context,
-                          title: "6. Auditor de Archivos",
-                          description: "Filtro de integridad previo. Analiza la salud de los archivos Excel antes de la importación profunda para asegurar que columnas y formatos cumplan la normativa.",
-                          icon: FluentIcons.check_list,
-                          navIndex: 9, 
-                        ),
-                        _buildCard(
-                          context: context,
-                          title: "7. Estandarización",
-                          description: "Normalización de nomenclaturas. Limpia textos sucios y unifica nombres de aceros y procesos para que Compras y Producción hablen el mismo idioma.",
-                          icon: FluentIcons.filter,
-                          navIndex: 10, 
-                        ),
-                      ],
-                    ),
-                    buildSection(
-                      "Trazabilidad y Control",
-                      [
-                        _buildCard(
-                          context: context,
-                          title: "8. Gestión de Proyectos",
-                          description: "Configuración taxonómica. Define la columna vertebral del negocio configurando Tractos, Tipos de Proyecto, Versiones y Clientes oficiales.",
-                          icon: FluentIcons.fabric_folder,
-                          navIndex: 12, 
-                        ),
-                        _buildCard(
-                          context: context,
-                          title: "9. Expedientes VIN",
-                          description: "Trazabilidad de Piso (Where-Used). Rastrea a qué número de serie (VIN) específico de ensamble se le aplicó cada revisión de ingeniería.",
-                          icon: FluentIcons.car,
-                          navIndex: 13, 
-                        ),
-                        _buildCard(
-                          context: context,
-                          title: "10. Centro de QA",
-                          description: "Terminal de Calidad. Interfaz optimizada para inspección en piso de producción, permitiendo documentar validaciones y anomalías directamente al SQL.",
-                          icon: FluentIcons.tablet,
-                          navIndex: 14, 
-                        ),
-                        _buildCard(
-                          context: context,
-                          title: "11. Historial de Cambios",
-                          description: "Trazabilidad ISO 9001. Registra cada inserción, modificación o borrado, sellando el usuario físico y la estampa de tiempo exacta de la alteración.",
-                          icon: FluentIcons.history,
-                          navIndex: 15, 
-                        ),
-                      ],
-                    ),
-                  ],
-                );
-              },
+            const Text(
+              'Guía de Módulos Adicionales',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            Column(
+              children: [
+                _buildModuleInfo(
+                  icon: FluentIcons.cube_shape,
+                  title: 'Escáner CAD 3D/2D',
+                  description: 'Motor de extracción automática. Analiza archivos nativos de SolidWorks para extraer metadatos, dimensiones y pesos exactos.',
+                ),
+                _buildModuleInfo(
+                  icon: FluentIcons.excel_logo,
+                  title: 'Importar Excel',
+                  description: 'Módulo de carga masiva. Permite subir listas de materiales (BOM) estructuradas por Ingeniería para poblar la base de datos.',
+                ),
+                _buildModuleInfo(
+                  icon: FluentIcons.check_list,
+                  title: 'Auditor de Archivos',
+                  description: 'Radar de calidad. Rastrea el servidor local para asegurar que cada pieza registrada cuente con su plano DXF o PDF correspondiente.',
+                ),
+                _buildModuleInfo(
+                  icon: FluentIcons.fabric_folder,
+                  title: 'Gestión de Proyectos',
+                  description: 'Centro de control de revisiones. Aquí puedes crear, clonar o bloquear las versiones de los tractos (Ej. Cascadia 01) antes de enviarlos a piso.',
+                ),
+                _buildModuleInfo(
+                  icon: FluentIcons.car,
+                  title: 'Expedientes VIN',
+                  description: 'Control de piso de producción. Monitorea en tiempo real en qué estación de ensamblaje o manufactura se encuentra cada tracto.',
+                ),
+                _buildModuleInfo(
+                  icon: FluentIcons.tablet,
+                  title: 'Centro de QA',
+                  description: 'Gestión de calidad. Sistema de tickets para reportar piezas no conformes, errores de corte láser o problemas de doblez.',
+                ),
+              ],
             ),
           ],
         ),
       ),
     );
   }
+
+  Widget _buildModuleInfo({required IconData icon, required String title, required String description}) {
+    final theme = FluentTheme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: theme.accentColor.withOpacity(0.8)),
+          const SizedBox(width: 16),
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                style: theme.typography.body,
+                children: [
+                  TextSpan(text: '$title: ', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  TextSpan(
+                    text: description,
+                    style: TextStyle(
+                      color: theme.typography.caption?.color?.withOpacity(0.7),
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
+

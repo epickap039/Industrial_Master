@@ -316,6 +316,31 @@ End Sub
       return;
     }
 
+    // Diálogo de Advertencia (REGLA ANTI-CONST: No usar const en el diálogo)
+    final bool? confirmar = await showDialog<bool>(
+      context: context,
+      builder: (context) => ContentDialog(
+        title: Text('⚠️ Atención: Operación Crítica', style: TextStyle(color: Colors.warningPrimaryColor)),
+        content: Text(
+          'Esta herramienta abrirá SolidWorks en segundo plano y sobrescribirá propiedades en masa.\n\n'
+          'Todos los archivos manipulados se guardarán con la fecha de hoy.\n'
+          '¿Deseas continuar?'
+        ),
+        actions: [
+          Button(
+            child: Text('Cancelar'),
+            onPressed: () => Navigator.pop(context, false),
+          ),
+          FilledButton(
+            child: Text('Proceder'),
+            onPressed: () => Navigator.pop(context, true),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmar != true) return;
+
     setState(() {
       _procesarStatus = 'processing';
       _cadLogs = [];

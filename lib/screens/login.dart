@@ -73,6 +73,7 @@ class _LoginScreenState extends State<LoginScreen> {
         await prefs.setString('rol', rol);
 
         widget.onLoginSuccess();
+        Navigator.pushReplacementNamed(context, '/main');
       } else {
         setState(() {
           _error = 'Credenciales incorrectas';

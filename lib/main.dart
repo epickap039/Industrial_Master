@@ -22,12 +22,14 @@ import 'screens/vin_dossier.dart';
 import 'screens/engineering_map.dart'; // v60.0: Mapa de Ingeniería
 import 'screens/qa_dashboard.dart'; // Centro de QA
 import 'screens/cad_scanner_screen.dart'; // Módulo CAD
-import 'screens/home_screen.dart'; // Gamified Home
+import 'screens/lobby_screen.dart'; // Nuevo Lobby Rediseñado
 import 'screens/impact_radar_screen.dart'; // Módulo Where-Used
 import 'screens/mrp_screen.dart'; // MRP: Requerimiento de Materiales
+import 'screens/analytics_screen.dart'; // Dashboard Analytics
 import 'package:pasteboard/pasteboard.dart';
 import 'package:flutter/services.dart';
 import 'theme/app_themes.dart';
+import 'screens/splash_screen.dart';
 
 const String API_URL = "http://192.168.1.73:8001";
 
@@ -162,12 +164,13 @@ class _MyAppState extends State<MyApp> {
     );
   }
 
-  void _logout() async {
+  void _logout(BuildContext context) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('isLoggedIn', false);
     setState(() {
       _isLoggedIn = false;
     });
+    Navigator.pushReplacementNamed(context, '/login');
   }
 
   void _showBugDialog(BuildContext context) {
@@ -393,36 +396,7 @@ class _MyAppState extends State<MyApp> {
       targetRevisionId = id;
     }
     
-    // El índice del Escáner CAD 3D/2D ahora será 8 debido al MRP y Radar de Impacto:
-    if (index == 8) {
-      final result = await showDialog<bool>(
-        context: navContext,
-        builder: (context) => ContentDialog(
-          title: const Text('⚠️ Atención: Operación Crítica', style: TextStyle(color: Colors.warningPrimaryColor)),
-          content: const Text(
-            'Esta herramienta abrirá SolidWorks en segundo plano y sobrescribirá propiedades en masa.\n\n'
-            'Todos los archivos manipulados se guardarán con la fecha de hoy.\n'
-            '¿Deseas continuar?'
-          ),
-          actions: [
-            Button(
-              child: const Text('Cancelar'),
-              onPressed: () => Navigator.pop(context, false),
-            ),
-            FilledButton(
-              child: const Text('Proceder'),
-              onPressed: () => Navigator.pop(context, true),
-            ),
-          ],
-        ),
-      );
-
-      if (result == true) {
-        setState(() => topIndex = index);
-      }
-    } else {
-      setState(() => topIndex = index);
-    }
+    setState(() => topIndex = index);
   }
 
   @override
@@ -438,195 +412,201 @@ class _MyAppState extends State<MyApp> {
           debugShowCheckedModeBanner: false,
           title: 'Industrial Master v60.0',
           theme: appTheme.currentTheme,
-          home:
-              _isLoggedIn
-                  ? Builder(
-                    builder:
-                        (navContext) => NavigationView(
-                          appBar: NavigationAppBar(
-                            title: const Text('Industrial Master v60.0'),
-                            automaticallyImplyLeading: false,
-                            leading: const Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 12.0),
-                              child: Icon(FluentIcons.factory),
+          initialRoute: '/',
+          routes: {
+            '/': (context) => const SplashScreen(),
+            '/login': (context) => LoginScreen(onLoginSuccess: _onLoginSuccess),
+            '/main': (context) => Builder(
+                  builder: (navContext) => NavigationView(
+                    appBar: NavigationAppBar(
+                      title: const Text('Industrial Master v60.0'),
+                      automaticallyImplyLeading: false,
+                      leading: const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 12.0),
+                        child: Icon(FluentIcons.factory),
+                      ),
+                      actions: Padding(
+                        padding: const EdgeInsets.only(right: 12.0),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const NetworkStatusIndicator(),
+                            const SizedBox(width: 8),
+                            IconButton(
+                              icon: const Icon(FluentIcons.sign_out),
+                              onPressed: () => _logout(navContext),
                             ),
-                            actions: Padding(
-                              padding: const EdgeInsets.only(right: 12.0),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const NetworkStatusIndicator(),
-                                  const SizedBox(width: 8),
-                                  IconButton(
-                                    icon: const Icon(FluentIcons.sign_out),
-                                    onPressed: _logout,
+                          ],
+                        ),
+                      ),
+                    ),
+                    pane: NavigationPane(
+                      size: const NavigationPaneSize(openWidth: 220.0),
+                      selected: topIndex,
+                      onChanged: (index) => _handleNavigation(index, navContext),
+                      displayMode: PaneDisplayMode.auto,
+                      items: _userRole == 'QA'
+                          ? [
+                              PaneItem(
+                                icon: const Icon(FluentIcons.database),
+                                title: const Text('Catálogo Maestro'),
+                                body: const CatalogScreen(),
+                              ),
+                            ]
+                          : [
+                              PaneItem(
+                                icon: const Icon(FluentIcons.home),
+                                title: const Text('Lobby Principal'),
+                                body: LobbyScreen(
+                                  isAdmin: _userRole == 'ADMIN',
+                                  onNavigate: (index) {
+                                    _handleNavigation(index, navContext);
+                                  },
+                                ),
+                              ),
+                              PaneItemExpander(
+                                icon: const Icon(FluentIcons.search),
+                                title: const Text('Consultas Rápidas'),
+                                body: const SizedBox.shrink(),
+                                items: [
+                                  PaneItem(
+                                    icon: const Icon(FluentIcons.database),
+                                    title: const Text('Catálogo Maestro'),
+                                    body: const CatalogScreen(),
+                                  ),
+                                  PaneItem(
+                                    icon: const Icon(FluentIcons.set_action),
+                                    title: const Text('Materiales Oficiales'),
+                                    body: const MaterialsListScreen(),
+                                  ),
+                                  PaneItem(
+                                    icon: const Icon(FluentIcons.map_layers),
+                                    title: const Text('Mapa de Ingeniería'),
+                                    body: EngineeringMapScreen(
+                                      targetRevisionId: targetRevisionId,
+                                    ),
+                                  ),
+                                  PaneItem(
+                                    icon: const Icon(FluentIcons.build_issue),
+                                    title: const Text('Radar de Impacto'),
+                                    body: const ImpactRadarScreen(),
                                   ),
                                 ],
                               ),
-                            ),
-                          ),
-                      pane: NavigationPane(
-                        size: const NavigationPaneSize(openWidth: 220.0),
-                        selected: topIndex,
-                        onChanged: (index) => _handleNavigation(index, navContext),
-                        displayMode: PaneDisplayMode.auto,
-                        items: _userRole == 'QA'
-                            ? [
-                                PaneItem(
-                                  icon: const Icon(FluentIcons.database),
-                                  title: const Text('Catálogo Maestro'),
-                                  body: const CatalogScreen(),
-                                ),
-                              ]
-                            : [
-                                PaneItem(
-                                  icon: const Icon(FluentIcons.home),
-                                  title: const Text('Lobby Principal'),
-                                  body: HomeScreen(
-                                    isAdmin: _userRole == 'ADMIN',
-                                    onNavigate: (index) {
-                                      _handleNavigation(index, navContext);
-                                    },
+                              PaneItemExpander(
+                                icon: const Icon(FluentIcons.processing),
+                                title: const Text('Procesamiento de Datos'),
+                                body: const SizedBox.shrink(),
+                                items: [
+                                  PaneItem(
+                                    icon: const Icon(FluentIcons.cube_shape),
+                                    title: const Text('Escáner CAD 3D/2D'),
+                                    body: const CADScannerScreen(),
                                   ),
-                                ),
-                                PaneItemExpander(
-                                  icon: const Icon(FluentIcons.search),
-                                  title: const Text('Consultas Rápidas'),
-                                  body: const SizedBox.shrink(),
-                                  items: [
-                                    PaneItem(
-                                      icon: const Icon(FluentIcons.database),
-                                      title: const Text('Catálogo Maestro'),
-                                      body: const CatalogScreen(),
-                                    ),
-                                    PaneItem(
-                                      icon: const Icon(FluentIcons.set_action),
-                                      title: const Text('Materiales Oficiales'),
-                                      body: const MaterialsListScreen(),
-                                    ),
-                                    PaneItem(
-                                      icon: const Icon(FluentIcons.map_layers),
-                                      title: const Text('Mapa de Ingeniería'),
-                                      body: EngineeringMapScreen(
-                                        targetRevisionId: targetRevisionId,
-                                      ),
-                                    ),
-                                    PaneItem(
-                                      icon: const Icon(FluentIcons.build_issue),
-                                      title: const Text('Radar de Impacto'),
-                                      body: const ImpactRadarScreen(),
-                                    ),
-                                  ],
-                                ),
-                                PaneItemExpander(
-                                  icon: const Icon(FluentIcons.processing),
-                                  title: const Text('Procesamiento de Datos'),
-                                  body: const SizedBox.shrink(),
-                                  items: [
-                                    PaneItem(
-                                      icon: const Icon(FluentIcons.cube_shape),
-                                      title: const Text('Escáner CAD 3D/2D'),
-                                      body: const CADScannerScreen(),
-                                    ),
-                                    PaneItem(
-                                      icon: const Icon(FluentIcons.cloud),
-                                      title: const Text('Importar Excel'),
-                                      body: const ArbitrationScreen(),
-                                    ),
-                                    PaneItem(
-                                      icon: const Icon(FluentIcons.check_list),
-                                      title: const Text('Auditor de Archivos'),
-                                      body: const AuditorScreen(),
-                                    ),
-                                    PaneItem(
-                                      icon: const Icon(FluentIcons.filter),
-                                      title: const Text('Estandarización'),
-                                      body: StandardizationScreen(),
-                                    ),
-                                  ],
-                                ),
-                                PaneItemExpander(
-                                  icon: const Icon(FluentIcons.settings),
-                                  title: const Text('Control de Producción'),
-                                  body: const SizedBox.shrink(),
-                                  items: [
-                                    PaneItem(
-                                      icon: const Icon(FluentIcons.shopping_cart),
-                                      title: const Text('Requerimientos (MRP)'),
-                                      body: const MRPScreen(),
-                                    ),
-                                    PaneItem(
-                                      icon: const Icon(FluentIcons.fabric_folder),
-                                      title: const Text('Gestión de Proyectos'),
-                                      body: const ProjectManagementScreen(),
-                                    ),
-                                    PaneItem(
-                                      icon: const Icon(FluentIcons.car),
-                                      title: const Text('Expedientes VIN'),
-                                      body: VINDossierScreen(
-                                        onNavigateToBOM: (id) {
-                                          _handleNavigation(4, navContext, id: id); // 4 = Mapa BOM
-                                        },
-                                      ),
-                                    ),
-                                    PaneItem(
-                                      icon: const Icon(FluentIcons.tablet),
-                                      title: const Text('Centro de QA'),
-                                      body: const QADashboardScreen(),
-                                    ),
-                                  ],
-                                ),
-                                PaneItem(
-                                  icon: const Icon(FluentIcons.history),
-                                  title: const Text('Historial de Cambios'),
-                                  body: const HistoryScreen(),
-                                ),
-                              ],
-                        footerItems: [
-                          PaneItemHeader(
-                            header: Row(
-                              children: [
-                                const Icon(FluentIcons.color, size: 16),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: ComboBox<AppThemeMode>(
-                                    isExpanded: true,
-                                    value: appTheme.currentMode,
-                                    items: AppThemeMode.values.map((mode) {
-                                      return ComboBoxItem(
-                                        value: mode,
-                                        child: Text(mode.name.toUpperCase()),
-                                      );
-                                    }).toList(),
-                                    onChanged: (v) {
-                                      if (v != null) appTheme.setTheme(v);
-                                    },
+                                  PaneItem(
+                                    icon: const Icon(FluentIcons.cloud),
+                                    title: const Text('Importar Excel'),
+                                    body: const ArbitrationScreen(),
                                   ),
+                                  PaneItem(
+                                    icon: const Icon(FluentIcons.check_list),
+                                    title: const Text('Auditor de Archivos'),
+                                    body: const AuditorScreen(),
+                                  ),
+                                  PaneItem(
+                                    icon: const Icon(FluentIcons.filter),
+                                    title: const Text('Estandarización'),
+                                    body: StandardizationScreen(),
+                                  ),
+                                ],
+                              ),
+                              PaneItemExpander(
+                                icon: const Icon(FluentIcons.settings),
+                                title: const Text('Control de Producción'),
+                                body: const SizedBox.shrink(),
+                                items: [
+                                  PaneItem(
+                                    icon: const Icon(FluentIcons.shopping_cart),
+                                    title: const Text('Requerimientos (MRP)'),
+                                    body: const MRPScreen(),
+                                  ),
+                                  PaneItem(
+                                    icon: const Icon(FluentIcons.fabric_folder),
+                                    title: const Text('Gestión de Proyectos'),
+                                    body: const ProjectManagementScreen(),
+                                  ),
+                                  PaneItem(
+                                    icon: const Icon(FluentIcons.car),
+                                    title: const Text('Expedientes VIN'),
+                                    body: VINDossierScreen(
+                                      onNavigateToBOM: (id) {
+                                        _handleNavigation(4, navContext, id: id); // 4 = Mapa BOM
+                                      },
+                                    ),
+                                  ),
+                                  PaneItem(
+                                    icon: const Icon(FluentIcons.pie_single),
+                                    title: const Text('Dashboard Analytics'),
+                                    body: const AnalyticsScreen(),
+                                  ),
+                                  PaneItem(
+                                    icon: const Icon(FluentIcons.tablet),
+                                    title: const Text('Centro de QA'),
+                                    body: const QADashboardScreen(),
+                                  ),
+                                ],
+                              ),
+                              PaneItem(
+                                icon: const Icon(FluentIcons.history),
+                                title: const Text('Historial de Cambios'),
+                                body: const HistoryScreen(),
+                              ),
+                            ],
+                      footerItems: [
+                        PaneItemHeader(
+                          header: Row(
+                            children: [
+                              const Icon(FluentIcons.color, size: 16),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: ComboBox<AppThemeMode>(
+                                  isExpanded: true,
+                                  value: appTheme.currentMode,
+                                  items: AppThemeMode.values.map((mode) {
+                                    return ComboBoxItem(
+                                      value: mode,
+                                      child: Text(mode.name.toUpperCase()),
+                                    );
+                                  }).toList(),
+                                  onChanged: (v) {
+                                    if (v != null) appTheme.setTheme(v);
+                                  },
                                 ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
-                          PaneItemAction(
-                            icon: const Icon(FluentIcons.bug),
-                            title: const Text("Reportar Bug"),
-                            onTap: () => _showBugDialog(navContext),
-                          ),
-                          PaneItem(
-                            icon: const Icon(FluentIcons.settings),
-                            title: const Text('Configuración'),
-                            body: SettingsScreen(
-                              isDarkMode: appTheme.currentMode == AppThemeMode.dark || appTheme.currentMode == AppThemeMode.cyberpunk,
-                              onThemeChanged:
+                        ),
+                        PaneItemAction(
+                          icon: const Icon(FluentIcons.bug),
+                          title: const Text("Reportar Bug"),
+                          onTap: () => _showBugDialog(navContext),
+                        ),
+                        PaneItem(
+                          icon: const Icon(FluentIcons.settings),
+                          title: const Text('Configuración'),
+                          body: SettingsScreen(
+                            isDarkMode: appTheme.currentMode == AppThemeMode.dark || appTheme.currentMode == AppThemeMode.cyberpunk,
+                            onThemeChanged:
                                   (isDark) => appTheme.setTheme(
                                     isDark ? AppThemeMode.dark : AppThemeMode.light,
                                   ),
-                            ),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-              )
-              : LoginScreen(onLoginSuccess: _onLoginSuccess),
+                  ),
+                ),
+          },
         );
       },
     );

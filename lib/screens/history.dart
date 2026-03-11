@@ -249,12 +249,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
   @override
   Widget build(BuildContext context) {
     return ScaffoldPage(
-      header: PageHeader(
-        title: const Text('Historial Global de Cambios'),
-        commandBar: FilledButton(
-          onPressed: _exportarBugs,
-          child: const Text("Generar Reporte para IA"),
-        ),
+      header: const PageHeader(
+        title: Text('Historial Global de Cambios'),
       ),
       content: Padding(
         padding: const EdgeInsets.all(16.0),

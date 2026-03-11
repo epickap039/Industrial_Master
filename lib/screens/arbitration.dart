@@ -104,6 +104,30 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
 
   // 2. SINCRONIZACIÓN
   Future<void> _syncSelected() async {
+    // Diálogo de Advertencia (REGLA ANTI-CONST)
+    final bool? confirmar = await showDialog<bool>(
+      context: context,
+      builder: (context) => ContentDialog(
+        title: Text('⚠️ Atención: Carga a Base de Datos'),
+        content: Text(
+          'En este apartado se cargarán códigos y materiales directamente a la base de datos oficial. '
+          'Por favor, verifica que los datos en tu archivo de Excel estén estructurados correctamente antes de continuar.'
+        ),
+        actions: [
+          Button(
+            child: Text('Cancelar'),
+            onPressed: () => Navigator.pop(context, false),
+          ),
+          FilledButton(
+            child: Text('Proceder'),
+            onPressed: () => Navigator.pop(context, true),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmar != true) return;
+
     setState(() => _isLoading = true);
     final prefs = await SharedPreferences.getInstance();
     final username = prefs.getString('username') ?? 'Admin_Arbitraje';

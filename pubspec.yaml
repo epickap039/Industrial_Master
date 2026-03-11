@@ -44,6 +44,7 @@ dependencies:
   open_file: ^3.5.11
   pasteboard: ^0.5.0
   intl: ^0.19.0
+  fl_chart: ^0.70.2
 
 dev_dependencies:
   flutter_test:

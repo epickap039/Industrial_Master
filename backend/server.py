@@ -102,6 +102,48 @@ def health_check():
     except Exception as e:
         return {"status": "error", "db_connected": False, "detail": str(e)}
 
+@app.get("/api/dashboard/kpi")
+def get_dashboard_kpis():
+    """Calcula indicadores clave (KPI) para el lobby principal."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # 1. Obtener conteo de piezas válidas vs huérfanas (Misma lógica que Analytics)
+        cursor.execute("""
+            WITH PiezasBase AS (
+                SELECT 
+                    COALESCE(NULLIF(LTRIM(RTRIM(M.Material)), ''), NULLIF(LTRIM(RTRIM(M.Descripcion)), ''), 'FALTA ASIGNAR EN CAD') AS MaterialLimpio,
+                    TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS LargoLimpio,
+                    TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Ancho_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS AnchoLimpio,
+                    TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Area_CAD, ' mm^2', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS AreaLimpia
+                FROM Tbl_BOM_Estructura E
+                JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
+                JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
+                JOIN Tbl_Maestro_Piezas M ON E.Codigo_Pieza = M.Codigo_Pieza
+            )
+            SELECT 
+                SUM(CASE WHEN MaterialLimpio != 'FALTA ASIGNAR EN CAD' AND (ISNULL(AreaLimpia, 0) > 0 OR ISNULL(LargoLimpio, 0) > 0 OR (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0)) > 0) THEN 1 ELSE 0 END) AS Piezas_Validas,
+                SUM(CASE WHEN MaterialLimpio = 'FALTA ASIGNAR EN CAD' OR (ISNULL(AreaLimpia, 0) = 0 AND ISNULL(LargoLimpio, 0) = 0 AND (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0)) = 0) THEN 1 ELSE 0 END) AS Piezas_Huerfanas
+            FROM PiezasBase
+        """)
+        row = cursor.fetchone()
+        validas = int(row.Piezas_Validas or 0)
+        huerfanas = int(row.Piezas_Huerfanas or 0)
+        total = validas + huerfanas
+        
+        # 2. Cálculo de salud en Python
+        salud_cad = (validas / total * 100.0) if total > 0 else 0.0
+        
+        return {
+            "total_piezas": total,
+            "merma_configurada": 15,
+            "salud_cad": round(salud_cad, 2)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
 @app.get("/api/config/materiales")
 def get_materiales():
     conn = get_db_connection()
@@ -665,6 +707,148 @@ def calculate_mrp(id_revision: int):
     finally:
         conn.close()
 
+@app.get("/api/analytics/dashboard/{id_revision}")
+def get_analytics_dashboard(id_revision: str):
+    """Obtiene métricas clave para el Dashboard de Analytics (Soporta 'global' o ID numérico)."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Lógica dinámica: Si es 'global' se saltan los filtros de revisión
+        where_clause = ""
+        params = []
+        if id_revision != 'global':
+            try:
+                id_int = int(id_revision)
+                # Filtro para omitir piezas incompletas en métricas a nivel proyecto
+                where_clause = f"""WHERE ES.ID_Revision = {id_int} 
+                    AND (
+                        COALESCE(NULLIF(LTRIM(RTRIM(M.Material)), ''), NULLIF(LTRIM(RTRIM(M.Descripcion)), ''), 'FALTA ASIGNAR EN CAD') != 'FALTA ASIGNAR EN CAD' 
+                        AND (
+                            TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Area_CAD, ' mm^2', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) > 0 
+                            OR TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) > 0 
+                            OR (TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) * TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Ancho_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT)) > 0
+                        )
+                    )"""
+                where_clause_salud = f"WHERE ES.ID_Revision = {id_int}"
+            except ValueError:
+                raise HTTPException(status_code=400, detail="ID de revisión inválido")
+
+        # 1. Top 10 Piezas
+        cursor.execute(f"""
+            SELECT TOP 10 E.Codigo_Pieza, ISNULL(SUM(E.Cantidad), 0) AS Total_Piezas
+            FROM Tbl_BOM_Estructura E
+            JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
+            JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
+            JOIN Tbl_Maestro_Piezas M ON E.Codigo_Pieza = M.Codigo_Pieza
+            {where_clause}
+            GROUP BY E.Codigo_Pieza
+            ORDER BY Total_Piezas DESC
+        """)
+        top_piezas = [{"Codigo_Pieza": r.Codigo_Pieza, "Total_Piezas": float(r.Total_Piezas or 0)} for r in cursor.fetchall()]
+
+        # 2. Distribución de Materiales (m2)
+        cursor.execute(f"""
+            WITH PiezasBase AS (
+                SELECT 
+                    COALESCE(NULLIF(LTRIM(RTRIM(M.Material)), ''), NULLIF(LTRIM(RTRIM(M.Descripcion)), ''), 'FALTA ASIGNAR EN CAD') AS MaterialLimpio,
+                    E.Cantidad,
+                    TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS LargoLimpio,
+                    TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Ancho_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS AnchoLimpio,
+                    TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Area_CAD, ' mm^2', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS AreaLimpia
+                FROM Tbl_BOM_Estructura E
+                JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
+                JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
+                JOIN Tbl_Maestro_Piezas M ON E.Codigo_Pieza = M.Codigo_Pieza
+                {where_clause_salud if id_revision != 'global' else ""}
+            )
+            SELECT 
+                MaterialLimpio AS Material,
+                ISNULL(SUM(Cantidad * ISNULL(NULLIF(AreaLimpia, 0), (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0)))) / 1000000.0, 0) AS Total_m2
+            FROM PiezasBase
+            WHERE MaterialLimpio != 'FALTA ASIGNAR EN CAD'
+            GROUP BY MaterialLimpio
+            ORDER BY Total_m2 DESC
+        """)
+        distribucion = [{"Material": r.Material, "Total_m2": float(r.Total_m2 or 0)} for r in cursor.fetchall()]
+
+        # 3. Salud CAD (Valid vs Orphan)
+        cursor.execute(f"""
+            WITH PiezasBase AS (
+                SELECT 
+                    COALESCE(NULLIF(LTRIM(RTRIM(M.Material)), ''), NULLIF(LTRIM(RTRIM(M.Descripcion)), ''), 'FALTA ASIGNAR EN CAD') AS MaterialLimpio,
+                    TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS LargoLimpio,
+                    TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Ancho_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS AnchoLimpio,
+                    TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Area_CAD, ' mm^2', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS AreaLimpia
+                FROM Tbl_BOM_Estructura E
+                JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
+                JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
+                JOIN Tbl_Maestro_Piezas M ON E.Codigo_Pieza = M.Codigo_Pieza
+                {where_clause_salud if id_revision != 'global' else ""}
+            )
+            SELECT 
+                SUM(CASE WHEN MaterialLimpio != 'FALTA ASIGNAR EN CAD' AND (ISNULL(AreaLimpia, 0) > 0 OR ISNULL(LargoLimpio, 0) > 0 OR (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0)) > 0) THEN 1 ELSE 0 END) AS Piezas_Validas,
+                SUM(CASE WHEN MaterialLimpio = 'FALTA ASIGNAR EN CAD' OR (ISNULL(AreaLimpia, 0) = 0 AND ISNULL(LargoLimpio, 0) = 0 AND (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0)) = 0) THEN 1 ELSE 0 END) AS Piezas_Huerfanas
+            FROM PiezasBase
+        """)
+        salud = cursor.fetchone()
+        salud_cad = {
+            "Validas": int(salud.Piezas_Validas or 0) if salud else 0,
+            "Huerfanas": int(salud.Piezas_Huerfanas or 0) if salud else 0
+        }
+
+        # 4. Distribución por Ensamble (Complejidad por Concentración de Piezas)
+        # Si es global, usamos LEFT JOIN para no perder ensambles sin estación
+        estaciones_join = "JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion" if id_revision != 'global' else "LEFT JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion"
+        
+        cursor.execute(f"""
+            SELECT TOP 5 EN.Nombre_Ensamble, ISNULL(SUM(E.Cantidad), 0) AS Total_Piezas
+            FROM Tbl_BOM_Estructura E
+            JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
+            {estaciones_join}
+            JOIN Tbl_Maestro_Piezas M ON E.Codigo_Pieza = M.Codigo_Pieza
+            {where_clause}
+            GROUP BY EN.Nombre_Ensamble
+            ORDER BY Total_Piezas DESC
+        """)
+        rows_ens = cursor.fetchall()
+        
+        # Procesar para agrupar en "Otros" los que no son Top 5
+        ensambles = []
+        top_ids = [r.Nombre_Ensamble for r in rows_ens]
+        for r in rows_ens:
+            ensambles.append({"Ensamble": r.Nombre_Ensamble, "Total_Piezas": float(r.Total_Piezas or 0)})
+            
+        if top_ids:
+            # Calcular "Otros"
+            cursor.execute(f"""
+                SELECT ISNULL(SUM(E.Cantidad), 0) AS Otros_Total
+                FROM Tbl_BOM_Estructura E
+                JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
+                {estaciones_join}
+                JOIN Tbl_Maestro_Piezas M ON E.Codigo_Pieza = M.Codigo_Pieza
+                {where_clause}
+                {"AND" if where_clause else "WHERE"} EN.Nombre_Ensamble NOT IN ({','.join(['?' for _ in top_ids])})
+            """, top_ids)
+            row_otros = cursor.fetchone()
+            if row_otros and row_otros.Otros_Total and row_otros.Otros_Total > 0:
+                ensambles.append({"Ensamble": "OTROS", "Total_Piezas": float(row_otros.Otros_Total)})
+
+        sugerencia_texto = ""
+        if rows_ens and rows_ens[0].Nombre_Ensamble:
+            sugerencia_texto = f"Sugerencia: El ensamble '{rows_ens[0].Nombre_Ensamble}' concentra la mayoría de piezas"
+
+        return {
+            "top_piezas": top_piezas,
+            "distribucion_material": distribucion,
+            "salud_cad": salud_cad,
+            "distribucion_ensambles": ensambles,
+            "sugerencia": sugerencia_texto
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
 # === NUBE DE ARCHIVOS VIN ===
 VIN_FILES_BASE = r"C:\BDIV_Archivos\VINs"
 
@@ -1028,11 +1212,10 @@ def exportar_bom(id_revision: int):
         # --- Pestaña 1: BOM (formato cliente: cabecera fila 5, datos desde fila 6) ---
         sheet_bom = workbook.active
         sheet_bom.title = "BOM"
-        hdr_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+        hdr_fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid") # Azul Industrial
         hdr_font = Font(bold=True, color="FFFFFF")
         hdr_align = Alignment(horizontal="center")
 
-        # Cabecera en fila 5, columnas extendidas sin romper fila 6
         COL_ESTACION  = 2  # B
         COL_ENSAMBLE  = 3  # C
         COL_CODIGO    = 4  # D
@@ -1065,19 +1248,38 @@ def exportar_bom(id_revision: int):
 
         for row_offset, r in enumerate(bom_rows):
             row_num = DATA_ROW_START + row_offset
-            sheet_bom.cell(row=row_num, column=COL_ESTACION,  value=r.Nombre_Estacion)
-            sheet_bom.cell(row=row_num, column=COL_ENSAMBLE,  value=r.Nombre_Ensamble)
-            sheet_bom.cell(row=row_num, column=COL_CODIGO,    value=r.Codigo_Pieza)
-            sheet_bom.cell(row=row_num, column=COL_DESC,      value=r.Descripcion_Oficial)
-            sheet_bom.cell(row=row_num, column=COL_MEDIDA,    value=r.Medida)
-            sheet_bom.cell(row=row_num, column=COL_CANTIDAD,  value=r.Cantidad)
-            sheet_bom.cell(row=row_num, column=COL_SIMETRIA,  value=r.Simetria)
-            sheet_bom.cell(row=row_num, column=COL_PROC_PRI,  value=r.Proceso_Primario)
-            sheet_bom.cell(row=row_num, column=COL_PROC_1,    value=r.Proceso_1)
-            sheet_bom.cell(row=row_num, column=COL_PROC_2,    value=r.Proceso_2)
-            sheet_bom.cell(row=row_num, column=COL_PROC_3,    value=r.Proceso_3)
-            sheet_bom.cell(row=row_num, column=COL_LINK,      value=r.Link_Drive)
-            sheet_bom.cell(row=row_num, column=COL_OBS,       value=r.Observaciones_Proceso)
+            sheet_bom.cell(row=row_num, column=COL_ESTACION,  value=str(r.Nombre_Estacion))
+            sheet_bom.cell(row=row_num, column=COL_ENSAMBLE,  value=str(r.Nombre_Ensamble))
+            sheet_bom.cell(row=row_num, column=COL_CODIGO,    value=str(r.Codigo_Pieza))
+            sheet_bom.cell(row=row_num, column=COL_DESC,      value=str(r.Descripcion_Oficial))
+            sheet_bom.cell(row=row_num, column=COL_MEDIDA,    value=str(r.Medida))
+            # CANTIDAD COMO NÚMERO PURO (float)
+            try:
+                cant_val = float(r.Cantidad)
+            except:
+                cant_val = 0.0
+            sheet_bom.cell(row=row_num, column=COL_CANTIDAD,  value=cant_val)
+
+            sheet_bom.cell(row=row_num, column=COL_SIMETRIA,  value=str(r.Simetria))
+            sheet_bom.cell(row=row_num, column=COL_PROC_PRI,  value=str(r.Proceso_Primario))
+            sheet_bom.cell(row=row_num, column=COL_PROC_1,    value=str(r.Proceso_1))
+            sheet_bom.cell(row=row_num, column=COL_PROC_2,    value=str(r.Proceso_2))
+            sheet_bom.cell(row=row_num, column=COL_PROC_3,    value=str(r.Proceso_3))
+            sheet_bom.cell(row=row_num, column=COL_LINK,      value=str(r.Link_Drive))
+            sheet_bom.cell(row=row_num, column=COL_OBS,       value=str(r.Observaciones_Proceso))
+
+        # Auto-fit simple
+        for col in sheet_bom.columns:
+            max_length = 0
+            column = col[0].column_letter
+            for cell in col:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = (max_length + 2) * 1.2
+            sheet_bom.column_dimensions[column].width = min(adjusted_width, 50)
 
         # Ancho de columnas usadas
         anchos = [
@@ -2985,7 +3187,7 @@ async def exportar_reporte(payload: List[Dict[str, Any]]):
         
         # Estilos
         header_font = Font(bold=True, color="FFFFFF")
-        header_fill = PatternFill(start_color="333333", end_color="333333", fill_type="solid")
+        header_fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid") # Azul Industrial
         error_fill = PatternFill(start_color="FFCCCC", end_color="FFCCCC", fill_type="solid") # Rojo claro
         bd_row_fill = PatternFill(start_color="F0F0F0", end_color="F0F0F0", fill_type="solid") # Gris muy claro
         
@@ -3046,8 +3248,8 @@ async def exportar_reporte(payload: List[Dict[str, Any]]):
                         max_length = len(str(cell.value))
                 except:
                     pass
-            adjusted_width = (max_length + 2)
-            ws.column_dimensions[column].width = adjusted_width
+            adjusted_width = (max_length + 2) * 1.1
+            ws.column_dimensions[column].width = min(adjusted_width, 60)
 
         output = io.BytesIO()
         wb.save(output)
@@ -3304,25 +3506,32 @@ def exportar_reportes_excel():
         ws.title = "Reportes Beta"
         
         headers = ["ID", "Usuario", "Fecha", "Módulo", "Gravedad", "Estado", "Descripción"]
-        ws.append(headers)
-        
-        # Estilos para cabecera
-        for col, _ in enumerate(headers, 1):
-            cell = ws.cell(row=1, column=col)
-            cell.font = Font(bold=True)
-            cell.fill = PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid")
+        for col_idx, text in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col_idx, value=text)
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
+            cell.alignment = Alignment(horizontal="center")
             
-        for r in rows:
+        for row_idx, r in enumerate(rows, 2):
             fecha_str = r.Fecha_Hora.strftime("%Y-%m-%d %H:%M:%S") if r.Fecha_Hora else "Sin fecha"
-            ws.append([
-                r.ID_Reporte, 
-                r.Usuario, 
-                fecha_str, 
-                r.Modulo, 
-                r.Gravedad, 
-                r.Estado, 
-                r.Descripcion
-            ])
+            ws.cell(row=row_idx, column=1, value=int(r.ID_Reporte))
+            ws.cell(row=row_idx, column=2, value=str(r.Usuario))
+            ws.cell(row=row_idx, column=3, value=fecha_str)
+            ws.cell(row=row_idx, column=4, value=str(r.Modulo))
+            ws.cell(row=row_idx, column=5, value=str(r.Gravedad))
+            ws.cell(row=row_idx, column=6, value=str(r.Estado))
+            ws.cell(row=row_idx, column=7, value=str(r.Descripcion))
+
+        # Auto-fit columns
+        for col in ws.columns:
+            max_length = 0
+            column = col[0].column_letter
+            for cell in col:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except: pass
+            ws.column_dimensions[column].width = min((max_length + 2) * 1.1, 60)
             
         stream = io.BytesIO()
         wb.save(stream)
@@ -3461,10 +3670,36 @@ def bg_scan_cad_task(root_path: str):
         except ImportError:
             pass
             
+        def _apply_silent_mode(app):
+            """Fuerza el modo silencioso completo en la instancia SW para evitar
+            que el proceso intente renderizar diálogos UI en segundo plano."""
+            try:
+                app.Visible = False
+            except Exception:
+                pass
+            try:
+                # Desconecta la instancia del control de usuario (evita diálogos interactivos)
+                app.UserControl = False
+            except Exception:
+                pass
+            try:
+                # swUserPreferenceToggle_e.swSuppressDialogs = 11
+                # Suprime todos los mensajes emergentes y confirmaciones
+                app.SetUserPreferenceToggle(11, True)
+            except Exception:
+                pass
+            try:
+                # swUserPreferenceToggle_e.swSuppressWarnings = 262
+                # Suprime advertencias de reconstrucción y referencias rotas
+                app.SetUserPreferenceToggle(262, True)
+            except Exception:
+                pass
+
         def get_sw_app():
             try:
                 app = win32com.client.Dispatch("SldWorks.Application")
-                app.Visible = False
+                _apply_silent_mode(app)
+                print("[SW] Instancia COM inicializada en modo silencioso.")
                 return app
             except Exception as e:
                 print(f"ADVERTENCIA: Motor SolidWorks inaccesible: {e}")
@@ -3551,86 +3786,147 @@ def bg_scan_cad_task(root_path: str):
                     print(f"⚠️ DWG omitido: Sin conexión a AutoCAD COM -> {abspath}")
 
                 elif ext == ".sldprt" and sw_app:
+                    # ---- Apertura Silenciosa y Segura con OpenDoc6 ----
+                    # Flags de la API de SolidWorks:
+                    #   swDocPART        = 1  (tipo de documento: Part)
+                    #   swOpenDocOptions_Silent    = 1  (modo silencioso, sin diálogos)
+                    #   swOpenDocOptions_ReadOnly  = 2  (solo lectura, no bloquea el archivo)
+                    #   silentMode = 1 | 2 = 3
+                    swDocPART = 1
+                    swSilentReadOnly = 1 | 2  # swOpenDocOptions_Silent | swOpenDocOptions_ReadOnly
+                    swDocErrors = 0
+                    ruta_abs = os.path.abspath(abspath)
+
+                    _rpc_crash = False
                     try:
-                        ruta_abs = os.path.abspath(abspath)
-                        swDocPART = 1
-                        # Simplificamos a OpenDoc para evitar errores de ByRef y TypeErrors en hilos
-                        swModel = sw_app.OpenDoc(ruta_abs, swDocPART)
+                        # OpenDoc6(FileName, Type, Options, Configuration, Errors, Warnings)
+                        swModel = sw_app.OpenDoc6(
+                            ruta_abs,
+                            swDocPART,
+                            swSilentReadOnly,  # Options: Silent + ReadOnly
+                            "",               # Configuration (vacío = default)
+                            swDocErrors,      # Errors (ByRef → entero pasado por valor)
+                            0                 # Warnings (ByRef → entero pasado por valor)
+                        )
                     except Exception as try_open_err:
-                        import logging
-                        ruta_err = os.path.abspath(abspath)
-                        logging.error(f"Error crítico en SW con {ruta_err}: {repr(try_open_err)}")
-                        # RPC Unavailable o Crash de COM
-                        print(f"CRÍTICO - COM Crash intentando abrir {codigo}: {try_open_err}")
-                        os.system("taskkill /F /IM SLDWORKS.exe 2>nul")
-                        sw_app = get_sw_app()
-                        raise Exception("Servidor SolidWorks reiniciado por Crash RPC")
+                        err_str = repr(try_open_err)
+                        err_code = getattr(try_open_err, 'hresult', None)
 
-                    if swModel is None:
-                        observacion = "No se pudo abrir el archivo"
-                        # No lanzamos excepción para que permita llenar el DataFrame en blanco
-                    else:
-                        try:
-                            prop_mgr = swModel.Extension.CustomPropertyManager("")
-                            
-                            def safe_get_prop(prop_val):
-                                if not prop_val: return ""
-                                if isinstance(prop_val, str): return prop_val
-                                if isinstance(prop_val, (tuple, list)):
-                                    if len(prop_val) > 1 and prop_val[1]: return str(prop_val[1])
-                                    if len(prop_val) > 0 and prop_val[0]: return str(prop_val[0])
-                                return str(prop_val)
+                        # ---- Auto-Resurrección COM (RPC Crash -2147023170) ----
+                        is_rpc_crash = (
+                            "-2147023170" in err_str
+                            or (err_code is not None and err_code == -2147023170)
+                        )
 
-                            # Intentar sobrescribir codigo pieza si está en custom properties
-                            get_codigo = prop_mgr.Get("CODIGO_PIEZA")
-                            codigo_val = safe_get_prop(get_codigo).strip()
-                            if codigo_val:
-                                codigo = codigo_val
+                        if is_rpc_crash:
+                            print(f"[SW-RPC] ⚡ Crash RPC detectado en '{codigo}'. Iniciando resurrección COM...")
+                            import logging as _logging
+                            _logging.error(f"[SW-RPC] Crash en '{ruta_abs}': {err_str}")
 
-                            get_largo = prop_mgr.Get("Largo_CAD")
-                            get_ancho = prop_mgr.Get("Ancho_CAD")
-                            get_espesor = prop_mgr.Get("Espesor_Perfil_CAD")
-                            
-                            largo_val = safe_get_prop(get_largo)
-                            ancho_val = safe_get_prop(get_ancho)
-                            espesor_val = safe_get_prop(get_espesor)
-
-                            if largo_val and ancho_val:
-                                 import re
-                                 try:
-                                     l_clean = str(largo_val).lower().replace("mm", "").strip().replace(',', '.')
-                                     a_clean = str(ancho_val).lower().replace("mm", "").strip().replace(',', '.')
-                                     l_str = re.sub(r'[^\d.]', '', l_clean)
-                                     a_str = re.sub(r'[^\d.]', '', a_clean)
-                                     
-                                     largo = float(l_str) if l_str and l_str != '.' else 0.0
-                                     ancho = float(a_str) if a_str and a_str != '.' else 0.0
-                                     
-                                     largo_cad = max(largo, ancho)
-                                     ancho_cad = min(largo, ancho)
-                                     
-                                     espesor_cad = 0.0
-                                     if espesor_val:
-                                         e_clean = str(espesor_val).lower().replace("mm", "").strip().replace(',', '.')
-                                         e_str = re.sub(r'[^\d.]', '', e_clean)
-                                         espesor_cad = float(e_str) if e_str and e_str != '.' else 0.0
-                                     
-                                     if largo_cad > 0 and ancho_cad > 0:
-                                         observacion = "OK"
-                                     else:
-                                         observacion = "No detectado (valores incompletos)"
-                                 except ValueError as ve:
-                                     observacion = f"Error métrico: {ve}"
-                            else:
-                                 observacion = "No detectado (faltan propiedades)"
-                                 
-                        except Exception as math_err:
-                            observacion = f"Error matemático: {str(math_err)[:50]}"
-                            print(f"Error matemático extrayendo {codigo}: {math_err}")
-                        finally:
+                            # 1. Asesinar el proceso SW muerto
                             try:
-                                sw_app.CloseDoc(abspath)
-                            except: pass
+                                os.system("taskkill /F /IM SLDWORKS.exe 2>nul")
+                            except Exception:
+                                pass
+
+                            # 2. Liberar referencia COM muerta
+                            sw_app = None
+
+                            # 3. Pequeña pausa para que el SO libere el puerto RPC
+                            import time as _time
+                            _time.sleep(3)
+
+                            # 4. Re-inicializar COM y reconectar a SolidWorks
+                            try:
+                                pythoncom.CoUninitialize()
+                            except Exception:
+                                pass
+                            try:
+                                pythoncom.CoInitialize()
+                            except Exception:
+                                pass
+                            sw_app = get_sw_app()  # get_sw_app ya aplica _apply_silent_mode
+
+                            if sw_app:
+                                print(f"[SW-RPC] ✅ Resurrección COM exitosa. Continuando con el siguiente archivo.")
+                            else:
+                                print(f"[SW-RPC] ❌ No se pudo reconectar a SolidWorks. El escáner continuará sin motor SW.")
+
+                            observacion = "Error/Saltado (RPC Crash - COM Reiniciado)"
+                            _rpc_crash = True
+                        else:
+                            # Error de apertura no-RPC (archivo corrupto, falta de permiso, etc.)
+                            print(f"[SW] Error abriendo '{codigo}': {err_str}")
+                            observacion = f"Error apertura: {str(try_open_err)[:60]}"
+                            swModel = None
+
+                    if not _rpc_crash:
+                        # Solo procesamos si NO hubo crash RPC
+                        if swModel is None:
+                            observacion = "No se pudo abrir el archivo"
+                            # No lanzamos excepción para que permita llenar el DataFrame en blanco
+                        else:
+                            try:
+                                prop_mgr = swModel.Extension.CustomPropertyManager("")
+                                
+                                def safe_get_prop(prop_val):
+                                    if not prop_val: return ""
+                                    if isinstance(prop_val, str): return prop_val
+                                    if isinstance(prop_val, (tuple, list)):
+                                        if len(prop_val) > 1 and prop_val[1]: return str(prop_val[1])
+                                        if len(prop_val) > 0 and prop_val[0]: return str(prop_val[0])
+                                    return str(prop_val)
+
+                                # Intentar sobrescribir codigo pieza si está en custom properties
+                                get_codigo = prop_mgr.Get("CODIGO_PIEZA")
+                                codigo_val = safe_get_prop(get_codigo).strip()
+                                if codigo_val:
+                                    codigo = codigo_val
+
+                                get_largo = prop_mgr.Get("Largo_CAD")
+                                get_ancho = prop_mgr.Get("Ancho_CAD")
+                                get_espesor = prop_mgr.Get("Espesor_Perfil_CAD")
+                                
+                                largo_val = safe_get_prop(get_largo)
+                                ancho_val = safe_get_prop(get_ancho)
+                                espesor_val = safe_get_prop(get_espesor)
+
+                                if largo_val and ancho_val:
+                                    import re
+                                    try:
+                                        l_clean = str(largo_val).lower().replace("mm", "").strip().replace(',', '.')
+                                        a_clean = str(ancho_val).lower().replace("mm", "").strip().replace(',', '.')
+                                        l_str = re.sub(r'[^\d.]', '', l_clean)
+                                        a_str = re.sub(r'[^\d.]', '', a_clean)
+                                        
+                                        largo = float(l_str) if l_str and l_str != '.' else 0.0
+                                        ancho = float(a_str) if a_str and a_str != '.' else 0.0
+                                        
+                                        largo_cad = max(largo, ancho)
+                                        ancho_cad = min(largo, ancho)
+                                        
+                                        espesor_cad = 0.0
+                                        if espesor_val:
+                                            e_clean = str(espesor_val).lower().replace("mm", "").strip().replace(',', '.')
+                                            e_str = re.sub(r'[^\d.]', '', e_clean)
+                                            espesor_cad = float(e_str) if e_str and e_str != '.' else 0.0
+                                        
+                                        if largo_cad > 0 and ancho_cad > 0:
+                                            observacion = "OK"
+                                        else:
+                                            observacion = "No detectado (valores incompletos)"
+                                    except ValueError as ve:
+                                        observacion = f"Error métrico: {ve}"
+                                else:
+                                    observacion = "No detectado (faltan propiedades)"
+                                    
+                            except Exception as math_err:
+                                observacion = f"Error matemático: {str(math_err)[:50]}"
+                                print(f"Error matemático extrayendo {codigo}: {math_err}")
+                            finally:
+                                try:
+                                    sw_app.CloseDoc(abspath)
+                                except: pass
                         
             except Exception as extract_err:
                 import traceback

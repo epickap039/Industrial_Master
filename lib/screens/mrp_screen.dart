@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:intl/intl.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:excel/excel.dart' as excel_lib;
+import '../utils/excel_helper.dart';
 
 import 'dart:io';
 
@@ -116,50 +117,87 @@ class _MRPScreenState extends State<MRPScreen> {
     if (_mrpData.isEmpty && _orphanData.isEmpty) return;
 
     var excel = excel_lib.Excel.createExcel();
+    final headerStyle = ExcelHelper.getHeaderStyle();
     
     // 1. Hoja de Orden de Compra
     excel_lib.Sheet sheetOC = excel['Orden_Compra'];
-    excel.delete('Sheet1'); // Eliminar la hoja por defecto
+    excel.delete('Sheet1'); 
 
-    sheetOC.appendRow([
-      excel_lib.TextCellValue('Material Oficial'),
-      excel_lib.TextCellValue('Calibre/Espesor'),
-      excel_lib.TextCellValue('Piezas Totales'),
-      excel_lib.TextCellValue('Área / Requerimiento'),
-      excel_lib.TextCellValue('Orden de Compra Sugerida'),
-    ]);
-
-    for (var row in _mrpData) {
-      double areaMm2 = (row['Requerimiento_Area_mm2'] ?? 0).toDouble();
-      sheetOC.appendRow([
-        excel_lib.TextCellValue(row['Material']?.toString() ?? '-'),
-        excel_lib.TextCellValue(row['Calibre_Espesor']?.toString() ?? '-'),
-        excel_lib.DoubleCellValue((row['Cantidad_Total_Piezas'] ?? 0).toDouble()),
-        excel_lib.TextCellValue(_formatArea(areaMm2)),
-        excel_lib.TextCellValue(row['Sugerencia_Compra']?.toString() ?? 'N/A'),
-      ]);
+    List<String> ocHeaders = [
+      'Material Oficial', 'Calibre/Espesor', 'Piezas Totales', 
+      'Área / Requerimiento (Texto)', 'Área m² (Num)', 'Orden de Compra Sugerida'
+    ];
+    
+    Map<int, int> ocWidths = {};
+    for (int i = 0; i < ocHeaders.length; i++) {
+      sheetOC.updateCell(
+        excel_lib.CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0),
+        excel_lib.TextCellValue(ocHeaders[i]),
+        cellStyle: headerStyle,
+      );
+      ExcelHelper.updateMaxWith(ocWidths, i, ocHeaders[i]);
     }
+
+    for (int r = 0; r < _mrpData.length; r++) {
+      var row = _mrpData[r];
+      double areaMm2 = (row['Requerimiento_Area_mm2'] ?? 0).toDouble();
+      double areaM2 = areaMm2 / 1000000.0;
+      int piezas = ExcelHelper.cleanToInt(row['Cantidad_Total_Piezas']);
+      
+      List<excel_lib.CellValue> cells = [
+        excel_lib.TextCellValue(row['Material']?.toString() ?? '-'),
+        ExcelHelper.parseDynamicCell(row['Calibre_Espesor']),
+        excel_lib.IntCellValue(piezas),
+        excel_lib.TextCellValue(_formatArea(areaMm2)), 
+        excel_lib.DoubleCellValue(areaM2),
+        excel_lib.TextCellValue(row['Sugerencia_Compra']?.toString() ?? 'N/A'),
+      ];
+
+      for (int c = 0; c < cells.length; c++) {
+        sheetOC.updateCell(
+          excel_lib.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: r + 1),
+          cells[c],
+        );
+        ExcelHelper.updateMaxWith(ocWidths, c, cells[c].toString());
+      }
+    }
+    ExcelHelper.applyAutoFit(sheetOC, ocWidths);
 
     // 2. Hoja de Auditoría de Ingeniería (Huérfanos)
     if (_orphanData.isNotEmpty) {
       excel_lib.Sheet sheetAudit = excel['Auditoria_Ingenieria'];
-      sheetAudit.appendRow([
-        excel_lib.TextCellValue('Código de Pieza'),
-        excel_lib.TextCellValue('Ensamble'),
-        excel_lib.TextCellValue('Material CAD'),
-        excel_lib.TextCellValue('Cantidad BOM'),
-        excel_lib.TextCellValue('Motivo de Rechazo'),
-      ]);
+      List<String> auditHeaders = ['Código de Pieza', 'Ensamble', 'Material CAD', 'Cantidad BOM', 'Motivo de Rechazo'];
+      Map<int, int> auditWidths = {};
 
-      for (var row in _orphanData) {
-        sheetAudit.appendRow([
+      for (int i = 0; i < auditHeaders.length; i++) {
+        sheetAudit.updateCell(
+          excel_lib.CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0),
+          excel_lib.TextCellValue(auditHeaders[i]),
+          cellStyle: headerStyle,
+        );
+        ExcelHelper.updateMaxWith(auditWidths, i, auditHeaders[i]);
+      }
+
+      for (int r = 0; r < _orphanData.length; r++) {
+        var row = _orphanData[r];
+        int cant = ExcelHelper.cleanToInt(row['Cantidad']);
+        List<excel_lib.CellValue> cells = [
           excel_lib.TextCellValue(row['Codigo_Pieza']?.toString() ?? '-'),
           excel_lib.TextCellValue(row['Nombre_Ensamble']?.toString() ?? '-'),
           excel_lib.TextCellValue(row['Material']?.toString() ?? '-'),
-          excel_lib.DoubleCellValue((row['Cantidad'] ?? 0).toDouble()),
+          excel_lib.IntCellValue(cant),
           excel_lib.TextCellValue(row['Motivo_Rechazo']?.toString() ?? '-'),
-        ]);
+        ];
+
+        for (int c = 0; c < cells.length; c++) {
+          sheetAudit.updateCell(
+            excel_lib.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: r + 1),
+            cells[c],
+          );
+          ExcelHelper.updateMaxWith(auditWidths, c, cells[c].toString());
+        }
       }
+      ExcelHelper.applyAutoFit(sheetAudit, auditWidths);
     }
 
     String fileName = 'MRP_Requerimiento_Rev_${_selectedRevisionId ?? "Unknown"}.xlsx';
@@ -382,10 +420,14 @@ class _MRPScreenState extends State<MRPScreen> {
   Widget _buildDataRow(Map<String, dynamic> row) {
     double areaMm2 = (row['Requerimiento_Area_mm2'] ?? 0).toDouble();
     double piezas = (row['Cantidad_Total_Piezas'] ?? 0).toDouble();
-    
-    // Estilo base neutral para máxima legibilidad
+
+    final isDark = FluentTheme.of(context).brightness == Brightness.dark;
+    final dataColor = isDark 
+        ? Colors.white.withValues(alpha: 0.9) 
+        : Colors.black.withValues(alpha: 0.85);
+
     final baseStyle = TextStyle(
-      color: FluentTheme.of(context).typography.body?.color?.withValues(alpha: 0.9) ?? Colors.white,
+      color: dataColor,
       fontWeight: FontWeight.normal,
       fontSize: 13,
     );
@@ -400,7 +442,9 @@ class _MRPScreenState extends State<MRPScreen> {
               row['Material']?.toString() ?? 'N/A',
               style: baseStyle.copyWith(
                 fontWeight: FontWeight.w600,
-                color: row['Material'] == 'FALTA ASIGNAR EN CAD' ? Colors.orange.darkest : null,
+                color: row['Material'] == 'FALTA ASIGNAR EN CAD' 
+                  ? (isDark ? Colors.orange.lighter : Colors.orange.darkest) 
+                  : null,
               ),
             ),
           ),
@@ -435,7 +479,7 @@ class _MRPScreenState extends State<MRPScreen> {
               row['Sugerencia_Compra']?.toString() ?? 'N/A',
               textAlign: TextAlign.right,
               style: baseStyle.copyWith(
-                color: Colors.orange.darkest,
+                color: isDark ? Colors.orange.lighter : Colors.orange.darkest,
                 fontWeight: FontWeight.bold,
               ),
             ),
