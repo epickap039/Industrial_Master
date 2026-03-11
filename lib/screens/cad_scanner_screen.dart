@@ -183,7 +183,7 @@ Sub ProcessPart(filePath As String)
     End If
     DoEvents
 End Sub''';
-  }}
+  }
 
   final TextEditingController _pathController = TextEditingController();
   
