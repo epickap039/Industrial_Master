@@ -791,7 +791,10 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
                               flex: 2,
                               child: Text(
                                 codigo,
-                                style: const TextStyle(fontWeight: FontWeight.bold),
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: MediaQuery.of(context).platformBrightness == Brightness.dark ? Colors.white : Colors.black87,
+                                ),
                               ),
                             ),
 
@@ -804,15 +807,12 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
                                 child: Text(
                                   "${item['Excel_Data']['Descripcion_Excel']} ${item['Excel_Data']['Medida_Excel']}",
                                   style: TextStyle(
-                                    // === TAREA 3: Color del tema, no hard-coded ===
-                                    color:
-                                        isManual
-                                            ? Colors.blue
-                                            : FluentTheme.of(context).accentColor,
-                                    fontWeight:
-                                        isManual
-                                            ? FontWeight.bold
-                                            : FontWeight.normal,
+                                    color: isManual
+                                        ? Colors.blue
+                                        : (MediaQuery.of(context).platformBrightness == Brightness.dark ? Colors.white : Colors.black87),
+                                    fontWeight: isManual
+                                        ? FontWeight.bold
+                                        : FontWeight.normal,
                                   ),
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,

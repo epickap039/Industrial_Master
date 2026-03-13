@@ -186,6 +186,9 @@ End Sub''';
   }
 
   final TextEditingController _pathController = TextEditingController();
+  final TextEditingController _networkController = TextEditingController();
+  bool _isCollecting = false;
+
   
   String _status = 'idle';
   int _progress = 0;
@@ -267,12 +270,13 @@ End Sub''';
               displayInfoBar(context, builder: (context, close) {
                 return InfoBar(
                   title: const Text('Cancelado'),
-                  content: const Text('El escaneo ha sido cancelado.'),
+                  content: const Text('El proceso ha sido cancelado.'),
                   severity: InfoBarSeverity.warning,
                   onClose: close,
                 );
               });
               _status = 'idle';
+              _procesarStatus = 'idle';
             }
           }
         }
@@ -295,6 +299,26 @@ End Sub''';
       });
       return;
     }
+
+    final bool? confirmar = await showDialog<bool>(
+      context: context,
+      builder: (context) => ContentDialog(
+        title: Text('⚠️ Atención: Extracción SolidWorks', style: TextStyle(color: Colors.warningPrimaryColor)),
+        content: Text('El servidor utilizará SolidWorks de forma silenciosa para leer las propiedades de las piezas y generará el reporte Excel. Asegúrate de haber ejecutado la Macro (Paso 1) previamente. ¿Deseas continuar?'),
+        actions: [
+          Button(
+            child: Text('Cancelar'),
+            onPressed: () => Navigator.pop(context, false),
+          ),
+          FilledButton(
+            child: Text('Proceder'),
+            onPressed: () => Navigator.pop(context, true),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmar != true) return;
 
     setState(() {
       _status = 'scanning';
@@ -338,12 +362,26 @@ End Sub''';
 
   Future<void> _cancelScan() async {
     try {
-      await http.post(
-        Uri.parse('$API_URL/api/cad/scan'),
+      final response = await http.post(
+        Uri.parse('$API_URL/api/cad/abort'),
         headers: {'Content-Type': 'application/json'},
-        body: json.encode({'root_path': 'cancel'}),
       );
-      // El polling actualizará el estado a cancelled
+      
+      if (response.statusCode == 200) {
+        _stopPolling();
+        setState(() {
+          _status = 'cancelled';
+          _procesarStatus = 'idle';
+        });
+        displayInfoBar(context, builder: (context, close) {
+          return InfoBar(
+            title: const Text('Cancelado'),
+            content: const Text('El escaneo ha sido cancelado exitosamente por el usuario.'),
+            severity: InfoBarSeverity.warning,
+            onClose: close,
+          );
+        });
+      }
     } catch (e) {
       displayInfoBar(context, builder: (context, close) {
         return InfoBar(
@@ -374,12 +412,8 @@ End Sub''';
     final bool? confirmar = await showDialog<bool>(
       context: context,
       builder: (context) => ContentDialog(
-        title: Text('⚠️ Atención: Operación Crítica', style: TextStyle(color: Colors.warningPrimaryColor)),
-        content: Text(
-          'Esta herramienta abrirá SolidWorks en segundo plano y sobrescribirá propiedades en masa.\n\n'
-          'Todos los archivos manipulados se guardarán con la fecha de hoy.\n'
-          '¿Deseas continuar?'
-        ),
+        title: Text('⚠️ Atención: Conversión AutoCAD', style: TextStyle(color: Colors.warningPrimaryColor)),
+        content: Text('Esta herramienta abrirá AutoCAD en segundo plano para convertir masivamente los archivos DWG a DXF. ¿Deseas continuar?'),
         actions: [
           Button(
             child: Text('Cancelar'),
@@ -426,6 +460,66 @@ End Sub''';
       displayInfoBar(context, builder: (context, close) {
         return InfoBar(
           title: const Text('Error de procesamiento'),
+          content: Text(e.toString()),
+          severity: InfoBarSeverity.error,
+          onClose: close,
+        );
+      });
+    }
+  }
+
+  Future<void> _collectMissingCAD() async {
+    String? selectedDirectory = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: 'Selecciona la carpeta raíz de la red para recolectar CADs',
+    );
+
+    if (selectedDirectory == null) return;
+
+    setState(() {
+      _networkController.text = selectedDirectory;
+      _isCollecting = true;
+    });
+
+    try {
+      final response = await http.post(
+        Uri.parse('$API_URL/api/cad/collect-missing'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'source_folder': selectedDirectory}),
+      );
+
+      setState(() {
+        _isCollecting = false;
+      });
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        showDialog(
+          context: context,
+          builder: (context) => ContentDialog(
+            title: const Text('Recolección Completada'),
+            content: Text(
+              'Se encontraron ${data['archivos_encontrados']} archivos de '
+              '${data['piezas_faltantes_en_db']} piezas pendientes.\n\n'
+              'Fueron copiados a tu escritorio en la carpeta CAD_PENDIENTES.'
+            ),
+            actions: [
+              Button(
+                child: const Text('Cerrar'),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
+          ),
+        );
+      } else {
+        throw Exception('Error del servidor: ${response.body}');
+      }
+    } catch (e) {
+      setState(() {
+        _isCollecting = false;
+      });
+      displayInfoBar(context, builder: (context, close) {
+        return InfoBar(
+          title: const Text('Error en Recolector'),
           content: Text(e.toString()),
           severity: InfoBarSeverity.error,
           onClose: close,
@@ -635,6 +729,48 @@ End Sub''';
                   children: [
                     const Text('Flujo de Trabajo:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                     const SizedBox(height: 12),
+                    // NUEVO Paso 0: Recolector Inteligente
+                    Card(
+                      borderColor: Colors.blue.withOpacity(0.3),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(FluentIcons.search, color: Colors.blue, size: 24),
+                                const SizedBox(width: 12),
+                                const Text('Paso 0: Recolector Inteligente',
+                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                                const Spacer(),
+                                if (_isCollecting) const ProgressRing(),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            const Text('Busca en la red piezas sin medidas en la base de datos y las copia a tu escritorio para procesarlas.'),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextBox(
+                                    controller: _networkController,
+                                    placeholder: 'Ruta de red no seleccionada',
+                                    readOnly: true,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                FilledButton(
+                                  onPressed: _isCollecting ? null : _collectMissingCAD,
+                                  child: const Text('Seleccionar Red y Recolectar'),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
@@ -659,7 +795,7 @@ End Sub''';
                           ),
                           const SizedBox(height: 8),
                           const Text(
-                            'Paso 1 (Manual): Asegúrate de ejecutar la Macro de extracción de Cajas (Bounding Box) en SolidWorks sobre esta carpeta primero.',
+                            'Paso 1 (Manual): Asegúrate de ejecutar la Macro en SolidWorks sobre la carpeta del proyecto. Esta Macro sirve para escribir en masa las propiedades necesarias en todos los archivos antes del escaneo.',
                             style: TextStyle(fontWeight: FontWeight.w600),
                           ),
                           const SizedBox(height: 12),
@@ -697,7 +833,7 @@ End Sub''';
                           SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              'NOTA: El Paso 2 (Convertir DWG a DXF) requiere que AutoCAD esté instalado en este equipo.',
+                              'NOTA: El Paso 2 (Convertir DWG a DXF) requiere AutoCAD instalado. El Paso 3 (Generar Reporte Excel) requiere SolidWorks instalado.',
                               style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold),
                             ),
                           ),
@@ -732,10 +868,10 @@ End Sub''';
                             child: Text('Paso 3: Generar Reporte Excel', style: TextStyle(fontSize: 16)),
                           ),
                         ),
-                        if (isScanning) ...[
+                        if (isBusy) ...[
                           const SizedBox(width: 16),
                           Button(
-                            onPressed: _status == 'scanning' ? _cancelScan : null,
+                            onPressed: _cancelScan,
                             style: ButtonStyle(
                               backgroundColor: ButtonState.all(Colors.red.withOpacity(0.1)),
                               foregroundColor: ButtonState.all(Colors.red),

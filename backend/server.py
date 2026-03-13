@@ -244,6 +244,11 @@ class VINPayload(BaseModel):
     notas: Optional[str] = None
     observaciones: Optional[str] = None
 
+# === TAREA 1: Modelo ligero para reemplazar notas (sin vin obligatorio) ===
+class NotasReplacePayload(BaseModel):
+    observaciones: Optional[str] = None
+    notas: Optional[str] = None
+
 class DeleteVinPayload(BaseModel):
     password: str
     motivo: Optional[str] = None
@@ -870,7 +875,7 @@ def get_archivos_vin(id_vin: int):
     return archivos
 
 @app.post("/api/vins/{id_vin}/subir_archivo")
-async def subir_archivo_vin(id_vin: int, file: UploadFile = File(...)):
+async def subir_archivo_vin(id_vin: int, file: UploadFile = File(...), x_usuario: Optional[str] = Header(None)):
     """Sube y guarda un archivo en la carpeta del VIN en el servidor."""
     folder = os.path.join(VIN_FILES_BASE, str(id_vin))
     os.makedirs(folder, exist_ok=True)
@@ -881,6 +886,20 @@ async def subir_archivo_vin(id_vin: int, file: UploadFile = File(...)):
         content = await file.read()
         with open(dest, "wb") as f:
             f.write(content)
+        # === Auditoría de subida de archivo (columnas reales) ===
+        try:
+            usuario_log = x_usuario if x_usuario else "SISTEMA_VIN"
+            conn_log = get_db_connection()
+            cursor_log = conn_log.cursor()
+            cursor_log.execute(
+                "INSERT INTO Tbl_Auditoria_Cambios (Codigo_Pieza, Accion, Valor_Anterior, Valor_Nuevo, Usuario) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (f"VIN-{id_vin}", 'Subir Archivo', None, f"Archivo '{safe_name}' subido ({round(len(content)/1024,1)} KB)", usuario_log)
+            )
+            conn_log.commit()
+            conn_log.close()
+        except Exception:
+            pass  # No interrumpir operación principal si falla el log
         return {"status": "success", "nombre": safe_name, "tamano_kb": round(len(content) / 1024, 1)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al guardar archivo: {str(e)}")
@@ -1579,16 +1598,107 @@ def vincular_vin(id_unidad: int, id_socio: int, x_usuario: Optional[str] = Heade
         conn.close()
 
 @app.put("/api/vins/{id_unidad}/notas")
-def update_vin_notas(id_unidad: int, payload: VINPayload):
+def update_vin_notas(id_unidad: int, payload: VINPayload, x_usuario: Optional[str] = Header(None)):
+    # === TAREA 2: Historial acumulativo – concatenar, no sobrescribir ===
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        val = payload.observaciones if payload.observaciones is not None else payload.notas
-        cursor.execute("UPDATE Tbl_Unidades_Fisicas SET Observaciones = ? WHERE ID_Unidad = ?", (val, id_unidad))
+        nueva_nota = payload.observaciones if payload.observaciones is not None else (payload.notas or "")
+        if not nueva_nota.strip():
+            return {"status": "no_change"}
+
+        usuario_real = x_usuario if x_usuario else "Operador"
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+        entrada = f"[{timestamp}] {usuario_real}: {nueva_nota.strip()}"
+
+        # Concatenar con separador de línea, no reemplazar
+        cursor.execute("""
+            UPDATE Tbl_Unidades_Fisicas
+            SET Observaciones = CASE
+                WHEN ISNULL(Observaciones, '') = '' THEN ?
+                ELSE Observaciones + CHAR(13) + CHAR(10) + ?
+            END
+            WHERE ID_Unidad = ?
+        """, (entrada, entrada, id_unidad))
         conn.commit()
+        # === TAREA 3: Auditoría con conexión fresca (columnas reales de la tabla) ===
+        try:
+            conn2 = get_db_connection()
+            cur2 = conn2.cursor()
+            cur2.execute(
+                "INSERT INTO Tbl_Auditoria_Cambios (Codigo_Pieza, Accion, Valor_Anterior, Valor_Nuevo, Usuario) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (f"VIN-{id_unidad}", 'Agregar Nota', None, entrada, usuario_real)
+            )
+            conn2.commit()
+            conn2.close()
+        except Exception:
+            pass  # No interrumpir si falla el log
+        return {"status": "success", "entrada": entrada}
+    finally:
+        conn.close()
+
+# === Endpoint para REEMPLAZAR notas completas (usado al borrar una nota) ===
+@app.put("/api/vins/{id_unidad}/notas_reemplazar")
+def replace_vin_notas(id_unidad: int, payload: NotasReplacePayload, x_usuario: Optional[str] = Header(None)):
+    """Sobrescribe el campo Observaciones con el texto completo enviado."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        texto_completo = payload.observaciones if payload.observaciones is not None else (payload.notas or "")
+        usuario_real = x_usuario if x_usuario else "Operador"
+        cursor.execute(
+            "UPDATE Tbl_Unidades_Fisicas SET Observaciones = ? WHERE ID_Unidad = ?",
+            (texto_completo, id_unidad)
+        )
+        conn.commit()
+        # === Auditoría con columnas reales de Tbl_Auditoria_Cambios ===
+        try:
+            conn2 = get_db_connection()
+            cur2 = conn2.cursor()
+            cur2.execute(
+                "INSERT INTO Tbl_Auditoria_Cambios (Codigo_Pieza, Accion, Valor_Anterior, Valor_Nuevo, Usuario) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (f"VIN-{id_unidad}", 'Borrar Nota', None, f"Nota eliminada del historial VIN {id_unidad}", usuario_real)
+            )
+            conn2.commit()
+            conn2.close()
+        except Exception:
+            pass
         return {"status": "success"}
     finally:
         conn.close()
+
+# === TAREA 4: Borrar archivo físico de la Nube VIN ===
+@app.delete("/api/vins/{id_vin}/archivos/{nombre_archivo}")
+async def eliminar_archivo_vin(id_vin: int, nombre_archivo: str, x_usuario: Optional[str] = Header(None)):
+    """Elimina físicamente un archivo adjunto del VIN del servidor."""
+    safe_name = re.sub(r"[^\w\.\-]", "_", nombre_archivo)
+    fpath = os.path.join(VIN_FILES_BASE, str(id_vin), safe_name)
+    if not os.path.exists(fpath):
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+    try:
+        os.remove(fpath)
+        # === Auditoría de borrado de archivo (columnas reales) ===
+        try:
+            usuario_log = x_usuario if x_usuario else "SISTEMA_VIN"
+            conn_log = get_db_connection()
+            cur_log = conn_log.cursor()
+            cur_log.execute(
+                "INSERT INTO Tbl_Auditoria_Cambios (Codigo_Pieza, Accion, Valor_Anterior, Valor_Nuevo, Usuario) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (f"VIN-{id_vin}", 'Borrar Archivo', None, f"Archivo '{safe_name}' eliminado", usuario_log)
+            )
+            conn_log.commit()
+            conn_log.close()
+        except Exception:
+            pass
+        return {"status": "success", "eliminado": safe_name}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al eliminar: {str(e)}")
 
 @app.delete("/api/vins/{serie}")
 def delete_vin(serie: str, payload: DeleteVinPayload, x_usuario: Optional[str] = Header(None)):

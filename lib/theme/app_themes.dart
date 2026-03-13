@@ -65,6 +65,15 @@ class AppThemes {
     accentColor: Colors.blue,
     scaffoldBackgroundColor: const Color(0xFF202020),
     cardColor: const Color(0xFF2D2D2D),
+    // === TAREA 1: Fix Contraste Modo Oscuro ===
+    typography: const Typography.raw(
+      body: TextStyle(color: Color(0xFFF0F0F0)),
+      bodyStrong: TextStyle(color: Color(0xFFFFFFFF), fontWeight: FontWeight.bold),
+      bodyLarge: TextStyle(color: Color(0xFFFFFFFF)),
+      title: TextStyle(color: Color(0xFFFFFFFF), fontWeight: FontWeight.bold),
+      subtitle: TextStyle(color: Color(0xFFE0E0E0)),
+      caption: TextStyle(color: Color(0xFFB0B0B0)),
+    ),
   );
 
   static final FluentThemeData lightTheme = FluentThemeData(
@@ -133,9 +142,12 @@ class AppThemes {
     cardColor: const Color(0xFF172238),              // Tarjetas más oscuras
     micaBackgroundColor: const Color(0xFF1A2C47),   // Fondo de tarjetas de conflicto
     typography: const Typography.raw(
-      body: TextStyle(color: Color(0xFFECECEC)),
+      body: TextStyle(color: Color(0xFFFFFFFF)), // Blanco puro para máximo contraste
+      bodyStrong: TextStyle(color: Color(0xFFFFFFFF), fontWeight: FontWeight.bold),
+      bodyLarge: TextStyle(color: Color(0xFFFFFFFF)),
       title: TextStyle(color: Color(0xFFFFFFFF), fontWeight: FontWeight.bold),
-      subtitle: TextStyle(color: Color(0xFF98CA3F)),
+      subtitle: TextStyle(color: Color(0xFF98CA3F), fontWeight: FontWeight.w600),
+      caption: TextStyle(color: Color(0xFFC0C0C0)),
     ),
     buttonTheme: ButtonThemeData(
       defaultButtonStyle: ButtonStyle(

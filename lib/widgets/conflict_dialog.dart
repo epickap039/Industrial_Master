@@ -17,217 +17,137 @@ class ConflictResolutionDialog extends StatelessWidget {
             ? Map<String, dynamic>.from(item['SQL_Data'])
             : {};
 
-    // Helper para etiquetas y valores con estilo
-    Widget _buildFieldParams(
-      String label,
-      String val,
-      bool isHighlighted, {
-      bool isHeader = false,
-    }) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              label.toUpperCase(),
-              style: TextStyle(
-                fontSize: 9,
-                color: Colors.grey,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 0.5,
-              ),
-            ),
-            const SizedBox(height: 2),
-            SelectableText(
-              val.isEmpty ? "-" : val,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight:
-                    isHighlighted || isHeader
-                        ? FontWeight.bold
-                        : FontWeight.normal,
-                color:
-                    isHighlighted
-                        ? Colors.red
-                        : null, // null usa el color del tema (blanco/negro)
-              ),
-            ),
-          ],
-        ),
-      );
-    }
+
 
     // Helper para construir la tarjeta de datos
     Widget _buildDataCard(
       BuildContext context,
       String title,
       Map<String, dynamic> data,
-      Color headerColor,
+      Color accentColor,
       bool isExcel,
     ) {
+      // === TAREA 1: Detección de brillo explícita – independiente del TextTheme global ===
+      final isDark = FluentTheme.of(context).brightness == Brightness.dark;
+      final textColor = isDark ? Colors.white : const Color(0xFF1A1A1A);
+      final subTextColor = isDark ? const Color(0xFFB0B0B0) : const Color(0xFF555555);
+      final bgCard = FluentTheme.of(context).cardColor;
+
       if (data.isEmpty) {
-        return Card(
+        return Container(
+          decoration: BoxDecoration(
+            color: bgCard,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: accentColor.withOpacity(0.3)),
+          ),
           padding: const EdgeInsets.all(24),
           child: Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(FluentIcons.database, size: 48, color: Colors.grey[60]),
+                Icon(FluentIcons.database, size: 48, color: subTextColor),
                 const SizedBox(height: 16),
-                Text(
-                  "Sin datos en BD",
-                  style: TextStyle(color: Colors.grey[100]),
-                ),
+                Text("Sin datos en BD", style: TextStyle(color: subTextColor)),
               ],
             ),
           ),
         );
       }
 
-      return Card(
-        padding: EdgeInsets.zero,
-        backgroundColor: headerColor.withOpacity(0.05), // Fondo tintado suave
-        borderColor: headerColor.withOpacity(0.3),
+      // Helper interno de campo – siempre usa colores explícitos
+      Widget buildField(String label, String val, {bool highlight = false}) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 5.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label.toUpperCase(),
+                style: TextStyle(fontSize: 9, color: subTextColor, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+              ),
+              const SizedBox(height: 2),
+              SelectableText(
+                val.isEmpty ? "—" : val,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: highlight ? FontWeight.bold : FontWeight.normal,
+                  color: highlight ? accentColor : textColor,
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+
+      return Container(
+        decoration: BoxDecoration(
+          // === TAREA 1: Fondo del tema, sin sólido ===
+          color: bgCard,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: accentColor.withOpacity(0.45), width: 1.5),
+        ),
         child: Column(
           children: [
-            // Header Estilizado
+            // Cabecera: borde izquierdo grueso, sin fondo sólido
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
               decoration: BoxDecoration(
-                color: headerColor,
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(4),
-                ),
+                color: accentColor.withOpacity(isDark ? 0.12 : 0.08),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(7)),
+                border: Border(left: BorderSide(color: accentColor, width: 4)),
               ),
               child: Row(
                 children: [
-                  Icon(
-                    isExcel ? FluentIcons.excel_logo : FluentIcons.database,
-                    color: Colors.white,
-                    size: 16,
-                  ),
+                  Icon(isExcel ? FluentIcons.excel_logo : FluentIcons.database, color: accentColor, size: 16),
                   const SizedBox(width: 8),
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
+                  Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: textColor, fontSize: 13)),
                 ],
               ),
             ),
+            // Cuerpo
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.all(16.0),
+                padding: const EdgeInsets.all(14.0),
                 child: SingleChildScrollView(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _buildFieldParams(
-                        "Descripción",
-                        data[isExcel ? 'Descripcion_Excel' : 'Descripcion'] ??
-                            "",
-                        true,
-                        isHeader: true,
-                      ),
-                      const SizedBox(height: 12),
-                      const Divider(),
-                      const SizedBox(height: 12),
-
+                      buildField("Descripción",
+                          data[isExcel ? 'Descripcion_Excel' : 'Descripcion'] ?? "", highlight: true),
+                      const SizedBox(height: 8),
+                      Container(height: 1, color: accentColor.withOpacity(0.2)),
+                      const SizedBox(height: 4),
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(
-                            child: _buildFieldParams(
-                              "Medida",
-                              data[isExcel ? 'Medida_Excel' : 'Medida'] ?? "",
-                              true,
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: _buildFieldParams(
-                              "Material",
-                              data[isExcel ? 'Material_Excel' : 'Material'] ??
-                                  "",
-                              true,
-                            ),
-                          ),
+                          Expanded(child: buildField("Medida", data[isExcel ? 'Medida_Excel' : 'Medida'] ?? "")),
+                          const SizedBox(width: 12),
+                          Expanded(child: buildField("Material", data[isExcel ? 'Material_Excel' : 'Material'] ?? "")),
                         ],
                       ),
-                      const SizedBox(height: 8),
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(
-                            child: _buildFieldParams(
-                              "Simetría",
-                              data['Simetria'] ?? "",
-                              false,
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: _buildFieldParams(
-                              "Proc. Prim.",
-                              data['Proceso_Primario'] ?? "",
-                              false,
-                            ),
-                          ),
+                          Expanded(child: buildField("Simetría", data['Simetria'] ?? "")),
+                          const SizedBox(width: 12),
+                          Expanded(child: buildField("Proc. Prim.", data['Proceso_Primario'] ?? "")),
                         ],
-                      ),
-
-                      const SizedBox(height: 12),
-                      const Divider(),
-                      const SizedBox(height: 12),
-
-                      // NUEVOS CAMPOS: PROCESOS
-                      const Text(
-                        "PROCESOS SECUNDARIOS",
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey,
-                        ),
                       ),
                       const SizedBox(height: 8),
+                      Container(height: 1, color: accentColor.withOpacity(0.2)),
+                      Text("PROCESOS SECUNDARIOS",
+                          style: TextStyle(fontSize: 9, color: subTextColor, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+                      const SizedBox(height: 6),
                       Row(
                         children: [
-                          Expanded(
-                            child: _buildFieldParams(
-                              "Proc. 1",
-                              data['Proceso_1'] ?? "",
-                              false,
-                            ),
-                          ),
-                          Expanded(
-                            child: _buildFieldParams(
-                              "Proc. 2",
-                              data['Proceso_2'] ?? "",
-                              false,
-                            ),
-                          ),
-                          Expanded(
-                            child: _buildFieldParams(
-                              "Proc. 3",
-                              data['Proceso_3'] ?? "",
-                              false,
-                            ),
-                          ),
+                          Expanded(child: buildField("Proc. 1", data['Proceso_1'] ?? "")),
+                          Expanded(child: buildField("Proc. 2", data['Proceso_2'] ?? "")),
+                          Expanded(child: buildField("Proc. 3", data['Proceso_3'] ?? "")),
                         ],
                       ),
-
-                      const SizedBox(height: 12),
-                      const Divider(),
-                      const SizedBox(height: 12),
-                      _buildFieldParams(
-                        "Link Drive",
-                        data['Link_Drive'] ?? "",
-                        false,
-                      ),
+                      Container(height: 1, color: accentColor.withOpacity(0.2)),
+                      buildField("Link Drive", data['Link_Drive'] ?? ""),
                     ],
                   ),
                 ),
@@ -252,7 +172,7 @@ class ConflictResolutionDialog extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
             decoration: BoxDecoration(
-              color: Colors.grey[30],
+              color: const Color(0xFF37474F), // Gris azulado oscuro – siempre legible
               borderRadius: BorderRadius.circular(4),
             ),
             child: Text(
@@ -260,6 +180,7 @@ class ConflictResolutionDialog extends StatelessWidget {
               style: const TextStyle(
                 fontWeight: FontWeight.bold,
                 fontFamily: 'Consolas',
+                color: Colors.white, // Explícito: blanco sobre fondo oscuro
               ),
             ),
           ),
@@ -306,11 +227,14 @@ class ConflictResolutionDialog extends StatelessWidget {
                       child: const Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(FluentIcons.check_mark, size: 18),
+                          Icon(FluentIcons.check_mark, size: 18, color: Colors.white),
                           SizedBox(width: 8),
                           Text(
                             "USAR EXCEL",
-                            style: TextStyle(fontWeight: FontWeight.bold),
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white, // Explícito para garantizar contraste
+                            ),
                           ),
                         ],
                       ),
@@ -345,20 +269,20 @@ class ConflictResolutionDialog extends StatelessWidget {
                   SizedBox(
                     width: double.infinity,
                     height: 48,
-                    child: Button(
+                    child: FilledButton(
                       style: ButtonStyle(
+                        backgroundColor: WidgetStateProperty.all(Colors.red.darkest),
                         shape: WidgetStateProperty.all(
                           RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(4),
-                            side: BorderSide(color: Colors.red.darkest),
                           ),
                         ),
                       ),
-                      child: Text(
+                      child: const Text(
                         "MANTENER BD",
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
-                          color: Colors.red.darkest,
+                          color: Colors.white, // Blanco sobre fondo rojo
                         ),
                       ),
                       onPressed:

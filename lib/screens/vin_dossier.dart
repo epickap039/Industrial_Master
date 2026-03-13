@@ -19,7 +19,10 @@ class VINDossierScreen extends StatefulWidget {
   _VINDossierScreenState createState() => _VINDossierScreenState();
 }
 
-class _VINDossierScreenState extends State<VINDossierScreen> {
+class _VINDossierScreenState extends State<VINDossierScreen> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   final TextEditingController _searchController = TextEditingController();
   dynamic _vinData;
   bool _isLoading = false;
@@ -36,6 +39,7 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
   void initState() {
     super.initState();
     _fetchAllVins();
+    _fetchArchivos(); // Refuerzo de carga inicial
   }
 
   Future<void> _fetchAllVins() async {
@@ -79,7 +83,7 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
         setState(() {
           if (results.isNotEmpty) {
             _vinData = results.first;
-            _notesController.text = _vinData['notas'] ?? "";
+            // _notesController SIN asignar – la caja siempre vacía para nueva entrada
             _fetchArchivos(); // v60.0: cargar archivos del VIN
           } else {
             _vinData = null;
@@ -122,15 +126,19 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
 
     setState(() => _isSubiendo = true);
     try {
+      final prefs = await SharedPreferences.getInstance();
+      final username = prefs.getString('username') ?? 'Operador';
       final req = http.MultipartRequest(
         'POST',
         Uri.parse('$API_URL/api/vins/${_vinData['id_unidad']}/subir_archivo'),
       );
+      req.headers['X-Usuario'] = username; // Para auditoría
       req.files.add(await http.MultipartFile.fromPath('file', pf.path!));
       final streamed = await req.send();
       if (streamed.statusCode == 200) {
-        _showError("Archivo subido correctamente", isError: false);
+        // Primero refrescar la lista, luego notificar — evita race condition
         await _fetchArchivos();
+        _showError("Archivo subido correctamente", isError: false);
       } else {
         _showError("Error al subir archivo: ${streamed.statusCode}");
       }
@@ -162,20 +170,114 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
   Future<void> _saveNotes() async {
     if (_vinData == null) return;
     try {
+      // === TAREA 2/3: Enviar usuario para el historial acumulativo ===
+      final prefs = await SharedPreferences.getInstance();
+      final username = prefs.getString('username') ?? 'Operador';
       final response = await http.put(
         Uri.parse('$API_URL/api/vins/${_vinData['id_unidad']}/notas'),
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', 'X-Usuario': username},
         body: jsonEncode({
           'vin': _vinData['vin'],
           'observaciones': _notesController.text,
         }),
       );
       if (response.statusCode == 200) {
-        _showError("Notas guardadas correctamente", isError: false);
+        _showError("Nota guardada en el historial", isError: false);
+        _notesController.clear();
+        _searchVIN(_vinData['vin']); // Recargar para ver historial actualizado
       }
     } catch (e) {
       _showError("Error al guardar: $e");
     }
+  }
+
+  // === TAREA 4: Borrar archivo de la Nube VIN ===
+  Future<void> _eliminarArchivo(String nombreArchivo) async {
+    if (_vinData == null) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final username = prefs.getString('username') ?? 'Operador';
+      final res = await http.delete(
+        Uri.parse('$API_URL/api/vins/${_vinData['id_unidad']}/archivos/$nombreArchivo'),
+        headers: {'X-Usuario': username},
+      );
+      if (res.statusCode == 200) {
+        // Primero refrescar la lista, luego notificar — evita UI vacía
+        await _fetchArchivos();
+        _showError("Archivo eliminado", isError: false);
+      } else {
+        _showError("Error al eliminar: ${res.statusCode}");
+      }
+    } catch (e) {
+      _showError("Error: $e");
+    }
+  }
+
+  void _confirmarEliminarArchivo(String nombreArchivo) {
+    showDialog(
+      context: context,
+      builder: (ctx) => ContentDialog(
+        title: const Text("Eliminar Archivo"),
+        content: Text("¿Confirmas eliminar '$nombreArchivo'? Esta acción es irreversible."),
+        actions: [
+          Button(child: const Text("Cancelar"), onPressed: () => Navigator.pop(ctx)),
+          FilledButton(
+            style: ButtonStyle(backgroundColor: ButtonState.all(Colors.red)),
+            child: const Text("Eliminar"),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _eliminarArchivo(nombreArchivo);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  // === TAREA 1: Borrar una nota específica del historial ===
+  Future<void> _borrarNota(List<String> lineasActuales, int indice) async {
+    if (_vinData == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    final username = prefs.getString('username') ?? 'Operador';
+    // Eliminar la línea del índice y reconstruir el bloque
+    final nuevasLineas = List<String>.from(lineasActuales)..removeAt(indice);
+    final textoFinal = nuevasLineas.join('\n');
+    try {
+      final res = await http.put(
+        Uri.parse('$API_URL/api/vins/${_vinData['id_unidad']}/notas_reemplazar'),
+        headers: {'Content-Type': 'application/json', 'X-Usuario': username},
+        body: jsonEncode({'observaciones': textoFinal}), // NotasReplacePayload: solo observaciones, sin vin
+      );
+      if (res.statusCode == 200) {
+        _showError('Nota eliminada', isError: false);
+        _searchVIN(_vinData['vin']); // Refrescar para ver historial actualizado
+      } else {
+        _showError('Error al borrar nota: \${res.statusCode}');
+      }
+    } catch (e) {
+      _showError('Error: \$e');
+    }
+  }
+
+  void _confirmarBorrarNota(List<String> lineas, int indice) {
+    showDialog(
+      context: context,
+      builder: (ctx) => ContentDialog(
+        title: const Text('Borrar Nota'),
+        content: const Text('¿Borrar esta nota del historial? Esta acción no se puede deshacer.'),
+        actions: [
+          Button(child: const Text('Cancelar'), onPressed: () => Navigator.pop(ctx)),
+          FilledButton(
+            style: ButtonStyle(backgroundColor: ButtonState.all(Colors.red)),
+            child: const Text('Borrar'),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _borrarNota(lineas, indice);
+            },
+          ),
+        ],
+      ),
+    );
   }
 
   // v60.0: ADN de Ingeniería - Muestra historial combinado del VIN y su revisión
@@ -500,6 +602,7 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     return ScaffoldPage(
       header: const PageHeader(title: Text("Expedientes VIN / Dossier")),
       content: Padding(
@@ -524,7 +627,7 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
                       if (_filteredVins.isNotEmpty) {
                         setState(() {
                           _vinData = _filteredVins.first;
-                          _notesController.text = _vinData['notas'] ?? "";
+                          // _notesController siempre vacío para nueva entrada
                         });
                       }
                     },
@@ -581,8 +684,7 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
                                     onPressed: () {
                                       setState(() {
                                         _vinData = v;
-                                        _notesController.text =
-                                            v['notas'] ?? "";
+                                        // _notesController siempre vacío para nueva entrada
                                       });
                                     },
                                   ),
@@ -814,12 +916,44 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
                                         ),
                                         const Divider(),
                                         const SizedBox(height: 8),
+                                        // === TAREA 3: Feed de Historial VIN ===
+                                        if ((_vinData['notas'] != null && _vinData['notas'].isNotEmpty) ||
+                                            (_vinData['observaciones'] != null && _vinData['observaciones'].isNotEmpty))
+                                          Container(
+                                            margin: const EdgeInsets.only(bottom: 12),
+                                            constraints: const BoxConstraints(maxHeight: 250),
+                                            decoration: BoxDecoration(
+                                              color: FluentTheme.of(context).micaBackgroundColor.withOpacity(0.3),
+                                              borderRadius: BorderRadius.circular(8),
+                                            ),
+                                            child: Builder(builder: (ctx) {
+                                              // === TAREA 3: split del string multilinea ===
+                                              final rawNotes = (_vinData['notas'] ?? _vinData['observaciones'] ?? '') as String;
+                                              final lineas = rawNotes
+                                                  .split('\n')
+                                                  .map((l) => l.trim())
+                                                  .where((l) => l.isNotEmpty)
+                                                  .toList();
+                                              if (lineas.isEmpty) return const SizedBox.shrink();
+                                              return ListView.builder(
+                                                shrinkWrap: true,
+                                                padding: const EdgeInsets.all(8),
+                                                itemCount: lineas.length,
+                                                itemBuilder: (c, i) => _buildNoteHistoryItem(c, lineas[i], i, lineas),
+                                              );
+                                            }),
+                                          ),
+                                        const Text(
+                                          "Nueva Nota:",
+                                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey),
+                                        ),
+                                        const SizedBox(height: 4),
                                         TextBox(
                                           controller: _notesController,
-                                          maxLines: null,
-                                          minLines: 4,
+                                          maxLines: 3,
+                                          minLines: 1,
                                           placeholder:
-                                              "Escribe aquí las modificaciones realizadas en piso...",
+                                              "Nueva nota de modificación en piso...",
                                         ),
                                         const SizedBox(height: 8),
                                       ],
@@ -972,6 +1106,18 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
                                                               ),
                                                     ),
                                                   ),
+                                                  // === TAREA 4: Botón eliminar archivo ===
+                                                  Tooltip(
+                                                    message: "Eliminar archivo",
+                                                    child: IconButton(
+                                                      icon: const Icon(
+                                                        FluentIcons.delete,
+                                                        size: 14,
+                                                        color: Color(0xFFE53935),
+                                                      ),
+                                                      onPressed: () => _confirmarEliminarArchivo(arch['nombre']),
+                                                    ),
+                                                  ),
                                                 ],
                                               ),
                                             ),
@@ -1005,6 +1151,69 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
             ),
           ),
           Text(value),
+        ],
+      ),
+    );
+  }
+
+  // === TAREA 3: Helper de burbuja – parsea la línea + botón de borrado ===
+  Widget _buildNoteHistoryItem(
+    BuildContext context,
+    String linea,
+    int indice,
+    List<String> todasLasLineas,
+  ) {
+    final isDark = FluentTheme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : const Color(0xFF1A1A1A);
+    final metaColor = isDark ? const Color(0xFF9E9E9E) : const Color(0xFF666666);
+
+    // Parsear formato [YYYY-MM-DD HH:MM] usuario: texto
+    String meta = "";
+    String content = linea;
+    final m = RegExp(r'^\[(.+?)\]\s*(.+?):\s*(.*)$').firstMatch(linea);
+    if (m != null) {
+      meta = "⏰ \${m.group(1)} • \${m.group(2)}";
+      content = m.group(3) ?? linea;
+    }
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 3),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: FluentTheme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: FluentTheme.of(context).resources.dividerStrokeColorDefault),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Cabecera: metadatos + botón de borrado
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  meta.isNotEmpty ? meta : '📝 Nota',
+                  style: TextStyle(fontSize: 10, color: metaColor),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              // === TAREA 1: Botón borrar nota ===
+              Tooltip(
+                message: 'Borrar esta nota',
+                child: SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: IconButton(
+                    icon: const Icon(FluentIcons.delete, size: 11, color: Color(0xFFE53935)),
+                    onPressed: () => _confirmarBorrarNota(todasLasLineas, indice),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(content, style: TextStyle(fontSize: 13, color: textColor)),
         ],
       ),
     );

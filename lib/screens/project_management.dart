@@ -393,6 +393,7 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
                                             ? FontWeight.w600
                                             : FontWeight.normal,
                                     fontSize: 14,
+                                    color: MediaQuery.of(context).platformBrightness == Brightness.dark ? Colors.white : Colors.black87,
                                   ),
                                 ),
                                 onPressed: () => onSelect(item),
@@ -426,7 +427,7 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              "Configura la taxonomía de los proyectos en 4 niveles conceptuales: Tracto → Tipo de Proyecto → Versión → Cliente. "
+              "Configura la taxonomía de los proyectos en 4 niveles conceptuales: Tractos / Proyectos → Tipo de Proyecto → Versión → Cliente. "
               "Selecciona un Tracto para ver sus Tipos, etc.",
               style: TextStyle(color: Colors.grey),
             ),
@@ -437,7 +438,7 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
               child: Row(
                 children: [
                   _buildListColumn(
-                    title: "1. Tractos",
+                    title: "1. Tractos / Proyectos",
                     items: _tractos,
                     selectedItem: _selectedTracto,
                     isEnabled: true,

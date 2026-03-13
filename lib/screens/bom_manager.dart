@@ -788,6 +788,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 TextBox(
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
                   placeholder: 'Nombre...',
                   onChanged: (v) => inputValue = v,
                 ),
@@ -827,20 +828,27 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
               children: [
                 InfoLabel(
                   label: "Código de Pieza (del Catálogo)",
-                  child: TextBox(onChanged: (v) => codigoValue = v),
+                  child: TextBox(
+                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                    onChanged: (v) => codigoValue = v,
+                  ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 16),
                 InfoLabel(
                   label: "Cantidad",
                   child: TextBox(
+                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
                     keyboardType: TextInputType.number,
                     onChanged: (v) => cantStr = v,
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 16),
                 InfoLabel(
                   label: "Observaciones",
-                  child: TextBox(onChanged: (v) => obsValue = v),
+                  child: TextBox(
+                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                    onChanged: (v) => obsValue = v,
+                  ),
                 ),
               ],
             ),
@@ -915,6 +923,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                         children: [
                           Expanded(
                             child: TextBox(
+                              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
                               placeholder: "Nuevo VIN...",
                               onChanged: (v) => newVin = v,
                             ),
@@ -1001,6 +1010,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 TextBox(
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
                   controller: TextEditingController(text: notasTemp),
                   maxLines: 5,
                   placeholder: "Escribe notas aquí...",
@@ -1211,7 +1221,10 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                     onPressed: () => Navigator.pop(context),
                   ),
                   FilledButton(
-                    child: const Text("Propagar a Marcados"),
+                    child: Tooltip(
+                      message: "Aplica las modificaciones actuales a las unidades físicas (VINs) vinculadas",
+                      child: const Text("Propagar Cambios"),
+                    ),
                     onPressed:
                         selectedIds.isEmpty
                             ? null
@@ -1341,7 +1354,8 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Text(paramMaterial, style: const TextStyle(fontWeight: FontWeight.w600)),
-                                      Text("$numPiezas piezas agrupadas", style: const TextStyle(fontSize: 12)),
+                                      // Contador de piezas eliminado por solicitud de usuario
+                                      // Text("$numPiezas piezas agrupadas", style: const TextStyle(fontSize: 12)),
                                     ],
                                   ),
                                   Text(
@@ -1432,7 +1446,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                       children: [
                         Expanded(
                           child: Text(
-                            "[E-${ens['id'].toString().padLeft(4, '0')}] - ${ens['nombre']}",
+                            "${ens['nombre']}",
                             style: const TextStyle(fontWeight: FontWeight.w500),
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -1936,7 +1950,10 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                                         : _exportarExcel,
                               ),
                               CommandBarButton(
-                                icon: Icon(FluentIcons.car, color: Colors.blue),
+                                icon: Tooltip(
+                                  message: "Abre el expediente de unidades físicas vinculadas a esta revisión",
+                                  child: Icon(FluentIcons.car, color: Colors.blue),
+                                ),
                                 label: const Text("Gestionar VINs"),
                                 onPressed:
                                     _selectedRevision == null
@@ -1944,12 +1961,12 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                                         : _showVINManagementDialog,
                               ),
                               CommandBarButton(
-                                icon: Icon(FluentIcons.calculator, color: Colors.purple),
-                                label: const Text("Calcular Materia Prima"),
-                                onPressed:
-                                    _selectedRevision == null
-                                        ? null
-                                        : _showCalculadorDialog,
+                                icon: const Icon(FluentIcons.calculator, color: Colors.purple),
+                                label: Tooltip(
+                                  message: "Calcula los requerimientos de materia prima únicamente para esta Lista de Materiales (Función de Backend deshabilitada por ahora).",
+                                  child: const Text("Calcular MP"),
+                                ),
+                                onPressed: _selectedRevision == null ? null : _showCalculadorDialog,
                               ),
                               const CommandBarSeparator(),
                               CommandBarButton(

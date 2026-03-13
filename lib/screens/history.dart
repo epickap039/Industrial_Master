@@ -126,6 +126,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
       for (var key in allKeys) {
         final oldVal = safeOld[key]?.toString() ?? 'N/A';
         final newVal = safeNew[key]?.toString() ?? 'N/A';
+        // === TAREA 3: Colores explícitos independientes de TextTheme ===
+        final isDark = FluentTheme.of(context).brightness == Brightness.dark;
+        final labelColor = isDark ? Colors.white.withOpacity(0.7) : const Color(0xFF444444);
 
         if (oldVal != newVal) {
           changes.add(
@@ -134,7 +137,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
               children: [
                 Text(
                   '$key: ',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
+                  style: TextStyle(fontWeight: FontWeight.bold, color: labelColor),
                 ),
                 Text(
                   oldVal,
@@ -143,10 +146,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     decoration: TextDecoration.lineThrough,
                   ),
                 ),
-                const Text(
+                Text(
                   ' ➔ ',
                   style: TextStyle(
-                    color: Colors.grey,
+                    color: isDark ? Colors.grey : Colors.grey[100],
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -170,6 +173,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
       );
     } else {
       // 2B. CONSTRUCCIÓN VISUAL (TEXTO SIMPLE)
+      // === TAREA 3: Colores explícitos para modo oscuro ===
+      final isDark = FluentTheme.of(context).brightness == Brightness.dark;
+      final labelColor = isDark ? Colors.white.withOpacity(0.7) : const Color(0xFF555555);
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -177,7 +183,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Anterior: ', style: TextStyle(color: Colors.grey)),
+                Text('Anterior: ', style: TextStyle(color: labelColor, fontWeight: FontWeight.bold)),
                 Expanded(
                   child: Text(
                     oldData.toString(),
@@ -191,7 +197,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Nuevo: ', style: TextStyle(color: Colors.grey)),
+                Text('Nuevo: ', style: TextStyle(color: labelColor, fontWeight: FontWeight.bold)),
                 Expanded(
                   child: Text(
                     newData.toString(),
@@ -314,17 +320,23 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                   children: [
                                     Text(
                                       item['fecha'] ?? 'Sin fecha',
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         fontSize: 12,
-                                        color: Colors.grey,
+                                        // === TAREA 3: Color explícito en header ===
+                                        color: FluentTheme.of(context).brightness == Brightness.dark
+                                            ? Colors.white.withOpacity(0.54)
+                                            : const Color(0xFF666666),
                                       ),
                                     ),
                                     const SizedBox(width: 10),
                                     Text(
                                       '| Usuario: ${item['usuario'] ?? "Desconocido"}',
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         fontSize: 12,
                                         fontWeight: FontWeight.bold,
+                                        color: FluentTheme.of(context).brightness == Brightness.dark
+                                            ? Colors.white
+                                            : Colors.black.withOpacity(0.87),
                                       ),
                                     ),
                                     // 3. MEJORA DE BADGES (Etiqueta de Acción)
@@ -356,9 +368,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                 // Título (Código)
                                 SelectableText(
                                   item['codigo'] ?? 'SIN CÓDIGO',
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 18,
                                     fontWeight: FontWeight.bold,
+                                    // === TAREA 3: Explícito para modo oscuro ===
+                                    color: FluentTheme.of(context).brightness == Brightness.dark
+                                        ? Colors.white
+                                        : Colors.black,
                                   ),
                                 ),
                                 const SizedBox(height: 8),

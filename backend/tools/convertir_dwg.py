@@ -32,6 +32,10 @@ def procesar_biblioteca_dwg(ruta_raiz):
 
         for raiz, dirs, archivos in os.walk(ruta_raiz):
             for archivo in archivos:
+                flag_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "abortar_cad.flag")
+                if os.path.exists(flag_path):
+                    print("Escaneo abortado por el usuario en AutoCAD.")
+                    return
                 if archivo.lower().endswith(".dwg"):
                     ruta_completa = os.path.join(raiz, archivo)
                     nombre_limpio = limpiar_nombre(archivo)
