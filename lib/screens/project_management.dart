@@ -393,7 +393,7 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
                                             ? FontWeight.w600
                                             : FontWeight.normal,
                                     fontSize: 14,
-                                    color: MediaQuery.of(context).platformBrightness == Brightness.dark ? Colors.white : Colors.black87,
+                                    color: MediaQuery.of(context).platformBrightness == Brightness.dark ? Colors.white : Colors.black,
                                   ),
                                 ),
                                 onPressed: () => onSelect(item),

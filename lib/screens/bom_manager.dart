@@ -1961,10 +1961,10 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                                         : _showVINManagementDialog,
                               ),
                               CommandBarButton(
-                                icon: const Icon(FluentIcons.calculator, color: Colors.purple),
+                                icon: Icon(FluentIcons.calculator, color: Colors.purple),
                                 label: Tooltip(
                                   message: "Calcula los requerimientos de materia prima únicamente para esta Lista de Materiales (Función de Backend deshabilitada por ahora).",
-                                  child: const Text("Calcular MP"),
+                                  child: Text("Calcular MP"),
                                 ),
                                 onPressed: _selectedRevision == null ? null : _showCalculadorDialog,
                               ),

@@ -793,7 +793,7 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
                                 codigo,
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
-                                  color: MediaQuery.of(context).platformBrightness == Brightness.dark ? Colors.white : Colors.black87,
+                                  color: MediaQuery.of(context).platformBrightness == Brightness.dark ? Colors.white : Colors.black,
                                 ),
                               ),
                             ),
@@ -809,7 +809,7 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
                                   style: TextStyle(
                                     color: isManual
                                         ? Colors.blue
-                                        : (MediaQuery.of(context).platformBrightness == Brightness.dark ? Colors.white : Colors.black87),
+                                        : (MediaQuery.of(context).platformBrightness == Brightness.dark ? Colors.white : Colors.black),
                                     fontWeight: isManual
                                         ? FontWeight.bold
                                         : FontWeight.normal,
