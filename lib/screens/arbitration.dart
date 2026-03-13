@@ -572,13 +572,38 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
                   }),
             ),
             const SizedBox(width: 20),
-            FilledButton(
-              onPressed: _selectedUpdates.isNotEmpty ? _syncSelected : null,
-              child:
-                  _isLoading
-                      ? const ProgressRing(strokeWidth: 2)
-                      : Text("Sincronizar (${_selectedUpdates.length})"),
+            // === TAREA 1: Escudo de Sincronización - Advertencia + Botón deshabilitado ===
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                if (_conflicts.any((c) => c['Estado'] == 'CONFLICTO'))
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text(
+                      'Resuelve todos los conflictos para sincronizar',
+                      style: TextStyle(
+                        color: Colors.red,
+                        fontSize: 11,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  ),
+                FilledButton(
+                  // Deshabilitado si no hay seleccionados O si hay conflictos sin resolver
+                  onPressed:
+                      (_selectedUpdates.isNotEmpty &&
+                              !_conflicts.any((c) => c['Estado'] == 'CONFLICTO'))
+                          ? _syncSelected
+                          : null,
+                  child:
+                      _isLoading
+                          ? const ProgressRing(strokeWidth: 2)
+                          : Text("Sincronizar (${_selectedUpdates.length})"),
+                ),
+              ],
             ),
+            // === FIN TAREA 1 ===
           ],
         ),
       ),
@@ -704,187 +729,203 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
             const Divider(),
             // LISTA
             Expanded(
-              child: ListView.builder(
-                controller: _scrollController,
-                itemCount: _filteredList.length,
-                itemBuilder: (context, index) {
-                  final item = _filteredList[index];
-                  final codigo = item['Codigo_Pieza'];
-                  final isSelected = _selectedUpdates.contains(codigo);
-                  final estado = item['Estado'];
-                  final detalles = (item['Detalles'] as String?) ?? "";
-                  final isManual = item['is_manual_edit'] == true;
+              // === TAREA 3: Fix UI - Centro con ancho máximo para pantallas grandes ===
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 1000),
+                  child: ListView.builder(
+                    controller: _scrollController,
+                    itemCount: _filteredList.length,
+                    itemBuilder: (context, index) {
+                      final item = _filteredList[index];
+                      final codigo = item['Codigo_Pieza'];
+                      final isSelected = _selectedUpdates.contains(codigo);
+                      final estado = item['Estado'];
+                      final detalles = (item['Detalles'] as String?) ?? "";
+                      final isManual = item['is_manual_edit'] == true;
+                      // === TAREA 3: Colores del tema dinámico ===
+                      final isConflicto = estado == 'CONFLICTO';
+                      final cardBg = isSelected
+                          ? FluentTheme.of(context).accentColor.withOpacity(0.1)
+                          : isConflicto
+                              ? FluentTheme.of(context).micaBackgroundColor.withOpacity(0.5)
+                              : null;
 
-                  return Container(
-                    decoration: BoxDecoration(
-                      border: Border(
-                        bottom: BorderSide(
-                          color:
-                              FluentTheme.of(
-                                context,
-                              ).resources.dividerStrokeColorDefault,
-                        ),
-                      ),
-                      color:
-                          isSelected
-                              ? FluentTheme.of(
-                                context,
-                              ).accentColor.withOpacity(0.1)
-                              : null,
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      vertical: 12,
-                      horizontal: 16,
-                    ),
-                    child: Row(
-                      children: [
-                        // 1. Checkbox Centrado y Espaciado (60px)
-                        SizedBox(
-                          width: 60,
-                          child: Center(
-                            child: Checkbox(
-                              checked: isSelected,
-                              onChanged:
-                                  (v) => setState(() {
-                                    v == true
-                                        ? _selectedUpdates.add(codigo)
-                                        : _selectedUpdates.remove(codigo);
-                                  }),
-                            ),
+                      return Container(
+                        // === TAREA 3: borderRadius y colores dinámicos ===
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: isConflicto
+                                ? FluentTheme.of(context).resources.controlStrongStrokeColorDefault
+                                : FluentTheme.of(context).resources.dividerStrokeColorDefault,
+                            width: isConflicto ? 1.5 : 1.0,
                           ),
+                          borderRadius: BorderRadius.circular(12),
+                          color: cardBg,
                         ),
-
-                        // 2. Código (Flex 2)
-                        Expanded(
-                          flex: 2,
-                          child: Text(
-                            codigo,
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
+                        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 12,
+                          horizontal: 16,
                         ),
-
-                        // 3. Valor Excel (Flex 4)
-                        Expanded(
-                          flex: 4,
-                          child: Tooltip(
-                            message:
-                                "${item['Excel_Data']['Descripcion_Excel']} ${item['Excel_Data']['Medida_Excel']}",
-                            child: Text(
-                              "${item['Excel_Data']['Descripcion_Excel']} ${item['Excel_Data']['Medida_Excel']}",
-                              style: TextStyle(
-                                color:
-                                    isManual
-                                        ? Colors.blue
-                                        : Colors.successPrimaryColor,
-                                fontWeight:
-                                    isManual
-                                        ? FontWeight.bold
-                                        : FontWeight.normal,
+                        child: Row(
+                          children: [
+                            // 1. Checkbox Centrado y Espaciado (60px)
+                            SizedBox(
+                              width: 60,
+                              child: Center(
+                                child: Checkbox(
+                                  checked: isSelected,
+                                  onChanged:
+                                      (v) => setState(() {
+                                        v == true
+                                            ? _selectedUpdates.add(codigo)
+                                            : _selectedUpdates.remove(codigo);
+                                      }),
+                                ),
                               ),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
                             ),
-                          ),
-                        ),
 
-                        // 4. Icono (30px)
-                        const SizedBox(
-                          width: 30,
-                          child: Icon(
-                            FluentIcons.forward,
-                            size: 14,
-                            color: Colors.grey,
-                          ),
-                        ),
+                            // 2. Código (Flex 2)
+                            Expanded(
+                              flex: 2,
+                              child: Text(
+                                codigo,
+                                style: const TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                            ),
 
-                        // 5. Comparativa Visual (Flex 4)
-                        Expanded(
-                          flex: 4,
-                          child:
-                              estado == 'NUEVO'
-                                  ? const Text(
-                                    "✨ NUEVA ENTRADA",
-                                    style: TextStyle(
-                                      color: Colors.grey,
-                                      fontStyle: FontStyle.italic,
-                                    ),
-                                  )
-                                  : Tooltip(
-                                    message: detalles,
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        const Text(
-                                          "DIFERENCIA EN SQL:",
-                                          style: TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                        Text(
-                                          detalles,
-                                          style: TextStyle(
-                                            color: Colors.warningPrimaryColor,
-                                            fontSize: 11,
-                                          ),
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ],
-                                    ),
+                            // 3. Valor Excel (Flex 4)
+                            Expanded(
+                              flex: 4,
+                              child: Tooltip(
+                                message:
+                                    "${item['Excel_Data']['Descripcion_Excel']} ${item['Excel_Data']['Medida_Excel']}",
+                                child: Text(
+                                  "${item['Excel_Data']['Descripcion_Excel']} ${item['Excel_Data']['Medida_Excel']}",
+                                  style: TextStyle(
+                                    // === TAREA 3: Color del tema, no hard-coded ===
+                                    color:
+                                        isManual
+                                            ? Colors.blue
+                                            : FluentTheme.of(context).accentColor,
+                                    fontWeight:
+                                        isManual
+                                            ? FontWeight.bold
+                                            : FontWeight.normal,
                                   ),
-                        ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ),
 
-                        // 6. Acciones - Botón Editar (100px)
-                        SizedBox(
-                          width: 100,
-                          child: Row(
-                            children: [
-                              IconButton(
-                                icon: const Icon(FluentIcons.edit, size: 16),
-                                onPressed: () => _showEditDialog(item),
+                            // 4. Icono (30px)
+                            const SizedBox(
+                              width: 30,
+                              child: Icon(
+                                FluentIcons.forward,
+                                size: 14,
+                                color: Colors.grey,
                               ),
-                              const Text(
-                                " Editar",
-                                style: TextStyle(fontSize: 12),
-                              ),
-                            ],
-                          ),
-                        ),
+                            ),
 
-                        // 7. Badge Estado (80px)
-                        SizedBox(
-                          width: 80,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
+                            // 5. Comparativa Visual (Flex 4)
+                            Expanded(
+                              flex: 4,
+                              child:
+                                  estado == 'NUEVO'
+                                      ? const Text(
+                                        "✨ NUEVA ENTRADA",
+                                        style: TextStyle(
+                                          color: Colors.grey,
+                                          fontStyle: FontStyle.italic,
+                                        ),
+                                      )
+                                      : Tooltip(
+                                        message: detalles,
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            const Text(
+                                              "DIFERENCIA EN SQL:",
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                            Text(
+                                              detalles,
+                                              style: TextStyle(
+                                                // === TAREA 3: Color tema ===
+                                                color: Colors.warningPrimaryColor,
+                                                fontSize: 11,
+                                              ),
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
                             ),
-                            decoration: BoxDecoration(
-                              color:
-                                  estado == "NUEVO"
-                                      ? Colors.successPrimaryColor
-                                      : Colors.warningPrimaryColor,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              estado,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
+
+                            // 6. Acciones - Botón Editar (100px)
+                            SizedBox(
+                              width: 100,
+                              child: Row(
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(FluentIcons.edit, size: 16),
+                                    onPressed: () => _showEditDialog(item),
+                                  ),
+                                  const Text(
+                                    " Editar",
+                                    style: TextStyle(fontSize: 12),
+                                  ),
+                                ],
                               ),
                             ),
-                          ),
+
+                            // 7. Badge Estado (80px)
+                            SizedBox(
+                              width: 80,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  // === TAREA 3: Colores del tema dinámico ===
+                                  color:
+                                      estado == "NUEVO"
+                                          ? FluentTheme.of(context).accentColor.withOpacity(0.85)
+                                          : FluentTheme.of(context).resources.controlStrongStrokeColorDefault,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  estado,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    // Color del texto adaptado al tema
+                                    color: FluentTheme.of(context).brightness == Brightness.dark
+                                        ? Colors.white
+                                        : (estado == "NUEVO" ? Colors.white : Colors.black),
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                  );
-                },
+                      );
+                    },
+                  ),
+                ),
               ),
             ),
+            // === FIN TAREA 3 ===
           ],
         ),
       ),

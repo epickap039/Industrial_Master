@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:open_file/open_file.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // === TAREA 2 ===
 import 'dart:io';
 import 'bom_manager.dart';
 
@@ -315,11 +316,15 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
 
   Future<void> _vincularSocio(int idSocio) async {
     if (_vinData == null) return;
+    // === TAREA 2: Leer usuario real para el header ===
+    final prefs = await SharedPreferences.getInstance();
+    final username = prefs.getString('username') ?? 'SISTEMA_VIN';
     try {
       final res = await http.post(
         Uri.parse(
           '$API_URL/api/vins/${_vinData['id_unidad']}/vincular/$idSocio',
         ),
+        headers: {'X-Usuario': username}, // === TAREA 2: header de usuario real ===
       );
       if (res.statusCode == 200) {
         _showError(
@@ -435,9 +440,15 @@ class _VINDossierScreenState extends State<VINDossierScreen> {
                       if (password.isEmpty) return;
                       setDState(() => eliminando = true);
                       try {
+                        // === TAREA 2: Leer usuario real para el header ===
+                        final prefs = await SharedPreferences.getInstance();
+                        final username = prefs.getString('username') ?? 'SISTEMA_VIN';
                         final res = await http.delete(
                           Uri.parse('$API_URL/api/vins/${_vinData['vin']}'),
-                          headers: {"Content-Type": "application/json"},
+                          headers: {
+                            "Content-Type": "application/json",
+                            "X-Usuario": username, // === TAREA 2: usuario real ===
+                          },
                           body: json.encode({
                             "password": password.trim(),
                             "motivo": motivo.trim(),

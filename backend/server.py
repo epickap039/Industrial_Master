@@ -1362,9 +1362,11 @@ def asignar_revision_cliente(id_cliente: int, payload: AsignarRevisionPayload):
         conn.close()
 
 @app.post("/api/bom/revisiones/{id_revision}/vins")
-def add_vin(id_revision: int, payload: VINPayload):
+def add_vin(id_revision: int, payload: VINPayload, x_usuario: Optional[str] = Header(None)):
     conn = get_db_connection()
     cursor = conn.cursor()
+    # === TAREA 2: Rastreo de usuario real ===
+    usuario_real = x_usuario if x_usuario else "SISTEMA_VIN"
     try:
         val = payload.observaciones if payload.observaciones is not None else payload.notas
         cursor.execute(
@@ -1393,7 +1395,7 @@ def add_vin(id_revision: int, payload: VINPayload):
             "VIN ASIGNADO",
             "N/A",
             f"Serie {payload.vin.upper()} vinculada a {proyecto}",
-            "SISTEMA_VIN"
+            usuario_real  # === TAREA 2: usuario real en lugar de string quemado ===
         ))
 
         # We also can log it in Tbl_Log_Cambios_Ingenieria if it's for the revision, but user says Tbl_Auditoria_Cambios
@@ -1408,10 +1410,20 @@ def add_vin(id_revision: int, payload: VINPayload):
         conn.close()
 
 @app.delete("/api/bom/vins/{id_unidad}")
-def delete_vin(id_unidad: int):
+def delete_vin_simple(id_unidad: int, x_usuario: Optional[str] = Header(None)):
+    # === TAREA 2: Rastreo de usuario real ===
+    usuario_real = x_usuario if x_usuario else "SISTEMA_VIN"
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
+        # Log de auditoría antes de eliminar
+        cursor.execute("SELECT Serie FROM Tbl_Unidades_Fisicas WHERE ID_Unidad = ?", (id_unidad,))
+        row = cursor.fetchone()
+        if row:
+            cursor.execute(
+                "INSERT INTO Tbl_Auditoria_Cambios (Codigo_Pieza, Accion, Valor_Anterior, Valor_Nuevo, Usuario, Fecha_Hora) VALUES (?, 'ELIMINAR_VIN', ?, ?, ?, GETDATE())",
+                (f"VIN-{row.Serie}", row.Serie, "Eliminado desde gestor BOM", usuario_real)
+            )
         cursor.execute("DELETE FROM Tbl_Unidades_Fisicas WHERE ID_Unidad = ?", (id_unidad,))
         conn.commit()
         return {"status": "success"}
@@ -1515,7 +1527,9 @@ def get_vin_adn(id_unidad: int):
         conn.close()
 
 @app.post("/api/vins/{id_unidad}/vincular/{id_socio}")
-def vincular_vin(id_unidad: int, id_socio: int):
+def vincular_vin(id_unidad: int, id_socio: int, x_usuario: Optional[str] = Header(None)):
+    # === TAREA 2: Rastreo de usuario real ===
+    usuario_real = x_usuario if x_usuario else "SISTEMA_VIN"
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -1534,7 +1548,7 @@ def vincular_vin(id_unidad: int, id_socio: int):
             
             cursor.execute(
                 "INSERT INTO Tbl_Auditoria_Cambios (Codigo_Pieza, Accion, Valor_Anterior, Valor_Nuevo, Usuario, Fecha_Hora) VALUES (?, ?, ?, ?, ?, GETDATE())",
-                (f"VIN-{u1.VIN}", "VIN DESVINCULADO", "Combo disuelto", "Regresó a individual", "SISTEMA_VIN")
+                (f"VIN-{u1.VIN}", "VIN DESVINCULADO", "Combo disuelto", "Regresó a individual", usuario_real)  # === TAREA 2 ===
             )
             
         else:
@@ -1549,11 +1563,11 @@ def vincular_vin(id_unidad: int, id_socio: int):
             
             cursor.execute(
                 "INSERT INTO Tbl_Auditoria_Cambios (Codigo_Pieza, Accion, Valor_Anterior, Valor_Nuevo, Usuario, Fecha_Hora) VALUES (?, ?, ?, ?, ?, GETDATE())",
-                (f"VIN-{u1.VIN}", "COMBO C3 CREADO", "Individual", f"Vinculado con VIN: {u2.VIN}", "SISTEMA_VIN")
+                (f"VIN-{u1.VIN}", "COMBO C3 CREADO", "Individual", f"Vinculado con VIN: {u2.VIN}", usuario_real)  # === TAREA 2 ===
             )
             cursor.execute(
                 "INSERT INTO Tbl_Auditoria_Cambios (Codigo_Pieza, Accion, Valor_Anterior, Valor_Nuevo, Usuario, Fecha_Hora) VALUES (?, ?, ?, ?, ?, GETDATE())",
-                (f"VIN-{u2.VIN}", "COMBO C3 CREADO", "Individual", f"Vinculado con VIN: {u1.VIN}", "SISTEMA_VIN")
+                (f"VIN-{u2.VIN}", "COMBO C3 CREADO", "Individual", f"Vinculado con VIN: {u1.VIN}", usuario_real)  # === TAREA 2 ===
             )
 
         conn.commit()
@@ -1577,10 +1591,12 @@ def update_vin_notas(id_unidad: int, payload: VINPayload):
         conn.close()
 
 @app.delete("/api/vins/{serie}")
-def delete_vin(serie: str, payload: DeleteVinPayload):
+def delete_vin(serie: str, payload: DeleteVinPayload, x_usuario: Optional[str] = Header(None)):
     if payload.password != "ADMIN_ING_2024":
         raise HTTPException(status_code=401, detail="Contraseña incorrecta")
 
+    # === TAREA 2: Rastreo de usuario real ===
+    usuario_real = x_usuario if x_usuario else "SISTEMA_VIN"
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -1597,8 +1613,8 @@ def delete_vin(serie: str, payload: DeleteVinPayload):
         # 2. Add audit log
         motivo_str = payload.motivo if payload.motivo else "Eliminación autorizada por administrador"
         cursor.execute(
-            "INSERT INTO Tbl_Auditoria_Cambios (Codigo_Pieza, Accion, Valor_Anterior, Valor_Nuevo, Usuario, Fecha_Hora) VALUES (?, 'ELIMINAR_VIN', ?, ?, 'SISTEMA_VIN', GETDATE())",
-            (f"VIN-{serie}", serie, motivo_str)
+            "INSERT INTO Tbl_Auditoria_Cambios (Codigo_Pieza, Accion, Valor_Anterior, Valor_Nuevo, Usuario, Fecha_Hora) VALUES (?, 'ELIMINAR_VIN', ?, ?, ?, GETDATE())",
+            (f"VIN-{serie}", serie, motivo_str, usuario_real)  # === TAREA 2: usuario real ===
         )
 
         # 3. Delete Physical record
@@ -2757,6 +2773,15 @@ class SincronizacionItem(BaseModel):
 
 @app.post("/api/excel/sincronizar")
 async def sincronizar_excel(items: List[SincronizacionItem], x_usuario: Optional[str] = Header(None)):
+    # === TAREA 1: Escudo de Sincronización - Validación de seguridad ===
+    conflictos_sin_resolver = [item for item in items if item.Estado == 'CONFLICTO']
+    if conflictos_sin_resolver:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Hay {len(conflictos_sin_resolver)} conflicto(s) sin resolver. Resuélvelos antes de sincronizar."
+        )
+    # === FIN Escudo ===
+
     conn = get_db_connection()
     cursor = conn.cursor()
     
@@ -3584,9 +3609,20 @@ scan_status = {
     "excel_path": "",
     "error": ""
 }
+abortar_escaneo_cad = False
+
+@app.post("/api/cad/abort")
+def abort_cad():
+    global abortar_escaneo_cad, scan_status
+    abortar_escaneo_cad = True
+    scan_status["status"] = "cancelled"
+    flag_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "abortar_cad.flag")
+    with open(flag_path, "w") as f:
+        f.write("abort")
+    return {"status": "aborting"}
 
 def bg_scan_cad_task(root_path: str):
-    global scan_status
+    global scan_status, abortar_escaneo_cad
     import datetime
     try:
         import pythoncom
@@ -3609,11 +3645,11 @@ def bg_scan_cad_task(root_path: str):
     try:
         processed_count = 0
         for dirpath, _, filenames in os.walk(root_path):
-            if scan_status["status"] == "cancelled":
+            if abortar_escaneo_cad or scan_status["status"] == "cancelled":
                 break
             
             for f in filenames:
-                if scan_status["status"] == "cancelled":
+                if abortar_escaneo_cad or scan_status["status"] == "cancelled":
                     break
                     
                 if f.startswith("~$"):
@@ -3727,15 +3763,17 @@ def bg_scan_cad_task(root_path: str):
         print(f"=== INICIANDO EXTRACCIÓN CAD ({total_a_extraer} archivos únicos) ===")
 
         for info in cad_files.values():
-            if scan_status["status"] == "cancelled":
+            if abortar_escaneo_cad or scan_status["status"] == "cancelled":
+                import logging
+                logging.info("Escaneo abortado por el usuario.")
                 if sw_app: 
                     try: sw_app.ExitApp()
                     except: pass
                 if acad_app:
                     try: acad_app.Quit()
                     except: pass
-                scan_status["status"] = "idle"
-                return
+                scan_status["status"] = "cancelled"
+                break
 
             dt = datetime.datetime.fromtimestamp(info["mtime"]).strftime("%Y-%m-%d %H:%M:%S")
             ext = info["ext"]
@@ -4023,10 +4061,17 @@ def bg_scan_cad_task(root_path: str):
 
 @app.post("/api/cad/scan")
 def start_cad_scan(payload: ScanCADPayload, background_tasks: BackgroundTasks):
-    global scan_status
+    global scan_status, abortar_escaneo_cad
+    
+    abortar_escaneo_cad = False
+    flag_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "abortar_cad.flag")
+    if os.path.exists(flag_path):
+        try: os.remove(flag_path)
+        except: pass
     
     if payload.root_path == "cancel":
         scan_status["status"] = "cancelled"
+        abortar_escaneo_cad = True
         return {"message": "Cancelado"}
 
     if scan_status["status"] == "scanning":
@@ -4106,6 +4151,13 @@ def bg_procesar_cad_task(ruta_raiz: str):
 
 @app.post("/api/cad/procesar-directorio")
 def procesar_directorio_cad(payload: ScanCADPayload, background_tasks: BackgroundTasks):
+    global abortar_escaneo_cad
+    abortar_escaneo_cad = False
+    flag_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "abortar_cad.flag")
+    if os.path.exists(flag_path):
+        try: os.remove(flag_path)
+        except: pass
+    
     background_tasks.add_task(bg_procesar_cad_task, payload.root_path)
     return {
         "success": True, 
@@ -4234,6 +4286,70 @@ async def upload_cad_modifications(file: UploadFile = File(...), x_usuario: Opti
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
         
+class CollectRequest(BaseModel):
+    source_folder: str
+
+@app.post("/api/cad/collect-missing")
+def collect_missing_cad(request: CollectRequest):
+    try:
+        # 1. Consulta SQL Blindada (Todo convertido a texto para evitar Crash 8114)
+        query = """
+            SELECT Codigo_Pieza 
+            FROM Tbl_Maestro_Piezas 
+            WHERE Largo_CAD IS NULL 
+               OR CAST(Largo_CAD AS VARCHAR) = '' 
+               OR CAST(Largo_CAD AS VARCHAR) = '-'
+               OR CAST(Largo_CAD AS VARCHAR) = '0'
+        """
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(query)
+        rows = cursor.fetchall()
+        
+        piezas_faltantes = set()
+        for row in rows:
+            if row[0]:
+                piezas_faltantes.add(str(row[0]).strip().upper())
+        
+        cursor.close()
+        conn.close()
+
+        # 2. Preparar carpeta en el Escritorio
+        desktop = os.path.join(os.environ['USERPROFILE'], 'Desktop')
+        target_folder = os.path.join(desktop, 'CAD_PENDIENTES')
+        if not os.path.exists(target_folder):
+            os.makedirs(target_folder)
+
+        # 3. Recorrer la red y copiar
+        archivos_copiados = 0
+        for root_dir, dirs, files in os.walk(request.source_folder):
+            for file in files:
+                ext = file.split('.')[-1].upper()
+                if ext in ['SLDPRT', 'DWG', 'DXF']:
+                    # Extraer el nombre base (sin extensión)
+                    base_name = file[:-(len(ext)+1)].strip().upper()
+                    # Limpiar prefijo de chapa por si acaso
+                    base_name = base_name.replace("CHAPA DESPLEGADA - ", "").strip()
+                    
+                    if base_name in piezas_faltantes:
+                        source_path = os.path.join(root_dir, file)
+                        target_path = os.path.join(target_folder, file)
+                        
+                        # Copiar solo si no existe ya en el destino
+                        if not os.path.exists(target_path):
+                            shutil.copy2(source_path, target_path)
+                            archivos_copiados += 1
+
+        return {
+            "piezas_faltantes_en_db": len(piezas_faltantes),
+            "archivos_encontrados": archivos_copiados,
+            "destino": target_folder
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error durante la recolección: {str(e)}")
+
+
 def registrar_log_global(cursor, codigo_pieza, accion, anterior, nuevo, usuario):
     try:
         cursor.execute("""

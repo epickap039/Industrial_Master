@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // === TAREA 2: Para rastreo de usuario ===
 import 'dart:io';
 
 const String API_URL = "http://192.168.1.73:8001";
@@ -715,12 +716,18 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
 
   Future<void> _addVIN(String vin) async {
     if (_selectedRevision == null) return;
+    // === TAREA 2: Leer usuario real para el header ===
+    final prefs = await SharedPreferences.getInstance();
+    final username = prefs.getString('username') ?? 'SISTEMA_VIN';
     try {
       final response = await http.post(
         Uri.parse(
           '$API_URL/api/bom/revisiones/${_selectedRevision['id_revision']}/vins',
         ),
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Usuario': username, // === TAREA 2: header de usuario ===
+        },
         body: jsonEncode({'vin': vin}),
       );
       if (response.statusCode == 200) {
@@ -734,9 +741,16 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
   }
 
   Future<void> _deleteVIN(int idUnidad) async {
+    // === TAREA 2: Leer usuario real para el header ===
+    final prefs = await SharedPreferences.getInstance();
+    final username = prefs.getString('username') ?? 'SISTEMA_VIN';
     try {
       final response = await http.delete(
         Uri.parse('$API_URL/api/bom/vins/$idUnidad'),
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Usuario': username, // === TAREA 2: header de usuario ===
+        },
       );
       if (response.statusCode == 200) {
         await _fetchVINs();

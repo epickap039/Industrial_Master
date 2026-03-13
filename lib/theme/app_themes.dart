@@ -117,14 +117,25 @@ class AppThemes {
     ),
   );
 
+  // === TAREA 3: PlatziTheme ajustado para mejor legibilidad en tarjetas de importación ===
   static final FluentThemeData platziTheme = FluentThemeData(
     brightness: Brightness.dark,
-    accentColor: Colors.green, // Aproximación a #98CA3F en Fluent "Colors.green" (AccentColor)
-    scaffoldBackgroundColor: const Color(0xFF121F3D),
-    cardColor: const Color(0xFF192A52),
+    accentColor: AccentColor.swatch({
+      'darkest': const Color(0xFF4A7A00),
+      'darker': const Color(0xFF5E9900),
+      'dark': const Color(0xFF78BE00),
+      'normal': const Color(0xFF98CA3F), // Verde Platzi oficial
+      'light': const Color(0xFFB0D96F),
+      'lighter': const Color(0xFFC8E89A),
+      'lightest': const Color(0xFFDFF3C5),
+    }),
+    scaffoldBackgroundColor: const Color(0xFF0E1929), // Más oscuro para mejor contraste
+    cardColor: const Color(0xFF172238),              // Tarjetas más oscuras
+    micaBackgroundColor: const Color(0xFF1A2C47),   // Fondo de tarjetas de conflicto
     typography: const Typography.raw(
-      body: TextStyle(color: Color(0xFFF0F0F0)),
+      body: TextStyle(color: Color(0xFFECECEC)),
       title: TextStyle(color: Color(0xFFFFFFFF), fontWeight: FontWeight.bold),
+      subtitle: TextStyle(color: Color(0xFF98CA3F)),
     ),
     buttonTheme: ButtonThemeData(
       defaultButtonStyle: ButtonStyle(
