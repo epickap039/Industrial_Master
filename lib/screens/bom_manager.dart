@@ -1277,7 +1277,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                   ),
                   FilledButton(
                     child: Tooltip(
-                      message: "Aplica las modificaciones actuales a las unidades físicas (VINs) vinculadas",
+                      message: "Actualiza la ingeniería en todos los VINs seleccionados",
                       child: const Text("Propagar Cambios"),
                     ),
                     onPressed:
@@ -2345,11 +2345,11 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                                         : _exportarExcel,
                               ),
                               CommandBarButton(
-                                icon: Tooltip(
-                                  message: "Abre el expediente de unidades físicas vinculadas a esta revisión",
-                                  child: Icon(FluentIcons.car, color: Colors.blue),
+                                icon: Icon(FluentIcons.car, color: Colors.blue),
+                                label: Tooltip(
+                                  message: "Administra las unidades físicas ligadas a esta revisión",
+                                  child: const Text("Gestionar VINs"),
                                 ),
-                                label: const Text("Gestionar VINs"),
                                 onPressed:
                                     _selectedRevision == null
                                         ? null

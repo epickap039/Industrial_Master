@@ -758,7 +758,7 @@ class _VINDossierScreenState extends State<VINDossierScreen> with AutomaticKeepA
                                           _vinData['cliente'],
                                         ),
                                         _buildInfoRow(
-                                          "Tracto:",
+                                          "Tracto / Proyecto:",
                                           _vinData['tracto'],
                                         ),
                                         _buildInfoRow(

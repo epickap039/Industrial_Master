@@ -106,7 +106,7 @@ class _MyAppState extends State<MyApp> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text("Tracto: ${vin['tracto']}"),
+                Text("Tracto / Proyecto: ${vin['tracto']}"),
                 Text("Tipo: ${vin['tipo']}"),
                 Text("Versión: ${vin['version']}"),
                 Text("Cliente: ${vin['cliente']}"),

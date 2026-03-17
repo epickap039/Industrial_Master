@@ -369,10 +369,17 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
                 padding: const EdgeInsets.all(8.0),
                 child:
                     isEnabled && items.isEmpty && !_isLoading
-                        ? const Center(
+                        ? Center(
                           child: Text(
                             "Sin elementos",
-                            style: TextStyle(color: Colors.grey, fontSize: 13),
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: FluentTheme.of(context)
+                                      .typography.body
+                                      ?.color
+                                      ?.withOpacity(0.5) ??
+                                  Colors.grey,
+                            ),
                           ),
                         )
                         : ListView.builder(
@@ -434,7 +441,7 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
           children: [
             Text(
               "Configura la taxonomía de los proyectos en 4 niveles conceptuales: Tractos / Proyectos → Tipo de Proyecto → Versión → Cliente. "
-              "Selecciona un Tracto para ver sus Tipos, etc.",
+              "Selecciona un Tracto / Proyecto para ver sus Tipos, etc.",
               style: const TextStyle(fontSize: 14),
             ),
             const SizedBox(height: 20),
@@ -452,7 +459,7 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
                       setState(() => _selectedTracto = item);
                       _fetchTipos(item['id']);
                     },
-                    onAdd: () => _showAddDialog("Nuevo Tracto", _addTracto),
+                    onAdd: () => _showAddDialog("Nuevo Tracto / Proyecto", _addTracto),
                     onDelete: _deleteTracto,
                   ),
                   const SizedBox(width: 16),
