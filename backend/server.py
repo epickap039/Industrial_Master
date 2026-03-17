@@ -104,7 +104,10 @@ def health_check():
 
 @app.get("/api/dashboard/kpi")
 def get_dashboard_kpis():
-    """Calcula indicadores clave (KPI) para el lobby principal."""
+    """Calcula indicadores clave (KPI) para el lobby principal.
+    AUDITADO (sin riesgo de producto cartesiano): el CTE sólo cruza
+    BOM_Estructura → Ensambles → Estaciones → Maestro_Piezas.
+    No hay JOIN a Tbl_Clientes_Configuracion en ninguna agregación."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -576,136 +579,203 @@ def get_where_used(codigo_pieza: str):
         conn.close()
 
 # === MRP / ESTADO DE CUENTA DE MATERIALES ===
-@app.get("/api/mrp/calculate/{id_revision}")
-def calculate_mrp(id_revision: int):
-    """Calcula la consolidación de compras (MRP) con filtrado estricto y diagnóstico de huérfanos."""
+
+@app.get("/api/mrp/revisiones")
+def get_mrp_revisiones():
+    """Lista DISTINCT de revisiones para el selector del MRPII.
+    Usa subconsulta con STRING_AGG para obtener los clientes afectados
+    sin multiplicar filas por el JOIN a Tbl_Clientes_Configuracion."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # 1. Query MRP Calculado (Con Medidas Y Material)
-        query_mrp = """
+        cursor.execute("""
+            SELECT
+                R.ID_Revision,
+                TR.Nombre_Tracto,
+                TP.Nombre_Tipo,
+                V.Nombre_Version,
+                R.Numero_Revision,
+                ISNULL(R.Estado, '') AS Estado,
+                ISNULL(
+                    (SELECT STRING_AGG(C.Nombre_Cliente, ', ')
+                     FROM Tbl_Clientes_Configuracion C
+                     WHERE C.ID_Version = V.ID_Version),
+                    'General'
+                ) AS Clientes_Afectados
+            FROM Tbl_BOM_Revisiones R
+            JOIN Tbl_Versiones_Ingenieria V  ON R.ID_Version = V.ID_Version
+            JOIN Tbl_Tipos_Proyecto      TP  ON V.ID_Tipo    = TP.ID_Tipo
+            JOIN Tbl_Proyectos_Tracto    TR  ON TP.ID_Tracto = TR.ID_Tracto
+            ORDER BY TR.Nombre_Tracto, TP.Nombre_Tipo, V.Nombre_Version, R.Numero_Revision
+        """)
+        return [
+            {
+                "id_revision":         int(r.ID_Revision),
+                "nombre_tracto":       r.Nombre_Tracto       or "",
+                "nombre_tipo":         r.Nombre_Tipo         or "",
+                "nombre_version":      r.Nombre_Version      or "",
+                "numero_revision":     r.Numero_Revision,
+                "estado":              r.Estado              or "",
+                "clientes_afectados":  r.Clientes_Afectados  or "General",
+            }
+            for r in cursor.fetchall()
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.get("/api/mrp/calculate/{id_revision}")
+def calculate_mrp(id_revision: int):
+    """Calcula la consolidación de compras (MRP) con filtrado estricto y diagnóstico de huérfanos.
+    Separa los Componentes Comerciales del cálculo de placas/perfiles."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # ── CTE base compartida (reutilizada en las tres queries) ─────────────
+        _cte_base = """
         WITH PiezasBase AS (
-            SELECT 
-                E.Cantidad,
-                COALESCE(NULLIF(LTRIM(RTRIM(M.Material)), ''), NULLIF(LTRIM(RTRIM(M.Descripcion)), ''), 'FALTA ASIGNAR EN CAD') AS MaterialLimpio,
+            SELECT
+                E.Codigo_Pieza,
+                ISNULL(LTRIM(RTRIM(M.Descripcion)), '')  AS Descripcion,
+                COALESCE(NULLIF(LTRIM(RTRIM(M.Material)), ''),
+                         NULLIF(LTRIM(RTRIM(M.Descripcion)), ''),
+                         'FALTA ASIGNAR EN CAD')          AS MaterialLimpio,
                 M.Espesor_Perfil_CAD,
-                TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS LargoLimpio,
-                TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Ancho_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS AnchoLimpio,
-                TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Area_CAD, ' mm^2', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS AreaLimpia
+                E.Cantidad,
+                TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Largo_CAD,' mm',''),',',''),' ',''),'-','') AS FLOAT) AS LargoLimpio,
+                TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Ancho_CAD,' mm',''),',',''),' ',''),'-','') AS FLOAT) AS AnchoLimpio,
+                TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Area_CAD,' mm^2',''),',',''),' ',''),'-','') AS FLOAT) AS AreaLimpia
             FROM Tbl_BOM_Estructura E
-            JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
-            JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
+            JOIN Tbl_Ensambles   EN ON E.ID_Ensamble  = EN.ID_Ensamble
+            JOIN Tbl_Estaciones  ES ON EN.ID_Estacion = ES.ID_Estacion
             JOIN Tbl_Maestro_Piezas M ON E.Codigo_Pieza = M.Codigo_Pieza
             WHERE ES.ID_Revision = ?
         )
-        SELECT 
-            MaterialLimpio AS Material,
+        """
+
+        # ── 1. Materia Prima / Placas (excluye COMERCIAL) ────────────────────
+        query_mrp = _cte_base + """
+        SELECT
+            MaterialLimpio  AS Material,
             ISNULL(CAST(Espesor_Perfil_CAD AS VARCHAR(50)), 'N/A') AS Calibre_Espesor,
-            SUM(Cantidad) AS Cantidad_Total_Piezas,
+            SUM(Cantidad)   AS Cantidad_Total_Piezas,
             SUM(Cantidad * ISNULL(LargoLimpio, 0.0)) AS Requerimiento_Longitud_mm,
-            SUM(Cantidad * ISNULL(NULLIF(AreaLimpia, 0), (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0)))) AS Requerimiento_Area_mm2
+            SUM(Cantidad * ISNULL(NULLIF(AreaLimpia, 0),
+                (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0)))) AS Requerimiento_Area_mm2
         FROM PiezasBase
-        WHERE (ISNULL(AreaLimpia, 0) > 0 OR ISNULL(LargoLimpio, 0) > 0 OR (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0)) > 0)
+        WHERE (ISNULL(AreaLimpia, 0) > 0
+            OR ISNULL(LargoLimpio, 0) > 0
+            OR (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0)) > 0)
           AND MaterialLimpio != 'FALTA ASIGNAR EN CAD'
+          AND UPPER(MaterialLimpio) NOT LIKE '%COMERCIAL%'
+          AND UPPER(Descripcion)    NOT LIKE '%COMERCIAL%'
         GROUP BY MaterialLimpio, Espesor_Perfil_CAD
         ORDER BY MaterialLimpio, Espesor_Perfil_CAD
         """
         cursor.execute(query_mrp, (id_revision,))
         rows_mrp = cursor.fetchall()
-        
+
         mrp_calculado = []
         for r in rows_mrp:
             material_upper = r.Material.upper()
-            req_area_mm2 = float(r.Requerimiento_Area_mm2)
-            req_long_mm = float(r.Requerimiento_Longitud_mm)
-            
-            sugerencia = "N/A"
+            req_area_mm2   = float(r.Requerimiento_Area_mm2)
+            req_long_mm    = float(r.Requerimiento_Longitud_mm)
+
+            sugerencia   = "N/A"
             scrap_factor = 1.15
-            
-            # 1. Regla Lineal (Perfiles / Tubos / HSS)
+
             if any(x in material_upper for x in ['PERFIL', 'TUBO', 'BARRA', 'SOLERA', 'ANGULO', 'CANAL', 'HSS']):
                 metros_totales = req_long_mm / 1000.0
-                tramos_std = 6.0
-                if 'HSS' in material_upper: tramos_std = 12.0
+                tramos_std = 12.0 if 'HSS' in material_upper else 6.0
                 cantidad_tramos = math.ceil((metros_totales / tramos_std) * scrap_factor)
                 sugerencia = f"Comprar {cantidad_tramos} Tramos de {int(tramos_std)} MT"
-                
-            # 2. Regla Universal (Chapas / Láminas / Otros) - Por defecto 4'x10'
             else:
-                m2_totales = req_area_mm2 / 1000000.0
-                area_placa_m2 = 3.72 
-                t_str = "4'X10'"
-                
-                # Búsqueda de tamaños específicos en el nombre del material
-                if "8'X20'" in material_upper: 
-                    area_placa_m2 = 14.86
-                    t_str = "8'X20'"
-                elif "8'X30'" in material_upper: 
-                    area_placa_m2 = 22.30
-                    t_str = "8'X30'"
-                elif "5'X24'" in material_upper: 
-                    area_placa_m2 = 11.15
-                    t_str = "5'X24'"
-                
+                m2_totales   = req_area_mm2 / 1_000_000.0
+                area_placa_m2 = 3.72
+                t_str         = "4'X10'"
+                if   "8'X20'" in material_upper: area_placa_m2, t_str = 14.86, "8'X20'"
+                elif "8'X30'" in material_upper: area_placa_m2, t_str = 22.30, "8'X30'"
+                elif "5'X24'" in material_upper: area_placa_m2, t_str = 11.15, "5'X24'"
                 cantidad_placas = math.ceil((m2_totales / area_placa_m2) * scrap_factor)
                 sugerencia = f"Comprar {cantidad_placas} Placas de {t_str}"
 
             mrp_calculado.append({
-                "Material": r.Material,
-                "Calibre_Espesor": r.Calibre_Espesor,
+                "Material":              r.Material,
+                "Calibre_Espesor":       r.Calibre_Espesor,
                 "Cantidad_Total_Piezas": float(r.Cantidad_Total_Piezas),
-                "Requerimiento_Area_mm2": req_area_mm2,
+                "Requerimiento_Area_mm2":    req_area_mm2,
                 "Requerimiento_Longitud_mm": req_long_mm,
-                "Sugerencia_Compra": sugerencia
+                "Sugerencia_Compra":     sugerencia,
             })
-            
-        # 2. Query Piezas Sin Medidas o Sin Material (Huérfanas con Diagnóstico)
-        query_orphans = """
-        WITH PiezasBase AS (
-            SELECT 
-                E.Codigo_Pieza,
-                EN.Nombre_Ensamble,
-                COALESCE(NULLIF(LTRIM(RTRIM(M.Material)), ''), NULLIF(LTRIM(RTRIM(M.Descripcion)), ''), 'FALTA ASIGNAR EN CAD') AS MaterialLimpio,
-                E.Cantidad,
-                TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS LargoLimpio,
-                TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Ancho_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS AnchoLimpio,
-                TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Area_CAD, ' mm^2', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS AreaLimpia
-            FROM Tbl_BOM_Estructura E
-            JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
-            JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
-            JOIN Tbl_Maestro_Piezas M ON E.Codigo_Pieza = M.Codigo_Pieza
-            WHERE ES.ID_Revision = ?
-        )
-        SELECT 
-            Codigo_Pieza, 
-            Nombre_Ensamble, 
-            MaterialLimpio AS Material, 
+
+        # ── 2. Componentes Comerciales (solo cantidad, sin placas) ────────────
+        query_comerciales = _cte_base + """
+        SELECT
+            Codigo_Pieza,
+            Descripcion,
+            SUM(Cantidad) AS Cantidad_Total
+        FROM PiezasBase
+        WHERE UPPER(MaterialLimpio) LIKE '%COMERCIAL%'
+           OR UPPER(Descripcion)    LIKE '%COMERCIAL%'
+        GROUP BY Codigo_Pieza, Descripcion
+        ORDER BY Descripcion, Codigo_Pieza
+        """
+        cursor.execute(query_comerciales, (id_revision,))
+        rows_com = cursor.fetchall()
+
+        componentes_comerciales = [
+            {
+                "Codigo_Pieza":  r.Codigo_Pieza,
+                "Descripcion":   r.Descripcion,
+                "Cantidad_Total": float(r.Cantidad_Total),
+            }
+            for r in rows_com
+        ]
+
+        # ── 3. Piezas sin medidas / sin material (huérfanas) ─────────────────
+        query_orphans = _cte_base + """
+        SELECT
+            Codigo_Pieza,
+            ISNULL((SELECT TOP 1 Nombre_Ensamble
+                    FROM Tbl_Ensambles EN2
+                    JOIN Tbl_BOM_Estructura E2 ON E2.ID_Ensamble = EN2.ID_Ensamble
+                    WHERE E2.Codigo_Pieza = PiezasBase.Codigo_Pieza), 'N/A') AS Nombre_Ensamble,
+            MaterialLimpio AS Material,
             Cantidad,
-            CASE 
-                WHEN MaterialLimpio = 'FALTA ASIGNAR EN CAD' AND (ISNULL(AreaLimpia,0)=0 AND ISNULL(LargoLimpio,0)=0 AND (ISNULL(LargoLimpio,0)*ISNULL(AnchoLimpio,0))=0) THEN 'Sin Material ni Dimensiones'
+            CASE
+                WHEN MaterialLimpio = 'FALTA ASIGNAR EN CAD'
+                     AND (ISNULL(AreaLimpia,0)=0 AND ISNULL(LargoLimpio,0)=0
+                          AND (ISNULL(LargoLimpio,0)*ISNULL(AnchoLimpio,0))=0)
+                     THEN 'Sin Material ni Dimensiones'
                 WHEN MaterialLimpio = 'FALTA ASIGNAR EN CAD' THEN 'Falta Asignar Material'
                 ELSE 'Sin Dimensiones CAD'
             END AS Motivo_Rechazo
         FROM PiezasBase
-        WHERE (ISNULL(AreaLimpia, 0) = 0 AND ISNULL(LargoLimpio, 0) = 0 AND (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0)) = 0)
+        WHERE (ISNULL(AreaLimpia, 0) = 0
+           AND ISNULL(LargoLimpio, 0) = 0
+           AND (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0)) = 0)
            OR MaterialLimpio = 'FALTA ASIGNAR EN CAD'
         """
         cursor.execute(query_orphans, (id_revision,))
         rows_orphans = cursor.fetchall()
-        
-        piezas_sin_medidas = []
-        for r in rows_orphans:
-            piezas_sin_medidas.append({
-                "Codigo_Pieza": r.Codigo_Pieza,
+
+        piezas_sin_medidas = [
+            {
+                "Codigo_Pieza":   r.Codigo_Pieza,
                 "Nombre_Ensamble": r.Nombre_Ensamble,
-                "Material": r.Material,
-                "Cantidad": float(r.Cantidad),
-                "Motivo_Rechazo": r.Motivo_Rechazo
-            })
+                "Material":        r.Material,
+                "Cantidad":        float(r.Cantidad),
+                "Motivo_Rechazo":  r.Motivo_Rechazo,
+            }
+            for r in rows_orphans
+        ]
 
         return {
-            "mrp_calculado": mrp_calculado,
-            "piezas_sin_medidas": piezas_sin_medidas
+            "mrp_calculado":          mrp_calculado,
+            "componentes_comerciales": componentes_comerciales,
+            "piezas_sin_medidas":     piezas_sin_medidas,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -714,7 +784,11 @@ def calculate_mrp(id_revision: int):
 
 @app.get("/api/analytics/dashboard/{id_revision}")
 def get_analytics_dashboard(id_revision: str):
-    """Obtiene métricas clave para el Dashboard de Analytics (Soporta 'global' o ID numérico)."""
+    """Obtiene métricas clave para el Dashboard de Analytics (Soporta 'global' o ID numérico).
+    AUDITADO (sin riesgo de producto cartesiano): las 4 sub-consultas (top_piezas,
+    distribucion_material, salud_cad, distribucion_ensambles) sólo cruzan
+    BOM_Estructura → Ensambles → Estaciones → Maestro_Piezas.
+    No hay JOIN a Tbl_Clientes_Configuracion en ninguna de ellas."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -953,11 +1027,35 @@ def get_revisiones_por_version(id_version: int):
     cursor = conn.cursor()
     try:
         cursor.execute(
-            "SELECT ID_Revision, Numero_Revision, Estado, Fecha_Creacion FROM Tbl_BOM_Revisiones WHERE ID_Version = ? ORDER BY Numero_Revision",
+            """
+            SELECT
+                R.ID_Revision,
+                R.Numero_Revision,
+                R.Estado,
+                R.Fecha_Creacion,
+                ISNULL(
+                    (SELECT STRING_AGG(C.Nombre_Cliente, ', ')
+                     FROM Tbl_Clientes_Configuracion C
+                     WHERE C.ID_Version = R.ID_Version),
+                    'General'
+                ) AS Clientes_Afectados
+            FROM Tbl_BOM_Revisiones R
+            WHERE R.ID_Version = ?
+            ORDER BY R.Numero_Revision
+            """,
             (id_version,)
         )
         rows = cursor.fetchall()
-        return [{"id_revision": r.ID_Revision, "numero_revision": r.Numero_Revision, "estado": r.Estado, "fecha_creacion": r.Fecha_Creacion.isoformat() if r.Fecha_Creacion else None} for r in rows]
+        return [
+            {
+                "id_revision":        r.ID_Revision,
+                "numero_revision":    r.Numero_Revision,
+                "estado":             r.Estado,
+                "fecha_creacion":     r.Fecha_Creacion.isoformat() if r.Fecha_Creacion else None,
+                "clientes_afectados": r.Clientes_Afectados or "General",
+            }
+            for r in rows
+        ]
     finally:
         conn.close()
 
@@ -1148,47 +1246,66 @@ def get_vins(id_revision: int):
 
 @app.get("/api/bom/buscar_pieza_jerarquia/{codigo_pieza}")
 def buscar_pieza_jerarquia(codigo_pieza: str, exclude_rev: Optional[int] = None):
+    """Búsqueda ascendente para el diálogo 'Propagar Cambios'.
+    CORREGIDO: GROUP BY revision + STRING_AGG para clientes.
+    Sin LEFT JOIN a Tbl_Clientes_Configuracion en el FROM → cero duplicados
+    cuando una versión tiene múltiples clientes asociados."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        query = """
-            SELECT 
-                R.ID_Revision, 
-                TR.Nombre_Tracto, 
-                TP.Nombre_Tipo, 
-                V.Nombre_Version, 
-                CC.Nombre_Cliente, 
-                R.Numero_Revision, 
-                R.Estado, 
-                E.Cantidad
+        # La subconsulta STRING_AGG reemplaza el LEFT JOIN directo que
+        # producía N filas por revisión (una por cada cliente de la versión).
+        base_query = """
+            SELECT
+                R.ID_Revision,
+                TR.Nombre_Tracto,
+                TP.Nombre_Tipo,
+                V.Nombre_Version,
+                V.ID_Version,
+                R.Numero_Revision,
+                R.Estado,
+                SUM(E.Cantidad) AS Cantidad,
+                ISNULL(
+                    (SELECT STRING_AGG(C.Nombre_Cliente, ', ')
+                     FROM Tbl_Clientes_Configuracion C
+                     WHERE C.ID_Version = V.ID_Version),
+                    'General'
+                ) AS Clientes_Afectados
             FROM Tbl_BOM_Estructura E
-            JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
-            JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
-            JOIN Tbl_BOM_Revisiones R ON ES.ID_Revision = R.ID_Revision
-            JOIN Tbl_Versiones_Ingenieria V ON R.ID_Version = V.ID_Version
-            LEFT JOIN Tbl_Clientes_Configuracion CC ON CC.ID_Version = V.ID_Version
-            JOIN Tbl_Tipos_Proyecto TP ON V.ID_Tipo = TP.ID_Tipo
-            JOIN Tbl_Proyectos_Tracto TR ON TP.ID_Tracto = TR.ID_Tracto
+            JOIN Tbl_Ensambles           EN ON E.ID_Ensamble   = EN.ID_Ensamble
+            JOIN Tbl_Estaciones          ES ON EN.ID_Estacion  = ES.ID_Estacion
+            JOIN Tbl_BOM_Revisiones       R ON ES.ID_Revision  = R.ID_Revision
+            JOIN Tbl_Versiones_Ingenieria V ON R.ID_Version    = V.ID_Version
+            JOIN Tbl_Tipos_Proyecto      TP ON V.ID_Tipo       = TP.ID_Tipo
+            JOIN Tbl_Proyectos_Tracto    TR ON TP.ID_Tracto    = TR.ID_Tracto
             WHERE E.Codigo_Pieza = ?
         """
-        params = [codigo_pieza]
+        params: list = [codigo_pieza]
+
         if exclude_rev:
-            query += " AND R.ID_Revision != ?"
+            base_query += " AND R.ID_Revision != ?"
             params.append(exclude_rev)
-            
-        cursor.execute(query, params)
-        rows = cursor.fetchall()
+
+        base_query += """
+            GROUP BY
+                R.ID_Revision, TR.Nombre_Tracto, TP.Nombre_Tipo,
+                V.Nombre_Version, V.ID_Version,
+                R.Numero_Revision, R.Estado
+            ORDER BY TR.Nombre_Tracto, TP.Nombre_Tipo, V.Nombre_Version, R.Numero_Revision
+        """
+        cursor.execute(base_query, params)
         return [
             {
-                "id_revision": r.ID_Revision,
-                "tracto": r.Nombre_Tracto,
-                "tipo": r.Nombre_Tipo,
-                "version": r.Nombre_Version,
-                "cliente": r.Nombre_Cliente,
-                "numero_revision": r.Numero_Revision,
-                "estado": r.Estado,
-                "cantidad": r.Cantidad
-            } for r in rows
+                "id_revision":        r.ID_Revision,
+                "tracto":             r.Nombre_Tracto,
+                "tipo":               r.Nombre_Tipo,
+                "version":            r.Nombre_Version,
+                "clientes_afectados": r.Clientes_Afectados,
+                "numero_revision":    r.Numero_Revision,
+                "estado":             r.Estado,
+                "cantidad":           float(r.Cantidad),
+            }
+            for r in cursor.fetchall()
         ]
     finally:
         conn.close()
@@ -1453,40 +1570,56 @@ def delete_vin_simple(id_unidad: int, x_usuario: Optional[str] = Header(None)):
 
 @app.get("/api/vins/buscar")
 def buscar_vin(q: str):
+    """Búsqueda de VINs por serie.
+    CORREGIDO: subconsulta STRING_AGG para clientes en lugar de LEFT JOIN directo.
+    El JOIN directo producía N copias del mismo VIN si su versión tenía N clientes."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
         query = """
-            SELECT u.ID_Unidad, u.Serie as VIN, u.Observaciones as Notas, u.ID_VIN_Asociado, r.ID_Revision, r.Numero_Revision,
-                   v.ID_Version, c.ID_Config_Cliente, c.Nombre_Cliente,
-                   v.Nombre_Version, t.Nombre_Tipo, tr.Nombre_Tracto,
-                   socio.Serie as VIN_Asociado_Nombre
+            SELECT
+                u.ID_Unidad,
+                u.Serie               AS VIN,
+                u.Observaciones       AS Notas,
+                u.ID_VIN_Asociado,
+                r.ID_Revision,
+                r.Numero_Revision,
+                v.ID_Version,
+                v.Nombre_Version,
+                t.Nombre_Tipo,
+                tr.Nombre_Tracto,
+                socio.Serie           AS VIN_Asociado_Nombre,
+                ISNULL(
+                    (SELECT STRING_AGG(c2.Nombre_Cliente, ', ')
+                     FROM Tbl_Clientes_Configuracion c2
+                     WHERE c2.ID_Version = v.ID_Version),
+                    'General'
+                ) AS Nombre_Cliente
             FROM Tbl_Unidades_Fisicas u
-            LEFT JOIN Tbl_BOM_Revisiones r ON u.ID_Revision = r.ID_Revision
-            LEFT JOIN Tbl_Versiones_Ingenieria v ON r.ID_Version = v.ID_Version
-            LEFT JOIN Tbl_Clientes_Configuracion c ON c.ID_Version = v.ID_Version
-            LEFT JOIN Tbl_Tipos_Proyecto t ON v.ID_Tipo = t.ID_Tipo
-            LEFT JOIN Tbl_Proyectos_Tracto tr ON t.ID_Tracto = tr.ID_Tracto
-            LEFT JOIN Tbl_Unidades_Fisicas socio ON u.ID_VIN_Asociado = socio.ID_Unidad
+            LEFT JOIN Tbl_BOM_Revisiones       r    ON u.ID_Revision      = r.ID_Revision
+            LEFT JOIN Tbl_Versiones_Ingenieria v    ON r.ID_Version       = v.ID_Version
+            LEFT JOIN Tbl_Tipos_Proyecto       t    ON v.ID_Tipo          = t.ID_Tipo
+            LEFT JOIN Tbl_Proyectos_Tracto     tr   ON t.ID_Tracto        = tr.ID_Tracto
+            LEFT JOIN Tbl_Unidades_Fisicas     socio ON u.ID_VIN_Asociado = socio.ID_Unidad
             WHERE u.Serie LIKE ?
         """
         cursor.execute(query, (f"%{q}%",))
         rows = cursor.fetchall()
         return [
             {
-                "id_unidad": r.ID_Unidad,
-                "vin": r.VIN,
-                "notas": r.Notas,
-                "id_revision": r.ID_Revision,
+                "id_unidad":      r.ID_Unidad,
+                "vin":            r.VIN,
+                "notas":          r.Notas,
+                "id_revision":    r.ID_Revision,
                 "numero_revision": r.Numero_Revision,
-                "id_cliente": r.ID_Config_Cliente,
-                "cliente": r.Nombre_Cliente,
-                "version": r.Nombre_Version,
-                "tipo": r.Nombre_Tipo,
-                "tracto": r.Nombre_Tracto,
-                "id_socio": r.ID_VIN_Asociado,
-                "vin_socio": r.VIN_Asociado_Nombre
-            } for r in rows
+                "cliente":        r.Nombre_Cliente,
+                "version":        r.Nombre_Version,
+                "tipo":           r.Nombre_Tipo,
+                "tracto":         r.Nombre_Tracto,
+                "id_socio":       r.ID_VIN_Asociado,
+                "vin_socio":      r.VIN_Asociado_Nombre,
+            }
+            for r in rows
         ]
     finally:
         conn.close()
@@ -2139,31 +2272,49 @@ def calcular_placas(id_revision: int):
     cursor = conn.cursor()
     try:
         cursor.execute("""
-            SELECT m.Material, m.Largo_CAD, m.Ancho_CAD, e.Cantidad
+            SELECT m.Material, m.Largo_CAD, m.Ancho_CAD, e.Cantidad,
+                   ISNULL(m.Descripcion, '') AS Descripcion,
+                   ISNULL(m.Codigo_Pieza, '') AS Codigo_Pieza
             FROM Tbl_BOM_Estructura e
             INNER JOIN Tbl_Maestro_Piezas m ON e.Codigo_Pieza = m.Codigo_Pieza
             INNER JOIN Tbl_Ensambles en ON e.ID_Ensamble = en.ID_Ensamble
             INNER JOIN Tbl_Estaciones es ON en.ID_Estacion = es.ID_Estacion
-            WHERE es.ID_Revision = ? AND m.Largo_CAD > 0 AND m.Ancho_CAD > 0 AND m.Material IS NOT NULL AND m.Material != ''
+            WHERE es.ID_Revision = ? AND m.Largo_CAD > 0 AND m.Ancho_CAD > 0
+              AND m.Material IS NOT NULL AND m.Material != ''
         """, (id_revision,))
-        
-        resultados = {}
+
+        placas = {}
+        compra_directa = {}
+
         for row in cursor.fetchall():
-            material = str(row.Material).strip() if row.Material else "Sin Especificar"
-            largo = float(row.Largo_CAD)
-            ancho = float(row.Ancho_CAD)
-            cantidad = float(row.Cantidad)
-            
+            material    = str(row.Material).strip()    if row.Material    else "Sin Especificar"
+            descripcion = str(row.Descripcion).strip() if row.Descripcion else ""
+            codigo      = str(row.Codigo_Pieza).strip() if row.Codigo_Pieza else ""
+            cantidad    = float(row.Cantidad)
+
+            # Piezas COMERCIALES → compra directa, sin cálculo de placas
+            es_comercial = (
+                "COMERCIAL" in material.upper() or
+                "COMERCIAL" in descripcion.upper()
+            )
+            if es_comercial:
+                clave = descripcion or codigo or material
+                if clave not in compra_directa:
+                    compra_directa[clave] = {"cantidad_total": 0, "codigo": codigo}
+                compra_directa[clave]["cantidad_total"] += int(cantidad)
+                continue
+
+            largo  = float(row.Largo_CAD)
+            ancho  = float(row.Ancho_CAD)
             area_pieza = largo * ancho
             area_total = area_pieza * cantidad
-            
-            if material not in resultados:
-                resultados[material] = {"area_total_mm2": 0.0, "piezas_involucradas": 0}
-            
-            resultados[material]["area_total_mm2"] += area_total
-            resultados[material]["piezas_involucradas"] += int(cantidad)
-            
-        return resultados
+
+            if material not in placas:
+                placas[material] = {"area_total_mm2": 0.0, "piezas_involucradas": 0}
+            placas[material]["area_total_mm2"]    += area_total
+            placas[material]["piezas_involucradas"] += int(cantidad)
+
+        return {"placas": placas, "compra_directa": compra_directa}
     except pyodbc.Error as e:
         raise HTTPException(status_code=500, detail=f"Error SQL en cálculo de placas: {str(e)}")
     finally:

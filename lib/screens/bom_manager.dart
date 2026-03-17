@@ -1199,7 +1199,14 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
               }
 
               return ContentDialog(
-                title: Text("Propagar cambio: $codigo"),
+                constraints: const BoxConstraints(
+                  maxWidth: 540,
+                  maxHeight: 520,
+                ),
+                title: Text(
+                  "Propagar cambio: $codigo",
+                  overflow: TextOverflow.ellipsis,
+                ),
                 content: SizedBox(
                   width: 500,
                   child: Column(
@@ -1224,33 +1231,76 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                             itemCount: jerarquia.length,
                             itemBuilder: (context, idx) {
                               final item = jerarquia[idx];
+                              final clientes = (item['clientes_afectados'] ?? item['cliente'] ?? 'General').toString();
                               final label =
-                                  "${item['tracto']} > ${item['tipo']} > ${item['version']} > ${item['cliente']}";
+                                  "${item['tracto']} > ${item['tipo']} > ${item['version']}";
                               final revisionInfo =
                                   "Rev ${item['numero_revision']} - ${item['estado']}";
 
                               return Checkbox(
-                                content: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      label,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
+                                content: ConstrainedBox(
+                                  constraints: const BoxConstraints(
+                                    maxWidth: 420,
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        label,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                        maxLines: 2,
                                       ),
-                                    ),
-                                    Text(
-                                      revisionInfo,
-                                      style: const TextStyle(fontSize: 12),
-                                    ),
-                                    Text(
-                                      "Cantidad actual: ${item['cantidad']}",
-                                      style: TextStyle(
-                                        color: Colors.blue.withOpacity(0.8),
-                                        fontSize: 11,
+                                      Text(
+                                        revisionInfo,
+                                        style:
+                                            const TextStyle(fontSize: 12),
+                                        overflow: TextOverflow.ellipsis,
+                                        maxLines: 1,
                                       ),
-                                    ),
-                                  ],
+                                      if (clientes.isNotEmpty &&
+                                          clientes != 'General')
+                                        Row(
+                                          children: [
+                                            Icon(
+                                              FluentIcons.people,
+                                              size: 10,
+                                              color: Colors.blue
+                                                  .withOpacity(0.65),
+                                            ),
+                                            const SizedBox(width: 3),
+                                            Flexible(
+                                              child: Text(
+                                                clientes,
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  fontStyle:
+                                                      FontStyle.italic,
+                                                  color: Colors.blue
+                                                      .withOpacity(0.65),
+                                                ),
+                                                overflow:
+                                                    TextOverflow.ellipsis,
+                                                maxLines: 1,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      Text(
+                                        "Cantidad actual: ${item['cantidad']}",
+                                        style: TextStyle(
+                                          color:
+                                              Colors.blue.withOpacity(0.8),
+                                          fontSize: 11,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                        maxLines: 1,
+                                      ),
+                                    ],
+                                  ),
                                 ),
                                 checked: selectedIds.contains(
                                   item['id_revision'],
@@ -1260,7 +1310,8 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                                     if (v == true)
                                       selectedIds.add(item['id_revision']);
                                     else
-                                      selectedIds.remove(item['id_revision']);
+                                      selectedIds
+                                          .remove(item['id_revision']);
                                   });
                                 },
                               );
@@ -2227,7 +2278,40 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
             },
           ),
         ),
-        title: const Text('Gestor de Listas (BOM)'),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Gestor de Listas (BOM)'),
+            if ((_selectedRevision?['clientes_afectados'] ?? '').toString().trim().isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      FluentIcons.people,
+                      size: 11,
+                      color: Colors.blue.withOpacity(0.65),
+                    ),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        'Aplica para: ${_selectedRevision!['clientes_afectados']}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontStyle: FontStyle.italic,
+                          color: Colors.blue.withOpacity(0.75),
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
       ),
       // LayoutBuilder garantiza constraints reales antes del Column
       content: LayoutBuilder(

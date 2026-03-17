@@ -22,9 +22,16 @@ class _MRPScreenState extends State<MRPScreen> {
   bool _isCalculating = false;
   List<Map<String, dynamic>> _revisionsList = [];
   int? _selectedRevisionId;
+  String? _selectedRevisionName;
+
   List<Map<String, dynamic>> _mrpData = [];
+  List<Map<String, dynamic>> _comercialesData = [];
   List<Map<String, dynamic>> _orphanData = [];
   String? _errorMessage;
+  String? _selectedRevisionClientes;
+
+  // Tab index: 0 = Materia Prima, 1 = Comerciales, 2 = Huérfanos
+  int _tabIndex = 0;
 
   final NumberFormat _numFormat = NumberFormat('#,##0', 'en_US');
   final NumberFormat _decFormat = NumberFormat('#,##0.00', 'en_US');
@@ -38,36 +45,38 @@ class _MRPScreenState extends State<MRPScreen> {
   Future<void> _fetchRevisions() async {
     setState(() => _isLoadingRevisions = true);
     try {
-      final res = await http.get(Uri.parse('$_apiUrl/api/mapa/jerarquia'));
+      // Endpoint dedicado: DISTINCT sin JOIN de clientes → sin duplicados.
+      final res =
+          await http.get(Uri.parse('$_apiUrl/api/mrp/revisiones'));
       if (res.statusCode == 200) {
-        final List<dynamic> tractos = json.decode(res.body);
-        List<Map<String, dynamic>> flattened = [];
+        final List<dynamic> rows = json.decode(res.body);
 
-        for (var tracto in tractos) {
-          final tName = tracto['nombre'];
-          for (var tipo in tracto['tipos'] ?? []) {
-            final typeName = tipo['nombre'];
-            for (var ver in tipo['versiones'] ?? []) {
-              final verName = ver['nombre'];
-              for (var rev in ver['revisiones'] ?? []) {
-                final rId = rev['id_revision'];
-                final rNum = rev['numero'];
-                if (rId != null) {
-                  flattened.add({
-                    'id': rId,
-                    'name': '$tName - $typeName ($verName) - Rev ${rNum ?? 'N/A'}',
-                  });
-                }
-              }
-            }
-          }
-        }
+        final flattened = rows
+            .map((r) {
+              final int? rId = r['id_revision'] as int?;
+              if (rId == null) return null;
 
-        if (mounted) {
-          setState(() {
-            _revisionsList = flattened;
-          });
-        }
+              final String tracto    = (r['nombre_tracto']      ?? '').toString().trim();
+              final String tipo      = (r['nombre_tipo']        ?? '').toString().trim();
+              final String version   = (r['nombre_version']     ?? '').toString().trim();
+              final String numRev    = (r['numero_revision']    ?? 'N/A').toString();
+              final String estado    = (r['estado']             ?? '').toString().trim();
+              final String clientes  = (r['clientes_afectados'] ?? '').toString().trim();
+
+              final String name =
+                  '$tracto — $tipo ($version) · Rev $numRev'
+                  '${estado.isNotEmpty ? "  [$estado]" : ""}';
+
+              return <String, dynamic>{
+                'id': rId,
+                'name': name,
+                'clientes_afectados': clientes,
+              };
+            })
+            .whereType<Map<String, dynamic>>()
+            .toList();
+
+        if (mounted) setState(() => _revisionsList = flattened);
       }
     } catch (e) {
       debugPrint("Error obteniendo revisiones MRP: $e");
@@ -78,12 +87,13 @@ class _MRPScreenState extends State<MRPScreen> {
 
   Future<void> _calculateMRP() async {
     if (_selectedRevisionId == null) return;
-    
     setState(() {
       _isCalculating = true;
       _errorMessage = null;
       _mrpData = [];
+      _comercialesData = [];
       _orphanData = [];
+      _tabIndex = 0;
     });
 
     try {
@@ -95,39 +105,46 @@ class _MRPScreenState extends State<MRPScreen> {
         final Map<String, dynamic> data = json.decode(res.body);
         if (mounted) {
           setState(() {
-            _mrpData = List<Map<String, dynamic>>.from(data['mrp_calculado'] ?? []);
-            _orphanData = List<Map<String, dynamic>>.from(data['piezas_sin_medidas'] ?? []);
+            _mrpData =
+                List<Map<String, dynamic>>.from(data['mrp_calculado'] ?? []);
+            _comercialesData = List<Map<String, dynamic>>.from(
+                data['componentes_comerciales'] ?? []);
+            _orphanData = List<Map<String, dynamic>>.from(
+                data['piezas_sin_medidas'] ?? []);
           });
         }
       } else {
         throw Exception("Error del servidor: ${res.statusCode} - ${res.body}");
       }
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _errorMessage = e.toString();
-        });
-      }
+      if (mounted) setState(() => _errorMessage = e.toString());
     } finally {
       if (mounted) setState(() => _isCalculating = false);
     }
   }
 
+  // ── Export ────────────────────────────────────────────────────────────────
+
   Future<void> _exportToExcel() async {
-    if (_mrpData.isEmpty && _orphanData.isEmpty) return;
+    if (_mrpData.isEmpty && _comercialesData.isEmpty && _orphanData.isEmpty) {
+      return;
+    }
 
-    var excel = excel_lib.Excel.createExcel();
+    var excelFile = excel_lib.Excel.createExcel();
     final headerStyle = ExcelHelper.getHeaderStyle();
-    
-    // 1. Hoja de Orden de Compra
-    excel_lib.Sheet sheetOC = excel['Orden_Compra'];
-    excel.delete('Sheet1'); 
 
-    List<String> ocHeaders = [
-      'Material Oficial', 'Calibre/Espesor', 'Piezas Totales', 
-      'Área / Requerimiento (Texto)', 'Área m² (Num)', 'Orden de Compra Sugerida'
+    // Hoja 1 — Orden de Compra (Materia Prima)
+    excel_lib.Sheet sheetOC = excelFile['Orden_Compra'];
+    excelFile.delete('Sheet1');
+
+    final ocHeaders = [
+      'Material Oficial',
+      'Calibre/Espesor',
+      'Piezas Totales',
+      'Área / Requerimiento (Texto)',
+      'Área m² (Num)',
+      'Orden de Compra Sugerida',
     ];
-    
     Map<int, int> ocWidths = {};
     for (int i = 0; i < ocHeaders.length; i++) {
       sheetOC.updateCell(
@@ -137,25 +154,23 @@ class _MRPScreenState extends State<MRPScreen> {
       );
       ExcelHelper.updateMaxWith(ocWidths, i, ocHeaders[i]);
     }
-
     for (int r = 0; r < _mrpData.length; r++) {
-      var row = _mrpData[r];
-      double areaMm2 = (row['Requerimiento_Area_mm2'] ?? 0).toDouble();
-      double areaM2 = areaMm2 / 1000000.0;
-      int piezas = ExcelHelper.cleanToInt(row['Cantidad_Total_Piezas']);
-      
-      List<excel_lib.CellValue> cells = [
+      final row = _mrpData[r];
+      final double areaMm2 = (row['Requerimiento_Area_mm2'] ?? 0).toDouble();
+      final double areaM2  = areaMm2 / 1_000_000.0;
+      final int piezas = ExcelHelper.cleanToInt(row['Cantidad_Total_Piezas']);
+      final cells = [
         excel_lib.TextCellValue(row['Material']?.toString() ?? '-'),
         ExcelHelper.parseDynamicCell(row['Calibre_Espesor']),
         excel_lib.IntCellValue(piezas),
-        excel_lib.TextCellValue(_formatArea(areaMm2)), 
+        excel_lib.TextCellValue(_formatArea(areaMm2)),
         excel_lib.DoubleCellValue(areaM2),
         excel_lib.TextCellValue(row['Sugerencia_Compra']?.toString() ?? 'N/A'),
       ];
-
       for (int c = 0; c < cells.length; c++) {
         sheetOC.updateCell(
-          excel_lib.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: r + 1),
+          excel_lib.CellIndex.indexByColumnRow(
+              columnIndex: c, rowIndex: r + 1),
           cells[c],
         );
         ExcelHelper.updateMaxWith(ocWidths, c, cells[c].toString());
@@ -163,12 +178,51 @@ class _MRPScreenState extends State<MRPScreen> {
     }
     ExcelHelper.applyAutoFit(sheetOC, ocWidths);
 
-    // 2. Hoja de Auditoría de Ingeniería (Huérfanos)
-    if (_orphanData.isNotEmpty) {
-      excel_lib.Sheet sheetAudit = excel['Auditoria_Ingenieria'];
-      List<String> auditHeaders = ['Código de Pieza', 'Ensamble', 'Material CAD', 'Cantidad BOM', 'Motivo de Rechazo'];
-      Map<int, int> auditWidths = {};
+    // Hoja 2 — Componentes Comerciales
+    if (_comercialesData.isNotEmpty) {
+      excel_lib.Sheet sheetCom = excelFile['Componentes_Comerciales'];
+      final comHeaders = ['Código de Pieza', 'Descripción', 'Cantidad Total'];
+      Map<int, int> comWidths = {};
+      for (int i = 0; i < comHeaders.length; i++) {
+        sheetCom.updateCell(
+          excel_lib.CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0),
+          excel_lib.TextCellValue(comHeaders[i]),
+          cellStyle: headerStyle,
+        );
+        ExcelHelper.updateMaxWith(comWidths, i, comHeaders[i]);
+      }
+      for (int r = 0; r < _comercialesData.length; r++) {
+        final row = _comercialesData[r];
+        final int cant =
+            ExcelHelper.cleanToInt(row['Cantidad_Total']);
+        final cells = [
+          excel_lib.TextCellValue(row['Codigo_Pieza']?.toString() ?? '-'),
+          excel_lib.TextCellValue(row['Descripcion']?.toString() ?? '-'),
+          excel_lib.IntCellValue(cant),
+        ];
+        for (int c = 0; c < cells.length; c++) {
+          sheetCom.updateCell(
+            excel_lib.CellIndex.indexByColumnRow(
+                columnIndex: c, rowIndex: r + 1),
+            cells[c],
+          );
+          ExcelHelper.updateMaxWith(comWidths, c, cells[c].toString());
+        }
+      }
+      ExcelHelper.applyAutoFit(sheetCom, comWidths);
+    }
 
+    // Hoja 3 — Auditoría de Ingeniería (Huérfanos)
+    if (_orphanData.isNotEmpty) {
+      excel_lib.Sheet sheetAudit = excelFile['Auditoria_Ingenieria'];
+      final auditHeaders = [
+        'Código de Pieza',
+        'Ensamble',
+        'Material CAD',
+        'Cantidad BOM',
+        'Motivo de Rechazo',
+      ];
+      Map<int, int> auditWidths = {};
       for (int i = 0; i < auditHeaders.length; i++) {
         sheetAudit.updateCell(
           excel_lib.CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0),
@@ -177,21 +231,20 @@ class _MRPScreenState extends State<MRPScreen> {
         );
         ExcelHelper.updateMaxWith(auditWidths, i, auditHeaders[i]);
       }
-
       for (int r = 0; r < _orphanData.length; r++) {
-        var row = _orphanData[r];
-        int cant = ExcelHelper.cleanToInt(row['Cantidad']);
-        List<excel_lib.CellValue> cells = [
+        final row = _orphanData[r];
+        final int cant = ExcelHelper.cleanToInt(row['Cantidad']);
+        final cells = [
           excel_lib.TextCellValue(row['Codigo_Pieza']?.toString() ?? '-'),
           excel_lib.TextCellValue(row['Nombre_Ensamble']?.toString() ?? '-'),
           excel_lib.TextCellValue(row['Material']?.toString() ?? '-'),
           excel_lib.IntCellValue(cant),
           excel_lib.TextCellValue(row['Motivo_Rechazo']?.toString() ?? '-'),
         ];
-
         for (int c = 0; c < cells.length; c++) {
           sheetAudit.updateCell(
-            excel_lib.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: r + 1),
+            excel_lib.CellIndex.indexByColumnRow(
+                columnIndex: c, rowIndex: r + 1),
             cells[c],
           );
           ExcelHelper.updateMaxWith(auditWidths, c, cells[c].toString());
@@ -200,8 +253,8 @@ class _MRPScreenState extends State<MRPScreen> {
       ExcelHelper.applyAutoFit(sheetAudit, auditWidths);
     }
 
-    String fileName = 'MRP_Requerimiento_Rev_${_selectedRevisionId ?? "Unknown"}.xlsx';
-    
+    final fileName =
+        'MRP_Requerimiento_Rev_${_selectedRevisionId ?? "Unknown"}.xlsx';
     String? outputFile = await FilePicker.platform.saveFile(
       dialogTitle: 'Exportar Requerimiento de Materiales',
       fileName: fileName,
@@ -209,38 +262,47 @@ class _MRPScreenState extends State<MRPScreen> {
 
     if (outputFile != null) {
       if (!outputFile.endsWith('.xlsx')) outputFile = '$outputFile.xlsx';
-      var fileBytes = excel.save();
+      final fileBytes = excelFile.save();
       if (fileBytes != null) {
         try {
-          final file = File(outputFile);
-          file.writeAsBytesSync(fileBytes);
+          File(outputFile).writeAsBytesSync(fileBytes);
           if (mounted) {
             displayInfoBar(
               context,
               builder: (context, close) => InfoBar(
                 title: const Text('Exportación Exitosa'),
-                content: Text('Reporte generado: $fileName. ${_mrpData.length} ítems de compra y ${_orphanData.length} huérfanos.'),
+                content: Text(
+                  'Reporte generado: $fileName. '
+                  '${_mrpData.length} ítems MP · '
+                  '${_comercialesData.length} comerciales · '
+                  '${_orphanData.length} huérfanos.',
+                ),
                 severity: InfoBarSeverity.success,
                 onClose: close,
               ),
             );
           }
-        } catch(e) {
+        } catch (e) {
           debugPrint("Error al guardar Excel: $e");
         }
       }
     }
   }
-  
+
   String _formatArea(double mm2) {
     if (mm2 == 0) return "0.00 m²  /  0.00 in²";
-    double m2 = mm2 / 1000000.0;
-    double in2 = mm2 / 645.16129; // 1 in = 25.4 mm -> 1 in2 = 645.16129 mm2
+    final double m2  = mm2 / 1_000_000.0;
+    final double in2 = mm2 / 645.16129;
     return '${_decFormat.format(m2)} m²  /  ${_decFormat.format(in2)} in²';
   }
 
+  // ── Build ─────────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
+    final hasResults =
+        _mrpData.isNotEmpty || _comercialesData.isNotEmpty || _orphanData.isNotEmpty;
+
     return ScaffoldPage(
       header: PageHeader(
         title: const Text('MRPII: Requerimiento de Materiales'),
@@ -253,28 +315,77 @@ class _MRPScreenState extends State<MRPScreen> {
             _isLoadingRevisions
                 ? const ProgressRing(strokeWidth: 2)
                 : ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 250),
-                    child: ComboBox<int>(
-                      placeholder: const Text('Seleccionar Proyecto (Revisión)'),
-                      value: _selectedRevisionId,
-                      items: _revisionsList.map((rev) {
-                        return ComboBoxItem<int>(
-                          value: rev['id'] as int,
-                          child: Text(
-                            rev['name'] as String,
+                    constraints: const BoxConstraints(maxWidth: 440),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ComboBox<int>(
+                          placeholder: const Text(
+                            'Seleccionar Revisión de Ingeniería',
                             overflow: TextOverflow.ellipsis,
                           ),
-                        );
-                      }).toList(),
-                      onChanged: (val) {
-                        setState(() {
-                          _selectedRevisionId = val;
-                        });
-                      },
-                      isExpanded: true,
+                          value: _selectedRevisionId,
+                          isExpanded: true,
+                          items: _revisionsList.map((rev) {
+                            return ComboBoxItem<int>(
+                              value: rev['id'] as int,
+                              child: Tooltip(
+                                message: rev['name'] as String,
+                                child: Text(
+                                  rev['name'] as String,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                          onChanged: (val) {
+                            if (val == null) return;
+                            final rev = _revisionsList.firstWhere(
+                              (r) => r['id'] == val,
+                              orElse: () => {'name': '', 'clientes_afectados': ''},
+                            );
+                            setState(() {
+                              _selectedRevisionId = val;
+                              _selectedRevisionName =
+                                  rev['name'] as String?;
+                              _selectedRevisionClientes =
+                                  (rev['clientes_afectados'] as String?)
+                                      ?.trim();
+                            });
+                          },
+                        ),
+                        if (_selectedRevisionClientes != null &&
+                            _selectedRevisionClientes!.isNotEmpty)
+                          Padding(
+                            padding:
+                                const EdgeInsets.only(top: 4, left: 4),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  FluentIcons.people,
+                                  size: 11,
+                                  color: Colors.blue.withOpacity(0.65),
+                                ),
+                                const SizedBox(width: 4),
+                                Flexible(
+                                  child: Text(
+                                    'Aplica para: $_selectedRevisionClientes',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontStyle: FontStyle.italic,
+                                      color: Colors.blue.withOpacity(0.75),
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                    maxLines: 1,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
                     ),
                   ),
-            const SizedBox(width: 15),
             FilledButton(
               onPressed: _selectedRevisionId == null || _isCalculating
                   ? null
@@ -292,7 +403,7 @@ class _MRPScreenState extends State<MRPScreen> {
               message: "Exportar a Excel",
               child: IconButton(
                 icon: Icon(FluentIcons.excel_logo, color: Colors.green),
-                onPressed: (_mrpData.isEmpty && _orphanData.isEmpty) ? null : _exportToExcel,
+                onPressed: hasResults ? _exportToExcel : null,
               ),
             ),
           ],
@@ -320,16 +431,33 @@ class _MRPScreenState extends State<MRPScreen> {
       return Center(
         child: Text(
           "Error: $_errorMessage",
-          style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+          style: const TextStyle(
+              color: Color(0xFFD32F2F), fontWeight: FontWeight.bold),
         ),
       );
     }
 
-    if (_mrpData.isEmpty && _orphanData.isEmpty) {
-      return const Center(
-        child: Text(
-          "Selecciona una revisión y presiona Calcular.",
-          style: TextStyle(color: Colors.grey),
+    if (_mrpData.isEmpty && _comercialesData.isEmpty && _orphanData.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(FluentIcons.manufacturing,
+                size: 48,
+                color: FluentTheme.of(context)
+                    .typography
+                    .body
+                    ?.color
+                    ?.withOpacity(0.25)),
+            const SizedBox(height: 16),
+            Text(
+              "Selecciona una Revisión de Ingeniería y presiona Calcular.",
+              style: FluentTheme.of(context)
+                  .typography
+                  .body
+                  ?.copyWith(color: Colors.grey),
+            ),
+          ],
         ),
       );
     }
@@ -339,98 +467,266 @@ class _MRPScreenState extends State<MRPScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Consolidación de Materiales (${_mrpData.length} registros)',
-            style: FluentTheme.of(context).typography.subtitle,
-          ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: Container(
-              decoration: BoxDecoration(
-                color: FluentTheme.of(context).cardColor,
-                borderRadius: BorderRadius.circular(8.0),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.05),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
+          // ── Revisión seleccionada ────────────────────────────────────────
+          if (_selectedRevisionName != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12.0),
+              child: Row(
+                children: [
+                  const Icon(FluentIcons.file_code, size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _selectedRevisionName!,
+                      style: FluentTheme.of(context)
+                          .typography
+                          .bodyStrong
+                          ?.copyWith(fontSize: 13),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 2,
+                    ),
                   ),
                 ],
               ),
-              child: ListView(
-                padding: const EdgeInsets.all(8.0),
-                children: [
-                  _buildHeaderRow(),
-                  const Divider(),
-                  ..._mrpData.map((row) => _buildDataRow(row)),
-                ],
-              ),
             ),
-          ),
-          if (_orphanData.isNotEmpty) ...[
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 20.0),
-              child: Container(height: 2, color: Colors.red),
-            ),
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12.0),
-              child: Text(
-                '⚠️ Piezas sin dimensiones CAD o Material (Excluidas del cálculo)',
-                style: FluentTheme.of(context).typography.subtitle?.copyWith(color: Colors.red, fontWeight: FontWeight.bold),
-              ),
-            ),
-            Expanded(
-              child: Container(
-                decoration: BoxDecoration(
-                  color: FluentTheme.of(context).cardColor,
-                  borderRadius: BorderRadius.circular(8.0),
-                ),
-                child: ListView(
-                  padding: const EdgeInsets.all(8.0),
-                  children: [
-                    _buildOrphanHeaderRow(),
-                    const Divider(),
-                    ..._orphanData.map((row) => _buildOrphanDataRow(row)),
-                  ],
-                ),
-              ),
-            ),
-          ],
+
+          // ── Pestañas ─────────────────────────────────────────────────────
+          _buildTabBar(),
+          const SizedBox(height: 12),
+
+          // ── Panel activo ─────────────────────────────────────────────────
+          Expanded(child: _buildActivePanel()),
         ],
       ),
     );
   }
 
+  // ── Tab bar ───────────────────────────────────────────────────────────────
+
+  Widget _buildTabBar() {
+    return Row(
+      children: [
+        _tabButton(
+          index: 0,
+          icon: FluentIcons.manufacturing,
+          label: 'Materia Prima / Placas',
+          count: _mrpData.length,
+          activeColor: const Color(0xFF1565C0),
+        ),
+        const SizedBox(width: 8),
+        _tabButton(
+          index: 1,
+          icon: FluentIcons.shop,
+          label: 'Componentes Comerciales',
+          count: _comercialesData.length,
+          activeColor: const Color(0xFF6A1B9A),
+        ),
+        const SizedBox(width: 8),
+        _tabButton(
+          index: 2,
+          icon: FluentIcons.warning,
+          label: 'Auditoría / Huérfanos',
+          count: _orphanData.length,
+          activeColor: const Color(0xFFC62828),
+        ),
+      ],
+    );
+  }
+
+  Widget _tabButton({
+    required int index,
+    required IconData icon,
+    required String label,
+    required int count,
+    required Color activeColor,
+  }) {
+    final isActive = _tabIndex == index;
+    final isDark = FluentTheme.of(context).brightness == Brightness.dark;
+    final textColor = isActive
+        ? Colors.white
+        : (isDark
+            ? Colors.white.withOpacity(0.75)
+            : Colors.black.withOpacity(0.65));
+
+    return GestureDetector(
+      onTap: () => setState(() => _tabIndex = index),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: isActive ? activeColor : Colors.transparent,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: isActive
+                ? activeColor
+                : (isDark
+                    ? Colors.white.withOpacity(0.2)
+                    : Colors.black.withOpacity(0.15)),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: textColor),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight:
+                      isActive ? FontWeight.bold : FontWeight.normal,
+                  color: textColor),
+            ),
+            const SizedBox(width: 6),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: isActive
+                    ? Colors.white.withOpacity(0.25)
+                    : (isDark
+                        ? Colors.white.withOpacity(0.1)
+                        : Colors.black.withOpacity(0.08)),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                '$count',
+                style: TextStyle(fontSize: 11, color: textColor),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Panels ────────────────────────────────────────────────────────────────
+
+  Widget _buildActivePanel() {
+    switch (_tabIndex) {
+      case 0:
+        return _buildMPPanel();
+      case 1:
+        return _buildComercialPanel();
+      case 2:
+        return _buildOrphanPanel();
+      default:
+        return const SizedBox();
+    }
+  }
+
+  // Panel 0 — Materia Prima / Placas
+  Widget _buildMPPanel() {
+    if (_mrpData.isEmpty) {
+      return const Center(
+        child: Text("No hay materia prima que cortar para esta revisión."),
+      );
+    }
+    return Container(
+      decoration: _cardDecoration(),
+      child: ListView(
+        padding: const EdgeInsets.all(8.0),
+        children: [
+          _buildHeaderRow(),
+          const Divider(),
+          ..._mrpData.map((row) => _buildDataRow(row)),
+        ],
+      ),
+    );
+  }
+
+  // Panel 1 — Componentes Comerciales
+  Widget _buildComercialPanel() {
+    if (_comercialesData.isEmpty) {
+      return const Center(
+        child: Text(
+            "No se encontraron componentes comerciales en esta revisión."),
+      );
+    }
+    return Container(
+      decoration: _cardDecoration(),
+      child: ListView(
+        padding: const EdgeInsets.all(8.0),
+        children: [
+          _buildComercialHeaderRow(),
+          const Divider(),
+          ..._comercialesData.map((row) => _buildComercialDataRow(row)),
+        ],
+      ),
+    );
+  }
+
+  // Panel 2 — Huérfanos / Auditoría
+  Widget _buildOrphanPanel() {
+    if (_orphanData.isEmpty) {
+      return const Center(
+        child: Text("Sin piezas huérfanas. ¡Ingeniería al 100%!"),
+      );
+    }
+    return Container(
+      decoration: _cardDecoration(),
+      child: ListView(
+        padding: const EdgeInsets.all(8.0),
+        children: [
+          _buildOrphanHeaderRow(),
+          const Divider(),
+          ..._orphanData.map((row) => _buildOrphanDataRow(row)),
+        ],
+      ),
+    );
+  }
+
+  BoxDecoration _cardDecoration() => BoxDecoration(
+        color: FluentTheme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(8.0),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      );
+
+  // ── Materia Prima rows ────────────────────────────────────────────────────
+
   Widget _buildHeaderRow() {
-    final style = FluentTheme.of(context).typography.body?.copyWith(fontWeight: FontWeight.bold);
+    final style = FluentTheme.of(context)
+        .typography
+        .body
+        ?.copyWith(fontWeight: FontWeight.bold);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
       child: Row(
         children: [
           Expanded(flex: 3, child: Text('MATERIAL OFICIAL', style: style)),
           Expanded(flex: 2, child: Text('CALIBRE / ESPESOR', style: style)),
-          Expanded(flex: 2, child: Text('PIEZAS TOTALES', style: style, textAlign: TextAlign.right)),
-          Expanded(flex: 3, child: Text('ÁREA TOTAL REQUERIDA', style: style, textAlign: TextAlign.right)),
-          Expanded(flex: 4, child: Text('ORDEN DE COMPRA SUGERIDA', style: style, textAlign: TextAlign.right)),
+          Expanded(
+              flex: 2,
+              child:
+                  Text('PIEZAS', style: style, textAlign: TextAlign.right)),
+          Expanded(
+              flex: 3,
+              child: Text('ÁREA TOTAL REQUERIDA',
+                  style: style, textAlign: TextAlign.right)),
+          Expanded(
+              flex: 4,
+              child: Text('ORDEN DE COMPRA SUGERIDA',
+                  style: style, textAlign: TextAlign.right)),
         ],
       ),
     );
   }
 
   Widget _buildDataRow(Map<String, dynamic> row) {
-    double areaMm2 = (row['Requerimiento_Area_mm2'] ?? 0).toDouble();
-    double piezas = (row['Cantidad_Total_Piezas'] ?? 0).toDouble();
-
+    final double areaMm2 = (row['Requerimiento_Area_mm2'] ?? 0).toDouble();
+    final double piezas  = (row['Cantidad_Total_Piezas'] ?? 0).toDouble();
     final isDark = FluentTheme.of(context).brightness == Brightness.dark;
-    final dataColor = isDark 
-        ? Colors.white.withValues(alpha: 0.9) 
+    final dataColor = isDark
+        ? Colors.white.withValues(alpha: 0.9)
         : Colors.black.withValues(alpha: 0.85);
-
-    final baseStyle = TextStyle(
-      color: dataColor,
-      fontWeight: FontWeight.normal,
-      fontSize: 13,
-    );
+    final base =
+        TextStyle(color: dataColor, fontWeight: FontWeight.normal, fontSize: 13);
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 12.0),
@@ -440,37 +736,33 @@ class _MRPScreenState extends State<MRPScreen> {
             flex: 3,
             child: Text(
               row['Material']?.toString() ?? 'N/A',
-              style: baseStyle.copyWith(
+              style: base.copyWith(
                 fontWeight: FontWeight.w600,
-                color: row['Material'] == 'FALTA ASIGNAR EN CAD' 
-                  ? (isDark ? Colors.orange.lighter : Colors.orange.darkest) 
-                  : null,
+                color: row['Material'] == 'FALTA ASIGNAR EN CAD'
+                    ? (isDark ? Colors.orange.lighter : Colors.orange.darkest)
+                    : null,
               ),
             ),
           ),
           Expanded(
-            flex: 2,
-            child: Text(
-              row['Calibre_Espesor']?.toString() ?? 'N/A',
-              style: baseStyle,
-            ),
-          ),
+              flex: 2,
+              child: Text(
+                  row['Calibre_Espesor']?.toString() ?? 'N/A',
+                  style: base)),
           Expanded(
             flex: 2,
             child: Text(
               _numFormat.format(piezas),
               textAlign: TextAlign.right,
-              style: baseStyle.copyWith(fontWeight: FontWeight.bold),
+              style: base.copyWith(fontWeight: FontWeight.bold),
             ),
           ),
           Expanded(
             flex: 3,
-            child: Container(
-              alignment: Alignment.centerRight,
-              child: Text(
-                _formatArea(areaMm2),
-                style: baseStyle,
-              ),
+            child: Text(
+              _formatArea(areaMm2),
+              textAlign: TextAlign.right,
+              style: base,
             ),
           ),
           Expanded(
@@ -478,7 +770,7 @@ class _MRPScreenState extends State<MRPScreen> {
             child: Text(
               row['Sugerencia_Compra']?.toString() ?? 'N/A',
               textAlign: TextAlign.right,
-              style: baseStyle.copyWith(
+              style: base.copyWith(
                 color: isDark ? Colors.orange.lighter : Colors.orange.darkest,
                 fontWeight: FontWeight.bold,
               ),
@@ -489,8 +781,99 @@ class _MRPScreenState extends State<MRPScreen> {
     );
   }
 
+  // ── Comerciales rows ──────────────────────────────────────────────────────
+
+  Widget _buildComercialHeaderRow() {
+    final isDark = FluentTheme.of(context).brightness == Brightness.dark;
+    final accentColor =
+        isDark ? const Color(0xFFCE93D8) : const Color(0xFF6A1B9A);
+    final style = FluentTheme.of(context)
+        .typography
+        .body
+        ?.copyWith(fontWeight: FontWeight.bold, color: accentColor);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
+      child: Row(
+        children: [
+          Expanded(flex: 2, child: Text('CÓDIGO', style: style)),
+          Expanded(flex: 5, child: Text('DESCRIPCIÓN', style: style)),
+          Expanded(
+              flex: 2,
+              child: Text('CANTIDAD',
+                  style: style, textAlign: TextAlign.right)),
+          Expanded(
+              flex: 3,
+              child: Text('ACCIÓN SUGERIDA',
+                  style: style, textAlign: TextAlign.right)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildComercialDataRow(Map<String, dynamic> row) {
+    final isDark = FluentTheme.of(context).brightness == Brightness.dark;
+    final dataColor = isDark
+        ? Colors.white.withValues(alpha: 0.9)
+        : Colors.black.withValues(alpha: 0.85);
+    final base =
+        TextStyle(color: dataColor, fontWeight: FontWeight.normal, fontSize: 13);
+    final double cant = (row['Cantidad_Total'] ?? 0).toDouble();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 2,
+            child: Text(
+              row['Codigo_Pieza']?.toString() ?? '-',
+              style: base.copyWith(
+                fontWeight: FontWeight.w600,
+                fontFamily: 'monospace',
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 5,
+            child: Text(
+              row['Descripcion']?.toString() ?? '-',
+              style: base,
+              overflow: TextOverflow.ellipsis,
+              maxLines: 2,
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Text(
+              _numFormat.format(cant),
+              textAlign: TextAlign.right,
+              style: base.copyWith(fontWeight: FontWeight.bold),
+            ),
+          ),
+          Expanded(
+            flex: 3,
+            child: Text(
+              'Compra directa (${_numFormat.format(cant)} pzs)',
+              textAlign: TextAlign.right,
+              style: base.copyWith(
+                color: isDark
+                    ? const Color(0xFFCE93D8)
+                    : const Color(0xFF6A1B9A),
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Orphan rows ───────────────────────────────────────────────────────────
+
   Widget _buildOrphanHeaderRow() {
-    final style = FluentTheme.of(context).typography.body?.copyWith(fontWeight: FontWeight.bold, color: Colors.red);
+    final style = FluentTheme.of(context).typography.body?.copyWith(
+        fontWeight: FontWeight.bold, color: const Color(0xFFC62828));
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
       child: Row(
@@ -498,27 +881,53 @@ class _MRPScreenState extends State<MRPScreen> {
           Expanded(flex: 3, child: Text('CÓDIGO DE PIEZA', style: style)),
           Expanded(flex: 3, child: Text('ENSAMBLE', style: style)),
           Expanded(flex: 3, child: Text('MATERIAL', style: style)),
-          Expanded(flex: 1, child: Text('CANT', style: style, textAlign: TextAlign.right)),
-          Expanded(flex: 3, child: Text('MOTIVO DE RECHAZO', style: style, textAlign: TextAlign.right)),
+          Expanded(
+              flex: 1,
+              child:
+                  Text('CANT', style: style, textAlign: TextAlign.right)),
+          Expanded(
+              flex: 3,
+              child: Text('MOTIVO DE RECHAZO',
+                  style: style, textAlign: TextAlign.right)),
         ],
       ),
     );
   }
 
   Widget _buildOrphanDataRow(Map<String, dynamic> row) {
+    final body = FluentTheme.of(context).typography.body;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
       child: Row(
         children: [
-          Expanded(flex: 3, child: Text(row['Codigo_Pieza']?.toString() ?? '-', style: FluentTheme.of(context).typography.body)),
-          Expanded(flex: 3, child: Text(row['Nombre_Ensamble']?.toString() ?? '-', style: FluentTheme.of(context).typography.body)),
-          Expanded(flex: 3, child: Text(row['Material']?.toString() ?? '-', style: FluentTheme.of(context).typography.body)),
-          Expanded(flex: 1, child: Text(row['Cantidad']?.toString() ?? '0', style: FluentTheme.of(context).typography.body, textAlign: TextAlign.right)),
+          Expanded(
+              flex: 3,
+              child: Text(row['Codigo_Pieza']?.toString() ?? '-',
+                  style: body)),
+          Expanded(
+              flex: 3,
+              child: Text(row['Nombre_Ensamble']?.toString() ?? '-',
+                  style: body,
+                  overflow: TextOverflow.ellipsis)),
+          Expanded(
+              flex: 3,
+              child:
+                  Text(row['Material']?.toString() ?? '-', style: body)),
+          Expanded(
+            flex: 1,
+            child: Text(
+              row['Cantidad']?.toString() ?? '0',
+              style: body,
+              textAlign: TextAlign.right,
+            ),
+          ),
           Expanded(
             flex: 3,
             child: Text(
               row['Motivo_Rechazo']?.toString() ?? '-',
-              style: FluentTheme.of(context).typography.body?.copyWith(color: Colors.red.darkest, fontWeight: FontWeight.bold),
+              style: body?.copyWith(
+                  color: const Color(0xFFC62828),
+                  fontWeight: FontWeight.bold),
               textAlign: TextAlign.right,
             ),
           ),
