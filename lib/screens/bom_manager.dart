@@ -47,6 +47,10 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
   List<dynamic> _vins = [];
   bool _propagarAutomaticamente = false;
 
+  // Vista Plana Excel
+  List<dynamic> _bomPlana = [];
+  bool _vistaPlana = false;
+
   // v60.0: determina el color de acento según el nombre del tracto
   Color get _accentColor {
     final t = (widget.tractoName ?? '').toUpperCase();
@@ -91,6 +95,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
       _arbol = [];
       _selectedEnsamble = null;
       _vins = [];
+      _bomPlana = [];
     });
   }
 
@@ -117,6 +122,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
               _selectedRevision = _revisiones.last;
             }
             _fetchArbol();
+            if (_vistaPlana) _fetchBomPlana();
           } else {
             _selectedRevision = null;
           }
@@ -206,6 +212,27 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
       }
     } catch (e) {
       _showError("Error al cargar árbol: $e");
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _fetchBomPlana() async {
+    if (_selectedRevision == null) return;
+    setState(() => _isLoading = true);
+    try {
+      final response = await http.get(
+        Uri.parse(
+          '$API_URL/api/bom/plana/${_selectedRevision['id_revision']}',
+        ),
+      );
+      if (response.statusCode == 200) {
+        setState(() => _bomPlana = json.decode(response.body));
+      } else {
+        _showError("Error al cargar vista plana: ${response.statusCode}");
+      }
+    } catch (e) {
+      _showError("Error al cargar vista plana: $e");
     } finally {
       setState(() => _isLoading = false);
     }
@@ -631,26 +658,61 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     );
   }
 
-  Future<void> _clonarBOM(int idOrigen) async {
+  Future<void> _clonarBOM() async {
     if (_selectedRevision == null) return;
+    final int idOrigen = _selectedRevision['id_revision'];
     setState(() => _isLoading = true);
     try {
       final response = await http.post(
-        Uri.parse('$API_URL/api/bom/clonar'),
+        Uri.parse('$API_URL/api/bom/clonar/$idOrigen'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'id_revision_origen': idOrigen,
-          'id_revision_destino': _selectedRevision['id_revision'],
-        }),
       );
       if (response.statusCode == 200) {
-        _showError("✅ BOM Clonado correctamente", isError: false);
-        _fetchArbol();
+        final data = json.decode(response.body);
+        final int nuevoId = data['nuevo_id_revision'];
+        final int numRev = data['numero_revision'];
+        final int piezas = data['piezas_clonadas'] ?? 0;
+        _showError(
+          "✅ BOM clonada: Rev $numRev creada con $piezas piezas.",
+          isError: false,
+        );
+        // Re-cargar revisiones y seleccionar automáticamente la recién creada
+        await _fetchRevisionesYSeleccionar(nuevoId);
       } else {
-        _showError("Error al clonar BOM");
+        final detail =
+            json.decode(response.body)['detail'] ?? 'Error desconocido';
+        _showError("Error al clonar BOM: $detail");
       }
     } catch (e) {
       _showError("Error: $e");
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  /// Recarga la lista de revisiones y selecciona la indicada por [targetId].
+  Future<void> _fetchRevisionesYSeleccionar(int targetId) async {
+    setState(() => _isLoading = true);
+    try {
+      final url = _usingVersionMode
+          ? '$API_URL/api/bom/revisiones/version/$_masterId'
+          : '$API_URL/api/bom/revisiones/$_masterId';
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode == 200) {
+        _clearData();
+        setState(() {
+          _revisiones = json.decode(response.body);
+          _selectedRevision = _revisiones.firstWhere(
+            (r) => r['id_revision'] == targetId,
+            orElse: () =>
+                _revisiones.isNotEmpty ? _revisiones.last : null,
+          );
+        });
+        _fetchArbol();
+        if (_vistaPlana) _fetchBomPlana();
+      }
+    } catch (e) {
+      _showError("Error al recargar revisiones: $e");
     } finally {
       setState(() => _isLoading = false);
     }
@@ -1035,83 +1097,76 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     );
   }
 
-  void _showClonarDialog() async {
-    int? selectedOrigenId;
-    List<dynamic> allRevisions = [];
-    bool loadingDialog = true;
+  void _showClonarDialog() {
+    if (_selectedRevision == null) {
+      _showError("Selecciona una revisión primero.");
+      return;
+    }
+    final String revLabel =
+        "Rev. ${_selectedRevision['numero_revision']} — ${_selectedRevision['estado']}";
 
     showDialog(
       context: context,
-      builder:
-          (context) => StatefulBuilder(
-            builder: (context, setDState) {
-              if (loadingDialog) {
-                http
-                    .get(Uri.parse('$API_URL/api/bom/revisiones/$_masterId'))
-                    .then((res) {
-                      if (res.statusCode == 200) {
-                        setDState(() {
-                          allRevisions =
-                              (json.decode(res.body) as List)
-                                  .where(
-                                    (r) =>
-                                        r['id_revision'] !=
-                                        _selectedRevision['id_revision'],
-                                  )
-                                  .toList();
-                          loadingDialog = false;
-                        });
-                      }
-                    });
-                return const ContentDialog(content: ProgressRing());
-              }
-
-              return ContentDialog(
-                title: const Text("Clonar BOM desde otra Revisión"),
-                content: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text(
-                      "Selecciona la revisión de origen para copiar toda su estructura a la revisión actual:",
+      builder: (ctx) => ContentDialog(
+        constraints: const BoxConstraints(maxWidth: 440, maxHeight: 280),
+        title: Row(
+          children: [
+            Icon(FluentIcons.copy, size: 18, color: _accentColor),
+            const SizedBox(width: 8),
+            const Text("Clonar Lista de Materiales"),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "¿Deseas clonar esta Lista de Materiales?",
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              "Se creará una copia exacta de $revLabel en estado Borrador, "
+              "con todas sus estaciones, ensambles y piezas.",
+              style: const TextStyle(fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: _accentColor.withOpacity(0.07),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: _accentColor.withOpacity(0.3)),
+              ),
+              child: Row(
+                children: [
+                  Icon(FluentIcons.info, size: 14, color: _accentColor),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      "La nueva revisión se seleccionará automáticamente al finalizar.",
+                      style: TextStyle(fontSize: 11, color: _accentColor),
                     ),
-                    const SizedBox(height: 16),
-                    ComboBox<int>(
-                      placeholder: const Text("Seleccionar Revisión Origen"),
-                      value: selectedOrigenId,
-                      items:
-                          allRevisions
-                              .map(
-                                (r) => ComboBoxItem<int>(
-                                  value: r['id_revision'],
-                                  child: Text(
-                                    "Rev ${r['numero_revision']} (ID ${r['id_revision']}) - ${r['estado']}",
-                                  ),
-                                ),
-                              )
-                              .toList(),
-                      onChanged: (v) => setDState(() => selectedOrigenId = v),
-                    ),
-                  ],
-                ),
-                actions: [
-                  Button(
-                    child: const Text("Cancelar"),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                  FilledButton(
-                    child: const Text("Clonar Ahora"),
-                    onPressed:
-                        selectedOrigenId == null
-                            ? null
-                            : () {
-                              Navigator.pop(context);
-                              _clonarBOM(selectedOrigenId!);
-                            },
                   ),
                 ],
-              );
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          Button(
+            child: const Text("Cancelar"),
+            onPressed: () => Navigator.pop(ctx),
+          ),
+          FilledButton(
+            child: const Text("Clonar Ahora"),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _clonarBOM();
             },
           ),
+        ],
+      ),
     );
   }
 
@@ -1240,149 +1295,6 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     );
   }
 
-  void _showCalculadorDialog() {
-    if (_selectedRevision == null) return;
-    
-    double largoPlaca = 3050.0;
-    double anchoPlaca = 1220.0;
-    double margenDesperdicio = 15.0;
-    
-    bool dialogLoading = true;
-    Map<String, dynamic> resultados = {};
-    String errorMsg = "";
-
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDState) {
-          if (dialogLoading) {
-            http.get(Uri.parse('$API_URL/api/bom/${_selectedRevision['id_revision']}/calcular_placas')).then((res) {
-              if (res.statusCode == 200) {
-                setDState(() {
-                  resultados = json.decode(res.body);
-                  dialogLoading = false;
-                });
-              } else {
-                setDState(() {
-                  errorMsg = "Error al calcular: ${res.statusCode}";
-                  dialogLoading = false;
-                });
-              }
-            }).catchError((e) {
-              setDState(() {
-                errorMsg = "Error de conexión: $e";
-                dialogLoading = false;
-              });
-            });
-            return const ContentDialog(content: ProgressRing());
-          }
-
-          final double areaPlaca = largoPlaca * anchoPlaca;
-
-          return ContentDialog(
-            title: const Text("Calculador de Placas / Materia Prima"),
-            content: SizedBox(
-              width: 500,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (errorMsg.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12.0),
-                      child: Text(errorMsg, style: TextStyle(color: Colors.red)),
-                    ),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: InfoLabel(
-                          label: "Largo Placa (mm)",
-                          child: TextFormBox(
-                            initialValue: largoPlaca.toString(),
-                            onChanged: (v) => setDState(() => largoPlaca = double.tryParse(v) ?? largoPlaca),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: InfoLabel(
-                          label: "Ancho Placa (mm)",
-                          child: TextFormBox(
-                            initialValue: anchoPlaca.toString(),
-                            onChanged: (v) => setDState(() => anchoPlaca = double.tryParse(v) ?? anchoPlaca),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: InfoLabel(
-                          label: "Desperdicio (%)",
-                          child: TextFormBox(
-                            initialValue: margenDesperdicio.toString(),
-                            onChanged: (v) => setDState(() => margenDesperdicio = double.tryParse(v) ?? margenDesperdicio),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  const Text("Resultados Estimados:", style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  if (resultados.isEmpty)
-                    const Text("No se encontraron piezas con medidas CAD en este BOM.")
-                  else
-                    Flexible(
-                      child: ListView.builder(
-                        shrinkWrap: true,
-                        itemCount: resultados.keys.length,
-                        itemBuilder: (context, idx) {
-                          String paramMaterial = resultados.keys.elementAt(idx);
-                          var data = resultados[paramMaterial];
-                          double areaTotal = (data['area_total_mm2'] ?? 0).toDouble();
-                          int numPiezas = data['piezas_involucradas'] ?? 0;
-                          
-                          double factor = 1 + (margenDesperdicio / 100);
-                          double placasNecesarias = areaPlaca > 0 ? (areaTotal * factor) / areaPlaca : 0;
-                          
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 6.0),
-                            child: Card(
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(paramMaterial, style: const TextStyle(fontWeight: FontWeight.w600)),
-                                      // Contador de piezas eliminado por solicitud de usuario
-                                      // Text("$numPiezas piezas agrupadas", style: const TextStyle(fontSize: 12)),
-                                    ],
-                                  ),
-                                  Text(
-                                    "${placasNecesarias.toStringAsFixed(2)} Placas necesarias",
-                                    style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            actions: [
-              Button(
-                child: const Text("Cerrar"),
-                onPressed: () => Navigator.pop(context),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
 
   List<TreeViewItem> _buildTreeItems() {
     final bool isAprobada =
@@ -1752,6 +1664,464 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     );
   }
 
+  // === AUDITORÍA DE PLANOS DXF/PDF ===
+  Future<void> _buscarPlanos() async {
+    final List<String> codigos = _bomPlana
+        .where((r) => (r['nivel'] as num).toInt() == 3)
+        .map<String>((r) => r['codigo_pieza']?.toString() ?? '')
+        .where((c) => c.isNotEmpty)
+        .toSet()
+        .toList();
+
+    if (codigos.isEmpty) {
+      _showError("No hay piezas (Nivel 3) en la Vista Plana para auditar.");
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    try {
+      final response = await http.post(
+        Uri.parse('$API_URL/api/bom/buscar_planos'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'codigos': codigos}),
+      );
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        _showAuditoriaPlanosDialog(data);
+      } else {
+        _showError("Error al buscar planos: ${response.statusCode}");
+      }
+    } catch (e) {
+      _showError("Error de conexión: $e");
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  void _showAuditoriaPlanosDialog(Map<String, dynamic> data) {
+    final List encontrados = data['encontrados'] as List? ?? [];
+    final List faltantes = data['faltantes'] as List? ?? [];
+    final bool isDark =
+        MediaQuery.of(context).platformBrightness == Brightness.dark;
+    final Color textColor = isDark ? Colors.white : Colors.black;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => ContentDialog(
+        constraints: const BoxConstraints(maxWidth: 560, maxHeight: 600),
+        title: Row(
+          children: [
+            Icon(FluentIcons.document_search, size: 18, color: _accentColor),
+            const SizedBox(width: 8),
+            const Text("Auditoría de Planos DXF / PDF"),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Resumen
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: _accentColor.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _auditChip(
+                      "${encontrados.length}",
+                      "Encontrados",
+                      const Color(0xFF2E7D32),
+                      isDark,
+                    ),
+                    _auditChip(
+                      "${faltantes.length}",
+                      "Faltantes",
+                      Colors.red,
+                      isDark,
+                    ),
+                    _auditChip(
+                      "${encontrados.length + faltantes.length}",
+                      "Total",
+                      _accentColor,
+                      isDark,
+                    ),
+                  ],
+                ),
+              ),
+              if (encontrados.isNotEmpty) ...[
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    const Icon(FluentIcons.check_mark, size: 14,
+                        color: Color(0xFF2E7D32)),
+                    const SizedBox(width: 6),
+                    Text("ENCONTRADOS (${encontrados.length})",
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                            color: Color(0xFF2E7D32))),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                ...encontrados.map((e) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Row(
+                        children: [
+                          const SizedBox(width: 20),
+                          Expanded(
+                            flex: 2,
+                            child: Text(
+                              e['codigo']?.toString() ?? '',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 12,
+                                  color: textColor),
+                            ),
+                          ),
+                          Expanded(
+                            flex: 3,
+                            child: Text(
+                              e['archivo']?.toString() ?? '',
+                              style: const TextStyle(
+                                  fontSize: 11,
+                                  color: Color(0xFF388E3C)),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )),
+              ],
+              if (faltantes.isNotEmpty) ...[
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Icon(FluentIcons.error_badge, size: 14, color: Colors.red),
+                    const SizedBox(width: 6),
+                    Text("FALTANTES (${faltantes.length})",
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                            color: Colors.red)),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: faltantes
+                      .map((c) => Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: Colors.red.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(
+                                  color: Colors.red.withOpacity(0.4)),
+                            ),
+                            child: Text(
+                              c.toString(),
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  color: isDark
+                                      ? Colors.red.lighter
+                                      : Colors.red.darker,
+                                  fontWeight: FontWeight.w600),
+                            ),
+                          ))
+                      .toList(),
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          Button(
+            child: const Text("Cerrar"),
+            onPressed: () => Navigator.pop(ctx),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _auditChip(String valor, String label, Color color, bool isDark) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          valor,
+          style: TextStyle(
+              fontSize: 22, fontWeight: FontWeight.bold, color: color),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+              fontSize: 11,
+              color: isDark
+                  ? Colors.white.withOpacity(0.7)
+                  : Colors.black.withOpacity(0.55)),
+        ),
+      ],
+    );
+  }
+
+  // === VISTA PLANA ESTILO EXCEL ===
+  Widget _buildVistaPlanaExcel() {
+    final bool isDark =
+        MediaQuery.of(context).platformBrightness == Brightness.dark;
+    final Color textColor = isDark ? Colors.white : Colors.black;
+    final Color rowEven =
+        isDark ? const Color(0xFF242424) : Colors.white;
+    final Color rowOdd =
+        isDark ? const Color(0xFF2E2E2E) : const Color(0xFFF3F6FA);
+    final Color hdBg = _accentColor;
+    final Color borderColor =
+        isDark ? const Color(0xFF3C3C3C) : const Color(0xFFDDE1E6);
+    final Color lvl1Color = _accentColor;
+    final Color lvl2Color =
+        isDark ? const Color(0xFF90CAF9) : const Color(0xFF0D47A1);
+
+    const double wNivel = 80.0;
+    const double wCodigo = 210.0;
+    const double wDesc = 340.0;
+    const double wCant = 80.0;
+    const double wMat = 170.0;
+    const double totalWidth = wNivel + wCodigo + wDesc + wCant + wMat;
+
+    Widget headerCell(String label, double w) {
+      return Container(
+        width: w,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        decoration: BoxDecoration(
+          color: hdBg,
+          border: Border(
+            right: BorderSide(
+              color: Colors.white.withOpacity(0.25),
+              width: 0.5,
+            ),
+          ),
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 11,
+            letterSpacing: 0.4,
+          ),
+        ),
+      );
+    }
+
+    Widget dataCell(
+      String text,
+      double w, {
+      bool isNumber = false,
+      Color? colorOverride,
+      FontWeight fontWeight = FontWeight.normal,
+      bool tooltip = false,
+    }) {
+      final txt = Text(
+        text,
+        style: TextStyle(
+          color: colorOverride ?? textColor,
+          fontSize: 12,
+          fontWeight: fontWeight,
+        ),
+        textAlign: isNumber ? TextAlign.center : TextAlign.start,
+        overflow: TextOverflow.ellipsis,
+        maxLines: 1,
+      );
+      return Container(
+        width: w,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        decoration: BoxDecoration(
+          border: Border(
+            right: BorderSide(color: borderColor, width: 0.5),
+          ),
+        ),
+        child: tooltip && text.length > 35
+            ? Tooltip(message: text, child: txt)
+            : txt,
+      );
+    }
+
+    if (_isLoading && _bomPlana.isEmpty) {
+      return const Center(child: ProgressRing());
+    }
+
+    if (_bomPlana.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(FluentIcons.table, size: 48, color: Colors.grey),
+            const SizedBox(height: 12),
+            Text(
+              _selectedRevision == null
+                  ? "Selecciona una revisión para ver la Vista Plana."
+                  : "No hay datos para mostrar en esta revisión.",
+              style: TextStyle(color: textColor, fontSize: 13),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final int totalPiezas =
+        _bomPlana.where((r) => (r['nivel'] as num).toInt() == 3).length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // ─── Título compacto + botón auditoría ───
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8.0),
+          child: Row(
+            children: [
+              Icon(FluentIcons.table, size: 14, color: _accentColor),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  "Vista Plana — Rev. ${_selectedRevision?['numero_revision'] ?? '-'}"
+                  "  ·  $totalPiezas piezas",
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: textColor,
+                  ),
+                ),
+              ),
+              Tooltip(
+                message: "Verifica si existen planos DXF/PDF para cada pieza",
+                child: Button(
+                  onPressed: _isLoading ? null : _buscarPlanos,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(FluentIcons.document_search,
+                          size: 13, color: _accentColor),
+                      const SizedBox(width: 5),
+                      const Text("Auditar Planos",
+                          style: TextStyle(fontSize: 12)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        // ─── Tabla con doble scroll ───
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SizedBox(
+              width: totalWidth,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header fijo
+                  Container(
+                    decoration: BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(color: borderColor, width: 1.5),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        headerCell("Nivel", wNivel),
+                        headerCell("Código", wCodigo),
+                        headerCell("Descripción", wDesc),
+                        headerCell("Cantidad", wCant),
+                        headerCell("Material", wMat),
+                      ],
+                    ),
+                  ),
+                  // Filas virtualizadas
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: _bomPlana.length,
+                      itemBuilder: (context, index) {
+                        final row = _bomPlana[index];
+                        final int nivel = (row['nivel'] as num).toInt();
+                        final bool isOdd = index.isOdd;
+
+                        Color? rowTextOverride;
+                        FontWeight fw = FontWeight.normal;
+                        String nivelLabel;
+
+                        if (nivel == 1) {
+                          rowTextOverride = lvl1Color;
+                          fw = FontWeight.bold;
+                          nivelLabel = "▶ EST";
+                        } else if (nivel == 2) {
+                          rowTextOverride = lvl2Color;
+                          fw = FontWeight.w600;
+                          nivelLabel = "  ▸ ENS";
+                        } else {
+                          nivelLabel = "      PIE";
+                        }
+
+                        final cantStr = row['cantidad'] != null
+                            ? (row['cantidad'] as num)
+                                .toStringAsFixed(2)
+                                .replaceAll(RegExp(r'\.?0+$'), '')
+                            : '';
+
+                        return Container(
+                          decoration: BoxDecoration(
+                            color: isOdd ? rowOdd : rowEven,
+                            border: Border(
+                              bottom: BorderSide(
+                                color: borderColor,
+                                width: 0.5,
+                              ),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              dataCell(
+                                nivelLabel,
+                                wNivel,
+                                isNumber: true,
+                                colorOverride: rowTextOverride,
+                                fontWeight: fw,
+                              ),
+                              dataCell(
+                                row['codigo_pieza']?.toString() ?? '',
+                                wCodigo,
+                                colorOverride: rowTextOverride,
+                                fontWeight: fw,
+                              ),
+                              dataCell(
+                                row['descripcion']?.toString() ?? '',
+                                wDesc,
+                                tooltip: true,
+                              ),
+                              dataCell(cantStr, wCant, isNumber: true),
+                              dataCell(
+                                row['material']?.toString() ?? '',
+                                wMat,
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   // === v60.0: HORIZONTAL STEPPER DE REVISIONES ===
   Widget _buildRevisionStepper() {
     if (_revisiones.isEmpty) {
@@ -1791,6 +2161,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                 setState(() => _selectedRevision = rev);
                 _fetchArbol();
                 _fetchVINs();
+                if (_vistaPlana) _fetchBomPlana();
               },
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
@@ -1936,6 +2307,30 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                                         ? null
                                         : _showDeleteRevisionDialog,
                               ),
+                              CommandBarButton(
+                                icon: Icon(
+                                  _vistaPlana
+                                      ? FluentIcons.check_list
+                                      : FluentIcons.table,
+                                  color:
+                                      _vistaPlana
+                                          ? _accentColor
+                                          : const Color(0xFF757575),
+                                ),
+                                label: Text(
+                                  _vistaPlana ? "Vista Árbol" : "Vista Plana",
+                                ),
+                                onPressed:
+                                    _selectedRevision == null
+                                        ? null
+                                        : () {
+                                          final entering = !_vistaPlana;
+                                          setState(
+                                            () => _vistaPlana = entering,
+                                          );
+                                          if (entering) _fetchBomPlana();
+                                        },
+                              ),
                             ],
                             secondaryItems: [
                               CommandBarButton(
@@ -1960,14 +2355,6 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                                         ? null
                                         : _showVINManagementDialog,
                               ),
-                              CommandBarButton(
-                                icon: Icon(FluentIcons.calculator, color: Colors.purple),
-                                label: Tooltip(
-                                  message: "Calcula los requerimientos de materia prima únicamente para esta Lista de Materiales (Función de Backend deshabilitada por ahora).",
-                                  child: Text("Calcular MP"),
-                                ),
-                                onPressed: _selectedRevision == null ? null : _showCalculadorDialog,
-                              ),
                               const CommandBarSeparator(),
                               CommandBarButton(
                                 icon: const Icon(FluentIcons.download),
@@ -1989,6 +2376,18 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                                         ? null
                                         : _showClonarDialog,
                               ),
+                              const CommandBarSeparator(),
+                              CommandBarButton(
+                                icon: Icon(
+                                  FluentIcons.search,
+                                  color: _accentColor,
+                                ),
+                                label: const Text("Auditar Planos (Radar)"),
+                                onPressed:
+                                    (_selectedRevision == null || _isLoading)
+                                        ? null
+                                        : _buscarPlanos,
+                              ),
                             ],
                           ),
                         ),
@@ -1999,7 +2398,12 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                   const SizedBox(height: 8),
                   // ─── ZONA PRINCIPAL: ocupa todo el espacio restante ─────
                   Expanded(
-                    child: Row(
+                    child: _vistaPlana
+                        ? Card(
+                            padding: const EdgeInsets.all(12),
+                            child: _buildVistaPlanaExcel(),
+                          )
+                        : Row(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         // Panel izquierdo: TreeView de ensambles

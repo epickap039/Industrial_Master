@@ -344,7 +344,14 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
                       style: TextStyle(
                         fontWeight: FontWeight.w700,
                         fontSize: 13,
-                        color: isEnabled ? Colors.blue : Colors.grey[100],
+                        color: isEnabled
+                            ? Colors.blue
+                            : (FluentTheme.of(context).typography.body?.color ??
+                                    (MediaQuery.of(context).platformBrightness ==
+                                            Brightness.dark
+                                        ? Colors.white
+                                        : Colors.black))
+                                .withOpacity(0.4),
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -393,7 +400,6 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
                                             ? FontWeight.w600
                                             : FontWeight.normal,
                                     fontSize: 14,
-                                    color: MediaQuery.of(context).platformBrightness == Brightness.dark ? Colors.white : Colors.black,
                                   ),
                                 ),
                                 onPressed: () => onSelect(item),
@@ -426,10 +432,10 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
               "Configura la taxonomía de los proyectos en 4 niveles conceptuales: Tractos / Proyectos → Tipo de Proyecto → Versión → Cliente. "
               "Selecciona un Tracto para ver sus Tipos, etc.",
-              style: TextStyle(color: Colors.grey),
+              style: const TextStyle(fontSize: 14),
             ),
             const SizedBox(height: 20),
             if (_isLoading) const ProgressBar(),

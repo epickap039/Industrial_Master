@@ -1642,26 +1642,43 @@ def update_vin_notas(id_unidad: int, payload: VINPayload, x_usuario: Optional[st
 # === Endpoint para REEMPLAZAR notas completas (usado al borrar una nota) ===
 @app.put("/api/vins/{id_unidad}/notas_reemplazar")
 def replace_vin_notas(id_unidad: int, payload: NotasReplacePayload, x_usuario: Optional[str] = Header(None)):
-    """Sobrescribe el campo Observaciones con el texto completo enviado."""
+    """Sobrescribe Observaciones de la unidad indicada estrictamente por PK (ID_Unidad)."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
         texto_completo = payload.observaciones if payload.observaciones is not None else (payload.notas or "")
         usuario_real = x_usuario if x_usuario else "Operador"
+
+        # Obtener Serie antes del UPDATE para usar en auditoría
+        cursor.execute("SELECT Serie FROM Tbl_Unidades_Fisicas WHERE ID_Unidad = ?", (id_unidad,))
+        vin_row = cursor.fetchone()
+        serie_label = f"VIN-{vin_row.Serie}" if vin_row else f"VIN-ID{id_unidad}"
+
+        # Aislamiento estricto: WHERE por PK, nunca por Serie para evitar cruces
         cursor.execute(
             "UPDATE Tbl_Unidades_Fisicas SET Observaciones = ? WHERE ID_Unidad = ?",
-            (texto_completo, id_unidad)
+            (texto_completo, id_unidad),
         )
         conn.commit()
-        # === Auditoría con columnas reales de Tbl_Auditoria_Cambios ===
+
         try:
             conn2 = get_db_connection()
             cur2 = conn2.cursor()
             cur2.execute(
-                "INSERT INTO Tbl_Auditoria_Cambios (Codigo_Pieza, Accion, Valor_Anterior, Valor_Nuevo, Usuario) "
+                "INSERT INTO Tbl_Auditoria_Cambios "
+                "(Codigo_Pieza, Accion, Valor_Anterior, Valor_Nuevo, Usuario) "
                 "VALUES (?, ?, ?, ?, ?)",
-                (f"VIN-{id_unidad}", 'Borrar Nota', None, f"Nota eliminada del historial VIN {id_unidad}", usuario_real)
+                (serie_label, "Borrar Nota", None,
+                 f"Nota eliminada del historial {serie_label}", usuario_real),
             )
+            cur2.execute(
+                "SELECT ID_Revision FROM Tbl_Unidades_Fisicas WHERE ID_Unidad = ?",
+                (id_unidad,),
+            )
+            rev_row = cur2.fetchone()
+            if rev_row:
+                registrar_log(cur2, rev_row.ID_Revision, "VIN_NOTA_BORRADA",
+                              f"{serie_label}: nota eliminada.")
             conn2.commit()
             conn2.close()
         except Exception:
@@ -1749,47 +1766,78 @@ def delete_vin(serie: str, payload: DeleteVinPayload, x_usuario: Optional[str] =
     finally:
         conn.close()
 
+def _next_codigo_ensamble_seq(cursor) -> list:
+    """
+    Devuelve una función generadora de códigos E-NNNN únicos.
+    Lee el MAX actual una sola vez y entrega un callable que incrementa.
+    """
+    cursor.execute(
+        "SELECT MAX(Codigo_Ensamble) FROM Tbl_Ensambles WHERE Codigo_Ensamble LIKE 'E-%'"
+    )
+    row = cursor.fetchone()
+    seq = 0
+    if row and row[0]:
+        try:
+            seq = int(row[0].split("-")[1]) + 1
+        except (ValueError, IndexError):
+            pass
+    counter = [seq]
+
+    def _next():
+        code = f"E-{counter[0]:04d}"
+        counter[0] += 1
+        return code
+
+    return _next
+
+
 @app.post("/api/bom/clonar")
 def clonar_bom(payload: ClonarPayload):
+    """Copia la estructura de una revisión origen EN una revisión destino ya existente."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # 1. Obtener estaciones del origen
-        cursor.execute("SELECT ID_Estacion, Nombre_Estacion, Orden FROM Tbl_Estaciones WHERE ID_Revision = ?", (payload.id_revision_origen,))
+        next_code = _next_codigo_ensamble_seq(cursor)
+
+        cursor.execute(
+            "SELECT ID_Estacion, Nombre_Estacion, Orden FROM Tbl_Estaciones WHERE ID_Revision = ?",
+            (payload.id_revision_origen,),
+        )
         estaciones = cursor.fetchall()
-        
+
         for est_orig in estaciones:
-            id_est_orig = est_orig.ID_Estacion
-            # Insertar nueva estación
             cursor.execute(
-                "INSERT INTO Tbl_Estaciones (ID_Revision, Nombre_Estacion, Orden) OUTPUT INSERTED.ID_Estacion VALUES (?, ?, ?)",
-                (payload.id_revision_destino, est_orig.Nombre_Estacion, est_orig.Orden)
+                "INSERT INTO Tbl_Estaciones (ID_Revision, Nombre_Estacion, Orden) "
+                "OUTPUT INSERTED.ID_Estacion VALUES (?, ?, ?)",
+                (payload.id_revision_destino, est_orig.Nombre_Estacion, est_orig.Orden),
             )
             id_est_dest = cursor.fetchone()[0]
-            
-            # 2. Obtener ensambles de la estación origen
-            cursor.execute("SELECT ID_Ensamble, Nombre_Ensamble FROM Tbl_Ensambles WHERE ID_Estacion = ?", (id_est_orig,))
-            ensambles = cursor.fetchall()
-            
-            for ens_orig in ensambles:
-                id_ens_orig = ens_orig.ID_Ensamble
-                # Insertar nuevo ensamble
+
+            cursor.execute(
+                "SELECT ID_Ensamble, Nombre_Ensamble FROM Tbl_Ensambles WHERE ID_Estacion = ?",
+                (est_orig.ID_Estacion,),
+            )
+            for ens_orig in cursor.fetchall():
                 cursor.execute(
-                    "INSERT INTO Tbl_Ensambles (ID_Estacion, Nombre_Ensamble) OUTPUT INSERTED.ID_Ensamble VALUES (?, ?)",
-                    (id_est_dest, ens_orig.Nombre_Ensamble)
+                    "INSERT INTO Tbl_Ensambles (ID_Estacion, Codigo_Ensamble, Nombre_Ensamble) "
+                    "OUTPUT INSERTED.ID_Ensamble VALUES (?, ?, ?)",
+                    (id_est_dest, next_code(), ens_orig.Nombre_Ensamble),
                 )
                 id_ens_dest = cursor.fetchone()[0]
-                
-                # 3. Obtener piezas del ensamble origen
-                cursor.execute("SELECT Codigo_Pieza, Cantidad, Observaciones FROM Tbl_BOM_Estructura WHERE ID_Ensamble = ?", (id_ens_orig,))
-                piezas = cursor.fetchall()
-                
-                for p in piezas:
+
+                cursor.execute(
+                    "SELECT Codigo_Pieza, Cantidad, Observaciones_Proceso "
+                    "FROM Tbl_BOM_Estructura WHERE ID_Ensamble = ?",
+                    (ens_orig.ID_Ensamble,),
+                )
+                for p in cursor.fetchall():
                     cursor.execute(
-                        "INSERT INTO Tbl_BOM_Estructura (ID_Ensamble, Codigo_Pieza, Cantidad, Observaciones) VALUES (?, ?, ?, ?)",
-                        (id_ens_dest, p.Codigo_Pieza, p.Cantidad, p.Observaciones)
+                        "INSERT INTO Tbl_BOM_Estructura "
+                        "(ID_Ensamble, Codigo_Pieza, Cantidad, Observaciones_Proceso) "
+                        "VALUES (?, ?, ?, ?)",
+                        (id_ens_dest, p.Codigo_Pieza, p.Cantidad, p.Observaciones_Proceso or ""),
                     )
-        
+
         conn.commit()
         return {"status": "success", "detalle": f"Clonadas {len(estaciones)} estaciones."}
     except Exception as e:
@@ -1797,6 +1845,166 @@ def clonar_bom(payload: ClonarPayload):
         raise HTTPException(status_code=500, detail=f"Error al clonar: {str(e)}")
     finally:
         conn.close()
+
+
+@app.post("/api/bom/clonar/{id_revision_origen}")
+def deep_copy_bom(id_revision_origen: int):
+    """
+    Deep Copy: crea una revisión nueva completa (Borrador) copiando toda la
+    jerarquía Estaciones → Ensambles → BOM_Estructura del origen.
+    Devuelve el nuevo ID_Revision y su Numero_Revision.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # 1. Verificar origen y obtener ID_Version
+        cursor.execute(
+            "SELECT ID_Version, Numero_Revision FROM Tbl_BOM_Revisiones WHERE ID_Revision = ?",
+            (id_revision_origen,),
+        )
+        origen = cursor.fetchone()
+        if not origen:
+            raise HTTPException(status_code=404, detail="Revisión origen no encontrada")
+        id_version = origen.ID_Version
+        num_rev_origen = origen.Numero_Revision
+
+        # 2. Calcular el siguiente número de revisión para esta versión
+        cursor.execute(
+            "SELECT ISNULL(MAX(Numero_Revision), -1) + 1 FROM Tbl_BOM_Revisiones WHERE ID_Version = ?",
+            (id_version,),
+        )
+        siguiente_rev = int(cursor.fetchone()[0])
+
+        # 3. Insertar nueva revisión en estado Borrador
+        cursor.execute(
+            "INSERT INTO Tbl_BOM_Revisiones (ID_Version, Numero_Revision, Estado) "
+            "OUTPUT INSERTED.ID_Revision VALUES (?, ?, 'Borrador')",
+            (id_version, siguiente_rev),
+        )
+        nuevo_id_revision = cursor.fetchone()[0]
+
+        # 4. Obtener generador de códigos únicos ANTES del loop
+        next_code = _next_codigo_ensamble_seq(cursor)
+
+        # 5. Clonar Estaciones con mapeo de IDs
+        cursor.execute(
+            "SELECT ID_Estacion, Nombre_Estacion, Orden FROM Tbl_Estaciones "
+            "WHERE ID_Revision = ? ORDER BY Orden",
+            (id_revision_origen,),
+        )
+        estaciones = cursor.fetchall()
+        total_piezas = 0
+
+        for est in estaciones:
+            cursor.execute(
+                "INSERT INTO Tbl_Estaciones (ID_Revision, Nombre_Estacion, Orden) "
+                "OUTPUT INSERTED.ID_Estacion VALUES (?, ?, ?)",
+                (nuevo_id_revision, est.Nombre_Estacion, est.Orden),
+            )
+            nuevo_id_estacion = cursor.fetchone()[0]
+
+            # 6. Clonar Ensambles de esta estación
+            cursor.execute(
+                "SELECT ID_Ensamble, Nombre_Ensamble FROM Tbl_Ensambles WHERE ID_Estacion = ?",
+                (est.ID_Estacion,),
+            )
+            ensambles = cursor.fetchall()
+
+            for ens in ensambles:
+                cursor.execute(
+                    "INSERT INTO Tbl_Ensambles (ID_Estacion, Codigo_Ensamble, Nombre_Ensamble) "
+                    "OUTPUT INSERTED.ID_Ensamble VALUES (?, ?, ?)",
+                    (nuevo_id_estacion, next_code(), ens.Nombre_Ensamble),
+                )
+                nuevo_id_ensamble = cursor.fetchone()[0]
+
+                # 6. Clonar piezas del ensamble
+                cursor.execute(
+                    "SELECT Codigo_Pieza, Cantidad, Observaciones_Proceso "
+                    "FROM Tbl_BOM_Estructura WHERE ID_Ensamble = ?",
+                    (ens.ID_Ensamble,),
+                )
+                piezas = cursor.fetchall()
+                total_piezas += len(piezas)
+
+                for p in piezas:
+                    cursor.execute(
+                        "INSERT INTO Tbl_BOM_Estructura "
+                        "(ID_Ensamble, Codigo_Pieza, Cantidad, Observaciones_Proceso) "
+                        "VALUES (?, ?, ?, ?)",
+                        (nuevo_id_ensamble, p.Codigo_Pieza, p.Cantidad, p.Observaciones_Proceso or ""),
+                    )
+
+        registrar_log(
+            cursor,
+            nuevo_id_revision,
+            "CLONAR_BOM",
+            f"Deep copy desde Rev {num_rev_origen} (ID {id_revision_origen}). "
+            f"{len(estaciones)} estaciones, {total_piezas} piezas.",
+        )
+        conn.commit()
+        return {
+            "nuevo_id_revision": nuevo_id_revision,
+            "numero_revision": siguiente_rev,
+            "estaciones_clonadas": len(estaciones),
+            "piezas_clonadas": total_piezas,
+        }
+    except HTTPException:
+        raise
+    except pyodbc.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error SQL al clonar BOM: {str(e)}")
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al clonar BOM: {str(e)}")
+    finally:
+        conn.close()
+
+# === BLOQUE 3: BUSCADOR DE PLANOS DXF/PDF ===
+RUTA_PLANOS = r"C:\Planos_Temporales"
+
+class BuscarPlanosPayload(BaseModel):
+    codigos: List[str]
+
+@app.post("/api/bom/buscar_planos")
+def buscar_planos(payload: BuscarPlanosPayload):
+    """
+    Auditoría de planos: verifica si existe un archivo .dxf o .pdf cuyo nombre
+    contenga el código de pieza dentro de RUTA_PLANOS.
+    Devuelve listas de encontrados y faltantes.
+    """
+    encontrados: list = []
+    faltantes: list = []
+
+    ruta = Path(RUTA_PLANOS)
+    if not ruta.exists():
+        # Si la carpeta base no existe, todos están faltantes
+        return {"encontrados": [], "faltantes": payload.codigos}
+
+    # Pre-escanear el directorio una sola vez para evitar N llamadas a os.listdir
+    try:
+        archivos_en_disco = [
+            f.name for f in ruta.iterdir()
+            if f.is_file() and f.suffix.lower() in (".dxf", ".pdf")
+        ]
+    except PermissionError:
+        raise HTTPException(status_code=500, detail="Sin permisos para leer RUTA_PLANOS")
+
+    for codigo in payload.codigos:
+        codigo_limpio = codigo.strip().upper()
+        if not codigo_limpio:
+            continue
+        coincidencia = next(
+            (a for a in archivos_en_disco if codigo_limpio in a.upper()),
+            None,
+        )
+        if coincidencia:
+            encontrados.append({"codigo": codigo_limpio, "archivo": coincidencia})
+        else:
+            faltantes.append(codigo_limpio)
+
+    return {"encontrados": encontrados, "faltantes": faltantes}
+
 
 @app.post("/api/bom/propagar")
 def propagar_cambios(payload: PropagarPayload):
@@ -2131,6 +2339,95 @@ def get_bom_arbol(id_revision: int):
         raise HTTPException(status_code=500, detail=f"Error interno en Árbol BOM: {str(e)}")
     finally:
         conn.close()
+
+@app.get("/api/bom/plana/{id_revision}")
+def get_bom_plana(id_revision: int):
+    """
+    Vista Plana: explosión jerárquica de la BOM mediante CTE de 3 niveles.
+    Nivel 1 = Estación (agrupador), Nivel 2 = Ensamble (sub-agrupador), Nivel 3 = Pieza.
+    La cantidad devuelta es la cantidad directa del ensamble (sin multiplicar hacia arriba,
+    ya que no hay cantidades en los niveles 1 y 2 de este esquema).
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            WITH Estaciones AS (
+                SELECT ID_Estacion, Nombre_Estacion, Orden
+                FROM   Tbl_Estaciones
+                WHERE  ID_Revision = ?
+            ),
+            Explosion AS (
+                -- Nivel 1: Estaciones (raíz de cada grupo)
+                SELECT
+                    1                                          AS Nivel,
+                    CAST(NULL AS NVARCHAR(200))                AS Codigo_Padre,
+                    CAST(ES.Nombre_Estacion AS NVARCHAR(200))  AS Codigo_Pieza,
+                    CAST(ES.Nombre_Estacion AS NVARCHAR(500))  AS Descripcion,
+                    CAST(NULL AS FLOAT)                        AS Cantidad,
+                    CAST(NULL AS NVARCHAR(200))                AS Material,
+                    ES.Orden  AS Sort1,
+                    0         AS Sort2,
+                    0         AS Sort3
+                FROM Estaciones ES
+
+                UNION ALL
+
+                -- Nivel 2: Ensambles
+                SELECT
+                    2,
+                    CAST(ES.Nombre_Estacion  AS NVARCHAR(200)),
+                    CAST(EN.Nombre_Ensamble  AS NVARCHAR(200)),
+                    CAST(EN.Nombre_Ensamble  AS NVARCHAR(500)),
+                    CAST(NULL AS FLOAT),
+                    CAST(NULL AS NVARCHAR(200)),
+                    ES.Orden,
+                    EN.ID_Ensamble,
+                    0
+                FROM Tbl_Ensambles EN
+                JOIN Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
+
+                UNION ALL
+
+                -- Nivel 3: Piezas con sus datos del catálogo maestro
+                SELECT
+                    3,
+                    CAST(EN.Nombre_Ensamble         AS NVARCHAR(200)),
+                    CAST(E.Codigo_Pieza             AS NVARCHAR(200)),
+                    CAST(ISNULL(M.Descripcion,'N/A') AS NVARCHAR(500)),
+                    CAST(E.Cantidad                 AS FLOAT),
+                    CAST(ISNULL(M.Material,'N/A')   AS NVARCHAR(200)),
+                    ES.Orden,
+                    EN.ID_Ensamble,
+                    E.ID_BOM
+                FROM Tbl_BOM_Estructura E
+                JOIN Tbl_Ensambles           EN ON E.ID_Ensamble   = EN.ID_Ensamble
+                JOIN Estaciones              ES ON EN.ID_Estacion  = ES.ID_Estacion
+                LEFT JOIN Tbl_Maestro_Piezas M  ON E.Codigo_Pieza  = M.Codigo_Pieza
+            )
+            SELECT Nivel, Codigo_Padre, Codigo_Pieza, Descripcion, Cantidad, Material
+            FROM   Explosion
+            ORDER BY Sort1, Sort2, Nivel, Sort3
+        """, (id_revision,))
+        rows = cursor.fetchall()
+        return [
+            {
+                "nivel":        int(r.Nivel),
+                "codigo_padre": r.Codigo_Padre  or "",
+                "codigo_pieza": r.Codigo_Pieza  or "",
+                "descripcion":  r.Descripcion   or "",
+                "cantidad":     float(r.Cantidad) if r.Cantidad is not None else None,
+                "material":     r.Material      or "",
+            }
+            for r in rows
+        ]
+    except pyodbc.Error as e:
+        raise HTTPException(status_code=500, detail=f"Error SQL en Vista Plana BOM: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error interno en Vista Plana BOM: {str(e)}")
+    finally:
+        conn.close()
+
 @app.post("/api/bom/importar/{id_revision}")
 async def importar_bom(id_revision: int, file: UploadFile = File(...)):
     if not file.filename.endswith(('.xls', '.xlsx')):
@@ -3415,10 +3712,11 @@ async def obtener_historial(busqueda: Optional[str] = None, limite: int = 50):
         params = [limite]
         
         if busqueda:
-            query += " WHERE Codigo_Pieza LIKE ? OR Usuario LIKE ? "
+            # Busca en código, usuario Y acción para que eventos VIN aparezcan
+            query += " WHERE Codigo_Pieza LIKE ? OR Usuario LIKE ? OR Accion LIKE ? "
             search_term = f"%{busqueda}%"
-            params.extend([search_term, search_term])
-            
+            params.extend([search_term, search_term, search_term])
+
         query += " ORDER BY Fecha_Hora DESC"
         
         cursor.execute(query, params)
