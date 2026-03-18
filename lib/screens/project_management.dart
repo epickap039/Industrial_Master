@@ -2,8 +2,9 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'bom_manager.dart';
+import '../config/app_config.dart';
 
-const String API_URL = "http://192.168.1.73:8001";
+const String API_URL = kApiBaseUrl;
 
 class ProjectManagementScreen extends StatefulWidget {
   const ProjectManagementScreen({Key? key}) : super(key: key);

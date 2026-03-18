@@ -8,7 +8,9 @@ import 'package:shared_preferences/shared_preferences.dart'; // === TAREA 2 ===
 import 'dart:io';
 import 'bom_manager.dart';
 
-const String API_URL = "http://192.168.1.73:8001";
+import '../config/app_config.dart';
+
+const String API_URL = kApiBaseUrl;
 
 class VINDossierScreen extends StatefulWidget {
   final Function(int idRevision)? onNavigateToBOM;

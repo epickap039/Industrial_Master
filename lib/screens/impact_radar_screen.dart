@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../theme/app_themes.dart';
+import '../config/app_config.dart';
 
 class ImpactRadarScreen extends StatefulWidget {
   const ImpactRadarScreen({super.key});
@@ -39,7 +40,7 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
     });
 
     try {
-      final response = await http.get(Uri.parse('http://192.168.1.73:8001/api/bom/where-used/$query'));
+      final response = await http.get(Uri.parse('$kApiBaseUrl/api/bom/where-used/$query'));
       
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);

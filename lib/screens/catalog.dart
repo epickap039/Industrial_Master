@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:excel/excel.dart' as excel_lib;
 import 'package:file_picker/file_picker.dart';
 import '../utils/excel_helper.dart';
+import '../config/app_config.dart';
 
 class CatalogScreen extends StatefulWidget {
   const CatalogScreen({super.key});
@@ -82,7 +83,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
 
     try {
       final response = await http.get(
-        Uri.parse('http://192.168.1.73:8001/api/catalog'),
+        Uri.parse('$kApiBaseUrl/api/catalog'),
       );
 
       if (response.statusCode == 200) {
@@ -364,7 +365,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
 
       // 3. Enviar al Backend
       final response = await http.put(
-        Uri.parse('http://192.168.1.73:8001/api/material/update'),
+        Uri.parse('$kApiBaseUrl/api/material/update'),
         headers: {'Content-Type': 'application/json'},
         body: json.encode(body),
       );
@@ -449,7 +450,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                 Navigator.pop(context);
                 try {
                   final response = await http.delete(
-                    Uri.parse('http://192.168.1.73:8001/api/catalog/$codigo'),
+                    Uri.parse('$kApiBaseUrl/api/catalog/$codigo'),
                   );
                   if (response.statusCode == 200) {
                     _fetchData();
@@ -925,7 +926,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                     
                     try {
                       final urlPath = Uri.encodeComponent(plainPath);
-                      final uri = Uri.parse('http://192.168.1.73:8001/api/dxf/search/${searchController.text.trim()}?base_path=$urlPath');
+                      final uri = Uri.parse('$kApiBaseUrl/api/dxf/search/${searchController.text.trim()}?base_path=$urlPath');
                       final req = await http.get(uri);
                       setStateDialog(() => isSearching = false);
                       if (req.statusCode == 200) {

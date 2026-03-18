@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
+import '../config/app_config.dart';
 
 class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
@@ -19,7 +20,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   Map<String, dynamic>? _dashboardData;
   String? _errorMessage;
 
-  final String _apiUrl = "http://192.168.1.73:8001";
+  // IDs de revisión que el usuario ha elegido excluir del análisis global
+  Set<String> _excludedRevisionIds = {};
+
+  final String _apiUrl = kApiBaseUrl;
   final _numFormat = NumberFormat('#,##0');
 
   @override
@@ -42,7 +46,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
       if (res.statusCode == 200) {
         final decoded = json.decode(res.body);
-        
+
+        // Conjunto para deduplicar: una versión con N clientes genera N filas
+        // en /api/mapa/jerarquia → filtramos por ID de revisión ya visto.
+        final seenIds = <String>{};
+
         if (decoded is List) {
           for (var tracto in decoded) {
             String tractoName = tracto['nombre'] ?? '';
@@ -59,11 +67,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                       for (var r in revisiones) {
                         final revId = r['id_revision']?.toString();
                         final revNum = r['numero_revision']?.toString() ?? '?';
-                        final cliente = r['cliente']?.toString() ?? 'General';
-                        if (revId != null) {
+                        final clientes = (r['clientes_afectados'] ?? r['cliente'] ?? 'Ingeniería Base (Sin clientes)').toString();
+                        if (revId != null && !seenIds.contains(revId)) {
+                          seenIds.add(revId);
                           safeRevisions.add({
                             'id': revId,
-                            'name': "$tractoName $tipoName ($cliente) - $nombreVersion REV $revNum",
+                            'name': "$tractoName $tipoName - $nombreVersion  Rev $revNum",
+                            'label_full': "$tractoName $tipoName - $nombreVersion  Rev $revNum  [$clientes]",
+                            'clientes': clientes,
                           });
                         }
                       }
@@ -108,7 +119,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     });
 
     try {
-      final res = await http.get(Uri.parse('$_apiUrl/api/analytics/dashboard/$_selectedRevisionId'));
+      String url = '$_apiUrl/api/analytics/dashboard/$_selectedRevisionId';
+      if (_excludedRevisionIds.isNotEmpty && _selectedRevisionId == 'global') {
+        url += '?exclude_ids=${_excludedRevisionIds.join(',')}';
+      }
+      final res = await http.get(Uri.parse(url));
       if (res.statusCode == 200) {
         if (mounted) {
           setState(() {
@@ -132,6 +147,151 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         });
       }
     }
+  }
+
+  void _showFilterDialog() {
+    // Snapshot mutable local — no mutamos el estado hasta que el usuario confirme
+    final tempExcluded = Set<String>.from(_excludedRevisionIds);
+    final filterable = _revisionsList.where((r) => r['id'] != 'global').toList();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) {
+          final excludedCount = filterable
+              .where((r) => tempExcluded.contains(r['id'].toString()))
+              .length;
+          return ContentDialog(
+            constraints: const BoxConstraints(maxWidth: 520, maxHeight: 600),
+            title: Row(
+              children: [
+                const Icon(FluentIcons.filter, size: 16),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Filtrar Proyectos de Analíticas',
+                    style: TextStyle(fontSize: 14),
+                  ),
+                ),
+                if (excludedCount > 0)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                          color: Colors.orange.withOpacity(0.5)),
+                    ),
+                    child: Text(
+                      '$excludedCount excluidos',
+                      style: TextStyle(
+                          fontSize: 11, color: Colors.orange.darker),
+                    ),
+                  ),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Acciones rápidas
+                Row(
+                  children: [
+                    Button(
+                      child: const Text('Incluir todos'),
+                      onPressed: () => setD(() => tempExcluded.clear()),
+                    ),
+                    const SizedBox(width: 8),
+                    Button(
+                      child: const Text('Excluir todos'),
+                      onPressed: () => setD(() => tempExcluded.addAll(
+                          filterable.map((r) => r['id'].toString()))),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                const Divider(),
+                const SizedBox(height: 6),
+                // Lista de checkboxes
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 380),
+                  child: filterable.isEmpty
+                      ? const Center(
+                          child: Text(
+                              'No hay proyectos disponibles.'))
+                      : ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: filterable.length,
+                          itemBuilder: (ctx, i) {
+                            final rev = filterable[i];
+                            final revId = rev['id'].toString();
+                            final isExcluded =
+                                tempExcluded.contains(revId);
+                            final clientes =
+                                rev['clientes'] as String? ?? '';
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  vertical: 2),
+                              child: Checkbox(
+                                checked: !isExcluded,
+                                onChanged: (v) => setD(() {
+                                  if (v == false) {
+                                    tempExcluded.add(revId);
+                                  } else {
+                                    tempExcluded.remove(revId);
+                                  }
+                                }),
+                                content: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      rev['name'] as String,
+                                      style: const TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w500),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    if (clientes.isNotEmpty &&
+                                        clientes !=
+                                            'Ingeniería Base (Sin clientes)')
+                                      Text(
+                                        clientes,
+                                        style: TextStyle(
+                                            fontSize: 10,
+                                            color: Colors.blue
+                                                .withOpacity(0.7),
+                                            fontStyle: FontStyle.italic),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+            actions: [
+              Button(
+                child: const Text('Cancelar'),
+                onPressed: () => Navigator.pop(ctx),
+              ),
+              FilledButton(
+                child: const Text('Aplicar Filtro'),
+                onPressed: () {
+                  setState(() => _excludedRevisionIds = tempExcluded);
+                  Navigator.pop(ctx);
+                  _fetchDashboardData();
+                },
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 
   @override
@@ -166,6 +326,43 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                       isExpanded: true,
                     ),
                   ),
+            // Botón filtrar (solo visible en modo global)
+            if (_selectedRevisionId == 'global')
+              Tooltip(
+                message: _excludedRevisionIds.isEmpty
+                    ? 'Filtrar proyectos del análisis'
+                    : '${_excludedRevisionIds.length} proyecto(s) excluido(s)',
+                child: Button(
+                  onPressed: _showFilterDialog,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        FluentIcons.filter,
+                        size: 14,
+                        color: _excludedRevisionIds.isNotEmpty
+                            ? Colors.orange
+                            : null,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        _excludedRevisionIds.isEmpty
+                            ? 'Filtrar'
+                            : 'Filtrar (${_excludedRevisionIds.length})',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: _excludedRevisionIds.isNotEmpty
+                              ? Colors.orange
+                              : null,
+                          fontWeight: _excludedRevisionIds.isNotEmpty
+                              ? FontWeight.bold
+                              : FontWeight.normal,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             IconButton(
               icon: const Icon(FluentIcons.refresh),
               onPressed: _fetchDashboardData,
@@ -219,6 +416,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     final total = salud['Validas'] + salud['Huerfanas'];
     final pct = total > 0 ? (salud['Validas'] / total * 100).toStringAsFixed(1) : "0";
     final sugerencia = _dashboardData!['sugerencia'] ?? "";
+    final totalVersiones = (_dashboardData!['total_versiones'] ?? 0) as int;
+    final totalUnidades  = (_dashboardData!['total_unidades']  ?? 0) as int;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -249,6 +448,24 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               color: isDark ? Colors.orange.lighter : Colors.orange.darker,
               isDark: isDark,
             ),
+            // ─── Ingeniería por Versión ───────────────────────────────
+            _kpiCard(
+              title: "Ingeniería por Versión",
+              value: "$totalVersiones",
+              icon: FluentIcons.fabric_folder,
+              color: isDark ? const Color(0xFFCE93D8) : const Color(0xFF6A1B9A),
+              isDark: isDark,
+              subtitle: "versiones activas",
+            ),
+            // ─── Producción por VIN ───────────────────────────────────
+            _kpiCard(
+              title: "Producción por VIN",
+              value: "$totalUnidades",
+              icon: FluentIcons.car,
+              color: isDark ? const Color(0xFF80CBC4) : const Color(0xFF00695C),
+              isDark: isDark,
+              subtitle: "unidades registradas",
+            ),
           ],
         ),
         if (sugerencia.isNotEmpty) ...[
@@ -278,7 +495,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
-  Widget _kpiCard({required String title, required String value, required IconData icon, required Color color, required bool isDark}) {
+  Widget _kpiCard({
+    required String title,
+    required String value,
+    required IconData icon,
+    required Color color,
+    required bool isDark,
+    String? subtitle,
+  }) {
     return Container(
       width: 250,
       padding: const EdgeInsets.all(20),
@@ -303,9 +527,29 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(title, style: TextStyle(fontSize: 13, color: isDark ? Colors.white.withValues(alpha: 0.6) : Colors.black.withValues(alpha: 0.6))),
+                Text(
+                  title,
+                  style: TextStyle(
+                      fontSize: 13,
+                      color: isDark
+                          ? Colors.white.withValues(alpha: 0.6)
+                          : Colors.black.withValues(alpha: 0.6)),
+                ),
                 const SizedBox(height: 4),
-                Text(value, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
+                Text(
+                  value,
+                  style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white : Colors.black),
+                ),
+                if (subtitle != null)
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                        fontSize: 11,
+                        color: color.withValues(alpha: 0.8)),
+                  ),
               ],
             ),
           ),

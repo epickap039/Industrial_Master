@@ -30,8 +30,9 @@ import 'package:pasteboard/pasteboard.dart';
 import 'package:flutter/services.dart';
 import 'theme/app_themes.dart';
 import 'screens/splash_screen.dart';
+import 'config/app_config.dart';
 
-const String API_URL = "http://192.168.1.73:8001";
+const String API_URL = kApiBaseUrl;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();

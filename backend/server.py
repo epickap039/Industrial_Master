@@ -133,14 +133,29 @@ def get_dashboard_kpis():
         validas = int(row.Piezas_Validas or 0)
         huerfanas = int(row.Piezas_Huerfanas or 0)
         total = validas + huerfanas
-        
+
         # 2. Cálculo de salud en Python
         salud_cad = (validas / total * 100.0) if total > 0 else 0.0
-        
+
+        # 3. Conteo de unidades físicas (VINs) registradas
+        cursor.execute("SELECT COUNT(*) AS Total FROM Tbl_Unidades_Fisicas")
+        row_u = cursor.fetchone()
+        total_unidades = int(row_u.Total or 0) if row_u else 0
+
+        # 4. Versiones de ingeniería únicas — COUNT(DISTINCT) para no inflar
+        #    cuando una versión tiene N listas de materiales o N clientes.
+        cursor.execute(
+            "SELECT COUNT(DISTINCT ID_Version) AS Total FROM Tbl_BOM_Revisiones"
+        )
+        row_v = cursor.fetchone()
+        total_versiones = int(row_v.Total or 0) if row_v else 0
+
         return {
-            "total_piezas": total,
+            "total_piezas":    total,
+            "total_unidades":  total_unidades,
+            "total_versiones": total_versiones,
             "merma_configurada": 15,
-            "salud_cad": round(salud_cad, 2)
+            "salud_cad": round(salud_cad, 2),
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -240,7 +255,8 @@ class ClientePayload(BaseModel):
 
 # === MODELOS BOM ===
 class RevisionPayload(BaseModel):
-    nombre_revision: str
+    nombre_revision: Optional[str] = None  # Ignorado: nombre se auto-genera
+    notas: Optional[str] = None
 
 class VINPayload(BaseModel):
     vin: str
@@ -255,6 +271,11 @@ class NotasReplacePayload(BaseModel):
 class DeleteVinPayload(BaseModel):
     password: str
     motivo: Optional[str] = None
+
+class BranchingPayload(BaseModel):
+    id_revision_origen: int
+    tipo_cambio: str                       # 'GLOBAL' | 'ESPECIFICO'
+    lista_clientes: Optional[List[int]] = None  # IDs para ESPECIFICO
 
 class BugReportPayload(BaseModel):
     usuario: str
@@ -483,7 +504,7 @@ def get_mapa_jerarquia():
                 TP.ID_Tipo, TP.Nombre_Tipo,
                 V.ID_Version, V.Nombre_Version,
                 R.ID_Revision, R.Numero_Revision, R.Estado, R.Fecha_Creacion,
-                ISNULL(C.Nombre_Cliente, 'General') AS Nombre_Cliente
+                ISNULL(C.Nombre_Cliente, 'Ingeniería Base (Sin clientes)') AS Nombre_Cliente
             FROM Tbl_Proyectos_Tracto TR
             JOIN Tbl_Tipos_Proyecto TP ON TP.ID_Tracto = TR.ID_Tracto
             JOIN Tbl_Versiones_Ingenieria V ON V.ID_Tipo = TP.ID_Tipo
@@ -547,7 +568,7 @@ def get_where_used(codigo_pieza: str):
                 V.Nombre_Version,
                 TP.Nombre_Tipo AS Proyecto,
                 TR.Nombre_Tracto AS Tracto,
-                ISNULL(C.Nombre_Cliente, 'General') AS Cliente
+                ISNULL(C.Nombre_Cliente, 'Ingeniería Base (Sin clientes)') AS Cliente
             FROM Tbl_BOM_Estructura E
             JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
             JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
@@ -600,7 +621,7 @@ def get_mrp_revisiones():
                     (SELECT STRING_AGG(C.Nombre_Cliente, ', ')
                      FROM Tbl_Clientes_Configuracion C
                      WHERE C.ID_Version = V.ID_Version),
-                    'General'
+                    'Ingeniería Base (Sin clientes)'
                 ) AS Clientes_Afectados
             FROM Tbl_BOM_Revisiones R
             JOIN Tbl_Versiones_Ingenieria V  ON R.ID_Version = V.ID_Version
@@ -616,7 +637,7 @@ def get_mrp_revisiones():
                 "nombre_version":      r.Nombre_Version      or "",
                 "numero_revision":     r.Numero_Revision,
                 "estado":              r.Estado              or "",
-                "clientes_afectados":  r.Clientes_Afectados  or "General",
+                "clientes_afectados":  r.Clientes_Afectados  or "Ingeniería Base (Sin clientes)",
             }
             for r in cursor.fetchall()
         ]
@@ -783,8 +804,9 @@ def calculate_mrp(id_revision: int):
         conn.close()
 
 @app.get("/api/analytics/dashboard/{id_revision}")
-def get_analytics_dashboard(id_revision: str):
+def get_analytics_dashboard(id_revision: str, exclude_ids: Optional[str] = None):
     """Obtiene métricas clave para el Dashboard de Analytics (Soporta 'global' o ID numérico).
+    exclude_ids: cadena CSV de IDs de revisión a excluir del cálculo global.
     AUDITADO (sin riesgo de producto cartesiano): las 4 sub-consultas (top_piezas,
     distribucion_material, salud_cad, distribucion_ensambles) sólo cruzan
     BOM_Estructura → Ensambles → Estaciones → Maestro_Piezas.
@@ -792,9 +814,21 @@ def get_analytics_dashboard(id_revision: str):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
+        # Parsear lista de exclusión (CSV de enteros)
+        excl_list: list[int] = []
+        if exclude_ids:
+            try:
+                excl_list = [int(x.strip()) for x in exclude_ids.split(',') if x.strip()]
+            except ValueError:
+                pass  # IDs malformados → se ignoran silenciosamente
+        excl_clause = (
+            f"AND ES.ID_Revision NOT IN ({','.join(str(i) for i in excl_list)})"
+            if excl_list else ""
+        )
+
         # Lógica dinámica: Si es 'global' se saltan los filtros de revisión
         where_clause = ""
-        params = []
+        where_clause_salud = ""
         if id_revision != 'global':
             try:
                 id_int = int(id_revision)
@@ -807,10 +841,15 @@ def get_analytics_dashboard(id_revision: str):
                             OR TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) > 0 
                             OR (TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) * TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Ancho_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT)) > 0
                         )
-                    )"""
-                where_clause_salud = f"WHERE ES.ID_Revision = {id_int}"
+                    ) {excl_clause}"""
+                where_clause_salud = f"WHERE ES.ID_Revision = {id_int} {excl_clause}"
             except ValueError:
                 raise HTTPException(status_code=400, detail="ID de revisión inválido")
+        else:
+            # Modo global: solo aplicar exclusiones si hay alguna
+            if excl_list:
+                where_clause      = f"WHERE 1=1 {excl_clause}"
+                where_clause_salud = f"WHERE 1=1 {excl_clause}"
 
         # 1. Top 10 Piezas
         cursor.execute(f"""
@@ -916,12 +955,39 @@ def get_analytics_dashboard(id_revision: str):
         if rows_ens and rows_ens[0].Nombre_Ensamble:
             sugerencia_texto = f"Sugerencia: El ensamble '{rows_ens[0].Nombre_Ensamble}' concentra la mayoría de piezas"
 
+        # 5. Conteo de listas de ingeniería únicas (por versión, no por cliente)
+        cursor.execute(
+            "SELECT COUNT(DISTINCT ID_Version) AS Total FROM Tbl_BOM_Revisiones"
+        )
+        row_v2 = cursor.fetchone()
+        total_versiones = int(row_v2.Total or 0) if row_v2 else 0
+
+        # 6. Conteo de unidades (VINs) — global o por revisión
+        if id_revision == 'global':
+            if excl_list:
+                excl_ph = ','.join(str(i) for i in excl_list)
+                cursor.execute(
+                    f"SELECT COUNT(*) AS Total FROM Tbl_Unidades_Fisicas "
+                    f"WHERE ID_Revision NOT IN ({excl_ph}) OR ID_Revision IS NULL"
+                )
+            else:
+                cursor.execute("SELECT COUNT(*) AS Total FROM Tbl_Unidades_Fisicas")
+        else:
+            cursor.execute(
+                "SELECT COUNT(*) AS Total FROM Tbl_Unidades_Fisicas WHERE ID_Revision = ?",
+                (id_int,),
+            )
+        row_u2 = cursor.fetchone()
+        total_unidades = int(row_u2.Total or 0) if row_u2 else 0
+
         return {
-            "top_piezas": top_piezas,
+            "top_piezas":            top_piezas,
             "distribucion_material": distribucion,
-            "salud_cad": salud_cad,
+            "salud_cad":             salud_cad,
             "distribucion_ensambles": ensambles,
-            "sugerencia": sugerencia_texto
+            "sugerencia":            sugerencia_texto,
+            "total_versiones":       total_versiones,
+            "total_unidades":        total_unidades,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1030,6 +1096,7 @@ def get_revisiones_por_version(id_version: int):
             """
             SELECT
                 R.ID_Revision,
+                R.ID_Version,
                 R.Numero_Revision,
                 R.Estado,
                 R.Fecha_Creacion,
@@ -1037,7 +1104,7 @@ def get_revisiones_por_version(id_version: int):
                     (SELECT STRING_AGG(C.Nombre_Cliente, ', ')
                      FROM Tbl_Clientes_Configuracion C
                      WHERE C.ID_Version = R.ID_Version),
-                    'General'
+                    'Ingeniería Base (Sin clientes)'
                 ) AS Clientes_Afectados
             FROM Tbl_BOM_Revisiones R
             WHERE R.ID_Version = ?
@@ -1049,10 +1116,11 @@ def get_revisiones_por_version(id_version: int):
         return [
             {
                 "id_revision":        r.ID_Revision,
+                "id_version":         r.ID_Version,
                 "numero_revision":    r.Numero_Revision,
                 "estado":             r.Estado,
                 "fecha_creacion":     r.Fecha_Creacion.isoformat() if r.Fecha_Creacion else None,
-                "clientes_afectados": r.Clientes_Afectados or "General",
+                "clientes_afectados": r.Clientes_Afectados or "Ingeniería Base (Sin clientes)",
             }
             for r in rows
         ]
@@ -1064,16 +1132,25 @@ def add_revision_version(id_version: int, payload: RevisionPayload):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT ISNULL(MAX(Numero_Revision), -1) + 1 FROM Tbl_BOM_Revisiones WHERE ID_Version = ?", (id_version,))
-        siguiente_rev = int(cursor.fetchone()[0])
         cursor.execute(
-            "INSERT INTO Tbl_BOM_Revisiones (ID_Version, Numero_Revision, Estado) OUTPUT INSERTED.ID_Revision VALUES (?, ?, 'Borrador')",
-            (id_version, siguiente_rev)
+            "SELECT ISNULL(MAX(Numero_Revision), -1) + 1 FROM Tbl_BOM_Revisiones WHERE ID_Version = ?",
+            (id_version,),
+        )
+        siguiente_rev = int(cursor.fetchone()[0])
+        # Nombre auto-generado "Revisión N"; notas se preservan en el log.
+        cursor.execute(
+            "INSERT INTO Tbl_BOM_Revisiones (ID_Version, Numero_Revision, Estado) "
+            "OUTPUT INSERTED.ID_Revision VALUES (?, ?, 'Borrador')",
+            (id_version, siguiente_rev),
         )
         id_rev = cursor.fetchone()[0]
-        registrar_log(cursor, id_rev, "Creación", f"Nueva Revisión {siguiente_rev} creada para Versión ID {id_version}")
+        notas_txt = f' | Anotaciones: "{payload.notas}"' if payload.notas else ""
+        registrar_log(
+            cursor, id_rev, "Creación",
+            f"Revisión {siguiente_rev} creada para Versión ID {id_version}{notas_txt}",
+        )
         conn.commit()
-        return {"status": "success", "id_revision": id_rev}
+        return {"status": "success", "id_revision": id_rev, "numero_revision": siguiente_rev}
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=f"Error creando revisión: {str(e)}")
@@ -1114,14 +1191,22 @@ def add_revision(id_cliente: int, payload: RevisionPayload):
         if not ver_row:
             raise HTTPException(status_code=404, detail="Cliente no encontrado")
         id_version = ver_row[0]
-        cursor.execute("SELECT ISNULL(MAX(Numero_Revision), -1) + 1 FROM Tbl_BOM_Revisiones WHERE ID_Version = ?", (id_version,))
+        cursor.execute(
+            "SELECT ISNULL(MAX(Numero_Revision), -1) + 1 FROM Tbl_BOM_Revisiones WHERE ID_Version = ?",
+            (id_version,),
+        )
         siguiente_rev = int(cursor.fetchone()[0])
         cursor.execute(
-            "INSERT INTO Tbl_BOM_Revisiones (ID_Version, Numero_Revision, Estado) OUTPUT INSERTED.ID_Revision VALUES (?, ?, 'Borrador')",
-            (id_version, siguiente_rev)
+            "INSERT INTO Tbl_BOM_Revisiones (ID_Version, Numero_Revision, Estado) "
+            "OUTPUT INSERTED.ID_Revision VALUES (?, ?, 'Borrador')",
+            (id_version, siguiente_rev),
         )
         id_rev = cursor.fetchone()[0]
-        registrar_log(cursor, id_rev, "Creación", f"Nueva Revisión {siguiente_rev} (vía cliente {id_cliente})")
+        notas_txt = f' | Anotaciones: "{payload.notas}"' if payload.notas else ""
+        registrar_log(
+            cursor, id_rev, "Creación",
+            f"Revisión {siguiente_rev}{notas_txt} (vía cliente {id_cliente})",
+        )
         conn.commit()
         return {"status": "success", "id_revision": id_rev}
     except Exception as e:
@@ -1135,10 +1220,42 @@ def aprobar_revision(id_revision: int):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("UPDATE Tbl_BOM_Revisiones SET Estado = 'Aprobada' WHERE ID_Revision = ?", (id_revision,))
-        if cursor.rowcount == 0:
+        # Obtener la versión para marcar las demás revisiones como OBSOLETO
+        cursor.execute(
+            "SELECT ID_Version, Numero_Revision FROM Tbl_BOM_Revisiones WHERE ID_Revision = ?",
+            (id_revision,),
+        )
+        row = cursor.fetchone()
+        if not row:
             raise HTTPException(status_code=404, detail="Revisión no encontrada")
-        registrar_log(cursor, id_revision, "APROBAR_REVISION", f"Revisión {id_revision} aprobada y bloqueada.")
+        id_version = row.ID_Version
+
+        # PASO 1: Primero desalojar cualquier revisión actualmente Aprobada
+        #         (garantiza exclusividad antes de crear el nuevo "verde")
+        cursor.execute(
+            "UPDATE Tbl_BOM_Revisiones SET Estado = 'OBSOLETO' "
+            "WHERE ID_Version = ? AND ID_Revision != ? AND Estado = 'Aprobada'",
+            (id_version, id_revision),
+        )
+        prev_aprobadas = cursor.rowcount
+
+        # PASO 2: Marcar todo lo demás también como OBSOLETO (Borradores huérfanos, etc.)
+        cursor.execute(
+            "UPDATE Tbl_BOM_Revisiones SET Estado = 'OBSOLETO' "
+            "WHERE ID_Version = ? AND ID_Revision != ? AND Estado != 'OBSOLETO'",
+            (id_version, id_revision),
+        )
+        obsoletas = prev_aprobadas + cursor.rowcount
+
+        # PASO 3: Aprobar — ahora sí, sin riesgo de dos verdes simultáneos
+        cursor.execute(
+            "UPDATE Tbl_BOM_Revisiones SET Estado = 'Aprobada' WHERE ID_Revision = ?",
+            (id_revision,),
+        )
+        registrar_log(
+            cursor, id_revision, "APROBAR_REVISION",
+            f"Revisión {id_revision} aprobada. {obsoletas} revisión(es) anterior(es) marcadas como OBSOLETO.",
+        )
         conn.commit()
         return {"status": "success"}
     finally:
@@ -1269,7 +1386,7 @@ def buscar_pieza_jerarquia(codigo_pieza: str, exclude_rev: Optional[int] = None)
                     (SELECT STRING_AGG(C.Nombre_Cliente, ', ')
                      FROM Tbl_Clientes_Configuracion C
                      WHERE C.ID_Version = V.ID_Version),
-                    'General'
+                    'Ingeniería Base (Sin clientes)'
                 ) AS Clientes_Afectados
             FROM Tbl_BOM_Estructura E
             JOIN Tbl_Ensambles           EN ON E.ID_Ensamble   = EN.ID_Ensamble
@@ -1593,7 +1710,7 @@ def buscar_vin(q: str):
                     (SELECT STRING_AGG(c2.Nombre_Cliente, ', ')
                      FROM Tbl_Clientes_Configuracion c2
                      WHERE c2.ID_Version = v.ID_Version),
-                    'General'
+                    'Ingeniería Base (Sin clientes)'
                 ) AS Nombre_Cliente
             FROM Tbl_Unidades_Fisicas u
             LEFT JOIN Tbl_BOM_Revisiones       r    ON u.ID_Revision      = r.ID_Revision
@@ -2093,50 +2210,267 @@ def deep_copy_bom(id_revision_origen: int):
     finally:
         conn.close()
 
+
+# ── Control de Cambios (ECR) ──────────────────────────────────────────────────
+@app.post("/api/bom/branching")
+def branching_ecr(payload: BranchingPayload):
+    """
+    Gatillo de Edición — PLM Change Control.
+
+    GLOBAL   : Crea Rev N+1 en la misma versión clonando toda la BOM. Estado: Borrador.
+    ESPECIFICO: Crea una nueva Versión de Ingeniería, mueve los clientes indicados
+                y clona la BOM como Revisión 0. Estado: Borrador.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # ── 1. Verificar origen ───────────────────────────────────────────────
+        cursor.execute(
+            "SELECT ID_Version, Numero_Revision, Estado "
+            "FROM Tbl_BOM_Revisiones WHERE ID_Revision = ?",
+            (payload.id_revision_origen,),
+        )
+        origen = cursor.fetchone()
+        if not origen:
+            raise HTTPException(status_code=404, detail="Revisión origen no encontrada.")
+        id_version_origen = origen.ID_Version
+        num_rev_origen    = origen.Numero_Revision
+
+        # ── 2. Crear la nueva revisión según tipo ─────────────────────────────
+        if payload.tipo_cambio == "GLOBAL":
+            cursor.execute(
+                "SELECT ISNULL(MAX(Numero_Revision), -1) + 1 FROM Tbl_BOM_Revisiones "
+                "WHERE ID_Version = ?",
+                (id_version_origen,),
+            )
+            siguiente_rev = int(cursor.fetchone()[0])
+            cursor.execute(
+                "INSERT INTO Tbl_BOM_Revisiones (ID_Version, Numero_Revision, Estado) "
+                "OUTPUT INSERTED.ID_Revision VALUES (?, ?, 'Borrador')",
+                (id_version_origen, siguiente_rev),
+            )
+            nuevo_id_revision = cursor.fetchone()[0]
+            id_version_nueva  = id_version_origen
+
+        elif payload.tipo_cambio == "ESPECIFICO":
+            if not payload.lista_clientes:
+                raise HTTPException(
+                    status_code=400,
+                    detail="lista_clientes es requerida para tipo_cambio ESPECIFICO.",
+                )
+            # Obtener ID_Tipo y nombre base de la versión origen
+            cursor.execute(
+                "SELECT ID_Tipo, Nombre_Version FROM Tbl_Versiones_Ingenieria "
+                "WHERE ID_Version = ?",
+                (id_version_origen,),
+            )
+            ver_orig = cursor.fetchone()
+            if not ver_orig:
+                raise HTTPException(status_code=404, detail="Versión origen no encontrada.")
+            id_tipo     = ver_orig.ID_Tipo
+            nombre_base = ver_orig.Nombre_Version
+
+            # Nombre único para la nueva versión
+            cursor.execute(
+                "SELECT COUNT(*) FROM Tbl_Versiones_Ingenieria "
+                "WHERE ID_Tipo = ? AND Nombre_Version LIKE ?",
+                (id_tipo, f"{nombre_base}-FORK%"),
+            )
+            fork_count = int(cursor.fetchone()[0]) + 1
+            nombre_fork = f"{nombre_base}-FORK{fork_count}"
+
+            cursor.execute(
+                "INSERT INTO Tbl_Versiones_Ingenieria (ID_Tipo, Nombre_Version) "
+                "OUTPUT INSERTED.ID_Version VALUES (?, ?)",
+                (id_tipo, nombre_fork),
+            )
+            id_version_nueva = cursor.fetchone()[0]
+
+            # Mover clientes seleccionados a la nueva versión
+            for id_cli in payload.lista_clientes:
+                cursor.execute(
+                    "UPDATE Tbl_Clientes_Configuracion SET ID_Version = ? "
+                    "WHERE ID_Config_Cliente = ?",
+                    (id_version_nueva, id_cli),
+                )
+
+            # Crear Revisión 0 en la nueva versión
+            cursor.execute(
+                "INSERT INTO Tbl_BOM_Revisiones (ID_Version, Numero_Revision, Estado) "
+                "OUTPUT INSERTED.ID_Revision VALUES (?, 0, 'Borrador')",
+                (id_version_nueva,),
+            )
+            nuevo_id_revision = cursor.fetchone()[0]
+            siguiente_rev     = 0
+
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="tipo_cambio debe ser 'GLOBAL' o 'ESPECIFICO'.",
+            )
+
+        # ── 3. Clonar estructura BOM ──────────────────────────────────────────
+        next_code = _next_codigo_ensamble_seq(cursor)
+
+        cursor.execute(
+            "SELECT ID_Estacion, Nombre_Estacion, Orden FROM Tbl_Estaciones "
+            "WHERE ID_Revision = ? ORDER BY Orden",
+            (payload.id_revision_origen,),
+        )
+        estaciones  = cursor.fetchall()
+        total_piezas = 0
+
+        for est in estaciones:
+            cursor.execute(
+                "INSERT INTO Tbl_Estaciones (ID_Revision, Nombre_Estacion, Orden) "
+                "OUTPUT INSERTED.ID_Estacion VALUES (?, ?, ?)",
+                (nuevo_id_revision, est.Nombre_Estacion, est.Orden),
+            )
+            nuevo_id_est = cursor.fetchone()[0]
+
+            cursor.execute(
+                "SELECT ID_Ensamble, Nombre_Ensamble FROM Tbl_Ensambles "
+                "WHERE ID_Estacion = ?",
+                (est.ID_Estacion,),
+            )
+            for ens in cursor.fetchall():
+                cursor.execute(
+                    "INSERT INTO Tbl_Ensambles (ID_Estacion, Codigo_Ensamble, Nombre_Ensamble) "
+                    "OUTPUT INSERTED.ID_Ensamble VALUES (?, ?, ?)",
+                    (nuevo_id_est, next_code(), ens.Nombre_Ensamble),
+                )
+                nuevo_id_ens = cursor.fetchone()[0]
+
+                cursor.execute(
+                    "SELECT Codigo_Pieza, Cantidad, Observaciones_Proceso "
+                    "FROM Tbl_BOM_Estructura WHERE ID_Ensamble = ?",
+                    (ens.ID_Ensamble,),
+                )
+                for p in cursor.fetchall():
+                    cursor.execute(
+                        "INSERT INTO Tbl_BOM_Estructura "
+                        "(ID_Ensamble, Codigo_Pieza, Cantidad, Observaciones_Proceso) "
+                        "VALUES (?, ?, ?, ?)",
+                        (nuevo_id_ens, p.Codigo_Pieza, p.Cantidad, p.Observaciones_Proceso or ""),
+                    )
+                    total_piezas += 1
+
+        registrar_log(
+            cursor, nuevo_id_revision, "ECR_BRANCHING",
+            f"Rama {payload.tipo_cambio} desde Rev {num_rev_origen} (ID {payload.id_revision_origen}). "
+            f"{len(estaciones)} estaciones, {total_piezas} piezas clonadas.",
+        )
+        conn.commit()
+        return {
+            "nuevo_id_revision": nuevo_id_revision,
+            "numero_revision":   siguiente_rev,
+            "id_version_nueva":  id_version_nueva,
+            "tipo_cambio":       payload.tipo_cambio,
+            "estaciones":        len(estaciones),
+            "piezas":            total_piezas,
+        }
+
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error en branching ECR: {str(e)}")
+    finally:
+        conn.close()
+
+
 # === BLOQUE 3: BUSCADOR DE PLANOS DXF/PDF ===
 RUTA_PLANOS = r"C:\Planos_Temporales"
 
+# Palabras clave (en minúsculas) en el nombre de una carpeta que la marcan como basura.
+# Se usa coincidencia de subcadena: si alguna de estas aparece en el nombre, se omite.
+_CARPETAS_BASURA = {"obsoleto", "0-obsoleto", "soleto", "el soleto"}
+_EXTENSIONES_PLANO = {".dxf", ".pdf"}
+
 class BuscarPlanosPayload(BaseModel):
     codigos: List[str]
+    ruta_base: str = ""   # Si se envía, tiene prioridad sobre RUTA_PLANOS
 
 @app.post("/api/bom/buscar_planos")
 def buscar_planos(payload: BuscarPlanosPayload):
     """
-    Auditoría de planos: verifica si existe un archivo .dxf o .pdf cuyo nombre
-    contenga el código de pieza dentro de RUTA_PLANOS.
-    Devuelve listas de encontrados y faltantes.
+    Auditoría de planos: búsqueda RECURSIVA de archivos .dxf/.pdf.
+
+    - Ignora carpetas cuyo nombre (en minúsculas) contenga palabras de _CARPETAS_BASURA.
+    - Si un código aparece en varios archivos, conserva el de fecha de modificación
+      más reciente (resolución de duplicados).
+    - BLINDADO: nunca lanza HTTP 500 por problemas de ruta o permisos.
     """
+    _safe_faltantes = [c.strip().upper() for c in payload.codigos if c.strip()]
+
+    ruta_str = payload.ruta_base.strip() if payload.ruta_base.strip() else RUTA_PLANOS
+
+    # ── Verificación defensiva de la ruta ────────────────────────────────────
+    if not os.path.exists(ruta_str):
+        return {
+            "encontrados": [],
+            "faltantes": _safe_faltantes,
+            "advertencia": f"Ruta no encontrada o inaccesible: {ruta_str}",
+        }
+
+    # ── Escaneo recursivo (una sola pasada) ───────────────────────────────────
+    # Construimos: lista de tuplas (nombre_upper, nombre_original, mtime)
+    # Modificar dirnames[:] en-lugar impide que os.walk descienda a carpetas basura.
+    archivos_en_disco: list = []   # (nombre_upper, nombre_original, mtime)
+    try:
+        for dirpath, dirnames, filenames in os.walk(ruta_str):
+            # Filtrar subcarpetas basura IN-PLACE ──────────────────────────────
+            dirnames[:] = [
+                d for d in dirnames
+                if not any(kw in d.lower() for kw in _CARPETAS_BASURA)
+            ]
+            for fname in filenames:
+                if os.path.splitext(fname)[1].lower() not in _EXTENSIONES_PLANO:
+                    continue
+                fpath = os.path.join(dirpath, fname)
+                try:
+                    mtime = os.path.getmtime(fpath)
+                except OSError:
+                    mtime = 0.0
+                archivos_en_disco.append((fname.upper(), fname, mtime))
+    except PermissionError:
+        return {
+            "encontrados": [],
+            "faltantes": _safe_faltantes,
+            "advertencia": f"Sin permisos para leer la ruta: {ruta_str}",
+        }
+    except OSError as exc:
+        return {
+            "encontrados": [],
+            "faltantes": _safe_faltantes,
+            "advertencia": f"Error de sistema al leer la ruta ({exc}): {ruta_str}",
+        }
+
+    # ── Matching de códigos con resolución de duplicados ─────────────────────
     encontrados: list = []
     faltantes: list = []
-
-    ruta = Path(RUTA_PLANOS)
-    if not ruta.exists():
-        # Si la carpeta base no existe, todos están faltantes
-        return {"encontrados": [], "faltantes": payload.codigos}
-
-    # Pre-escanear el directorio una sola vez para evitar N llamadas a os.listdir
-    try:
-        archivos_en_disco = [
-            f.name for f in ruta.iterdir()
-            if f.is_file() and f.suffix.lower() in (".dxf", ".pdf")
-        ]
-    except PermissionError:
-        raise HTTPException(status_code=500, detail="Sin permisos para leer RUTA_PLANOS")
 
     for codigo in payload.codigos:
         codigo_limpio = codigo.strip().upper()
         if not codigo_limpio:
             continue
-        coincidencia = next(
-            (a for a in archivos_en_disco if codigo_limpio in a.upper()),
-            None,
-        )
-        if coincidencia:
-            encontrados.append({"codigo": codigo_limpio, "archivo": coincidencia})
+
+        # Recoger TODAS las coincidencias (puede haber el mismo código en varias carpetas)
+        coincidencias = [
+            (nombre_orig, mtime)
+            for nombre_upper, nombre_orig, mtime in archivos_en_disco
+            if codigo_limpio in nombre_upper
+        ]
+
+        if coincidencias:
+            # Quedarse únicamente con el archivo más reciente
+            mejor_archivo, _ = max(coincidencias, key=lambda x: x[1])
+            encontrados.append({"codigo": codigo_limpio, "archivo": mejor_archivo})
         else:
             faltantes.append(codigo_limpio)
 
-    return {"encontrados": encontrados, "faltantes": faltantes}
+    return {"encontrados": encontrados, "faltantes": faltantes, "advertencia": None}
 
 
 @app.post("/api/bom/propagar")
@@ -2414,20 +2748,75 @@ def delete_bom_estructura(id_bom: int):
 class BOMPiezaUpdate(BaseModel):
     cantidad: float
 
-@app.put("/api/bom/piezas/{id_bom}")
-def update_bom_pieza(id_bom: int, payload: BOMPiezaUpdate):
+def _get_estado_revision_for_bom(cursor, id_bom: int) -> str:
+    """Devuelve el Estado de la revisión a la que pertenece un registro BOM."""
+    cursor.execute("""
+        SELECT R.Estado
+        FROM Tbl_BOM_Estructura E
+        JOIN Tbl_Ensambles     EN ON E.ID_Ensamble  = EN.ID_Ensamble
+        JOIN Tbl_Estaciones    ES ON EN.ID_Estacion = ES.ID_Estacion
+        JOIN Tbl_BOM_Revisiones R ON ES.ID_Revision = R.ID_Revision
+        WHERE E.ID_BOM = ?
+    """, (id_bom,))
+    row = cursor.fetchone()
+    return row.Estado if row else ""
+
+def _assert_bom_editable(cursor, id_bom: int):
+    """Lanza 403 si la revisión está bloqueada (Aprobada u OBSOLETO)."""
+    estado = _get_estado_revision_for_bom(cursor, id_bom)
+    if estado in ("Aprobada", "OBSOLETO"):
+        raise HTTPException(
+            status_code=403,
+            detail="No se puede editar una ingeniería bloqueada. Inicia un cambio ECR.",
+        )
+
+# Endpoint canónico utilizado por el frontend (alias del anterior)
+@app.put("/api/bom/estructura/cantidad/{id_bom}")
+def update_bom_cantidad(id_bom: int, payload: BOMPiezaUpdate):
+    """PUT canónico para actualizar cantidad de una pieza BOM.
+    Incluye verificación de estado: rechaza edición si la revisión está bloqueada."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Validación de la cantidad
         if payload.cantidad <= 0:
             raise HTTPException(status_code=400, detail="La cantidad debe ser mayor a 0.")
-            
-        cursor.execute("UPDATE Tbl_BOM_Estructura SET Cantidad = ? WHERE ID_BOM = ?", (payload.cantidad, id_bom))
+        _assert_bom_editable(cursor, id_bom)
+        cursor.execute(
+            "UPDATE Tbl_BOM_Estructura SET Cantidad = ? WHERE ID_BOM = ?",
+            (payload.cantidad, id_bom),
+        )
         if cursor.rowcount == 0:
             raise HTTPException(status_code=404, detail="Pieza de BOM no encontrada.")
         conn.commit()
         return {"status": "success"}
+    except HTTPException:
+        raise
+    except pyodbc.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error SQL al actualizar cantidad: {str(e)}")
+    finally:
+        conn.close()
+
+# Alias legacy — conserva compatibilidad si algo llama al endpoint antiguo
+@app.put("/api/bom/piezas/{id_bom}")
+def update_bom_pieza(id_bom: int, payload: BOMPiezaUpdate):
+    """Legacy: redirige a la misma lógica que update_bom_cantidad."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        if payload.cantidad <= 0:
+            raise HTTPException(status_code=400, detail="La cantidad debe ser mayor a 0.")
+        _assert_bom_editable(cursor, id_bom)
+        cursor.execute(
+            "UPDATE Tbl_BOM_Estructura SET Cantidad = ? WHERE ID_BOM = ?",
+            (payload.cantidad, id_bom),
+        )
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Pieza de BOM no encontrada.")
+        conn.commit()
+        return {"status": "success"}
+    except HTTPException:
+        raise
     except pyodbc.Error as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=f"Error SQL al actualizar la pieza: {str(e)}")
@@ -2517,6 +2906,7 @@ def get_bom_plana(id_revision: int):
                     CAST(ES.Nombre_Estacion AS NVARCHAR(500))  AS Descripcion,
                     CAST(NULL AS FLOAT)                        AS Cantidad,
                     CAST(NULL AS NVARCHAR(200))                AS Material,
+                    CAST(NULL AS NVARCHAR(800))                AS Procesos,
                     ES.Orden  AS Sort1,
                     0         AS Sort2,
                     0         AS Sort3
@@ -2532,6 +2922,7 @@ def get_bom_plana(id_revision: int):
                     CAST(EN.Nombre_Ensamble  AS NVARCHAR(500)),
                     CAST(NULL AS FLOAT),
                     CAST(NULL AS NVARCHAR(200)),
+                    CAST(NULL AS NVARCHAR(800)),
                     ES.Orden,
                     EN.ID_Ensamble,
                     0
@@ -2541,13 +2932,20 @@ def get_bom_plana(id_revision: int):
                 UNION ALL
 
                 -- Nivel 3: Piezas con sus datos del catálogo maestro
+                -- Procesos: concatenación de los 4 campos de proceso separados por '|'
                 SELECT
                     3,
-                    CAST(EN.Nombre_Ensamble         AS NVARCHAR(200)),
-                    CAST(E.Codigo_Pieza             AS NVARCHAR(200)),
+                    CAST(EN.Nombre_Ensamble          AS NVARCHAR(200)),
+                    CAST(E.Codigo_Pieza              AS NVARCHAR(200)),
                     CAST(ISNULL(M.Descripcion,'N/A') AS NVARCHAR(500)),
-                    CAST(E.Cantidad                 AS FLOAT),
-                    CAST(ISNULL(M.Material,'N/A')   AS NVARCHAR(200)),
+                    CAST(E.Cantidad                  AS FLOAT),
+                    CAST(ISNULL(M.Material,'N/A')    AS NVARCHAR(200)),
+                    CAST(
+                        ISNULL(M.Proceso_Primario,'') + '|' +
+                        ISNULL(M.Proceso_1,'')        + '|' +
+                        ISNULL(M.Proceso_2,'')        + '|' +
+                        ISNULL(M.Proceso_3,'')
+                    AS NVARCHAR(800))                AS Procesos,
                     ES.Orden,
                     EN.ID_Ensamble,
                     E.ID_BOM
@@ -2556,7 +2954,7 @@ def get_bom_plana(id_revision: int):
                 JOIN Estaciones              ES ON EN.ID_Estacion  = ES.ID_Estacion
                 LEFT JOIN Tbl_Maestro_Piezas M  ON E.Codigo_Pieza  = M.Codigo_Pieza
             )
-            SELECT Nivel, Codigo_Padre, Codigo_Pieza, Descripcion, Cantidad, Material
+            SELECT Nivel, Codigo_Padre, Codigo_Pieza, Descripcion, Cantidad, Material, Procesos
             FROM   Explosion
             ORDER BY Sort1, Sort2, Nivel, Sort3
         """, (id_revision,))
@@ -2569,6 +2967,7 @@ def get_bom_plana(id_revision: int):
                 "descripcion":  r.Descripcion   or "",
                 "cantidad":     float(r.Cantidad) if r.Cantidad is not None else None,
                 "material":     r.Material      or "",
+                "procesos":     r.Procesos      or "",
             }
             for r in rows
         ]

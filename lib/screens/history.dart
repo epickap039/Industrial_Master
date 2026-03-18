@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
+import '../config/app_config.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
@@ -30,7 +31,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     });
 
     try {
-      String url = 'http://192.168.1.73:8001/api/historial?limite=50';
+      String url = '$kApiBaseUrl/api/historial?limite=50';
       if (query != null && query.isNotEmpty) {
         url += '&busqueda=$query';
       }
@@ -216,7 +217,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     setState(() => _isLoading = true);
     try {
       final response = await http.get(
-        Uri.parse('http://192.168.1.73:8001/api/reportes/exportar_gemini'),
+        Uri.parse('$kApiBaseUrl/api/reportes/exportar_gemini'),
       );
       if (response.statusCode == 200) {
         final dir = await getDownloadsDirectory();

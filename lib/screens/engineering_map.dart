@@ -2,8 +2,9 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'bom_manager.dart';
+import '../config/app_config.dart';
 
-const String _API = "http://192.168.1.73:8001";
+const String _API = kApiBaseUrl;
 
 class EngineeringMapScreen extends StatefulWidget {
   final int? targetRevisionId;

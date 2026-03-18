@@ -5,10 +5,11 @@ import 'package:intl/intl.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:excel/excel.dart' as excel_lib;
 import '../utils/excel_helper.dart';
+import '../config/app_config.dart';
 
 import 'dart:io';
 
-const String _apiUrl = "http://192.168.1.73:8001";
+const String _apiUrl = kApiBaseUrl;
 
 class MRPScreen extends StatefulWidget {
   const MRPScreen({super.key});
@@ -352,7 +353,16 @@ class _MRPScreenState extends State<MRPScreen> {
                               _selectedRevisionClientes =
                                   (rev['clientes_afectados'] as String?)
                                       ?.trim();
+                              // Limpiar resultados del cálculo anterior
+                              _mrpData = [];
+                              _comercialesData = [];
+                              _orphanData = [];
+                              _errorMessage = null;
+                              _tabIndex = 0;
                             });
+                            // Auto-calcular sin esperar a que el usuario
+                            // presione el botón "Calcular Requerimiento"
+                            _calculateMRP();
                           },
                         ),
                         if (_selectedRevisionClientes != null &&

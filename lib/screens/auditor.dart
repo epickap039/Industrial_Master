@@ -5,6 +5,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:http/http.dart' as http;
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
+import '../config/app_config.dart';
 
 class AuditorScreen extends StatefulWidget {
   const AuditorScreen({super.key});
@@ -40,7 +41,7 @@ class _AuditorScreenState extends State<AuditorScreen> {
 
       var request = http.MultipartRequest(
         'POST',
-        Uri.parse('http://192.168.1.73:8001/api/excel/auditar'),
+        Uri.parse('$kApiBaseUrl/api/excel/auditar'),
       );
       request.files.add(await http.MultipartFile.fromPath('file', _filePath!));
 
@@ -96,7 +97,7 @@ class _AuditorScreenState extends State<AuditorScreen> {
     try {
       var request = http.MultipartRequest(
         'POST',
-        Uri.parse('http://192.168.1.73:8001/api/excel/corregir'),
+        Uri.parse('$kApiBaseUrl/api/excel/corregir'),
       );
 
       request.files.add(await http.MultipartFile.fromPath('file', _filePath!));
@@ -151,7 +152,7 @@ class _AuditorScreenState extends State<AuditorScreen> {
     if (_filePath == null) return;
     try {
       final response = await http.post(
-        Uri.parse('http://192.168.1.73:8001/api/system/open_file'),
+        Uri.parse('$kApiBaseUrl/api/system/open_file'),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({'path': _filePath}),
       );
@@ -168,7 +169,7 @@ class _AuditorScreenState extends State<AuditorScreen> {
     if (_detailedReport == null || _detailedReport!.isEmpty) return;
     try {
       final response = await http.post(
-        Uri.parse('http://192.168.1.73:8001/api/excel/exportar_reporte'),
+        Uri.parse('$kApiBaseUrl/api/excel/exportar_reporte'),
         headers: {'Content-Type': 'application/json'},
         body: json.encode(_detailedReport),
       );
@@ -215,7 +216,7 @@ class _AuditorScreenState extends State<AuditorScreen> {
   Future<void> _openLocalFile(String path) async {
     try {
       await http.post(
-        Uri.parse('http://192.168.1.73:8001/api/system/open_file'),
+        Uri.parse('$kApiBaseUrl/api/system/open_file'),
         body: json.encode({'path': path}),
         headers: {'Content-Type': 'application/json'},
       );

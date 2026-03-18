@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import '../config/app_config.dart';
 
 class LobbyScreen extends StatefulWidget {
   final Function(int) onNavigate;
@@ -24,9 +25,12 @@ class _LobbyScreenState extends State<LobbyScreen> {
   
   // Variables de Estado para KPIs
   int totalPiezas = 0;
+  int totalUnidades = 0;
+  int totalVersiones = 0;
   double saludCad = 0.0;
   int mermaConsolidada = 0;
   bool isLoadingKPI = true;
+  String? kpiError;
 
   @override
   void initState() {
@@ -48,23 +52,28 @@ class _LobbyScreenState extends State<LobbyScreen> {
   Future<void> _fetchKPIs() async {
     try {
       final response = await http.get(
-        Uri.parse('http://192.168.1.73:8001/api/dashboard/kpi'),
+        Uri.parse('$kApiBaseUrl/api/dashboard/kpi'),
       );
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         if (mounted) {
           setState(() {
-            totalPiezas = (data['total_piezas'] ?? 0).toInt();
-            saludCad = (data['salud_cad'] ?? 0.0).toDouble();
+            totalPiezas    = (data['total_piezas']    ?? 0).toInt();
+            totalUnidades  = (data['total_unidades']  ?? 0).toInt();
+            totalVersiones = (data['total_versiones'] ?? 0).toInt();
+            saludCad       = (data['salud_cad']       ?? 0.0).toDouble();
             mermaConsolidada = (data['merma_configurada'] ?? 15).toInt();
             isLoadingKPI = false;
           });
         }
       }
     } catch (e) {
-      print("Error fetching KPIs: $e");
+      debugPrint("Error fetching KPIs: $e");
       if (mounted) {
-        setState(() => isLoadingKPI = false);
+        setState(() {
+          isLoadingKPI = false;
+          kpiError = "Sin conexión con el servidor.\nVerifica que el backend esté activo en $kApiBaseUrl";
+        });
       }
     }
   }
@@ -109,6 +118,17 @@ class _LobbyScreenState extends State<LobbyScreen> {
             ),
             SizedBox(height: 24),
             
+            if (kpiError != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+                child: InfoBar(
+                  title: const Text('Backend no disponible'),
+                  content: Text(kpiError!),
+                  severity: InfoBarSeverity.warning,
+                  onClose: () => setState(() => kpiError = null),
+                ),
+              ),
+
             if (isLoadingKPI)
               Padding(
                 padding: EdgeInsets.symmetric(vertical: 40),
@@ -149,6 +169,20 @@ class _LobbyScreenState extends State<LobbyScreen> {
                     subtitle: 'Piezas Listas',
                     icon: FluentIcons.line_chart,
                     onTap: () => widget.onNavigate(15),
+                  ),
+                  _buildKPICard(
+                    title: 'Versiones de Ing.',
+                    value: totalVersiones.toString(),
+                    subtitle: 'Listas Únicas',
+                    icon: FluentIcons.fabric_folder,
+                    onTap: () => widget.onNavigate(13),
+                  ),
+                  _buildKPICard(
+                    title: 'VINs Producidos',
+                    value: totalUnidades.toString(),
+                    subtitle: 'Unidades Físicas',
+                    icon: FluentIcons.car,
+                    onTap: () => widget.onNavigate(14),
                   ),
                 ],
               ),
