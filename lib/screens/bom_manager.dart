@@ -52,6 +52,10 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
   List<dynamic> _bomPlana = [];
   bool _vistaPlana = false;
 
+  // Estado de guardado (indicador de cambios pendientes)
+  bool _hasPendingChanges = false;
+  DateTime? _lastSavedAt;
+
   // v60.0: determina el color de acento según el nombre del tracto
   Color get _accentColor {
     final t = (widget.tractoName ?? '').toUpperCase();
@@ -319,6 +323,26 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     );
   }
 
+  /// Abre el Auditor de Cambios (diff estilo Git) antes de aprobar la revisión.
+  void _showAprobarConfirmDialog() {
+    if (_selectedRevision == null) return;
+    final int idRev = _selectedRevision!['id_revision'] as int;
+    final String revNum =
+        (_selectedRevision!['numero_revision'] ?? '-').toString();
+    showDialog(
+      context: context,
+      builder: (ctx) => _DiffAuditorDialog(
+        idRevision: idRev,
+        revNum: revNum,
+        accentColor: _accentColor,
+        onConfirm: () {
+          Navigator.pop(ctx);
+          _aprobarRevision();
+        },
+      ),
+    );
+  }
+
   Future<void> _aprobarRevision() async {
     if (_selectedRevision == null) return;
     setState(() => _isLoading = true);
@@ -351,6 +375,8 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
       if (response.statusCode == 200) {
         setState(() {
           _arbol = json.decode(response.body);
+          _hasPendingChanges = false;
+          _lastSavedAt = DateTime.now();
           // Actualizar selectedEnsamble si es que se borró o cambió
           if (_selectedEnsamble != null) {
             bool found = false;
@@ -386,7 +412,11 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
         ),
       );
       if (response.statusCode == 200) {
-        setState(() => _bomPlana = json.decode(response.body));
+        setState(() {
+          _bomPlana = json.decode(response.body);
+          _hasPendingChanges = false;
+          _lastSavedAt = DateTime.now();
+        });
       } else {
         _showError("Error al cargar vista plana: ${response.statusCode}");
       }
@@ -605,6 +635,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
       );
       return;
     }
+    if (mounted) setState(() => _hasPendingChanges = true);
     try {
       final response = await http.put(
         Uri.parse('$API_URL/api/bom/estructura/cantidad/$idBom'),
@@ -2731,12 +2762,58 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                             primaryItems: [
                               // ── Botón ECR inteligente ──────────────────────
                               _ecrCommandBarItem,
+
+                              // ── 💾 Guardar Cambios (solo Borrador) ─────────
+                              if (_esEditable)
+                                CommandBarButton(
+                                  icon: Icon(
+                                    FluentIcons.save,
+                                    color: _hasPendingChanges
+                                        ? Colors.orange
+                                        : Colors.grey,
+                                  ),
+                                  label: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        _hasPendingChanges
+                                            ? 'Cambios sin guardar'
+                                            : 'Actualizado',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: _hasPendingChanges
+                                              ? Colors.orange
+                                              : Colors.grey,
+                                          fontWeight: _hasPendingChanges
+                                              ? FontWeight.bold
+                                              : FontWeight.normal,
+                                        ),
+                                      ),
+                                      if (_hasPendingChanges) ...[
+                                        const SizedBox(width: 4),
+                                        Container(
+                                          width: 7,
+                                          height: 7,
+                                          decoration: BoxDecoration(
+                                            color: Colors.orange,
+                                            shape: BoxShape.circle,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                  onPressed: _hasPendingChanges
+                                      ? () => _vistaPlana
+                                          ? _fetchBomPlana()
+                                          : _fetchArbol()
+                                      : null,
+                                ),
                               if (_esEditable)
                                 CommandBarButton(
                                   icon: Icon(FluentIcons.lock,
                                       color: Colors.green),
                                   label: const Text("Aprobar"),
-                                  onPressed: _aprobarRevision,
+                                  onPressed: _showAprobarConfirmDialog,
                                 ),
                               // ── Eliminar: sólo Borrador ────────────────────
                               if (_esEditable)
@@ -2830,6 +2907,48 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                     ),
                   ),
                   if (_isLoading) const ProgressBar(),
+
+                  // ── Banner MODO EDICIÓN (solo Borrador) ──────────────────
+                  if (_esEditable)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 3),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(colors: [
+                            _accentColor.withOpacity(0.18),
+                            _accentColor.withOpacity(0.06),
+                          ]),
+                          border: Border(
+                              left: BorderSide(color: _accentColor, width: 3)),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 5),
+                        child: Row(children: [
+                          Icon(FluentIcons.edit, size: 12,
+                              color: _accentColor),
+                          const SizedBox(width: 6),
+                          Text(
+                            'MODO EDICIÓN  ·  Confirma cantidades con Enter en cada celda.',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: _accentColor,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const Spacer(),
+                          if (_lastSavedAt != null)
+                            Text(
+                              'Sync '
+                              '${_lastSavedAt!.hour.toString().padLeft(2, "0")}:'
+                              '${_lastSavedAt!.minute.toString().padLeft(2, "0")}',
+                              style: TextStyle(
+                                  fontSize: 10,
+                                  color: _accentColor.withOpacity(0.7)),
+                            ),
+                        ]),
+                      ),
+                    ),
                   // ── InfoBar: Revisión APROBADA / OBSOLETA ─────────────
                   if (_esAprobada)
                     Padding(
@@ -3008,4 +3127,376 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
       ),
     );
   }
+}
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// _DiffAuditorDialog — Auditor de Cambios estilo Git/Cursor
+// Muestra el diff de la revisión actual vs la anterior antes de aprobar.
+// Tabla color-codificada: Verde=nuevo  Rojo=eliminado  Naranja=modificado
+// ════════════════════════════════════════════════════════════════════════════
+
+class _DiffAuditorDialog extends StatefulWidget {
+  final int          idRevision;
+  final String       revNum;
+  final Color        accentColor;
+  final VoidCallback onConfirm;
+
+  const _DiffAuditorDialog({
+    required this.idRevision,
+    required this.revNum,
+    required this.accentColor,
+    required this.onConfirm,
+  });
+
+  @override
+  State<_DiffAuditorDialog> createState() => _DiffAuditorDialogState();
+}
+
+class _DiffAuditorDialogState extends State<_DiffAuditorDialog> {
+  bool    _loading     = true;
+  String? _error;
+  List<_DiffRow> _rows = [];
+  int _cntNuevos       = 0;
+  int _cntEliminados   = 0;
+  int _cntModificados  = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDiff();
+  }
+
+  Future<void> _loadDiff() async {
+    try {
+      final respDelta = await http.get(
+        Uri.parse('$API_URL/api/bom/delta/${widget.idRevision}'),
+      );
+      if (respDelta.statusCode != 200) {
+        setState(() {
+          _error   = 'Error en delta: ${respDelta.statusCode}';
+          _loading = false;
+        });
+        return;
+      }
+      final delta = json.decode(respDelta.body) as Map<String, dynamic>;
+
+      if (delta['tiene_anterior'] != true) {
+        setState(() { _rows = []; _loading = false; });
+        return;
+      }
+
+      final List<String> nuevos =
+          List<String>.from(delta['codigos_nuevos']     as List? ?? []);
+      final List<String> eliminados =
+          List<String>.from(delta['codigos_eliminados'] as List? ?? []);
+      final Map<String, dynamic> modificados =
+          Map<String, dynamic>.from(delta['modificados'] as Map? ?? {});
+
+      final respPlana = await http.get(
+        Uri.parse('$API_URL/api/bom/plana/${widget.idRevision}'),
+      );
+      final Map<String, String> descMap = {};
+      final Map<String, double> cantMap = {};
+      if (respPlana.statusCode == 200) {
+        final plana = json.decode(respPlana.body) as List<dynamic>;
+        for (final row in plana) {
+          if ((row['nivel'] as num).toInt() == 3) {
+            final cod    = row['codigo_pieza']?.toString() ?? '';
+            descMap[cod] = row['descripcion']?.toString() ?? '';
+            cantMap[cod] = double.tryParse(row['cantidad']?.toString() ?? '') ?? 0.0;
+          }
+        }
+      }
+
+      final List<_DiffRow> rows = [];
+
+      for (final cod in nuevos) {
+        rows.add(_DiffRow(
+          tipo:         _DiffTipo.agregado,
+          codigo:       cod,
+          descripcion:  descMap[cod] ?? '',
+          cantAnterior: '',
+          cantActual:   _fmt(cantMap[cod] ?? 0.0),
+        ));
+      }
+      for (final cod in eliminados) {
+        final prev = (modificados[cod]?['prev_qty'] as num?)?.toDouble() ?? 0.0;
+        rows.add(_DiffRow(
+          tipo:         _DiffTipo.eliminado,
+          codigo:       cod,
+          descripcion:  '',
+          cantAnterior: _fmt(prev),
+          cantActual:   '--',
+        ));
+      }
+      for (final entry in modificados.entries) {
+        final cod  = entry.key;
+        final prev = double.tryParse(entry.value['prev_qty']?.toString() ?? '') ?? 0.0;
+        final curr = double.tryParse(entry.value['curr_qty']?.toString() ?? '') ?? 0.0;
+        if (prev == curr) continue;
+        rows.add(_DiffRow(
+          tipo:         _DiffTipo.modificado,
+          codigo:       cod,
+          descripcion:  descMap[cod] ?? '',
+          cantAnterior: _fmt(prev),
+          cantActual:   _fmt(curr),
+        ));
+      }
+
+      rows.sort((a, b) => a.tipo.index.compareTo(b.tipo.index));
+
+      setState(() {
+        _rows           = rows;
+        _cntNuevos      = rows.where((r) => r.tipo == _DiffTipo.agregado).length;
+        _cntEliminados  = rows.where((r) => r.tipo == _DiffTipo.eliminado).length;
+        _cntModificados = rows.where((r) => r.tipo == _DiffTipo.modificado).length;
+        _loading        = false;
+      });
+    } catch (e) {
+      setState(() { _error = 'Error: $e'; _loading = false; });
+    }
+  }
+
+  String _fmt(double v) {
+    if (v == v.truncateToDouble()) return v.toInt().toString();
+    return v.toStringAsFixed(2).replaceAll(RegExp(r'\.?0+$'), '');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isDark = FluentTheme.of(context).brightness == Brightness.dark;
+    final Color bg  = isDark ? const Color(0xFF1E1E2A) : Colors.white;
+    final Color tx  = isDark ? const Color(0xFFE8EAED) : const Color(0xFF1A1A2E);
+    final Color bdr = isDark ? const Color(0xFF3A3A4A) : const Color(0xFFDDE3EA);
+
+    const Color clrGreen    = Color(0xFF2E7D32);
+    const Color clrGreenBg  = Color(0x182E7D32);
+    const Color clrRed      = Color(0xFFC62828);
+    const Color clrRedBg    = Color(0x18C62828);
+    const Color clrOrange   = Color(0xFFE65100);
+    const Color clrOrangeBg = Color(0x18E65100);
+
+    const double wFlag  =   5.0;
+    const double wCod   = 130.0;
+    const double wDesc  = 260.0;
+    const double wPrev  =  90.0;
+    const double wCurr  =  90.0;
+    const double totalW = wFlag + wCod + wDesc + wPrev + wCurr;
+
+    Widget hCell(String label, double w, {TextAlign align = TextAlign.left}) {
+      return Container(
+        width: w,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+        decoration: BoxDecoration(
+          color: widget.accentColor,
+          border: Border(right: BorderSide(
+              color: Colors.white.withOpacity(0.15), width: 0.5)),
+        ),
+        child: Text(label,
+          style: const TextStyle(color: Colors.white,
+              fontWeight: FontWeight.bold, fontSize: 11, letterSpacing: 0.3),
+          textAlign: align, overflow: TextOverflow.ellipsis),
+      );
+    }
+
+    Widget dCell(String text, double w,
+        {Color? fg, FontWeight fw = FontWeight.normal,
+         bool mono = false, TextAlign align = TextAlign.left}) {
+      final txt = Text(text,
+        style: TextStyle(color: fg ?? tx, fontSize: 11, fontWeight: fw,
+            fontFamily: mono ? 'monospace' : null),
+        textAlign: align, overflow: TextOverflow.ellipsis, maxLines: 1);
+      return Container(
+        width: w,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        decoration: BoxDecoration(
+            border: Border(right: BorderSide(color: bdr, width: 0.5))),
+        child: text.length > 35 ? Tooltip(message: text, child: txt) : txt,
+      );
+    }
+
+    Widget badge(String label, int count, Color color) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.12),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: color.withOpacity(0.5)),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Container(width: 8, height: 8,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+          const SizedBox(width: 5),
+          Text('$count $label',
+              style: TextStyle(color: color, fontSize: 11,
+                  fontWeight: FontWeight.bold)),
+        ]),
+      );
+    }
+
+    return ContentDialog(
+      constraints: BoxConstraints(
+        maxWidth:  MediaQuery.of(context).size.width  * 0.82,
+        maxHeight: MediaQuery.of(context).size.height * 0.85,
+      ),
+      title: Row(children: [
+        Icon(FluentIcons.compare, size: 18, color: widget.accentColor),
+        const SizedBox(width: 8),
+        Expanded(child: Text(
+          'Auditor de Cambios — Rev. ${widget.revNum}',
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+          overflow: TextOverflow.ellipsis)),
+        if (!_loading && _error == null) ...[
+          const SizedBox(width: 8),
+          badge('Nuevas',      _cntNuevos,      clrGreen),
+          const SizedBox(width: 6),
+          badge('Eliminadas',  _cntEliminados,  clrRed),
+          const SizedBox(width: 6),
+          badge('Modificadas', _cntModificados, clrOrange),
+        ],
+      ]),
+      content: _loading
+          ? const Center(child: ProgressRing())
+          : _error != null
+              ? Center(child: Text(_error!,
+                  style: TextStyle(color: Colors.red)))
+              : _rows.isEmpty
+                  ? Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(FluentIcons.check_mark, size: 40, color: clrGreen),
+                      const SizedBox(height: 12),
+                      const Text('Sin diferencias detectadas.',
+                          style: TextStyle(fontSize: 15,
+                              fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 6),
+                      Text(
+                        'La revisión ${widget.revNum} es idéntica a la anterior.',
+                        style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                    ]))
+                  : Container(
+                      decoration: BoxDecoration(
+                          border: Border.all(color: bdr),
+                          borderRadius: BorderRadius.circular(6),
+                          color: bg),
+                      child: Column(children: [
+                        Row(children: [
+                          Container(width: wFlag, color: widget.accentColor),
+                          hCell('Código',        wCod),
+                          hCell('Descripción',   wDesc),
+                          hCell('Rev. Anterior', wPrev, align: TextAlign.center),
+                          hCell('Rev. Actual',   wCurr, align: TextAlign.center),
+                        ]),
+                        Expanded(child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: SizedBox(
+                            width: totalW,
+                            child: ListView.builder(
+                              itemCount: _rows.length,
+                              itemBuilder: (ctx, i) {
+                                final r = _rows[i];
+                                Color rowBg, flagClr, codeFg, qtyFg;
+                                String icon;
+                                switch (r.tipo) {
+                                  case _DiffTipo.agregado:
+                                    rowBg = clrGreenBg; flagClr = clrGreen;
+                                    codeFg = clrGreen; qtyFg = clrGreen; icon = '+';
+                                  case _DiffTipo.eliminado:
+                                    rowBg = clrRedBg; flagClr = clrRed;
+                                    codeFg = clrRed; qtyFg = clrRed; icon = '-';
+                                  case _DiffTipo.modificado:
+                                    rowBg = isDark ? const Color(0xFF1E1000) : clrOrangeBg;
+                                    flagClr = clrOrange; codeFg = clrOrange;
+                                    qtyFg = clrOrange; icon = '*';
+                                }
+                                return Container(
+                                  color: rowBg,
+                                  child: Row(children: [
+                                    Container(
+                                      width: wFlag, color: flagClr,
+                                      alignment: Alignment.center,
+                                      child: Text(icon, style: const TextStyle(
+                                          color: Colors.white, fontSize: 10,
+                                          fontWeight: FontWeight.bold)),
+                                    ),
+                                    dCell(r.codigo, wCod,
+                                        fg: codeFg, fw: FontWeight.w600, mono: true),
+                                    dCell(r.descripcion, wDesc,
+                                        fg: r.tipo == _DiffTipo.eliminado
+                                            ? clrRed.withOpacity(0.8) : null),
+                                    Container(
+                                      width: wPrev,
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 5),
+                                      decoration: BoxDecoration(border: Border(
+                                          right: BorderSide(color: bdr, width: 0.5))),
+                                      child: Text(r.cantAnterior,
+                                        style: TextStyle(
+                                          fontSize: 12, fontWeight: FontWeight.w600,
+                                          color: r.tipo == _DiffTipo.eliminado ? clrRed
+                                              : r.tipo == _DiffTipo.modificado
+                                                  ? clrOrange.withOpacity(0.7) : tx,
+                                          decoration: r.tipo == _DiffTipo.modificado
+                                              ? TextDecoration.lineThrough : null),
+                                        textAlign: TextAlign.center),
+                                    ),
+                                    Container(
+                                      width: wCurr,
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 5),
+                                      child: Text(r.cantActual,
+                                        style: TextStyle(fontSize: 12,
+                                            fontWeight: FontWeight.bold, color: qtyFg),
+                                        textAlign: TextAlign.center),
+                                    ),
+                                  ]),
+                                );
+                              },
+                            ),
+                          ),
+                        )),
+                      ]),
+                    ),
+      actions: [
+        Button(
+          child: const Text('Cancelar'),
+          onPressed: () => Navigator.pop(context),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: Text('Esta acción es irreversible.',
+              style: TextStyle(fontSize: 11,
+                  color: Colors.orange.withOpacity(0.9))),
+        ),
+        FilledButton(
+          style: ButtonStyle(backgroundColor: WidgetStateProperty.all(clrGreen)),
+          onPressed: widget.onConfirm,
+          child: const Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(FluentIcons.check_mark, size: 13, color: Colors.white),
+            SizedBox(width: 6),
+            Text('Confirmar y Aprobar Revisión',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ]),
+        ),
+      ],
+    );
+  }
+}
+
+// ─── Modelos ──────────────────────────────────────────────────────────────────
+enum _DiffTipo { eliminado, modificado, agregado }
+
+class _DiffRow {
+  final _DiffTipo tipo;
+  final String    codigo;
+  final String    descripcion;
+  final String    cantAnterior;
+  final String    cantActual;
+
+  const _DiffRow({
+    required this.tipo,
+    required this.codigo,
+    required this.descripcion,
+    required this.cantAnterior,
+    required this.cantActual,
+  });
 }
