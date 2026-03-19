@@ -619,7 +619,11 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
         Uri.parse('$API_URL/api/bom/estructura/$idBom'),
       );
       if (response.statusCode == 200) {
-        _fetchArbol();
+        if (_vistaPlana) {
+          _fetchBomPlana();
+        } else {
+          _fetchArbol();
+        }
       }
     } catch (e) {
       _showError("Error al eliminar la pieza: $e");
@@ -745,6 +749,52 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
 
     // Sin VINs asignados → mostrar diálogo de borrado normal.
     _showDeleteRevisionDialog();
+  }
+
+  // ── Admin Delete Override ───────────────────────────────────────────────────
+  void _showAdminDeleteDialog() {
+    final TextEditingController pwdCtrl = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => ContentDialog(
+        title: const Text('Anular Bloqueo (Admin)'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Esta revisión es un archivo histórico. Ingrese clave admin:', style: TextStyle(fontSize: 13)),
+            const SizedBox(height: 12),
+            PasswordBox(
+              controller: pwdCtrl,
+              placeholder: 'Contraseña (ADMIN_ING_2024)',
+              onSubmitted: (v) {
+                if (v == 'ADMIN_ING_2024') {
+                  Navigator.pop(ctx);
+                  _checkAndShowDeleteDialog();
+                } else {
+                  _showError('Contraseña incorrecta');
+                }
+              },
+            ),
+          ],
+        ),
+        actions: [
+          Button(child: const Text('Cancelar'), onPressed: () => Navigator.pop(ctx)),
+          FilledButton(
+            style: ButtonStyle(backgroundColor: WidgetStateProperty.all(Colors.red)),
+            onPressed: () {
+              if (pwdCtrl.text == 'ADMIN_ING_2024') {
+                Navigator.pop(ctx);
+                _checkAndShowDeleteDialog();
+              } else {
+                _showError('Contraseña incorrecta');
+              }
+            },
+            child: const Text('Forzar Borrado', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
   }
 
   // ── Control de Cambios (ECR) — Gatillo de Edición ─────────────────────────
@@ -1942,7 +1992,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                                         final cant = double.tryParse(value);
                                         if (cant != null && cant > 0) {
                                           _updateCantidadPieza(
-                                            pieza['id'],
+                                            pieza['id_estructura'],
                                             cant,
                                           );
                                         } else {
@@ -2518,7 +2568,38 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                                 wDesc,
                                 tooltip: true,
                               ),
-                              dataCell(cantStr, wCant, isNumber: true),
+                              nivel == 3
+                                  ? Container(
+                                      width: wCant,
+                                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        border: Border(
+                                            right: BorderSide(color: borderColor, width: 0.5)),
+                                      ),
+                                      child: TextBox(
+                                        controller: TextEditingController(text: cantStr),
+                                        keyboardType: TextInputType.number,
+                                        textInputAction: TextInputAction.done,
+                                        enabled: _esEditable,
+                                        placeholder: "Cant.",
+                                        textAlign: TextAlign.center,
+                                        onSubmitted: (value) async {
+                                          final cant = double.tryParse(value);
+                                          if (cant != null && cant > 0) {
+                                            final idEst = row['id_estructura'];
+                                            if (idEst != null) {
+                                              await _updateCantidadPieza(
+                                                  (idEst as num).toInt(), cant);
+                                            } else {
+                                              _showError("Pieza sin id_estructura válido.");
+                                            }
+                                          } else {
+                                            _showError("Cantidad inválida o igual a 0");
+                                          }
+                                        },
+                                      ),
+                                    )
+                                  : dataCell(cantStr, wCant, isNumber: true),
                               dataCell(
                                 row['material']?.toString() ?? '',
                                 wMat,
@@ -2755,8 +2836,29 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                           height: 24,
                           color: Colors.grey.withOpacity(0.2),
                         ),
+                        // ── Semáforo de Estado ──
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 14),
+                          child: Tooltip(
+                            message: _esAprobada 
+                                ? 'Revisión Aprobada - Sólo Lectura' 
+                                : _esObsoleta 
+                                    ? 'Archivo Histórico - Sólo Lectura' 
+                                    : 'Borrador - Edición Activa',
+                            child: Icon(
+                              FluentIcons.circle_fill, 
+                              size: 14, 
+                              color: _esAprobada 
+                                  ? const Color(0xFF2E7D32) 
+                                  : _esObsoleta 
+                                      ? const Color(0xFF9E9E9E) 
+                                      : const Color(0xFFF9A825)
+                            ),
+                          ),
+                        ),
                         Expanded(
                           child: CommandBar(
+                            key: ValueKey(_selectedRevision?['id_revision'] ?? 'cmd'),
                             overflowBehavior:
                                 CommandBarOverflowBehavior.dynamicOverflow,
                             primaryItems: [
@@ -2815,25 +2917,15 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                                   label: const Text("Aprobar"),
                                   onPressed: _showAprobarConfirmDialog,
                                 ),
-                              // ── Eliminar: sólo Borrador ────────────────────
-                              if (_esEditable)
+                              // ── Eliminar: siempre visible, admin bypass si no es borrador ──
+                              if (_selectedRevision != null)
                                 CommandBarButton(
-                                  icon: const Icon(FluentIcons.delete,
-                                      color: Color(0xFFF57C00)),
+                                  icon: Icon(FluentIcons.delete,
+                                      color: _esEditable ? const Color(0xFFF57C00) : const Color(0xFFBDBDBD)),
                                   label: const Text("Eliminar"),
-                                  onPressed: _checkAndShowDeleteDialog,
-                                )
-                              else if (_selectedRevision != null)
-                                CommandBarButton(
-                                  icon: const Icon(FluentIcons.delete,
-                                      color: Color(0xFFBDBDBD)),
-                                  label: Tooltip(
-                                    message:
-                                        'No se pueden eliminar registros '
-                                        'históricos de ingeniería',
-                                    child: const Text("Eliminar"),
-                                  ),
-                                  onPressed: null,
+                                  onPressed: _esEditable 
+                                      ? _checkAndShowDeleteDialog 
+                                      : _showAdminDeleteDialog,
                                 ),
                               CommandBarButton(
                                 icon: Icon(
@@ -2908,90 +3000,6 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                   ),
                   if (_isLoading) const ProgressBar(),
 
-                  // ── Banner MODO EDICIÓN (solo Borrador) ──────────────────
-                  if (_esEditable)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 3),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(colors: [
-                            _accentColor.withOpacity(0.18),
-                            _accentColor.withOpacity(0.06),
-                          ]),
-                          border: Border(
-                              left: BorderSide(color: _accentColor, width: 3)),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 5),
-                        child: Row(children: [
-                          Icon(FluentIcons.edit, size: 12,
-                              color: _accentColor),
-                          const SizedBox(width: 6),
-                          Text(
-                            'MODO EDICIÓN  ·  Confirma cantidades con Enter en cada celda.',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: _accentColor,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const Spacer(),
-                          if (_lastSavedAt != null)
-                            Text(
-                              'Sync '
-                              '${_lastSavedAt!.hour.toString().padLeft(2, "0")}:'
-                              '${_lastSavedAt!.minute.toString().padLeft(2, "0")}',
-                              style: TextStyle(
-                                  fontSize: 10,
-                                  color: _accentColor.withOpacity(0.7)),
-                            ),
-                        ]),
-                      ),
-                    ),
-                  // ── InfoBar: Revisión APROBADA / OBSOLETA ─────────────
-                  if (_esAprobada)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: InfoBar(
-                        title: const Text('Revisión Aprobada — Sólo lectura'),
-                        content: const Text(
-                            'Esta lista está bloqueada. Usa "Iniciar Cambio ECR" '
-                            'para crear una nueva rama editable.'),
-                        severity: InfoBarSeverity.warning,
-                        action: HyperlinkButton(
-                          child: const Text('Iniciar Cambio ECR'),
-                          onPressed: _showBranchingDialog,
-                        ),
-                      ),
-                    ),
-                  if (_esObsoleta)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: InfoBar(
-                        title: const Text('Revisión Obsoleta'),
-                        content: const Text(
-                            'Esta revisión fue reemplazada por una versión más reciente. '
-                            'Es de sólo lectura y no puede aprobarse.'),
-                        severity: InfoBarSeverity.error,
-                      ),
-                    ),
-                  // ── InfoBar: VINs vinculados ─────────────────────────────
-                  if (_vins.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: InfoBar(
-                        title: Text(
-                            'Esta ingeniería está en uso por ${_vins.length} '
-                            'unidad(es) física(s).',
-                            style: const TextStyle(
-                                fontWeight: FontWeight.bold)),
-                        content: const Text(
-                            'No borres esta revisión sin desvincular primero '
-                            'las unidades desde "Gestionar VINs".'),
-                        severity: InfoBarSeverity.info,
-                      ),
-                    ),
                   const SizedBox(height: 8),
                   // ─── ZONA PRINCIPAL: ocupa todo el espacio restante ─────
                   Expanded(
@@ -3008,39 +3016,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                           width: 280,
                           child: Card(
                             padding: const EdgeInsets.all(8),
-                            child: _esObsoleta
-                                // Tarea 4: Mensaje de archivo histórico
-                                ? Center(
-                                    child: Column(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Icon(
-                                          FluentIcons.archive,
-                                          size: 36,
-                                          color: const Color(0xFF9E9E9E),
-                                        ),
-                                        const SizedBox(height: 10),
-                                        const Text(
-                                          'Archivo Histórico',
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            color: Color(0xFF9E9E9E),
-                                          ),
-                                        ),
-                                        const SizedBox(height: 6),
-                                        const Text(
-                                          'Use la versión aprobada\npara producción.',
-                                          textAlign: TextAlign.center,
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: Color(0xFFBDBDBD),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  )
-                                : Column(
+                            child: Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.stretch,
                                     children: [
