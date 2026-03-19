@@ -175,6 +175,87 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     });
   }
 
+  String _clientesDeRevision(dynamic rev) {
+    if (rev == null) return '';
+    final String clientes =
+        ((rev['clientes_afectados'] ?? rev['cliente']) ?? '').toString().trim();
+    return clientes;
+  }
+
+  Future<void> _ensureRevisionClientContext() async {
+    if (!mounted || _revisiones.isEmpty) return;
+
+    final bool needsContext = _revisiones.any((r) {
+      final hasVersion = r['id_version'] != null;
+      final hasClientes = _clientesDeRevision(r).isNotEmpty;
+      return !hasVersion || !hasClientes;
+    });
+    if (!needsContext) return;
+
+    try {
+      final res = await http.get(Uri.parse('$API_URL/api/mapa/jerarquia'));
+      if (!mounted || res.statusCode != 200) return;
+      final dynamic decoded = json.decode(res.body);
+      if (decoded is! List) return;
+
+      final Map<int, Map<String, dynamic>> metaByRevision = {};
+      for (final tracto in decoded) {
+        final tipos = (tracto['tipos'] as List?) ?? const [];
+        for (final tipo in tipos) {
+          final versiones = (tipo['versiones'] as List?) ?? const [];
+          for (final ver in versiones) {
+            final int? idVersion = (ver['id'] as num?)?.toInt();
+            final revisiones = (ver['revisiones'] as List?) ?? const [];
+            for (final rev in revisiones) {
+              final int? idRev = (rev['id_revision'] as num?)?.toInt();
+              if (idRev == null) continue;
+              final String clientes =
+                  ((rev['clientes_afectados'] ?? rev['cliente']) ??
+                          'Ingeniería Base (Sin clientes)')
+                      .toString();
+              metaByRevision[idRev] = {
+                'id_version': idVersion,
+                'clientes_afectados': clientes,
+              };
+            }
+          }
+        }
+      }
+
+      if (metaByRevision.isEmpty || !mounted) return;
+
+      final List<dynamic> revisionesUpdated =
+          _revisiones.map((r) {
+            final int? idRev = (r['id_revision'] as num?)?.toInt();
+            if (idRev == null) return r;
+            final meta = metaByRevision[idRev];
+            if (meta == null) return r;
+            return {
+              ...Map<String, dynamic>.from(r as Map),
+              'id_version': r['id_version'] ?? meta['id_version'],
+              'clientes_afectados':
+                  _clientesDeRevision(r).isNotEmpty
+                      ? _clientesDeRevision(r)
+                      : meta['clientes_afectados'],
+            };
+          }).toList();
+
+      final int? selectedId = (_selectedRevision?['id_revision'] as num?)?.toInt();
+      dynamic selectedUpdated = _selectedRevision;
+      if (selectedId != null) {
+        selectedUpdated = revisionesUpdated.firstWhere(
+          (r) => r['id_revision'] == selectedId,
+          orElse: () => _selectedRevision,
+        );
+      }
+
+      setState(() {
+        _revisiones = revisionesUpdated;
+        _selectedRevision = selectedUpdated;
+      });
+    } catch (_) {}
+  }
+
   Future<void> _fetchRevisiones() async {
     if (!mounted) return;
     setState(() => _isLoading = true);
@@ -214,6 +295,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
           _revisiones = lista;
           _selectedRevision = nuevaSeleccion; // null si lista vacía
         });
+        await _ensureRevisionClientContext();
         // Disparar carga del árbol FUERA del setState — evita RangeError
         // por reconstrucción del widget tree con datos a medio actualizar.
         if (nuevaSeleccion != null) {
@@ -819,6 +901,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
   // ── Control de Cambios (ECR) — Gatillo de Edición ─────────────────────────
   Future<void> _showBranchingDialog() async {
     if (_selectedRevision == null) return;
+    await _ensureRevisionClientContext();
     
     final bool hasBorrador = _revisiones.any((r) => r['estado'] == 'Borrador' || r['estado'] == 'PENDIENTE');
     if (hasBorrador) {
@@ -826,8 +909,11 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
        return;
     }
 
-    final int idVersion =
-        _selectedRevision!['id_version'] as int? ?? _masterId;
+    final int? idVersion = (_selectedRevision!['id_version'] as num?)?.toInt();
+    if (idVersion == null) {
+      _showError('No se pudo determinar la versión para cargar clientes.');
+      return;
+    }
     final int numRev =
         (_selectedRevision!['numero_revision'] as num?)?.toInt() ?? 0;
 
@@ -2797,7 +2883,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             const Text('Gestor de Listas (BOM)'),
-            if ((_selectedRevision?['clientes_afectados'] ?? '').toString().trim().isNotEmpty)
+            if (_clientesDeRevision(_selectedRevision).isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 2),
                 child: Row(
@@ -2811,7 +2897,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                     const SizedBox(width: 4),
                     Flexible(
                       child: Text(
-                        'Aplica para: ${_selectedRevision!['clientes_afectados']}',
+                        'Aplica para: ${_clientesDeRevision(_selectedRevision)}',
                         style: TextStyle(
                           fontSize: 12,
                           fontStyle: FontStyle.italic,
@@ -2841,9 +2927,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                 children: [
                   // ─── Banner: ingeniería compartida entre múltiples clientes ───
                   Builder(builder: (context) {
-                    final clientes =
-                        _selectedRevision?['clientes_afectados']?.toString() ??
-                        '';
+                    final clientes = _clientesDeRevision(_selectedRevision);
                     final isShared = clientes.isNotEmpty &&
                         clientes != 'Ingeniería Base (Sin clientes)';
                     if (!isShared) return const SizedBox.shrink();
@@ -2909,7 +2993,15 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                         ),
                         Expanded(
                           child: CommandBar(
-                            key: ValueKey(_selectedRevision?['id_revision'] ?? 'cmd'),
+                            // Incluir _esEditable y si hay revisión: el número de primaryItems
+                            // cambia al aprobar/pasar a solo lectura. Sin esto, fluent_ui 4.11.x
+                            // conserva _dynamicallyHiddenPrimaryItems con índices viejos y lanza
+                            // RangeError en allSecondaryItems (índice fuera de rango).
+                            key: ValueKey(
+                              'cmd_${_selectedRevision?['id_revision']}_'
+                              'e${_esEditable}_'
+                              'del${_selectedRevision != null}',
+                            ),
                             overflowBehavior:
                                 CommandBarOverflowBehavior.dynamicOverflow,
                             primaryItems: [

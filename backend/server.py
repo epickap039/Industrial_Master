@@ -2257,9 +2257,10 @@ def branching_ecr(payload: BranchingPayload):
             id_version_nueva  = id_version_origen
 
         elif payload.tipo_cambio == "ESPECIFICO":
-            # Permitir ESPECIFICO sin clientes iniciales; el usuario los asigna luego.
+            # 1. Permitir ESPECIFICO sin clientes iniciales
             clientes_a_mover = payload.lista_clientes or []
-            # Obtener ID_Tipo y nombre base de la versión origen
+            
+            # 2. Obtener ID_Tipo de la versión origen
             cursor.execute(
                 "SELECT ID_Tipo, Nombre_Version FROM Tbl_Versiones_Ingenieria "
                 "WHERE ID_Version = ?",
@@ -2268,27 +2269,24 @@ def branching_ecr(payload: BranchingPayload):
             ver_orig = cursor.fetchone()
             if not ver_orig:
                 raise HTTPException(status_code=404, detail="Versión origen no encontrada.")
-            id_tipo     = ver_orig.ID_Tipo
+            id_tipo = ver_orig.ID_Tipo
 
-            # Lógica secuencial pura PLM (V1, V2, V3...)
-            cursor.execute(
-                "SELECT Nombre_Version FROM Tbl_Versiones_Ingenieria WHERE ID_Tipo = ?",
-                (id_tipo,),
-            )
+            # 3. Lógica de Nomenclatura Secuencial PLM (V1, V2, V3...)
+            cursor.execute("SELECT Nombre_Version FROM Tbl_Versiones_Ingenieria WHERE ID_Tipo = ?", (id_tipo,))
             nombres_existentes = [row[0] for row in cursor.fetchall()]
             max_v = 0
             for n in nombres_existentes:
                 try:
                     if n.upper().startswith('V'):
                         num = int(n[1:])
-                        if num > max_v:
-                            max_v = num
+                        if num > max_v: max_v = num
                 except ValueError:
                     pass
-
+            
             nuevo_num = max_v + 1 if max_v > 0 else len(nombres_existentes) + 1
             nombre_fork = f"V{nuevo_num}"
 
+            # 4. Crear la Nueva Versión en BD
             cursor.execute(
                 "INSERT INTO Tbl_Versiones_Ingenieria (ID_Tipo, Nombre_Version) "
                 "OUTPUT INSERTED.ID_Version VALUES (?, ?)",
@@ -2296,15 +2294,16 @@ def branching_ecr(payload: BranchingPayload):
             )
             id_version_nueva = cursor.fetchone()[0]
 
-            # Mover clientes seleccionados a la nueva versión
-            for id_cli in clientes_a_mover:
-                cursor.execute(
-                    "UPDATE Tbl_Clientes_Configuracion SET ID_Version = ? "
-                    "WHERE ID_Config_Cliente = ?",
-                    (id_version_nueva, id_cli),
-                )
+            # 5. Mover los clientes seleccionados a la nueva versión
+            if clientes_a_mover:
+                for id_cli in clientes_a_mover:
+                    cursor.execute(
+                        "UPDATE Tbl_Clientes_Configuracion SET ID_Version = ? "
+                        "WHERE ID_Config_Cliente = ?",
+                        (id_version_nueva, id_cli),
+                    )
 
-            # Crear Revisión 0 en la nueva versión
+            # 6. Crear Revisión 0 
             cursor.execute(
                 "INSERT INTO Tbl_BOM_Revisiones (ID_Version, Numero_Revision, Estado) "
                 "OUTPUT INSERTED.ID_Revision VALUES (?, 0, 'Borrador')",
@@ -2312,15 +2311,11 @@ def branching_ecr(payload: BranchingPayload):
             )
             nuevo_id_revision = cursor.fetchone()[0]
 
-            # Historial Global: Registrar derivación V1 -> V2
-            registrar_log(
-                cursor,
-                nuevo_id_revision,
-                'DERIVACION',
-                f"Creada {nombre_fork} desde V1 original.",
-                'Cambio Específico de Clientes',
-            )
-            siguiente_rev     = 0
+            # 7. Log Seguro 
+            mensaje_log = f"Creada {nombre_fork} desde original con {len(clientes_a_mover)} clientes."
+            registrar_log(cursor, nuevo_id_revision, 'DERIVACION', mensaje_log, 'Cambio Específico de Clientes')
+            
+            siguiente_rev = 0
 
         else:
             raise HTTPException(

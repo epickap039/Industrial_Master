@@ -62,7 +62,11 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
                             targetRevisionId: widget.targetRevisionId,
                           ),
                     ),
-                  );
+                  ).then((result) {
+                    if (result == true && mounted) {
+                      _fetchArbol();
+                    }
+                  });
                 }
               });
               return;
@@ -170,16 +174,21 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
             message: "Abrir Gestor de BOM para esta revisión",
             child: IconButton(
               icon: Icon(FluentIcons.open_in_new_window, size: 14, color: primaryColor),
-              onPressed: () => Navigator.push(
-                context,
-                FluentPageRoute(
-                  builder: (_) => BOMManagerScreen(
-                    idVersion: verId,
-                    versionName: versionName,
-                    tractoName: tractoName,
+              onPressed: () async {
+                final result = await Navigator.push(
+                  context,
+                  FluentPageRoute(
+                    builder: (_) => BOMManagerScreen(
+                      idVersion: verId,
+                      versionName: versionName,
+                      tractoName: tractoName,
+                    ),
                   ),
-                ),
-              ),
+                );
+                if (result == true && mounted) {
+                  await _fetchArbol();
+                }
+              },
             ),
           ),
         ],
