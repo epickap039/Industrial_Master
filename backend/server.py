@@ -143,13 +143,12 @@ def get_dashboard_kpis():
         row_u = cursor.fetchone()
         total_unidades = int(row_u.Total or 0) if row_u else 0
 
-        # 4. Versiones de ingeniería únicas — COUNT(DISTINCT) para no inflar
-        #    cuando una versión tiene N listas de materiales o N clientes.
-        cursor.execute(
-            "SELECT COUNT(DISTINCT ID_Version) AS Total FROM Tbl_BOM_Revisiones"
-        )
+        # 4. Versiones de ingeniería — conteo REAL sobre la tabla maestra de versiones.
+        #    (COUNT desde Tbl_BOM_Revisiones puede quedar inflado o huérfano si quedan
+        #    revisiones sin fila en Tbl_Versiones_Ingenieria tras purgas parciales.)
+        cursor.execute("SELECT COUNT(*) AS Total FROM Tbl_Versiones_Ingenieria")
         row_v = cursor.fetchone()
-        total_versiones = int(row_v.Total or 0) if row_v else 0
+        total_versiones = int(row_v[0] if row_v is not None else 0)
 
         return {
             "total_piezas":    total,
@@ -390,14 +389,25 @@ def add_tipo(payload: TipoProyectoPayload):
 
 @app.delete("/api/proyectos/tipos/{id_tipo}")
 def delete_tipo(id_tipo: int):
+    """Borrado físico: elimina todas las versiones/BOM del tipo y luego el tipo (tractos intactos)."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("DELETE FROM Tbl_Tipos_Proyecto WHERE ID_Tipo = ?", (id_tipo,))
-        if cursor.rowcount == 0:
+        cursor.execute(
+            "SELECT 1 FROM Tbl_Tipos_Proyecto WHERE ID_Tipo = ?",
+            (id_tipo,),
+        )
+        if cursor.fetchone() is None:
             raise HTTPException(status_code=404, detail="No encontrado")
+        _purge_tipo_physical(cursor, id_tipo)
         conn.commit()
         return {"status": "success"}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
 
@@ -432,17 +442,22 @@ def add_version(payload: VersionPayload):
 
 @app.delete("/api/proyectos/versiones/{id_version}")
 def delete_version(id_version: int):
+    """Borrado físico: elimina revisiones BOM (cascada), clientes de la versión y la versión."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("DELETE FROM Tbl_Versiones_Ingenieria WHERE ID_Version = ?", (id_version,))
-        if cursor.rowcount == 0:
+        cursor.execute(
+            "SELECT 1 FROM Tbl_Versiones_Ingenieria WHERE ID_Version = ?",
+            (id_version,),
+        )
+        if cursor.fetchone() is None:
             raise HTTPException(status_code=404, detail="No encontrado")
+        _purge_version_physical(cursor, id_version)
         conn.commit()
         return {"status": "success"}
-    except pyodbc.IntegrityError:
+    except HTTPException:
         conn.rollback()
-        raise HTTPException(status_code=400, detail="No se puede eliminar esta versión porque hay clientes o unidades asignadas a ella. Desvincule los clientes primero.")
+        raise
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -959,12 +974,10 @@ def get_analytics_dashboard(id_revision: str, exclude_ids: Optional[str] = None)
         if rows_ens and rows_ens[0].Nombre_Ensamble:
             sugerencia_texto = f"Sugerencia: El ensamble '{rows_ens[0].Nombre_Ensamble}' concentra la mayoría de piezas"
 
-        # 5. Conteo de listas de ingeniería únicas (por versión, no por cliente)
-        cursor.execute(
-            "SELECT COUNT(DISTINCT ID_Version) AS Total FROM Tbl_BOM_Revisiones"
-        )
+        # 5. Conteo de versiones de ingeniería (tabla maestra; coherente con Lobby/KPI)
+        cursor.execute("SELECT COUNT(*) AS Total FROM Tbl_Versiones_Ingenieria")
         row_v2 = cursor.fetchone()
-        total_versiones = int(row_v2.Total or 0) if row_v2 else 0
+        total_versiones = int(row_v2[0] if row_v2 is not None else 0)
 
         # 6. Conteo de unidades (VINs) — global o por revisión
         if id_revision == 'global':
@@ -1265,6 +1278,76 @@ def aprobar_revision(id_revision: int):
     finally:
         conn.close()
 
+
+def _physical_delete_revision_cascade(cursor, id_revision: int) -> None:
+    """
+    Borrado físico de una revisión BOM y toda su jerarquía (estructura, ensambles,
+    estaciones, VINs). No valida contraseña ni estado.
+    Omite Tbl_Log_Cambios_Ingenieria si la tabla no existe.
+    """
+    try:
+        cursor.execute(
+            "DELETE FROM Tbl_Log_Cambios_Ingenieria WHERE ID_Revision = ?",
+            (id_revision,),
+        )
+    except pyodbc.Error:
+        pass
+    cursor.execute(
+        """
+        DELETE E FROM Tbl_BOM_Estructura E
+        INNER JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
+        INNER JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
+        WHERE ES.ID_Revision = ?
+        """,
+        (id_revision,),
+    )
+    cursor.execute(
+        """
+        DELETE EN FROM Tbl_Ensambles EN
+        INNER JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
+        WHERE ES.ID_Revision = ?
+        """,
+        (id_revision,),
+    )
+    cursor.execute("DELETE FROM Tbl_Estaciones WHERE ID_Revision = ?", (id_revision,))
+    cursor.execute("DELETE FROM Tbl_Unidades_Fisicas WHERE ID_Revision = ?", (id_revision,))
+    cursor.execute("DELETE FROM Tbl_BOM_Revisiones WHERE ID_Revision = ?", (id_revision,))
+
+
+def _purge_version_physical(cursor, id_version: int) -> int:
+    """
+    Elimina físicamente todas las revisiones de una versión, clientes de esa versión
+    y la fila en Tbl_Versiones_Ingenieria. Retorna filas borradas en versiones (0 o 1).
+    """
+    cursor.execute(
+        "SELECT ID_Revision FROM Tbl_BOM_Revisiones WHERE ID_Version = ?",
+        (id_version,),
+    )
+    for row in cursor.fetchall():
+        _physical_delete_revision_cascade(cursor, int(row[0]))
+    cursor.execute(
+        "DELETE FROM Tbl_Clientes_Configuracion WHERE ID_Version = ?",
+        (id_version,),
+    )
+    cursor.execute(
+        "DELETE FROM Tbl_Versiones_Ingenieria WHERE ID_Version = ?",
+        (id_version,),
+    )
+    return cursor.rowcount
+
+
+def _purge_tipo_physical(cursor, id_tipo: int) -> int:
+    """Elimina todas las versiones (y BOM) de un tipo y luego el tipo. Retorna rowcount del tipo."""
+    cursor.execute(
+        "SELECT ID_Version FROM Tbl_Versiones_Ingenieria WHERE ID_Tipo = ?",
+        (id_tipo,),
+    )
+    for row in cursor.fetchall():
+        _purge_version_physical(cursor, int(row[0]))
+    cursor.execute("DELETE FROM Tbl_Tipos_Proyecto WHERE ID_Tipo = ?", (id_tipo,))
+    return cursor.rowcount
+
+
 # ── NUEVO v60.1: Borrado de Revisión (con protección para Aprobadas) ──────────
 class EliminarRevisionPayload(BaseModel):
     password: str = ""
@@ -1315,30 +1398,8 @@ def eliminar_revision(id_revision: int, payload: EliminarRevisionPayload):
         ))
         conn.commit()  # Asegurar que el log quede persistido
 
-        # 4. Borrado en cascada manual (más seguro que CASCADE en FK)
-        # 4a. Borrar piezas de todos los ensambles de todas las estaciones de esta revisión
-        cursor.execute("""
-            DELETE E FROM Tbl_BOM_Estructura E
-            INNER JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
-            INNER JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
-            WHERE ES.ID_Revision = ?
-        """, (id_revision,))
-
-        # 4b. Borrar ensambles
-        cursor.execute("""
-            DELETE EN FROM Tbl_Ensambles EN
-            INNER JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
-            WHERE ES.ID_Revision = ?
-        """, (id_revision,))
-
-        # 4c. Borrar estaciones
-        cursor.execute("DELETE FROM Tbl_Estaciones WHERE ID_Revision = ?", (id_revision,))
-
-        # 4d. Borrar VINs ligados a la revisión
-        cursor.execute("DELETE FROM Tbl_Unidades_Fisicas WHERE ID_Revision = ?", (id_revision,))
-
-        # 4e. Borrar la revisión
-        cursor.execute("DELETE FROM Tbl_BOM_Revisiones WHERE ID_Revision = ?", (id_revision,))
+        # 4. Borrado físico en cascada (misma lógica que _physical_delete_revision_cascade)
+        _physical_delete_revision_cascade(cursor, id_revision)
 
         conn.commit()
         return {"status": "success", "message": f"Revisión {numero_revision} eliminada correctamente."}
