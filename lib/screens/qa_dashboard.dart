@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
 
@@ -17,11 +18,25 @@ class QADashboardScreen extends StatefulWidget {
 class _QADashboardScreenState extends State<QADashboardScreen> {
   List<dynamic> _reportes = [];
   bool _isLoading = false;
+  /// Reporte activo en el panel de detalle (izquierda, ~70%).
+  dynamic _selectedReport;
 
   @override
   void initState() {
     super.initState();
     _fetchReportes();
+  }
+
+  void _syncSelectionAfterFetch() {
+    if (_reportes.isEmpty) {
+      _selectedReport = null;
+      return;
+    }
+    final ids = _reportes.map((r) => r['id']).toSet();
+    final selId = _selectedReport?['id'];
+    if (_selectedReport == null || !ids.contains(selId)) {
+      _selectedReport = _reportes.first;
+    }
   }
 
   Future<void> _fetchReportes() async {
@@ -31,6 +46,7 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
       if (res.statusCode == 200) {
         setState(() {
           _reportes = json.decode(res.body);
+          _syncSelectionAfterFetch();
         });
       } else {
         _showError("Error al cargar reportes: ${res.statusCode}");
@@ -38,7 +54,7 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
     } catch (e) {
       _showError("Excepción al cargar: $e");
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -54,6 +70,7 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
         final file = File(filePath);
         await file.writeAsBytes(response.bodyBytes);
 
+        if (!mounted) return;
         displayInfoBar(
           context,
           builder: (context, close) {
@@ -75,7 +92,7 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
     } catch (e) {
       _showError(e.toString());
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -96,32 +113,383 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
     );
   }
 
-  void _showImageDialog(String base64String) {
+  Color _gravedadColor(dynamic rep) {
+    if (rep['gravedad'] == 'Crítico') return Colors.red;
+    if (rep['gravedad'] == 'Visual') return Colors.orange;
+    if (rep['gravedad'] == 'Sugerencia') return Colors.blue;
+    return Colors.grey;
+  }
+
+  Uint8List? _decodeCaptura(dynamic b64) {
+    if (b64 == null) return null;
     try {
-      final bytes = base64Decode(base64String);
-      showDialog(
-        context: context,
-        builder:
-            (context) => ContentDialog(
-              title: const Text("Captura Adjunta"),
-              content: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  maxHeight: 600,
-                  maxWidth: 800,
-                ),
-                child: InteractiveViewer(child: Image.memory(bytes)),
-              ),
-              actions: [
-                FilledButton(
-                  child: const Text("Cerrar"),
-                  onPressed: () => Navigator.pop(context),
-                ),
-              ],
-            ),
-      );
-    } catch (e) {
-      _showError("No se pudo cargar la imagen: $e");
+      return base64Decode(b64.toString());
+    } catch (_) {
+      return null;
     }
+  }
+
+  Widget _buildDetailPanel() {
+    if (_selectedReport == null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              FluentIcons.touch_pointer,
+              size: 64,
+              color: Colors.grey.withValues(alpha: 0.5),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Selecciona un reporte en la lista de la derecha',
+              style: TextStyle(
+                fontSize: 18,
+                color: Colors.grey.withValues(alpha: 0.9),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final rep = _selectedReport as Map;
+    final bytes = _decodeCaptura(rep['captura_base64']);
+    final gravedadColor = _gravedadColor(rep);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 12, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Imagen grande + zoom (área que el usuario marcó como “vacía” útil)
+          Expanded(
+            flex: 5,
+            child: Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: FluentTheme.of(context).cardColor,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: FluentTheme.of(context).resources.dividerStrokeColorDefault,
+                ),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: bytes != null
+                  ? InteractiveViewer(
+                      panEnabled: true,
+                      boundaryMargin: const EdgeInsets.all(80),
+                      minScale: 1.0,
+                      maxScale: 6.0,
+                      child: Center(
+                        child: Image.memory(
+                          bytes,
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                    )
+                  : Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            FluentIcons.photo2,
+                            size: 72,
+                            color: Colors.grey.withValues(alpha: 0.45),
+                          ),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'Este reporte no incluye captura de pantalla',
+                            style: TextStyle(fontSize: 16),
+                          ),
+                        ],
+                      ),
+                    ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          // Texto legible debajo de la imagen
+          Expanded(
+            flex: 2,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '#${rep['id']}',
+                        style: const TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            _chip(
+                              rep['modulo']?.toString() ?? 'General',
+                              FluentTheme.of(context).typography.body?.color,
+                            ),
+                            _chip(
+                              rep['gravedad']?.toString().toUpperCase() ?? 'N/A',
+                              Colors.white,
+                              background: gravedadColor,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    rep['descripcion']?.toString() ?? 'Sin descripción',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      height: 1.45,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Icon(
+                        FluentIcons.calendar,
+                        size: 20,
+                        color: Colors.grey.withValues(alpha: 0.85),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        rep['fecha']?.toString() ?? '—',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          color: Colors.grey,
+                        ),
+                      ),
+                      const SizedBox(width: 24),
+                      Icon(
+                        FluentIcons.contact_info,
+                        size: 20,
+                        color: Colors.grey.withValues(alpha: 0.85),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          rep['usuario']?.toString() ?? 'Desconocido',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Estado: ${rep['estado']?.toString() ?? 'Pendiente de revisión'}',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontStyle: FontStyle.italic,
+                      color: Colors.orange,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _chip(String text, Color? fg, {Color? background}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: background ?? Colors.grey.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: fg ?? Colors.white,
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMasterList() {
+    return Container(
+      decoration: BoxDecoration(
+        color: FluentTheme.of(context).micaBackgroundColor.withValues(alpha: 0.35),
+        border: Border(
+          left: BorderSide(
+            color: FluentTheme.of(context).resources.dividerStrokeColorDefault,
+          ),
+        ),
+      ),
+      child: ListView.builder(
+        padding: const EdgeInsets.fromLTRB(10, 8, 16, 16),
+        itemCount: _reportes.length,
+        itemBuilder: (context, index) {
+          final rep = _reportes[index];
+          final selected =
+              _selectedReport != null && _selectedReport['id'] == rep['id'];
+          final thumb = _decodeCaptura(rep['captura_base64']);
+          final gravedadColor = _gravedadColor(rep);
+
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Card(
+              padding: const EdgeInsets.all(10),
+              backgroundColor: selected
+                  ? FluentTheme.of(context).accentColor.withValues(alpha: 0.12)
+                  : null,
+              child: GestureDetector(
+                onTap: () => setState(() => _selectedReport = rep),
+                behavior: HitTestBehavior.opaque,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (thumb != null)
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(6),
+                            child: Image.memory(
+                              thumb,
+                              width: 56,
+                              height: 56,
+                              fit: BoxFit.cover,
+                              gaplessPlayback: true,
+                            ),
+                          )
+                        else
+                          Container(
+                            width: 56,
+                            height: 56,
+                            decoration: BoxDecoration(
+                              color: Colors.grey.withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Icon(
+                              FluentIcons.photo2,
+                              color: Colors.grey.withValues(alpha: 0.5),
+                            ),
+                          ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Text(
+                                    '#${rep['id']}',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: gravedadColor,
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      rep['gravedad']
+                                              ?.toString()
+                                              .toUpperCase() ??
+                                          'N/A',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                rep['modulo'] ?? 'General',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey.withValues(alpha: 0.95),
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                rep['descripcion'] ?? '',
+                                style: const TextStyle(fontSize: 12),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          rep['fecha'] ?? '',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.withValues(alpha: 0.9),
+                          ),
+                        ),
+                        Tooltip(
+                          message: "Marcar como resuelto",
+                          child: FilledButton(
+                            style: ButtonStyle(
+                              padding: WidgetStateProperty.all(
+                                const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 4,
+                                ),
+                              ),
+                              backgroundColor: WidgetStatePropertyAll(
+                                Colors.green,
+                              ),
+                            ),
+                            onPressed: () => _resolverReporte(rep['id']),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(FluentIcons.check_mark, size: 12),
+                                SizedBox(width: 4),
+                                Text("Resuelto", style: TextStyle(fontSize: 11)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
   }
 
   Future<void> _resolverReporte(int id) async {
@@ -131,14 +499,14 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
         Uri.parse('$API_URL/api/reportes/$id/resolver'),
       );
       if (res.statusCode == 200) {
-        _fetchReportes();
+        await _fetchReportes();
       } else {
         _showError("Error al resolver: ${res.statusCode}");
-        setState(() => _isLoading = false);
+        if (mounted) setState(() => _isLoading = false);
       }
     } catch (e) {
       _showError("Excepción: $e");
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -192,176 +560,14 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
                   ],
                 ),
               )
-              : Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: ListView.builder(
-                  itemCount: _reportes.length,
-                  itemBuilder: (context, index) {
-                    final rep = _reportes[index];
-                    Color gravedadColor = Colors.grey;
-                    if (rep['gravedad'] == 'Crítico')
-                      gravedadColor = Colors.red;
-                    if (rep['gravedad'] == 'Visual')
-                      gravedadColor = Colors.orange;
-                    if (rep['gravedad'] == 'Sugerencia')
-                      gravedadColor = Colors.blue;
-
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12.0),
-                      child: Card(
-                        padding: const EdgeInsets.all(20),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Fila 1: Cabecera
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Row(
-                                  children: [
-                                    Text(
-                                      "#${rep['id']}",
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 16,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 4,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.grey.withOpacity(0.2),
-                                        borderRadius: BorderRadius.circular(6),
-                                      ),
-                                      child: Text(
-                                        rep['modulo'] ?? "General",
-                                        style: TextStyle(
-                                          color:
-                                              FluentTheme.of(
-                                                context,
-                                              ).typography.body?.color,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 4,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: gravedadColor,
-                                        borderRadius: BorderRadius.circular(6),
-                                      ),
-                                      child: Text(
-                                        rep['gravedad']
-                                                ?.toString()
-                                                .toUpperCase() ??
-                                            'N/A',
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                Text(
-                                  rep['fecha'] ?? "",
-                                  style: const TextStyle(
-                                    color: Colors.grey,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-                            // Fila 2: Cuerpo
-                            Text(
-                              rep['descripcion'] ?? "Sin descripción",
-                              style: const TextStyle(fontSize: 15.0),
-                            ),
-                            const SizedBox(height: 20),
-                            // Fila 3: Footer
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Row(
-                                  children: [
-                                    const Icon(
-                                      FluentIcons.contact_info,
-                                      color: Colors.grey,
-                                      size: 16,
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      rep['usuario'] ?? "Desconocido",
-                                      style: const TextStyle(
-                                        color: Colors.grey,
-                                        fontWeight: FontWeight.w500,
-                                        fontSize: 14,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                Row(
-                                  children: [
-                                    if (rep['captura_base64'] != null)
-                                      Tooltip(
-                                        message: "Ver captura adjunta",
-                                        child: IconButton(
-                                          icon: Icon(
-                                            FluentIcons.photo2,
-                                            color: Colors.blue,
-                                          ),
-                                          onPressed:
-                                              () => _showImageDialog(
-                                                rep['captura_base64'],
-                                              ),
-                                        ),
-                                      ),
-                                    if (rep['captura_base64'] != null)
-                                      const SizedBox(width: 8),
-                                    Tooltip(
-                                      message: "Marcar como resuelto",
-                                      child: FilledButton(
-                                        style: ButtonStyle(
-                                          backgroundColor:
-                                              WidgetStatePropertyAll(
-                                                Colors.green,
-                                              ),
-                                        ),
-                                        onPressed:
-                                            () => _resolverReporte(rep['id']),
-                                        child: const Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(
-                                              FluentIcons.check_mark,
-                                              size: 14,
-                                            ),
-                                            SizedBox(width: 6),
-                                            Text("Resuelto"),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
+              : Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Detalle ~70% (izquierda): imagen grande + texto
+                  Expanded(flex: 7, child: _buildDetailPanel()),
+                  // Maestro ~30% (derecha): lista compacta
+                  Expanded(flex: 3, child: _buildMasterList()),
+                ],
               ),
     );
   }
