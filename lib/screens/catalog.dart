@@ -34,6 +34,10 @@ class _CatalogScreenState extends State<CatalogScreen> {
   final ScrollController _horizontalScrollController = ScrollController();
   final ScrollController _verticalScrollController = ScrollController();
 
+  // Búsqueda rápida independiente: Descripción y Material
+  final TextEditingController _searchDescCtrl  = TextEditingController();
+  final TextEditingController _searchMatCtrl   = TextEditingController();
+
   // Estado
   bool _isLoading = true;
   bool _onlyWithPlano = false;
@@ -65,6 +69,8 @@ class _CatalogScreenState extends State<CatalogScreen> {
   void dispose() {
     _horizontalScrollController.dispose();
     _verticalScrollController.dispose();
+    _searchDescCtrl.dispose();
+    _searchMatCtrl.dispose();
     for (var controller in _filterControllers.values) {
       controller.dispose();
     }
@@ -106,21 +112,21 @@ class _CatalogScreenState extends State<CatalogScreen> {
           _columns = allKeys;
 
           if (_visibleColumns.isEmpty) {
+            // Columnas ocultas por defecto (ruido técnico).
+            // IMPORTANTE: Codigo_Pieza, Descripcion y Material deben
+            // quedar siempre visibles para que el usuario pueda validar
+            // la independencia de ambos campos.
+            const hiddenByDefault = {
+              'Modificado_Por',
+              'Ultima_Actualizacion',
+              'Fecha_Creacion',
+              'Simetria',
+              'Tiene_DXF',
+              'Largo_DXF',
+              'Ancho_DXF',
+            };
             for (var col in _columns) {
-              if ([
-                'Modificado_Por',
-                'Ultima_Actualizacion',
-                'Fecha_Creacion',
-                'Material',
-                'Simetria',
-                'Tiene_DXF',
-                'Largo_DXF',
-                'Ancho_DXF',
-              ].contains(col)) {
-                _visibleColumns[col] = false;
-              } else {
-                _visibleColumns[col] = true;
-              }
+              _visibleColumns[col] = !hiddenByDefault.contains(col);
             }
           } else {
             for (var col in _columns) {
@@ -162,8 +168,18 @@ class _CatalogScreenState extends State<CatalogScreen> {
     }
   }
 
-  /// Aplica filtros locales
+  /// Aplica filtros locales.
+  /// Los controladores dedicados de Descripción y Material sincronizan
+  /// siempre al mapa genérico antes de filtrar.
   void _applyFilters({bool resetScroll = true}) {
+    // Sincronizar búsquedas rápidas → mapa genérico
+    if (_filterControllers.containsKey('Descripcion')) {
+      _filterControllers['Descripcion']!.text = _searchDescCtrl.text;
+    }
+    if (_filterControllers.containsKey('Material')) {
+      _filterControllers['Material']!.text = _searchMatCtrl.text;
+    }
+
     setState(() {
       _filteredData =
           _allData.where((row) {
@@ -220,6 +236,8 @@ class _CatalogScreenState extends State<CatalogScreen> {
   }
 
   void _clearFilters() {
+    _searchDescCtrl.clear();
+    _searchMatCtrl.clear();
     for (var controller in _filterControllers.values) {
       controller.clear();
     }
@@ -983,7 +1001,6 @@ class _CatalogScreenState extends State<CatalogScreen> {
   @override
   Widget build(BuildContext context) {
     return ScaffoldPage(
-      // Padding compactado en header
       padding: EdgeInsets.zero,
       header: Padding(
         padding: const EdgeInsets.only(
@@ -991,13 +1008,52 @@ class _CatalogScreenState extends State<CatalogScreen> {
           right: 10.0,
           top: 4.0,
           bottom: 0.0,
-        ), // Compactado severamente debajo del titulo
+        ),
         child: PageHeader(
           title: const Text('Catálogo Maestro'),
           commandBar: _buildCommandBar(),
         ),
       ),
-      content: _buildContent(),
+      content: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Barra de búsqueda rápida: Descripción y Material ──────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 6, 10, 4),
+            child: Row(
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: TextBox(
+                    controller: _searchDescCtrl,
+                    placeholder: 'Buscar por Descripción…',
+                    prefix: const Padding(
+                      padding: EdgeInsets.only(left: 8),
+                      child: Icon(FluentIcons.search, size: 13),
+                    ),
+                    onChanged: (_) => _applyFilters(resetScroll: true),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  flex: 2,
+                  child: TextBox(
+                    controller: _searchMatCtrl,
+                    placeholder: 'Buscar por Material…',
+                    prefix: const Padding(
+                      padding: EdgeInsets.only(left: 8),
+                      child: Icon(FluentIcons.product_catalog, size: 13),
+                    ),
+                    onChanged: (_) => _applyFilters(resetScroll: true),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // ── Tabla principal ───────────────────────────────────────────
+          Expanded(child: _buildContent()),
+        ],
+      ),
       bottomBar: Container(
         padding: const EdgeInsets.all(10),
         child: Text('Registros: ${_filteredData.length} / ${_allData.length}'),
@@ -1073,14 +1129,24 @@ class _CatalogScreenState extends State<CatalogScreen> {
   }
 
   double _getColumnWidth(String col) {
-    if (col == 'Descripcion') return 250.0;
-    if (col == 'Codigo_Pieza' || col == 'Codigo') return 120.0;
-    if (col == 'Proceso_Primario') return 135.0; // Fit text
-    if (col == 'Medida') return 100.0;
-    if (col == 'Espesor_Perfil_CAD') return 150.0;
-    if (col == 'Tiene_DXF' || col == 'Largo_DXF' || col == 'Ancho_DXF') return 100.0;
-    if (col.startsWith('Proceso_')) return 100.0;
-    return 130.0; // Restante (Link Drive, etc.)
+    switch (col) {
+      case 'Codigo_Pieza':
+      case 'Codigo':         return 120.0;
+      case 'Descripcion':    return 250.0;
+      case 'Medida':         return 100.0;
+      case 'Material':       return 160.0;
+      case 'Proceso_Primario': return 135.0;
+      case 'Proceso_1':
+      case 'Proceso_2':
+      case 'Proceso_3':      return 100.0;
+      case 'Largo_CAD':
+      case 'Ancho_CAD':      return  90.0;
+      case 'Espesor_Perfil_CAD': return 120.0;
+      case 'Tiene_DXF':      return  80.0;
+      case 'Largo_DXF':
+      case 'Ancho_DXF':      return  90.0;
+      default:               return 130.0;
+    }
   }
 
   Widget _buildContent() {

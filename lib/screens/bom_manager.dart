@@ -360,6 +360,14 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
       );
       if (response.statusCode == 200) {
         _showError("Revisión Aprobada Correctamente", isError: false);
+        // Limpieza atómica para evitar RangeError por estado inconsistente tras recargar.
+        setState(() {
+          _revisiones = []; // CRÍTICO PARA EVITAR RANGE ERROR
+          _selectedRevision = null;
+          _arbol = [];
+          _bomPlana = [];
+          _selectedEnsamble = null;
+        });
         await _fetchRevisiones();
       } else {
         _showError("Error al aprobar: ${response.body}");
@@ -899,21 +907,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
               ),
               if (tipoCambio == 'ESPECIFICO') ...[
                 const SizedBox(height: 8),
-                if (clientes.isEmpty)
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFFF8E1),
-                      border: Border.all(color: const Color(0xFFF9A825)),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: const Text(
-                      '⚠️ Esta versión base no tiene clientes. Se creará la nueva '
-                      'versión vacía para asignar clientes posteriormente.',
-                      style: TextStyle(fontSize: 11, color: Color(0xFFE65100)),
-                    ),
-                  )
-                else
+                if (clientes.isNotEmpty)
                   Container(
                     constraints: const BoxConstraints(maxHeight: 180),
                     decoration: BoxDecoration(
@@ -936,6 +930,19 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                               ))
                           .toList(),
                     ),
+                  )
+                else
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF8E1),
+                      border: Border.all(color: const Color(0xFFF9A825)),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Text(
+                      'Esta versión base no tiene clientes. Se creará la nueva versión vacía para asignar clientes posteriormente.',
+                      style: TextStyle(fontSize: 11, color: Color(0xFFE65100)),
+                    ),
                   ),
               ],
             ],
@@ -946,14 +953,37 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
               onPressed: () => Navigator.pop(ctx),
             ),
             FilledButton(
-              onPressed: (tipoCambio == 'ESPECIFICO' &&
-                      clientes.isNotEmpty && selectedClientes.isEmpty)
-                  ? null
-                  : () {
-                      Navigator.pop(ctx);
-                      _ejecutarBranching(
-                          tipoCambio, selectedClientes.toList());
-                    },
+              onPressed: () async {
+                final result = await _ejecutarBranching(
+                  tipoCambio,
+                  selectedClientes.toList(),
+                );
+                if (!mounted || result == null) return;
+
+                Navigator.of(ctx).pop();
+
+                final idNuevo = result['nuevo_id_revision'];
+                if (idNuevo == null) {
+                  _showError("Error: API no devolvió ID de revisión.");
+                  return;
+                }
+
+                final idVersionNueva = result['id_version_nueva'];
+                if (idVersionNueva == null) {
+                  _showError("Error: API no devolvió ID de versión.");
+                  return;
+                }
+
+                Navigator.of(context).pushReplacement(
+                  FluentPageRoute(
+                    builder: (_) => BOMManagerScreen(
+                      idVersion: (idVersionNueva as num).toInt(),
+                      targetRevisionId: (idNuevo as num).toInt(),
+                      tractoName: widget.tractoName,
+                    ),
+                  ),
+                );
+              },
               child: const Text('Crear Rama y Editar'),
             ),
           ],
@@ -962,9 +992,9 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     );
   }
 
-  Future<void> _ejecutarBranching(
+  Future<Map<String, dynamic>?> _ejecutarBranching(
       String tipoCambio, List<int> listaClientes) async {
-    if (_selectedRevision == null) return;
+    if (_selectedRevision == null) return null;
 
     // 1. Limpieza atómica: invalidar TODOS los datos de la revisión anterior
     //    antes de hacer cualquier llamada de red para que el árbol no muestre
@@ -989,26 +1019,19 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
           'lista_clientes': listaClientes,
         }),
       );
-      if (!mounted) return;
+      if (!mounted) return null;
 
-      if (response.statusCode == 200) {
+      if (response.statusCode == 200 || response.statusCode == 201) {
         final data   = json.decode(response.body) as Map<String, dynamic>;
         final int nuevoId = data['nuevo_id_revision'] as int;
 
         if (tipoCambio == 'ESPECIFICO') {
-          _showError(
-            '✅ Nueva versión creada con Rev. ${data['numero_revision']}. '
-            'Navega al nuevo proyecto en el menú lateral para editarla.',
-            isError: false,
-          );
-          // Limpiar selección: ya no estamos en esa versión
-          if (mounted) setState(() => _selectedRevision = null);
-          await _fetchRevisiones();
+          return data;
         } else {
           // ── GLOBAL ──────────────────────────────────────────────────────
           // 2. Recargar lista de revisiones (incluye la nueva)
           await _fetchRevisiones();
-          if (!mounted) return;
+          if (!mounted) return null;
 
           // 3. Localizar la nueva revisión por su ID exacto (devuelto por el backend)
           final newRev = _revisiones.firstWhere(
@@ -1039,6 +1062,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
             }
           }
         }
+        return data;
       } else {
         final dynamic decoded = _safeDecode(response.body);
         final detail = (decoded is Map ? decoded['detail'] : null) ??
@@ -1050,6 +1074,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+    return null;
   }
 
   // ── NUEVO v60.1: Eliminar revisión con protección ──────────────────────────
@@ -2763,7 +2788,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
           child: IconButton(
             icon: const Icon(FluentIcons.back),
             onPressed: () {
-              if (Navigator.canPop(context)) Navigator.pop(context);
+              if (Navigator.canPop(context)) Navigator.pop(context, true);
             },
           ),
         ),
@@ -3010,7 +3035,6 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                                     ? null
                                     : _importarExcel,
                               ),
-                              // Clonar BOM eliminado — todo cambio debe fluir por ECR
                             ],
                           ),
                         ),

@@ -266,7 +266,7 @@ class _MyAppState extends State<MyApp> {
                       const SizedBox(height: 12),
                       if (capturaBytes != null)
                         Container(
-                          height: 100,
+                          height: 220,
                           margin: const EdgeInsets.only(bottom: 12),
                           decoration: BoxDecoration(
                             border: Border.all(color: Colors.grey),
@@ -275,7 +275,17 @@ class _MyAppState extends State<MyApp> {
                             child: Stack(
                               alignment: Alignment.topRight,
                               children: [
-                                Image.memory(capturaBytes!),
+                                InteractiveViewer(
+                                  panEnabled: true,
+                                  minScale: 1.0,
+                                  maxScale: 4.0,
+                                  child: Center(
+                                    child: Image.memory(
+                                      capturaBytes!,
+                                      fit: BoxFit.contain,
+                                    ),
+                                  ),
+                                ),
                                 IconButton(
                                   icon: const Icon(
                                     FluentIcons.cancel,

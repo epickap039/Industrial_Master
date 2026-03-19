@@ -28,9 +28,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // Estado para Sincronización
   bool _isSyncing = false;
 
-  // Estado Regla Espejo (Fase 19)
-  bool _reglaEspejoActiva = true;
-
   // Rol del usuario QA (Fase RBAC)
   String _userRole = 'USER';
 
@@ -39,7 +36,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _loadRole();
     _checkConnection(silent: true);
-    _fetchMirrorRuleStatus();
   }
 
   Future<void> _loadRole() async {
@@ -51,91 +47,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<void> _fetchMirrorRuleStatus() async {
-    try {
-      final response = await http.get(
-        Uri.parse('http://192.168.1.73:8001/api/config/regla_espejo'),
-      );
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (mounted) {
-          setState(() {
-            _reglaEspejoActiva = data['activa'] ?? true;
-          });
-        }
-      }
-    } catch (e) {
-      print("Error fetching mirror rule: $e");
-    }
-  }
-
-  Future<void> _toggleMirrorRule(bool value) async {
-    // Optimistic UI Update
-    setState(() => _reglaEspejoActiva = value);
-
-    try {
-      final response = await http.post(
-        Uri.parse('http://192.168.1.73:8001/api/config/regla_espejo'),
-        headers: {"Content-Type": "application/json"},
-        body: json.encode({"activa": value}),
-      );
-
-      if (response.statusCode == 200) {
-        if (mounted) {
-          displayInfoBar(
-            context,
-            builder: (context, close) {
-              return InfoBar(
-                title: const Text('Configuración Actualizada'),
-                content: Text(
-                  value ? 'Regla Espejo ACTIVADA' : 'Regla Espejo DESACTIVADA',
-                ),
-                severity: InfoBarSeverity.success,
-                onClose: close,
-              );
-            },
-          );
-        }
-      } else {
-        // Revertir si falla
-        setState(() => _reglaEspejoActiva = !value);
-        throw Exception("Error ${response.statusCode}");
-      }
-    } catch (e) {
-      // Revertir
-      setState(() => _reglaEspejoActiva = !value);
-      if (mounted) {
-        displayInfoBar(
-          context,
-          builder: (context, close) {
-            return InfoBar(
-              title: const Text('Error'),
-              content: Row(
-                children: [
-                  Expanded(
-                    child: SelectableText(
-                      "No se pudo actualizar la configuración: $e",
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(FluentIcons.copy),
-                    onPressed:
-                        () => Clipboard.setData(
-                          ClipboardData(
-                            text: "No se pudo actualizar la configuración: $e",
-                          ),
-                        ),
-                  ),
-                ],
-              ),
-              severity: InfoBarSeverity.error,
-              onClose: close,
-            );
-          },
-        );
-      }
-    }
-  }
 
   Future<void> _checkConnection({bool silent = false}) async {
     setState(() {
@@ -384,37 +295,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 10),
 
-          // 3. REGLAS DE NEGOCIO (FASE 19)
+          // 3. MANTENIMIENTO
           if (_userRole != 'QA') ...[
-            Expander(
-              header: const Text(
-                'Reglas de Negocio',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              initiallyExpanded: true,
-              content: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  ToggleSwitch(
-                    checked: _reglaEspejoActiva,
-                    onChanged: _toggleMirrorRule,
-                    content: Text(
-                      _reglaEspejoActiva
-                          ? 'Regla Espejo ACTIVADA (Material = Descripción)'
-                          : 'Regla Espejo DESACTIVADA',
-                    ),
-                  ),
-                  const SizedBox(height: 5),
-                  const Text(
-                    'Si se activa, al crear o editar una pieza, el campo "Material" copiará automáticamente el valor de "Descripción".',
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 10),
-
-            // 4. MANTENIMIENTO
             Expander(
               header: const Text(
                 'Mantenimiento de Datos',

@@ -1269,7 +1269,6 @@ def aprobar_revision(id_revision: int):
 class EliminarRevisionPayload(BaseModel):
     password: str = ""
     motivo: str = ""
-    admin_override: bool = False   # True cuando el frontend envía la contraseña admin
 
 ADMIN_PASSWORD_INGENIERIA = "ADMIN_ING_2024"
 
@@ -1297,23 +1296,11 @@ def eliminar_revision(id_revision: int, payload: EliminarRevisionPayload):
 
         # 2. Regla de Negocio:
         #    - Borradores/PENDIENTE: se borran sin contraseña.
-        #    - Aprobada/OBSOLETO   : solo con admin_override + contraseña correcta.
+        #    - Aprobada/OBSOLETO   : solo con contraseña correcta.
         ESTADOS_EDITABLES = {"Borrador", "PENDIENTE"}
         if estado not in ESTADOS_EDITABLES:
-            if not payload.admin_override:
-                raise HTTPException(
-                    status_code=403,
-                    detail=(
-                        f"La Revisión {numero_revision} está en estado '{estado}' "
-                        f"y es un registro histórico. Para eliminarla se requiere "
-                        f"contraseña de administrador."
-                    )
-                )
-            if payload.password != ADMIN_PASSWORD_INGENIERIA:
-                raise HTTPException(
-                    status_code=401,
-                    detail="Contraseña de administrador incorrecta. Operación denegada."
-                )
+            if payload.password != "ADMIN_ING_2024":
+                raise HTTPException(status_code=401, detail="Clave incorrecta. Operación denegada.")
 
         # 3. Registrar en auditoría ANTES de borrar (sobrevive al borrado en cascada)
         cursor.execute("""
@@ -2270,11 +2257,8 @@ def branching_ecr(payload: BranchingPayload):
             id_version_nueva  = id_version_origen
 
         elif payload.tipo_cambio == "ESPECIFICO":
-            if not payload.lista_clientes:
-                raise HTTPException(
-                    status_code=400,
-                    detail="lista_clientes es requerida para tipo_cambio ESPECIFICO.",
-                )
+            # Permitir ESPECIFICO sin clientes iniciales; el usuario los asigna luego.
+            clientes_a_mover = payload.lista_clientes or []
             # Obtener ID_Tipo y nombre base de la versión origen
             cursor.execute(
                 "SELECT ID_Tipo, Nombre_Version FROM Tbl_Versiones_Ingenieria "
@@ -2285,16 +2269,25 @@ def branching_ecr(payload: BranchingPayload):
             if not ver_orig:
                 raise HTTPException(status_code=404, detail="Versión origen no encontrada.")
             id_tipo     = ver_orig.ID_Tipo
-            nombre_base = ver_orig.Nombre_Version
 
-            # Nombre único para la nueva versión
+            # Lógica secuencial pura PLM (V1, V2, V3...)
             cursor.execute(
-                "SELECT COUNT(*) FROM Tbl_Versiones_Ingenieria "
-                "WHERE ID_Tipo = ? AND Nombre_Version LIKE ?",
-                (id_tipo, f"{nombre_base}-FORK%"),
+                "SELECT Nombre_Version FROM Tbl_Versiones_Ingenieria WHERE ID_Tipo = ?",
+                (id_tipo,),
             )
-            fork_count = int(cursor.fetchone()[0]) + 1
-            nombre_fork = f"{nombre_base}-FORK{fork_count}"
+            nombres_existentes = [row[0] for row in cursor.fetchall()]
+            max_v = 0
+            for n in nombres_existentes:
+                try:
+                    if n.upper().startswith('V'):
+                        num = int(n[1:])
+                        if num > max_v:
+                            max_v = num
+                except ValueError:
+                    pass
+
+            nuevo_num = max_v + 1 if max_v > 0 else len(nombres_existentes) + 1
+            nombre_fork = f"V{nuevo_num}"
 
             cursor.execute(
                 "INSERT INTO Tbl_Versiones_Ingenieria (ID_Tipo, Nombre_Version) "
@@ -2304,7 +2297,7 @@ def branching_ecr(payload: BranchingPayload):
             id_version_nueva = cursor.fetchone()[0]
 
             # Mover clientes seleccionados a la nueva versión
-            for id_cli in payload.lista_clientes:
+            for id_cli in clientes_a_mover:
                 cursor.execute(
                     "UPDATE Tbl_Clientes_Configuracion SET ID_Version = ? "
                     "WHERE ID_Config_Cliente = ?",
@@ -2320,10 +2313,12 @@ def branching_ecr(payload: BranchingPayload):
             nuevo_id_revision = cursor.fetchone()[0]
 
             # Historial Global: Registrar derivación V1 -> V2
-            cursor.execute(
-                "INSERT INTO Tbl_Log_Cambios_Ingenieria (ID_Revision, Accion, Detalle_Cambio, Motivo) "
-                "VALUES (?, ?, ?, ?)",
-                (nuevo_id_revision, 'DERIVACION', f"Creada {nombre_fork} desde V1 original con {len(payload.lista_clientes)} clientes.", 'Cambio Específico de Clientes')
+            registrar_log(
+                cursor,
+                nuevo_id_revision,
+                'DERIVACION',
+                f"Creada {nombre_fork} desde V1 original.",
+                'Cambio Específico de Clientes',
             )
             siguiente_rev     = 0
 
