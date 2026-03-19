@@ -878,29 +878,42 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                   ],
                 ),
               ),
-              // ── Opción ESPECÍFICO (sólo si hay clientes) ──────────────
-              if (clientes.isNotEmpty) ...[
-                const SizedBox(height: 14),
-                RadioButton(
-                  checked: tipoCambio == 'ESPECIFICO',
-                  onChanged: (_) => setD(() => tipoCambio = 'ESPECIFICO'),
-                  content: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Cambio para Cliente(s) Específico(s)',
-                          style: TextStyle(fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 2),
-                      const Text(
-                        'Crea una nueva Versión de Ingeniería y mueve los clientes '
-                        'seleccionados. Los demás mantienen la ingeniería actual.',
-                        style:
-                            TextStyle(fontSize: 11, color: Color(0xFF757575)),
-                      ),
-                    ],
-                  ),
+              // ── Opción ESPECÍFICO — siempre visible (PLM v2) ──────────
+              const SizedBox(height: 14),
+              RadioButton(
+                checked: tipoCambio == 'ESPECIFICO',
+                onChanged: (_) => setD(() => tipoCambio = 'ESPECIFICO'),
+                content: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Cambio para Cliente(s) Específico(s)',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 2),
+                    const Text(
+                      'Crea una nueva Versión de Ingeniería (V2) y mueve los clientes '
+                      'seleccionados. Los demás mantienen la ingeniería actual.',
+                      style: TextStyle(fontSize: 11, color: Color(0xFF757575)),
+                    ),
+                  ],
                 ),
-                if (tipoCambio == 'ESPECIFICO') ...[
-                  const SizedBox(height: 8),
+              ),
+              if (tipoCambio == 'ESPECIFICO') ...[
+                const SizedBox(height: 8),
+                if (clientes.isEmpty)
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF8E1),
+                      border: Border.all(color: const Color(0xFFF9A825)),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Text(
+                      '⚠️ Esta versión base no tiene clientes. Se creará la nueva '
+                      'versión vacía para asignar clientes posteriormente.',
+                      style: TextStyle(fontSize: 11, color: Color(0xFFE65100)),
+                    ),
+                  )
+                else
                   Container(
                     constraints: const BoxConstraints(maxHeight: 180),
                     decoration: BoxDecoration(
@@ -911,14 +924,12 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                       shrinkWrap: true,
                       children: clientes
                           .map((c) => Checkbox(
-                                checked: selectedClientes
-                                    .contains(c['id'] as int),
+                                checked: selectedClientes.contains(c['id'] as int),
                                 onChanged: (v) => setD(() {
                                   if (v == true) {
                                     selectedClientes.add(c['id'] as int);
                                   } else {
-                                    selectedClientes
-                                        .remove(c['id'] as int);
+                                    selectedClientes.remove(c['id'] as int);
                                   }
                                 }),
                                 content: Text(c['nombre'] as String),
@@ -926,7 +937,6 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                           .toList(),
                     ),
                   ),
-                ],
               ],
             ],
           ),
@@ -937,7 +947,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
             ),
             FilledButton(
               onPressed: (tipoCambio == 'ESPECIFICO' &&
-                      selectedClientes.isEmpty)
+                      clientes.isNotEmpty && selectedClientes.isEmpty)
                   ? null
                   : () {
                       Navigator.pop(ctx);
@@ -2368,9 +2378,9 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     final Color lvl2Color =
         isDark ? const Color(0xFF90CAF9) : const Color(0xFF0D47A1);
 
-    const double wNivel = 80.0;
+    const double wNivel = 160.0;
     const double wCodigo = 180.0;
-    const double wDesc = 250.0;
+    const double wDesc = 380.0;
     const double wCant = 80.0;
     const double wMat = 140.0;
     const double wMedida = 65.0; // Largo, Ancho, Espesor
@@ -2531,7 +2541,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                         headerCell("Proc. 1", wProceso),
                         headerCell("Proc. 2", wProceso),
                         headerCell("Proc. 3", wProceso),
-                        headerCell("Simetría", wSimetria),
+                        headerCell("Tiene DXF", wSimetria),
                       ],
                     ),
                   ),
@@ -2558,8 +2568,8 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                           nivelLabel = "  ▸ ENS";
                         } else {
                           // Tarea 5: Mostrar Ensamble Padre o PIEZA
-                          final padre = row['nom_ensamble']?.toString() ?? "PIEZA";
-                          nivelLabel = "      " + (padre.length > 15 ? padre.substring(0,15) : padre);
+                          final padre = row['nombre_ensamble']?.toString() ?? "PIEZA";
+                          nivelLabel = "      " + (padre.length > 20 ? padre.substring(0, 20) : padre);
                         }
 
                         final cantStr = row['cantidad'] != null
@@ -2612,14 +2622,14 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                                       ),
                                     )
                                   : dataCell(cantStr, wCant, isNumber: true),
-                              dataCell(row['largo']?.toString() ?? '', wMedida, isNumber: true),
-                              dataCell(row['ancho']?.toString() ?? '', wMedida, isNumber: true),
-                              dataCell(row['espesor']?.toString() ?? '', wMedida, isNumber: true),
+                              dataCell(row['largo_cad']?.toString() ?? '', wMedida, isNumber: true),
+                              dataCell(row['ancho_cad']?.toString() ?? '', wMedida, isNumber: true),
+                              dataCell(row['espesor_cad']?.toString() ?? '', wMedida, isNumber: true),
                               dataCell(row['proceso_primario']?.toString() ?? '', wProceso, tooltip: true),
                               dataCell(row['proceso_1']?.toString() ?? '', wProceso, tooltip: true),
                               dataCell(row['proceso_2']?.toString() ?? '', wProceso, tooltip: true),
                               dataCell(row['proceso_3']?.toString() ?? '', wProceso, tooltip: true),
-                              dataCell(row['simetria']?.toString() ?? '', wSimetria, tooltip: true),
+                              dataCell(row['tiene_dxf']?.toString() ?? '', wSimetria, tooltip: true),
                             ],
                           ),
                         );
@@ -3000,14 +3010,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                                     ? null
                                     : _importarExcel,
                               ),
-                              CommandBarButton(
-                                icon: const Icon(FluentIcons.copy),
-                                label: const Text("Clonar BOM"),
-                                onPressed: (_selectedRevision == null ||
-                                        !_esEditable)
-                                    ? null
-                                    : _showClonarDialog,
-                              ),
+                              // Clonar BOM eliminado — todo cambio debe fluir por ECR
                             ],
                           ),
                         ),
@@ -3270,8 +3273,8 @@ class _DiffAuditorDialogState extends State<_DiffAuditorDialog> {
     const Color clrOrangeBg = Color(0x18E65100);
 
     const double wFlag  =   5.0;
-    const double wCod   = 130.0;
-    const double wDesc  = 260.0;
+    const double wCod   = 160.0;
+    const double wDesc  = 450.0;
     const double wPrev  =  90.0;
     const double wCurr  =  90.0;
     const double totalW = wFlag + wCod + wDesc + wPrev + wCurr;
@@ -3329,7 +3332,7 @@ class _DiffAuditorDialogState extends State<_DiffAuditorDialog> {
 
     return ContentDialog(
       constraints: BoxConstraints(
-        maxWidth:  MediaQuery.of(context).size.width  * 0.82,
+        maxWidth:  MediaQuery.of(context).size.width  * 0.95,
         maxHeight: MediaQuery.of(context).size.height * 0.85,
       ),
       title: Row(children: [
