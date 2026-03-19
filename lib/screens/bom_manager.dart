@@ -231,6 +231,12 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
   /// Crea una nueva revisión. El nombre "Revisión N" se genera en el backend.
   /// [notas] es texto libre opcional que se registra en el log de auditoría.
   Future<void> _addRevision(String notas) async {
+    final bool hasBorrador = _revisiones.any((r) => r['estado'] == 'Borrador' || r['estado'] == 'PENDIENTE');
+    if (hasBorrador) {
+       _showError('Ya existe una revisión activa. No se puede crear una base nueva.');
+       return;
+    }
+
     setState(() => _isLoading = true);
     try {
       final url =
@@ -239,7 +245,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
               : '$API_URL/api/bom/revisiones/$_masterId';
       final response = await http.post(
         Uri.parse(url),
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', 'X-Usuario': 'Admin PLM'},
         body: jsonEncode({'notas': notas.isEmpty ? null : notas}),
       );
       if (response.statusCode == 200) {
@@ -517,7 +523,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     try {
       final response = await http.post(
         Uri.parse('$API_URL/api/bom/estaciones'),
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', 'X-Usuario': 'Admin PLM'},
         body: jsonEncode({
           'id_revision': _selectedRevision['id_revision'],
           'nombre': nombre,
@@ -557,7 +563,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     try {
       final response = await http.post(
         Uri.parse('$API_URL/api/bom/ensambles'),
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', 'X-Usuario': 'Admin PLM'},
         body: jsonEncode({'id_estacion': idEstacion, 'nombre': nombre}),
       );
       if (response.statusCode == 200) {
@@ -595,7 +601,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     try {
       final response = await http.post(
         Uri.parse('$API_URL/api/bom/estructura'),
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', 'X-Usuario': 'Admin PLM'},
         body: jsonEncode({
           'id_ensamble': _selectedEnsamble['id'],
           'codigo_pieza': codigo,
@@ -643,12 +649,17 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     try {
       final response = await http.put(
         Uri.parse('$API_URL/api/bom/estructura/cantidad/$idBom'),
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', 'X-Usuario': 'Admin PLM'},
         body: jsonEncode({'cantidad': nuevaCantidad}),
       );
       if (response.statusCode == 200) {
+        if (mounted) setState(() => _hasPendingChanges = false);
         _showError("✅ Cantidad actualizada correctamente", isError: false);
-        _fetchArbol();
+        if (_vistaPlana) {
+          _fetchBomPlana();
+        } else {
+          _fetchArbol();
+        }
       } else {
         final dynamic decoded = _safeDecode(response.body);
         final String detail = (decoded is Map ? decoded['detail'] : null) ??
@@ -766,11 +777,11 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
             const SizedBox(height: 12),
             PasswordBox(
               controller: pwdCtrl,
-              placeholder: 'Contraseña (ADMIN_ING_2024)',
+              placeholder: 'Contraseña maestra...',
               onSubmitted: (v) {
                 if (v == 'ADMIN_ING_2024') {
                   Navigator.pop(ctx);
-                  _checkAndShowDeleteDialog();
+                  _deleteRevision(password: v, motivo: 'Forzado por Admin Override');
                 } else {
                   _showError('Contraseña incorrecta');
                 }
@@ -785,7 +796,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
             onPressed: () {
               if (pwdCtrl.text == 'ADMIN_ING_2024') {
                 Navigator.pop(ctx);
-                _checkAndShowDeleteDialog();
+                _deleteRevision(password: pwdCtrl.text, motivo: 'Forzado por Admin Override');
               } else {
                 _showError('Contraseña incorrecta');
               }
@@ -800,6 +811,12 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
   // ── Control de Cambios (ECR) — Gatillo de Edición ─────────────────────────
   Future<void> _showBranchingDialog() async {
     if (_selectedRevision == null) return;
+    
+    final bool hasBorrador = _revisiones.any((r) => r['estado'] == 'Borrador' || r['estado'] == 'PENDIENTE');
+    if (hasBorrador) {
+       _showError('No se puede crear otra revisión. Ya existe una en edición permanente ("Borrador" / "Pendiente"). Finalízala primero.');
+       return;
+    }
 
     final int idVersion =
         _selectedRevision!['id_version'] as int? ?? _masterId;
@@ -955,7 +972,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     try {
       final response = await http.post(
         Uri.parse('$API_URL/api/bom/branching'),
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', 'X-Usuario': 'Admin PLM'},
         body: jsonEncode({
           'id_revision_origen': _selectedRevision!['id_revision'],
           'tipo_cambio': tipoCambio,
@@ -1037,7 +1054,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     try {
       final response = await http.delete(
         Uri.parse('$API_URL/api/bom/revisiones/$idRev'),
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', 'X-Usuario': 'Admin PLM'},
         body: jsonEncode({'password': password, 'motivo': motivo}),
       );
       if (!mounted) return;
@@ -1225,7 +1242,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     try {
       final response = await http.post(
         Uri.parse('$API_URL/api/bom/clonar/$idOrigen'),
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', 'X-Usuario': 'Admin PLM'},
       );
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -1282,7 +1299,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     try {
       final response = await http.put(
         Uri.parse('$API_URL/api/vins/$idUnidad/notas'),
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', 'X-Usuario': 'Admin PLM'},
         body: jsonEncode(
           {'vin': '', 'notas': notas},
         ), // vin es requerido por el modelo pero ignorado si es vacío en el update
@@ -2113,7 +2130,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     try {
       final response = await http.post(
         Uri.parse('$API_URL/api/bom/buscar_planos'),
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', 'X-Usuario': 'Admin PLM'},
         body: jsonEncode({
           'codigos': codigos,
           'ruta_base': selectedDirectory,
@@ -2352,11 +2369,14 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
         isDark ? const Color(0xFF90CAF9) : const Color(0xFF0D47A1);
 
     const double wNivel = 80.0;
-    const double wCodigo = 210.0;
-    const double wDesc = 300.0;
+    const double wCodigo = 180.0;
+    const double wDesc = 250.0;
     const double wCant = 80.0;
-    const double wMat = 160.0;
-    const double totalWidth = wNivel + wCodigo + wDesc + wCant + wMat;
+    const double wMat = 140.0;
+    const double wMedida = 65.0; // Largo, Ancho, Espesor
+    const double wProceso = 85.0; // P. Primario, 1, 2, 3
+    const double wSimetria = 80.0;
+    const double totalWidth = wNivel + wCodigo + wDesc + wCant + wMat + (wMedida * 3) + (wProceso * 4) + wSimetria;
 
     Widget headerCell(String label, double w) {
       return Container(
@@ -2499,11 +2519,19 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                     ),
                     child: Row(
                       children: [
-                        headerCell("Nivel", wNivel),
+                        headerCell("Estación", wNivel),
                         headerCell("Código", wCodigo),
                         headerCell("Descripción", wDesc),
-                        headerCell("Cantidad", wCant),
                         headerCell("Material", wMat),
+                        headerCell("Cantidad", wCant),
+                        headerCell("Largo", wMedida),
+                        headerCell("Ancho", wMedida),
+                        headerCell("Espesor", wMedida),
+                        headerCell("Proc. P", wProceso),
+                        headerCell("Proc. 1", wProceso),
+                        headerCell("Proc. 2", wProceso),
+                        headerCell("Proc. 3", wProceso),
+                        headerCell("Simetría", wSimetria),
                       ],
                     ),
                   ),
@@ -2529,7 +2557,9 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                           fw = FontWeight.w600;
                           nivelLabel = "  ▸ ENS";
                         } else {
-                          nivelLabel = "      PIE";
+                          // Tarea 5: Mostrar Ensamble Padre o PIEZA
+                          final padre = row['nom_ensamble']?.toString() ?? "PIEZA";
+                          nivelLabel = "      " + (padre.length > 15 ? padre.substring(0,15) : padre);
                         }
 
                         final cantStr = row['cantidad'] != null
@@ -2557,53 +2587,39 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
                                 colorOverride: rowTextOverride,
                                 fontWeight: fw,
                               ),
-                              dataCell(
-                                row['codigo_pieza']?.toString() ?? '',
-                                wCodigo,
-                                colorOverride: rowTextOverride,
-                                fontWeight: fw,
-                              ),
-                              dataCell(
-                                row['descripcion']?.toString() ?? '',
-                                wDesc,
-                                tooltip: true,
-                              ),
+                              dataCell(row['codigo_pieza']?.toString() ?? '', wCodigo, colorOverride: rowTextOverride, fontWeight: fw),
+                              dataCell(row['descripcion']?.toString() ?? '', wDesc, tooltip: true),
+                              dataCell(row['material']?.toString() ?? '', wMat, tooltip: true),
                               nivel == 3
                                   ? Container(
                                       width: wCant,
                                       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        border: Border(
-                                            right: BorderSide(color: borderColor, width: 0.5)),
-                                      ),
+                                      decoration: BoxDecoration(border: Border(right: BorderSide(color: borderColor, width: 0.5))),
                                       child: TextBox(
                                         controller: TextEditingController(text: cantStr),
                                         keyboardType: TextInputType.number,
-                                        textInputAction: TextInputAction.done,
                                         enabled: _esEditable,
-                                        placeholder: "Cant.",
                                         textAlign: TextAlign.center,
                                         onSubmitted: (value) async {
                                           final cant = double.tryParse(value);
                                           if (cant != null && cant > 0) {
                                             final idEst = row['id_estructura'];
                                             if (idEst != null) {
-                                              await _updateCantidadPieza(
-                                                  (idEst as num).toInt(), cant);
-                                            } else {
-                                              _showError("Pieza sin id_estructura válido.");
-                                            }
-                                          } else {
-                                            _showError("Cantidad inválida o igual a 0");
-                                          }
+                                              await _updateCantidadPieza((idEst as num).toInt(), cant);
+                                            } else { _showError("Sin id_estructura"); }
+                                          } else { _showError("Cantidad inválida"); }
                                         },
                                       ),
                                     )
                                   : dataCell(cantStr, wCant, isNumber: true),
-                              dataCell(
-                                row['material']?.toString() ?? '',
-                                wMat,
-                              ),
+                              dataCell(row['largo']?.toString() ?? '', wMedida, isNumber: true),
+                              dataCell(row['ancho']?.toString() ?? '', wMedida, isNumber: true),
+                              dataCell(row['espesor']?.toString() ?? '', wMedida, isNumber: true),
+                              dataCell(row['proceso_primario']?.toString() ?? '', wProceso, tooltip: true),
+                              dataCell(row['proceso_1']?.toString() ?? '', wProceso, tooltip: true),
+                              dataCell(row['proceso_2']?.toString() ?? '', wProceso, tooltip: true),
+                              dataCell(row['proceso_3']?.toString() ?? '', wProceso, tooltip: true),
+                              dataCell(row['simetria']?.toString() ?? '', wSimetria, tooltip: true),
                             ],
                           ),
                         );

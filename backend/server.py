@@ -18,6 +18,7 @@ import sys
 import re
 import uuid
 import shutil
+import traceback
 
 # 1. CONFIGURACIÓN SQL (Auto-Detectada con Driver 18 Prioritario)
 DB_SERVER = '192.168.1.73'
@@ -508,7 +509,7 @@ def get_mapa_jerarquia():
             FROM Tbl_Proyectos_Tracto TR
             JOIN Tbl_Tipos_Proyecto TP ON TP.ID_Tracto = TR.ID_Tracto
             JOIN Tbl_Versiones_Ingenieria V ON V.ID_Tipo = TP.ID_Tipo
-            LEFT JOIN Tbl_BOM_Revisiones R ON R.ID_Version = V.ID_Version
+            LEFT JOIN Tbl_BOM_Revisiones R ON R.ID_Version = V.ID_Version AND R.Estado = 'Aprobada'
             LEFT JOIN Tbl_Clientes_Configuracion C ON C.ID_Version = V.ID_Version
             ORDER BY TR.Nombre_Tracto, TP.Nombre_Tipo, V.Nombre_Version, R.Numero_Revision
         """)
@@ -627,6 +628,9 @@ def get_mrp_revisiones():
             JOIN Tbl_Versiones_Ingenieria V  ON R.ID_Version = V.ID_Version
             JOIN Tbl_Tipos_Proyecto      TP  ON V.ID_Tipo    = TP.ID_Tipo
             JOIN Tbl_Proyectos_Tracto    TR  ON TP.ID_Tracto = TR.ID_Tracto
+            -- Solo revisiones Aprobadas en el selector MRPII.
+            -- Las OBSOLETAS y Borradores no deben usarse para cálculo de materiales.
+            WHERE R.Estado = 'Aprobada'
             ORDER BY TR.Nombre_Tracto, TP.Nombre_Tipo, V.Nombre_Version, R.Numero_Revision
         """)
         return [
@@ -1265,6 +1269,7 @@ def aprobar_revision(id_revision: int):
 class EliminarRevisionPayload(BaseModel):
     password: str = ""
     motivo: str = ""
+    admin_override: bool = False   # True cuando el frontend envía la contraseña admin
 
 ADMIN_PASSWORD_INGENIERIA = "ADMIN_ING_2024"
 
@@ -1290,12 +1295,24 @@ def eliminar_revision(id_revision: int, payload: EliminarRevisionPayload):
         estado = row.Estado
         numero_revision = row.Numero_Revision
 
-        # 2. Protección por contraseña si está Aprobada
-        if estado == "Aprobada":
+        # 2. Regla de Negocio:
+        #    - Borradores/PENDIENTE: se borran sin contraseña.
+        #    - Aprobada/OBSOLETO   : solo con admin_override + contraseña correcta.
+        ESTADOS_EDITABLES = {"Borrador", "PENDIENTE"}
+        if estado not in ESTADOS_EDITABLES:
+            if not payload.admin_override:
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        f"La Revisión {numero_revision} está en estado '{estado}' "
+                        f"y es un registro histórico. Para eliminarla se requiere "
+                        f"contraseña de administrador."
+                    )
+                )
             if payload.password != ADMIN_PASSWORD_INGENIERIA:
                 raise HTTPException(
                     status_code=401,
-                    detail="Contraseña incorrecta. No se puede eliminar una revisión Aprobada sin autorización."
+                    detail="Contraseña de administrador incorrecta. Operación denegada."
                 )
 
         # 3. Registrar en auditoría ANTES de borrar (sobrevive al borrado en cascada)
@@ -2301,6 +2318,13 @@ def branching_ecr(payload: BranchingPayload):
                 (id_version_nueva,),
             )
             nuevo_id_revision = cursor.fetchone()[0]
+
+            # Historial Global: Registrar derivación V1 -> V2
+            cursor.execute(
+                "INSERT INTO Tbl_Log_Cambios_Ingenieria (ID_Revision, Accion, Detalle_Cambio, Motivo) "
+                "VALUES (?, ?, ?, ?)",
+                (nuevo_id_revision, 'DERIVACION', f"Creada {nombre_fork} desde V1 original con {len(payload.lista_clientes)} clientes.", 'Cambio Específico de Clientes')
+            )
             siguiente_rev     = 0
 
         else:
@@ -2748,6 +2772,129 @@ def delete_bom_estructura(id_bom: int):
 class BOMPiezaUpdate(BaseModel):
     cantidad: float
 
+
+# ─── Modelos de respuesta BOM (todos los campos Optional para evitar validación rígida) ───
+class PiezaArbolItem(BaseModel):
+    """Pieza dentro del árbol BOM (estación → ensamble → pieza)."""
+    model_config = ConfigDict(extra="allow")  # Permite campos extra sin fallar
+    id: int
+    id_estructura: Optional[int] = None   # Alias explícito del PK de Tbl_BOM_Estructura
+    codigo: str
+    descripcion: Optional[str] = ""
+    cantidad: float
+    observaciones: Optional[str] = ""
+    simetria: Optional[str] = ""
+    material: Optional[str] = ""
+    medida: Optional[str] = ""
+    proceso_primario: Optional[str] = ""
+    proceso_1: Optional[str] = ""
+    proceso_2: Optional[str] = ""
+    proceso_3: Optional[str] = ""
+    link_drive: Optional[str] = ""
+    largo_cad: Optional[str] = ""
+    ancho_cad: Optional[str] = ""
+    espesor_cad: Optional[str] = ""
+    tiene_dxf: Optional[str] = "No"
+
+
+class PiezaPlanaItem(BaseModel):
+    """Fila de la vista plana BOM (explosión jerárquica)."""
+    model_config = ConfigDict(extra="allow")
+    nivel: int
+    codigo_padre: Optional[str] = ""
+    codigo_pieza: Optional[str] = ""
+    descripcion: Optional[str] = ""
+    cantidad: Optional[float] = None
+    material: Optional[str] = ""
+    medida: Optional[str] = ""
+    proceso_primario: Optional[str] = ""
+    proceso_1: Optional[str] = ""
+    proceso_2: Optional[str] = ""
+    proceso_3: Optional[str] = ""
+    largo_cad: Optional[str] = ""
+    ancho_cad: Optional[str] = ""
+    espesor_cad: Optional[str] = ""
+    tiene_dxf: Optional[str] = "No"
+    nombre_estacion: Optional[str] = ""
+    nombre_ensamble: Optional[str] = ""
+    id_bom: Optional[int] = None
+    id_estructura: Optional[int] = None   # Alias explícito del PK de Tbl_BOM_Estructura
+
+
+# ─── Schema-adaptive helpers ────────────────────────────────────────────────
+
+# Caché a nivel de módulo: se llena la primera vez que se llama a
+# _get_maestro_cols() y se reutiliza en todas las requests siguientes.
+# Elimina la necesidad de abrir un cursor extra por cada request de árbol/plana.
+_MAESTRO_COLS_CACHE: set = set()
+
+
+def _get_maestro_cols() -> set:
+    """
+    Devuelve el conjunto (mayúsculas) de columnas de Tbl_Maestro_Piezas.
+
+    Abre su PROPIA conexión privada (no comparte nada con el caller),
+    la cierra antes de regresar y cachea el resultado para requests futuras.
+    Esto elimina el error "Connection is busy" de ODBC Driver 17/18 que
+    ocurría al abrir un segundo cursor sobre la misma conexión que ya
+    tiene otro cursor abierto.
+    """
+    global _MAESTRO_COLS_CACHE
+    if _MAESTRO_COLS_CACHE:            # ya inicializado → devolver caché
+        return _MAESTRO_COLS_CACHE
+    conn2 = None
+    try:
+        conn2 = get_db_connection()
+        cur   = conn2.cursor()
+        cur.execute("SELECT TOP 0 * FROM Tbl_Maestro_Piezas")
+        _MAESTRO_COLS_CACHE = {col[0].upper() for col in cur.description}
+        return _MAESTRO_COLS_CACHE
+    except Exception:
+        return set()           # fallback: expresiones usarán literales '' / 0
+    finally:
+        if conn2:
+            conn2.close()
+
+
+def _build_maestro_exprs(avail: set) -> dict:
+    """
+    Dada la lista de columnas disponibles en Tbl_Maestro_Piezas,
+    devuelve un dict con las expresiones SQL listas para inyectar en
+    el SELECT de piezas.  Se llama UNA VEZ y el resultado se reutiliza
+    en todos los ensambles del árbol.
+    """
+    def _safe_str(col: str, width: int = 200) -> str:
+        return (f"ISNULL(m.{col}, '')" if col.upper() in avail else "''")
+
+    def _safe_num_str(col: str) -> str:
+        return (f"ISNULL(TRY_CAST(m.{col} AS NVARCHAR(50)), '')"
+                if col.upper() in avail else "''")
+
+    if 'TIENE_DXF' in avail:
+        dxf = "CAST(ISNULL(m.Tiene_DXF, 0) AS INT)"
+    elif 'LINK_DRIVE' in avail:
+        dxf = ("CASE WHEN m.Link_Drive IS NOT NULL "
+               "AND LEN(ISNULL(m.Link_Drive,'')) > 0 THEN 1 ELSE 0 END")
+    else:
+        dxf = "0"
+
+    return {
+        "material":        _safe_str("Material"),
+        "medida":          _safe_str("Medida"),
+        "simetria":        _safe_str("Simetria"),
+        "descripcion":     (_safe_str("Descripcion") if "DESCRIPCION" in avail
+                            else "''"),
+        "proc_prim":       _safe_str("Proceso_Primario"),
+        "proc1":           _safe_str("Proceso_1"),
+        "proc2":           _safe_str("Proceso_2"),
+        "proc3":           _safe_str("Proceso_3"),
+        "link_drive":      _safe_str("Link_Drive"),
+        "largo_cad":       _safe_num_str("Largo_CAD"),
+        "ancho_cad":       _safe_num_str("Ancho_CAD"),
+        "espesor_cad":     _safe_num_str("Espesor_Perfil_CAD"),
+        "tiene_dxf":       dxf,
+    }
+
 def _get_estado_revision_for_bom(cursor, id_bom: int) -> str:
     """Devuelve el Estado de la revisión a la que pertenece un registro BOM."""
     cursor.execute("""
@@ -2825,230 +2972,450 @@ def update_bom_pieza(id_bom: int, payload: BOMPiezaUpdate):
 
 @app.get("/api/bom/arbol/{id_revision}")
 def get_bom_arbol(id_revision: int):
+    """
+    Árbol BOM de 3 niveles: Estación → Ensamble → Pieza.
+
+    Usa UN SOLO cursor para todas las queries (patrón secuencial original).
+    LEFT JOIN a Tbl_Maestro_Piezas con ISNULL para evitar nulos de BD.
+    """
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT ID_Estacion, ID_Revision, Nombre_Estacion, Orden FROM Tbl_Estaciones WHERE ID_Revision = ? ORDER BY Orden", (id_revision,))
-        estaciones = cursor.fetchall()
-        
+        # SQL de piezas: LEFT JOIN + ISNULL explícitos (sincronizado con esquema Pydantic)
+        pieza_sql = """
+            SELECT
+                e.ID_BOM,
+                e.Codigo_Pieza,
+                e.Cantidad,
+                ISNULL(e.Observaciones_Proceso, '') AS Observaciones_Proceso,
+                ISNULL(M.Descripcion, '') AS Descripcion,
+                ISNULL(M.Simetria, '') AS Simetria,
+                ISNULL(M.Material, '') AS Material,
+                ISNULL(M.Medida, '') AS Medida,
+                ISNULL(M.Proceso_Primario, '') AS Proceso_Primario,
+                ISNULL(M.Proceso_1, '') AS Proceso_1,
+                ISNULL(M.Proceso_2, '') AS Proceso_2,
+                ISNULL(M.Proceso_3, '') AS Proceso_3,
+                ISNULL(M.Link_Drive, '') AS Link_Drive,
+                ISNULL(TRY_CAST(M.Largo_CAD AS NVARCHAR(50)), '') AS Largo_CAD,
+                ISNULL(TRY_CAST(M.Ancho_CAD AS NVARCHAR(50)), '') AS Ancho_CAD,
+                ISNULL(TRY_CAST(M.Espesor_Perfil_CAD AS NVARCHAR(50)), '') AS Espesor_CAD,
+                ISNULL(M.Tiene_DXF, 'No') AS Tiene_DXF
+            FROM Tbl_BOM_Estructura e
+            LEFT JOIN Tbl_Maestro_Piezas M ON e.Codigo_Pieza = M.Codigo_Pieza
+            WHERE e.ID_Ensamble = ?
+        """
+
+        # ── 2. Árbol con cursor único, acceso secuencial (fetchall completo
+        #       antes de la siguiente execute — sin resultados pendientes) ──
+        cursor.execute(
+            "SELECT ID_Estacion, Nombre_Estacion, Orden "
+            "FROM Tbl_Estaciones WHERE ID_Revision = ? ORDER BY Orden",
+            (id_revision,)
+        )
+        estaciones = cursor.fetchall()   # completo → cursor libre
+
         arbol = []
         for est in estaciones:
-            id_estacion = est.ID_Estacion
-            est_dict = {"id": id_estacion, "nombre": est.Nombre_Estacion, "ensambles": []}
-            
-            cursor.execute("SELECT ID_Ensamble, ID_Estacion, Codigo_Ensamble, Nombre_Ensamble FROM Tbl_Ensambles WHERE ID_Estacion = ? ORDER BY Nombre_Ensamble", (id_estacion,))
-            ensambles = cursor.fetchall()
-            
+            est_dict = {
+                "id":        est.ID_Estacion,
+                "nombre":    est.Nombre_Estacion or "",
+                "ensambles": [],
+            }
+
+            cursor.execute(
+                "SELECT ID_Ensamble, Nombre_Ensamble "
+                "FROM Tbl_Ensambles WHERE ID_Estacion = ? ORDER BY Nombre_Ensamble",
+                (est.ID_Estacion,)
+            )
+            ensambles = cursor.fetchall()   # completo → cursor libre
+
             for ens in ensambles:
-                id_ensamble = ens.ID_Ensamble
-                ens_dict = {"id": id_ensamble, "nombre": ens.Nombre_Ensamble, "piezas": []}
-                
-                cursor.execute("""
-                    SELECT e.ID_BOM, e.Codigo_Pieza, m.Descripcion, e.Cantidad, e.Observaciones_Proceso,
-                           m.Simetria, m.Proceso_Primario, m.Proceso_1, m.Proceso_2, m.Proceso_3, m.Link_Drive
-                    FROM Tbl_BOM_Estructura e
-                    LEFT JOIN Tbl_Maestro_Piezas m ON e.Codigo_Pieza = m.Codigo_Pieza
-                    WHERE e.ID_Ensamble = ?
-                """, (id_ensamble,))
-                piezas = cursor.fetchall()
-                
-                for p_row in piezas:
-                    desc = getattr(p_row, 'Descripcion', None)
+                ens_dict = {
+                    "id":     ens.ID_Ensamble,
+                    "nombre": ens.Nombre_Ensamble or "",
+                    "piezas": [],
+                }
+
+                cursor.execute(pieza_sql, (ens.ID_Ensamble,))
+                piezas_rows = cursor.fetchall()   # completo → cursor libre
+
+                for p in piezas_rows:
+                    id_bom_val = int(p.ID_BOM) if p.ID_BOM is not None else None
                     ens_dict["piezas"].append({
-                        "id": p_row.ID_BOM,
-                        "codigo": p_row.Codigo_Pieza,
-                        "descripcion": desc if desc else "N/A",
-                        "cantidad": p_row.Cantidad,
-                        "observaciones": p_row.Observaciones_Proceso or "",
-                        "simetria": getattr(p_row, 'Simetria', '') or "",
-                        "proceso_primario": getattr(p_row, 'Proceso_Primario', '') or "",
-                        "proceso_1": getattr(p_row, 'Proceso_1', '') or "",
-                        "proceso_2": getattr(p_row, 'Proceso_2', '') or "",
-                        "proceso_3": getattr(p_row, 'Proceso_3', '') or "",
-                        "link_drive": getattr(p_row, 'Link_Drive', '') or ""
+                        "id":               id_bom_val,
+                        "id_estructura":    id_bom_val,  # alias explícito para actualizar cantidades
+                        "codigo":           str(p.Codigo_Pieza or ''),
+                        "descripcion":      str(getattr(p, 'Descripcion',    None) or '') or 'N/A',
+                        "cantidad":         float(p.Cantidad) if p.Cantidad is not None else 0.0,
+                        "observaciones":    str(getattr(p, 'Observaciones_Proceso', None) or ''),
+                        "simetria":         str(getattr(p, 'Simetria',         None) or ''),
+                        "material":         str(getattr(p, 'Material',          None) or ''),
+                        "medida":           str(getattr(p, 'Medida',            None) or ''),
+                        "proceso_primario": str(getattr(p, 'Proceso_Primario',  None) or ''),
+                        "proceso_1":        str(getattr(p, 'Proceso_1',         None) or ''),
+                        "proceso_2":        str(getattr(p, 'Proceso_2',         None) or ''),
+                        "proceso_3":        str(getattr(p, 'Proceso_3',         None) or ''),
+                        "link_drive":       str(getattr(p, 'Link_Drive',        None) or ''),
+                        "largo_cad":        str(getattr(p, 'Largo_CAD',         None) or ''),
+                        "ancho_cad":        str(getattr(p, 'Ancho_CAD',         None) or ''),
+                        "espesor_cad":      str(getattr(p, 'Espesor_CAD',       None) or ''),
+                        "tiene_dxf":        str(getattr(p, 'Tiene_DXF', 'No') or 'No'),
                     })
-                
+
                 est_dict["ensambles"].append(ens_dict)
-                
+
             arbol.append(est_dict)
-            
+
         return arbol
+
     except pyodbc.Error as e:
-        raise HTTPException(status_code=500, detail=f"Error SQL en el Árbol BOM: {str(e)}")
+        print(f"Error en arbol [rev={id_revision}]: {str(e)}")
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"SQL error en Árbol BOM [rev={id_revision}]: {str(e)}"
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error interno en Árbol BOM: {str(e)}")
+        print(f"Error en arbol [rev={id_revision}]: {str(e)}")
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error interno en Árbol BOM [rev={id_revision}]: {str(e)}"
+        )
     finally:
+        cursor.close()
         conn.close()
+
+
 
 @app.get("/api/bom/plana/{id_revision}")
 def get_bom_plana(id_revision: int):
     """
-    Vista Plana: explosión jerárquica de la BOM mediante CTE de 3 niveles.
-    Nivel 1 = Estación (agrupador), Nivel 2 = Ensamble (sub-agrupador), Nivel 3 = Pieza.
-    La cantidad devuelta es la cantidad directa del ensamble (sin multiplicar hacia arriba,
-    ya que no hay cantidades en los niveles 1 y 2 de este esquema).
+    Vista Plana HD: explosión jerárquica mediante CTE de 3 niveles.
+    LEFT JOIN a Tbl_Maestro_Piezas con ISNULL para evitar nulos de BD.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("""
+        sql = """
             WITH Estaciones AS (
                 SELECT ID_Estacion, Nombre_Estacion, Orden
                 FROM   Tbl_Estaciones
                 WHERE  ID_Revision = ?
             ),
             Explosion AS (
-                -- Nivel 1: Estaciones (raíz de cada grupo)
+                -- Nivel 1: Estaciones (agrupador)
                 SELECT
-                    1                                          AS Nivel,
-                    CAST(NULL AS NVARCHAR(200))                AS Codigo_Padre,
-                    CAST(ES.Nombre_Estacion AS NVARCHAR(200))  AS Codigo_Pieza,
-                    CAST(ES.Nombre_Estacion AS NVARCHAR(500))  AS Descripcion,
-                    CAST(NULL AS FLOAT)                        AS Cantidad,
-                    CAST(NULL AS NVARCHAR(200))                AS Material,
-                    CAST(NULL AS NVARCHAR(800))                AS Procesos,
-                    ES.Orden  AS Sort1,
-                    0         AS Sort2,
-                    0         AS Sort3
+                    1                                         AS Nivel,
+                    CAST(NULL AS NVARCHAR(200))               AS Codigo_Padre,
+                    CAST(ES.Nombre_Estacion AS NVARCHAR(200)) AS Codigo_Pieza,
+                    CAST(ES.Nombre_Estacion AS NVARCHAR(500)) AS Descripcion,
+                    CAST(NULL AS FLOAT)                       AS Cantidad,
+                    ''  AS Material,    ''  AS Medida,
+                    ''  AS Proceso_Primario,
+                    ''  AS Proceso_1,   ''  AS Proceso_2,   ''  AS Proceso_3,
+                    ''  AS Largo_CAD,   ''  AS Ancho_CAD,   ''  AS Espesor_CAD,
+                    'No' AS Tiene_DXF,
+                    CAST(ES.Nombre_Estacion AS NVARCHAR(200)) AS Nombre_Estacion,
+                    CAST(NULL AS NVARCHAR(200))               AS Nombre_Ensamble,
+                    CAST(NULL AS INT)                         AS ID_BOM,
+                    ES.Orden AS Sort1, 0 AS Sort2, 0 AS Sort3
                 FROM Estaciones ES
 
                 UNION ALL
 
-                -- Nivel 2: Ensambles
+                -- Nivel 2: Ensambles (sub-agrupador)
                 SELECT
                     2,
-                    CAST(ES.Nombre_Estacion  AS NVARCHAR(200)),
-                    CAST(EN.Nombre_Ensamble  AS NVARCHAR(200)),
-                    CAST(EN.Nombre_Ensamble  AS NVARCHAR(500)),
+                    CAST(ES.Nombre_Estacion AS NVARCHAR(200)),
+                    CAST(EN.Nombre_Ensamble AS NVARCHAR(200)),
+                    CAST(EN.Nombre_Ensamble AS NVARCHAR(500)),
                     CAST(NULL AS FLOAT),
-                    CAST(NULL AS NVARCHAR(200)),
-                    CAST(NULL AS NVARCHAR(800)),
-                    ES.Orden,
-                    EN.ID_Ensamble,
-                    0
+                    '', '', '', '', '', '',
+                    '', '', '', 'No',
+                    CAST(ES.Nombre_Estacion AS NVARCHAR(200)),
+                    CAST(EN.Nombre_Ensamble AS NVARCHAR(200)),
+                    CAST(NULL AS INT),
+                    ES.Orden, EN.ID_Ensamble, 0
                 FROM Tbl_Ensambles EN
                 JOIN Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
 
                 UNION ALL
 
-                -- Nivel 3: Piezas con sus datos del catálogo maestro
-                -- Procesos: concatenación de los 4 campos de proceso separados por '|'
+                -- Nivel 3: Piezas. LEFT JOIN + ISNULL (sincronizado con esquema Pydantic)
                 SELECT
                     3,
-                    CAST(EN.Nombre_Ensamble          AS NVARCHAR(200)),
-                    CAST(E.Codigo_Pieza              AS NVARCHAR(200)),
-                    CAST(ISNULL(M.Descripcion,'N/A') AS NVARCHAR(500)),
-                    CAST(E.Cantidad                  AS FLOAT),
-                    CAST(ISNULL(M.Material,'N/A')    AS NVARCHAR(200)),
-                    CAST(
-                        ISNULL(M.Proceso_Primario,'') + '|' +
-                        ISNULL(M.Proceso_1,'')        + '|' +
-                        ISNULL(M.Proceso_2,'')        + '|' +
-                        ISNULL(M.Proceso_3,'')
-                    AS NVARCHAR(800))                AS Procesos,
-                    ES.Orden,
-                    EN.ID_Ensamble,
-                    E.ID_BOM
+                    CAST(EN.Nombre_Ensamble AS NVARCHAR(200)),
+                    CAST(E.Codigo_Pieza     AS NVARCHAR(200)),
+                    ISNULL(CAST(M.Descripcion AS NVARCHAR(500)), ''),
+                    CAST(E.Cantidad AS FLOAT),
+                    ISNULL(M.Material, ''),
+                    ISNULL(M.Medida, ''),
+                    ISNULL(M.Proceso_Primario, ''),
+                    ISNULL(M.Proceso_1, ''),
+                    ISNULL(M.Proceso_2, ''),
+                    ISNULL(M.Proceso_3, ''),
+                    ISNULL(TRY_CAST(M.Largo_CAD AS NVARCHAR(50)), ''),
+                    ISNULL(TRY_CAST(M.Ancho_CAD AS NVARCHAR(50)), ''),
+                    ISNULL(TRY_CAST(M.Espesor_Perfil_CAD AS NVARCHAR(50)), ''),
+                    ISNULL(M.Tiene_DXF, 'No'),
+                    CAST(ES.Nombre_Estacion AS NVARCHAR(200)),
+                    CAST(EN.Nombre_Ensamble AS NVARCHAR(200)),
+                    E.ID_BOM,
+                    ES.Orden, EN.ID_Ensamble, E.ID_BOM
                 FROM Tbl_BOM_Estructura E
-                JOIN Tbl_Ensambles           EN ON E.ID_Ensamble   = EN.ID_Ensamble
-                JOIN Estaciones              ES ON EN.ID_Estacion  = ES.ID_Estacion
-                LEFT JOIN Tbl_Maestro_Piezas M  ON E.Codigo_Pieza  = M.Codigo_Pieza
+                JOIN Tbl_Ensambles           EN ON E.ID_Ensamble  = EN.ID_Ensamble
+                JOIN Estaciones              ES ON EN.ID_Estacion = ES.ID_Estacion
+                LEFT JOIN Tbl_Maestro_Piezas M  ON E.Codigo_Pieza = M.Codigo_Pieza
             )
-            SELECT Nivel, Codigo_Padre, Codigo_Pieza, Descripcion, Cantidad, Material, Procesos
+            SELECT Nivel, Codigo_Padre, Codigo_Pieza, Descripcion, Cantidad,
+                   Material, Medida, Proceso_Primario, Proceso_1, Proceso_2, Proceso_3,
+                   Largo_CAD, Ancho_CAD, Espesor_CAD, Tiene_DXF,
+                   Nombre_Estacion, Nombre_Ensamble, ID_BOM
             FROM   Explosion
             ORDER BY Sort1, Sort2, Nivel, Sort3
-        """, (id_revision,))
+        """
+        cursor.execute(sql, (id_revision,))
         rows = cursor.fetchall()
+
+        def _gs(r, col: str, default: str = "") -> str:
+            return str(getattr(r, col, default) or default)
+
         return [
             {
-                "nivel":        int(r.Nivel),
-                "codigo_padre": r.Codigo_Padre  or "",
-                "codigo_pieza": r.Codigo_Pieza  or "",
-                "descripcion":  r.Descripcion   or "",
-                "cantidad":     float(r.Cantidad) if r.Cantidad is not None else None,
-                "material":     r.Material      or "",
-                "procesos":     r.Procesos      or "",
+                "nivel":            int(getattr(r, 'Nivel', 0)),
+                "codigo_padre":     _gs(r, 'Codigo_Padre'),
+                "codigo_pieza":     _gs(r, 'Codigo_Pieza'),
+                "descripcion":      _gs(r, 'Descripcion'),
+                "cantidad":         (float(r.Cantidad) if r.Cantidad is not None else None),
+                "material":         _gs(r, 'Material'),
+                "medida":           _gs(r, 'Medida'),
+                "proceso_primario": _gs(r, 'Proceso_Primario'),
+                "proceso_1":        _gs(r, 'Proceso_1'),
+                "proceso_2":        _gs(r, 'Proceso_2'),
+                "proceso_3":        _gs(r, 'Proceso_3'),
+                "largo_cad":        _gs(r, 'Largo_CAD'),
+                "ancho_cad":        _gs(r, 'Ancho_CAD'),
+                "espesor_cad":      _gs(r, 'Espesor_CAD'),
+                "tiene_dxf":        str(getattr(r, 'Tiene_DXF', 'No') or 'No'),
+                "nombre_estacion":  _gs(r, 'Nombre_Estacion'),
+                "nombre_ensamble":  _gs(r, 'Nombre_Ensamble'),
+                "id_bom":           (int(r.ID_BOM) if r.ID_BOM is not None else None),
+                "id_estructura":    (int(r.ID_BOM) if r.ID_BOM is not None else None),  # alias explícito
             }
             for r in rows
         ]
     except pyodbc.Error as e:
-        raise HTTPException(status_code=500, detail=f"Error SQL en Vista Plana BOM: {str(e)}")
+        print(f"Error en plana [rev={id_revision}]: {str(e)}")
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"SQL error en Vista Plana [rev={id_revision}]: {str(e)}"
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error interno en Vista Plana BOM: {str(e)}")
+        print(f"Error en plana [rev={id_revision}]: {str(e)}")
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error interno en Vista Plana [rev={id_revision}]: {str(e)}"
+        )
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.get("/api/bom/delta/{id_revision}")
+def get_bom_delta(id_revision: int):
+    """
+    Modo Delta: compara la revisión actual con la inmediatamente anterior
+    en la misma versión de ingeniería.
+    Devuelve conjuntos de piezas nuevas, eliminadas y con cantidad modificada.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # 1. Buscar la revisión anterior en la misma versión
+        cursor.execute("""
+            SELECT TOP 1 R2.ID_Revision
+            FROM Tbl_BOM_Revisiones R1
+            JOIN Tbl_BOM_Revisiones R2 ON R1.ID_Version = R2.ID_Version
+            WHERE R1.ID_Revision = ?
+              AND R2.Numero_Revision < R1.Numero_Revision
+            ORDER BY R2.Numero_Revision DESC
+        """, (id_revision,))
+        row = cursor.fetchone()
+        if not row:
+            return {
+                "tiene_anterior":     False,
+                "id_rev_anterior":    None,
+                "codigos_nuevos":     [],
+                "codigos_eliminados": [],
+                "modificados":        {},
+            }
+        id_rev_anterior = int(row[0])
+
+        # Helper: sumar cantidades por código en una revisión
+        def piezas_por_codigo(rev_id: int) -> dict:
+            cursor.execute("""
+                SELECT E.Codigo_Pieza, SUM(E.Cantidad)
+                FROM Tbl_BOM_Estructura E
+                JOIN Tbl_Ensambles  EN ON E.ID_Ensamble  = EN.ID_Ensamble
+                JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
+                WHERE ES.ID_Revision = ?
+                GROUP BY E.Codigo_Pieza
+            """, (rev_id,))
+            return {str(r[0]): float(r[1] or 0) for r in cursor.fetchall()}
+
+        curr = piezas_por_codigo(id_revision)
+        prev = piezas_por_codigo(id_rev_anterior)
+
+        codigos_nuevos     = [c for c in curr if c not in prev]
+        codigos_eliminados = [c for c in prev if c not in curr]
+        modificados        = {
+            c: {"prev_qty": prev[c], "curr_qty": curr[c]}
+            for c in curr
+            if c in prev and curr[c] != prev[c]
+        }
+
+        return {
+            "tiene_anterior":     True,
+            "id_rev_anterior":    id_rev_anterior,
+            "codigos_nuevos":     codigos_nuevos,
+            "codigos_eliminados": codigos_eliminados,
+            "modificados":        modificados,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error en Delta BOM: {str(e)}")
     finally:
         conn.close()
+
 
 @app.post("/api/bom/importar/{id_revision}")
 async def importar_bom(id_revision: int, file: UploadFile = File(...)):
     if not file.filename.endswith(('.xls', '.xlsx')):
         raise HTTPException(status_code=400, detail="El archivo debe ser un Excel (.xlsx, .xls)")
-    
+
     try:
         content = await file.read()
         df = pd.read_excel(io.BytesIO(content), header=None)
     except Exception as e:
         if isinstance(e, HTTPException): raise e
         raise HTTPException(status_code=400, detail=f"Error al analizar el Excel: {str(e)}")
-        
+
+    # ── Motor dinámico de cabeceras ───────────────────────────────────────────
+    # Glosario de sinónimos por campo (normalizado a mayúsculas).
+    _COL_MAP = {
+        'estacion':  {'ESTACION', 'ESTACIÓN', 'UBICACION', 'UBICACIÓN', 'STATION'},
+        'ensamble':  {'ENSAMBLE', 'GRUPO', 'SUBENSAMBLE', 'SUBGRUPO', 'ASSEMBLY'},
+        'codigo':    {'CODIGO', 'CÓDIGO', 'PARTE', 'NO. PARTE', 'NO.PARTE',
+                      'CODIGO PIEZA', 'CÓDIGO PIEZA', 'PART NO', 'PART NUMBER'},
+        'cantidad':  {'CANTIDAD', 'CANT', 'CANT.', 'QTY', 'QUANTITY'},
+    }
+    # Índices por defecto (compatibilidad con plantillas sin fila de cabecera)
+    idx = {'estacion': 1, 'ensamble': 2, 'codigo': 3, 'cantidad': 6}
+
+    header_row_found = None
+    for r_idx, row_scan in df.iterrows():
+        if r_idx >= 10:            # sólo escanear las primeras 10 filas
+            break
+        row_vals = [str(v).strip().upper() if not pd.isna(v) else '' for v in row_scan]
+        matched = 0
+        tmp = {}
+        for campo, sinonimos in _COL_MAP.items():
+            for c_idx, val in enumerate(row_vals):
+                if val in sinonimos:
+                    tmp[campo] = c_idx
+                    matched += 1
+                    break
+        # Si se detectaron al menos 3 campos → fila de cabecera válida
+        if matched >= 3:
+            idx.update(tmp)
+            header_row_found = r_idx
+            break
+
+    # Si se encontró cabecera, ignorar esa fila y las anteriores en la iteración
+    data_start = (header_row_found + 1) if header_row_found is not None else 0
+
     conn = get_db_connection()
     cursor = conn.cursor()
-    
+
     total_leidos = 0
     insertados = 0
     errores_mapeo = []
-    
+
     try:
         # Pre-cargar catálogo maestro para validación rápida
         cursor.execute("SELECT Codigo_Pieza FROM Tbl_Maestro_Piezas")
         codigos_buscar = {str(row[0]).strip().upper() for row in cursor.fetchall() if row[0]}
-        
+
         acumulados = {}
-        
-        # 1.- Lógica de Secuencia Inicial (Ensambles)
-        cursor.execute("SELECT MAX(Codigo_Ensamble) FROM Tbl_Ensambles WHERE Codigo_Ensamble LIKE 'E-%'")
+
+        # Lógica de Secuencia Inicial (Ensambles)
+        cursor.execute(
+            "SELECT MAX(Codigo_Ensamble) FROM Tbl_Ensambles "
+            "WHERE Codigo_Ensamble LIKE 'E-%'"
+        )
         max_code_row = cursor.fetchone()
         secuencia_ensamble = 0
         if max_code_row and max_code_row[0]:
             try:
-                # Extraer número tras el guión (ej: E-0005 -> 5)
                 secuencia_ensamble = int(max_code_row[0].split('-')[1])
             except (ValueError, IndexError):
                 pass
 
+        # Forward-fill para Estacion y Ensamble (celdas combinadas en Excel)
+        last_estacion = None
+        last_ensamble = None
+
         for index, row in df.iterrows():
-            estacion_val = row[1]
-            ensamble_val = row[2]
-            codigo_val = row[3]
-            cantidad_val = row[6] if len(row) > 6 else 1
-
-            if pd.isna(codigo_val) or str(codigo_val).strip() == '' or str(codigo_val).strip().lower() == 'código de pieza':
+            if index < data_start:
                 continue
 
-            if pd.isna(estacion_val) or pd.isna(ensamble_val):
+            def _safe(col_idx):
+                try:
+                    v = row[col_idx]
+                    return None if pd.isna(v) else str(v).strip()
+                except (KeyError, IndexError):
+                    return None
+
+            estacion_raw = _safe(idx['estacion'])
+            ensamble_raw = _safe(idx['ensamble'])
+            codigo_raw   = _safe(idx['codigo'])
+            cantidad_raw = _safe(idx['cantidad'])
+
+            # Forward-fill
+            if estacion_raw: last_estacion = estacion_raw
+            if ensamble_raw: last_ensamble = ensamble_raw
+            estacion_val = last_estacion
+            ensamble_val = last_ensamble
+
+            # Validar que hay código de pieza
+            if not codigo_raw:
                 continue
-                
+            skip_values = {'codigo', 'código', 'codigo pieza', 'código pieza',
+                           'codigo_pieza', 'no. parte', 'part no', 'none', ''}
+            if codigo_raw.lower() in skip_values:
+                continue
+            if not estacion_val or not ensamble_val:
+                continue
+
             total_leidos += 1
-                
-            estacion_nombre = "" if pd.isna(row[1]) else str(row[1]).strip()
-            ensamble_nombre = "" if pd.isna(row[2]) else str(row[2]).strip()
-            codigo = str(codigo_val).strip().upper()
-            
-            # 2. Validación de Existencia
+            codigo = codigo_raw.upper()
+
+            # Validación de existencia en catálogo maestro
             if codigo not in codigos_buscar:
                 if codigo not in errores_mapeo:
                     errores_mapeo.append(codigo)
                 continue
-            
+
             try:
-                if pd.isna(cantidad_val) or cantidad_val is None:
-                    cantidad = 1
-                else:
-                    cantidad = int(float(cantidad_val))
+                cantidad = 1 if not cantidad_raw else int(float(cantidad_raw))
             except (ValueError, TypeError):
                 cantidad = 1
-                
-            # 3. Acumulación
-            llave = (estacion_nombre, ensamble_nombre, codigo)
+
+            # Acumulación (une duplicados de la misma clave en el mismo archivo)
+            llave = (estacion_val, ensamble_val, codigo)
             acumulados[llave] = acumulados.get(llave, 0) + cantidad
             
         # Inserción final con Caché para velocidad
@@ -3488,9 +3855,8 @@ async def update_material(request: Request, payload: Dict[str, Any]):
         'Simetria', 'Proceso_Primario', 'Proceso_1', 'Proceso_2', 'Proceso_3'
     ]
     
-    # REGLA ESPEJO: Si está activa y se actualiza la descripción, también el material
-    if REGLA_ESPEJO_ACTIVA and 'Descripcion' in payload:
-        payload['Material'] = payload['Descripcion']
+    # REGLA ESPEJO ELIMINADA: Descripcion y Material son campos independientes.
+    # Cada campo recibe sólo su propio valor del frontend.
 
     usuario = payload.get('usuario') or payload.get('Modificado_Por') or 'Sistema'
 
@@ -3590,18 +3956,40 @@ async def procesar_excel(file: UploadFile = File(...)):
         last_estacion = None
         last_ensamble = None
         
-        # 2. Iterar filas (Start Row 6 - 0-indexed es 5, pero openpyxl es 1-based, así que min_row=6)
+        # ── 2. Detección dinámica de columnas desde cabeceras (filas 1-5) ─────
+        # Soporta múltiples sinónimos para mayor compatibilidad con plantillas
+        # antiguas y de terceros. Material siempre se trata de forma independiente;
+        # si no se encuentra su columna, se guarda vacío (sin copiar Descripcion).
+        SINONIMOS_DESC = {
+            'DESCRIPCION', 'DESCRIPCIÓN', 'DESC', 'DETALLE', 'NOMBRE',
+            'DESCRIPTION', 'NOMBRE PIEZA', 'NOMBRE_PIEZA',
+        }
+        SINONIMOS_MAT = {
+            'MATERIAL', 'MAT', 'MATERIA', 'COMPOSICION', 'COMPOSICIÓN',
+            'TIPO MATERIAL', 'TIPO_MATERIAL', 'MATERIAL BASE',
+        }
+
+        idx_descripcion = 4        # fallback seguro: Col E
+        idx_material    = None     # None = columna no encontrada → campo vacío
+
+        for r_idx in range(1, 6):
+            if r_idx > ws.max_row:
+                break
+            for c_idx, cell in enumerate(ws[r_idx]):
+                val = str(cell.value or '').strip().upper()
+                if val in SINONIMOS_DESC:
+                    idx_descripcion = c_idx
+                elif val in SINONIMOS_MAT:
+                    idx_material = c_idx
+
+        # Mapeo de columnas (0-based) — valores de fallback para plantillas sin cabecera:
+        # D (3): CODIGO_PIEZA
+        # E (4): DESCRIPCION
+        # F (5): MEDIDA
+        # G (6): MATERIAL (si no se detecta cabecera, queda None → vacío)
+        # H (7): SIMETRIA  |  I (8): PROCESO PRIMARIO  |  J-L (9-11): PROCESO 1-3
         start_row = 6
         for row in ws.iter_rows(min_row=start_row, values_only=True):
-            # Mapeo por índice (0-based)
-            # Col 3 (D): CODIGO_PIEZA
-            # Col 4 (E): DESCRIPCION / MATERIAL
-            # Col 5 (F): MEDIDA
-            # Col 7 (H): SIMETRIA
-            # Col 8 (I): PROCESO PRIMARIO
-            # Col 9 (J): PROCESO 1
-            # Col 10 (K): PROCESO 2
-            # Col 11 (L): PROCESO 3
             
             if not row: continue
 
@@ -3626,20 +4014,24 @@ async def procesar_excel(file: UploadFile = File(...)):
                     return str(row[idx]).strip()
                 return ""
 
+            # Material: sólo leer si se detectó su columna; de lo contrario vacío.
+            # Nunca copiar Descripcion → Material (regla espejo eliminada).
+            material_excel = get_val(idx_material) if idx_material is not None else ""
+
             scan_data.append({
-                'Estacion': last_estacion,
-                'Ensamble': last_ensamble,
-                'Codigo_Pieza': codigo_pieza,
-                'Cantidad': 0, 
-                'Descripcion_Excel': get_val(4),
-                'Medida_Excel': get_val(5),
-                'Material_Excel': "", # No mapeado explícitamente en columna aparte, dejamos vacío (Regla Espejo lo llenará si aplica)
-                'Simetria': get_val(7),
-                'Proceso_Primario': get_val(8),
-                'Proceso_1': get_val(9),
-                'Proceso_2': get_val(10),
-                'Proceso_3': get_val(11),
-                'Link_Drive': "" # No mapeado en este bloque
+                'Estacion':          last_estacion,
+                'Ensamble':          last_ensamble,
+                'Codigo_Pieza':      codigo_pieza,
+                'Cantidad':          0,
+                'Descripcion_Excel': get_val(idx_descripcion),
+                'Medida_Excel':      get_val(5),
+                'Material_Excel':    material_excel,
+                'Simetria':          get_val(7),
+                'Proceso_Primario':  get_val(8),
+                'Proceso_1':         get_val(9),
+                'Proceso_2':         get_val(10),
+                'Proceso_3':         get_val(11),
+                'Link_Drive':        "",
             })
 
         # 3. Comparar contra SQL
@@ -3747,10 +4139,7 @@ async def sincronizar_excel(items: List[SincronizacionItem], x_usuario: Optional
     
     try:
         for item in items:
-            # REGLA ESPEJO
-            if REGLA_ESPEJO_ACTIVA:
-                item.Material = item.Descripcion
-
+            # REGLA ESPEJO ELIMINADA: Material y Descripcion son independientes.
             # Sanitizar datos (Evitar NULLs -> Strings Vacíos)
             desc = item.Descripcion if item.Descripcion is not None else ""
             medida = item.Medida if item.Medida is not None else ""
@@ -4370,23 +4759,14 @@ async def actualizar_masivo(payload: MasivoUpdate):
         for p in piezas:
             codigo = p[0]
             
-            val_nuevo = ""
-            
-            # REGLA ESPEJO
-            if globals().get('REGLA_ESPEJO_ACTIVA', True):
-                cursor.execute("""
-                    UPDATE Tbl_Maestro_Piezas 
-                    SET Descripcion = ?, Material = ?, Ultima_Actualizacion = GETDATE(), Modificado_Por = ?
-                    WHERE Codigo_Pieza = ?
-                """, (payload.new_desc, payload.new_desc, payload.usuario, codigo))
-                val_nuevo = str({"Descripcion": payload.new_desc, "Material": payload.new_desc})
-            else:
-                cursor.execute("""
-                    UPDATE Tbl_Maestro_Piezas 
-                    SET Descripcion = ?, Ultima_Actualizacion = GETDATE(), Modificado_Por = ?
-                    WHERE Codigo_Pieza = ?
-                """, (payload.new_desc, payload.usuario, codigo))
-                val_nuevo = str({"Descripcion": payload.new_desc})
+            # REGLA ESPEJO ELIMINADA: el renombre masivo sólo toca Descripcion.
+            # Material se mantiene intacto.
+            cursor.execute("""
+                UPDATE Tbl_Maestro_Piezas 
+                SET Descripcion = ?, Ultima_Actualizacion = GETDATE(), Modificado_Por = ?
+                WHERE Codigo_Pieza = ?
+            """, (payload.new_desc, payload.usuario, codigo))
+            val_nuevo = str({"Descripcion": payload.new_desc})
             
             if cursor.rowcount > 0:
                 actualizadas += 1
