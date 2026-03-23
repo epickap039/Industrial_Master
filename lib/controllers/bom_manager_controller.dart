@@ -4,6 +4,8 @@ part of 'package:industrial_manager_v15_5/screens/bom_manager.dart';
 /// La construcción principal del árbol, tablas, vista plana y [build] permanecen en la pantalla.
 mixin BomManagerControllerMixin on State<BOMManagerScreen> {
   bool _isLoading = false;
+  /// POST manuales (estación / ensamble / pieza): deshabilita acciones y muestra progreso.
+  bool _manualBomMutating = false;
 
   int? _currentIdCliente;
   String _currentClientName = '';
@@ -77,6 +79,13 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
       _vins = [];
       _bomPlana = [];
     });
+  }
+
+  /// Usuario de sesión para header `X-Usuario` en auditoría de ingeniería.
+  Future<String> _prefsUsername() async {
+    final prefs = await SharedPreferences.getInstance();
+    final u = prefs.getString('username')?.trim();
+    return (u != null && u.isNotEmpty) ? u : 'Operador';
   }
 
   String _clientesDeRevision(dynamic rev) {
@@ -225,12 +234,14 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
 
     setState(() => _isLoading = true);
     try {
+      final username = await _prefsUsername();
+      if (!mounted) return;
       final path = _usingVersionMode
           ? '/api/bom/revisiones/version/$_masterId'
           : '/api/bom/revisiones/$_masterId';
       final response = await ApiClient.postUnvalidated(
         path,
-        headers: {'X-Usuario': 'Admin PLM'},
+        headers: {'X-Usuario': username},
         body: {'notas': notas.isEmpty ? null : notas},
       );
       if (!mounted) return;
@@ -339,8 +350,11 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     if (_selectedRevision == null) return;
     setState(() => _isLoading = true);
     try {
+      final username = await _prefsUsername();
+      if (!mounted) return;
       final response = await ApiClient.putUnvalidated(
         '/api/bom/revisiones/${_selectedRevision['id_revision']}/aprobar',
+        headers: {'X-Usuario': username},
       );
       if (!mounted) return;
       if (response.statusCode == 200) {
@@ -505,12 +519,29 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     }
   }
 
+  String _apiErrorDetail(dynamic decoded) {
+    if (decoded is! Map) return 'Error desconocido';
+    final d = decoded['detail'];
+    if (d is String) return d;
+    if (d is List && d.isNotEmpty) {
+      final first = d.first;
+      if (first is Map) {
+        final msg = first['msg'];
+        if (msg is String) return msg;
+      }
+    }
+    return 'Error desconocido';
+  }
+
   Future<void> _addEstacion(String nombre) async {
     if (_selectedRevision == null) return;
+    setState(() => _manualBomMutating = true);
     try {
+      final username = await _prefsUsername();
+      if (!mounted) return;
       final response = await ApiClient.postUnvalidated(
         '/api/bom/estaciones',
-        headers: {'X-Usuario': 'Admin PLM'},
+        headers: {'X-Usuario': username},
         body: {
           'id_revision': _selectedRevision['id_revision'],
           'nombre': nombre,
@@ -518,12 +549,16 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
       );
       if (!mounted) return;
       if (response.statusCode == 200) {
+        _showError('Estación creada correctamente.', isError: false);
         _fetchArbol();
       } else {
-        _showError("Error al agregar la estación");
+        final decoded = response.decodeJsonLenient();
+        _showError(_apiErrorDetail(decoded));
       }
     } catch (e) {
-      if (mounted) _showError("Error: $e");
+      if (mounted) _showError('Error al agregar la estación: $e');
+    } finally {
+      if (mounted) setState(() => _manualBomMutating = false);
     }
   }
 
@@ -548,20 +583,27 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
   }
 
   Future<void> _addEnsamble(int idEstacion, String nombre) async {
+    setState(() => _manualBomMutating = true);
     try {
+      final username = await _prefsUsername();
+      if (!mounted) return;
       final response = await ApiClient.postUnvalidated(
         '/api/bom/ensambles',
-        headers: {'X-Usuario': 'Admin PLM'},
+        headers: {'X-Usuario': username},
         body: {'id_estacion': idEstacion, 'nombre': nombre},
       );
       if (!mounted) return;
       if (response.statusCode == 200) {
+        _showError('Ensamble creado correctamente.', isError: false);
         _fetchArbol();
       } else {
-        _showError("Error al agregar el ensamble");
+        final decoded = response.decodeJsonLenient();
+        _showError(_apiErrorDetail(decoded));
       }
     } catch (e) {
-      if (mounted) _showError("Error: $e");
+      if (mounted) _showError('Error al agregar el ensamble: $e');
+    } finally {
+      if (mounted) setState(() => _manualBomMutating = false);
     }
   }
 
@@ -587,10 +629,14 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
 
   Future<void> _addPieza(String codigo, double cantidad, String obs) async {
     if (_selectedEnsamble == null) return;
+    setState(() => _manualBomMutating = true);
     try {
+      final username = await _prefsUsername();
+      if (!mounted) return;
+      // `observaciones` → BOMPayload.observaciones → Tbl_BOM_Estructura.Observaciones_Proceso
       final response = await ApiClient.postUnvalidated(
         '/api/bom/estructura',
-        headers: {'X-Usuario': 'Admin PLM'},
+        headers: {'X-Usuario': username},
         body: {
           'id_ensamble': _selectedEnsamble['id'],
           'codigo_pieza': codigo,
@@ -600,12 +646,16 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
       );
       if (!mounted) return;
       if (response.statusCode == 200) {
+        _showError('Pieza agregada al ensamble.', isError: false);
         _fetchArbol();
       } else {
-        _showError("Error al agregar la pieza");
+        final decoded = response.decodeJsonLenient();
+        _showError(_apiErrorDetail(decoded));
       }
     } catch (e) {
-      if (mounted) _showError("Error: $e");
+      if (mounted) _showError('Error al agregar la pieza: $e');
+    } finally {
+      if (mounted) setState(() => _manualBomMutating = false);
     }
   }
 
@@ -636,9 +686,11 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     }
     if (mounted) setState(() => _hasPendingChanges = true);
     try {
+      final username = await _prefsUsername();
+      if (!mounted) return;
       final response = await ApiClient.putUnvalidated(
         '/api/bom/estructura/cantidad/$idBom',
-        headers: {'X-Usuario': 'Admin PLM'},
+        headers: {'X-Usuario': username},
         body: {'cantidad': nuevaCantidad},
       );
       if (!mounted) return;
@@ -995,9 +1047,11 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     }
 
     try {
+      final username = await _prefsUsername();
+      if (!mounted) return null;
       final response = await ApiClient.postUnvalidated(
         '/api/bom/branching',
-        headers: {'X-Usuario': 'Admin PLM'},
+        headers: {'X-Usuario': username},
         body: {
           'id_revision_origen': _selectedRevision!['id_revision'],
           'tipo_cambio': tipoCambio,
@@ -1072,9 +1126,11 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     if (!mounted) return;
     setState(() => _isLoading = true);
     try {
+      final username = await _prefsUsername();
+      if (!mounted) return;
       final response = await ApiClient.deleteUnvalidated(
         '/api/bom/revisiones/$idRev',
-        headers: {'X-Usuario': 'Admin PLM'},
+        headers: {'X-Usuario': username},
         body: {'password': password, 'motivo': motivo},
       );
       if (!mounted) return;
@@ -1253,11 +1309,13 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     final int idOrigen = _selectedRevision['id_revision'];
     setState(() => _isLoading = true);
     try {
+      final username = await _prefsUsername();
+      if (!mounted) return;
       final response = await ApiClient.postUnvalidated(
         '/api/bom/clonar/$idOrigen',
         headers: {
           'Content-Type': 'application/json',
-          'X-Usuario': 'Admin PLM',
+          'X-Usuario': username,
         },
       );
       if (!mounted) return;
@@ -1316,9 +1374,11 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
 
   Future<void> _updateVINNotas(int idUnidad, String notas) async {
     try {
+      final username = await _prefsUsername();
+      if (!mounted) return;
       final response = await ApiClient.putUnvalidated(
         '/api/vins/$idUnidad/notas',
-        headers: {'X-Usuario': 'Admin PLM'},
+        headers: {'X-Usuario': username},
         body: {
           'vin': '',
           'notas': notas,
@@ -1355,12 +1415,14 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     // === TAREA 2: Leer usuario real para el header ===
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
-    final username = prefs.getString('username') ?? 'SISTEMA_VIN';
+    final username = prefs.getString('username')?.trim().isNotEmpty == true
+        ? prefs.getString('username')!.trim()
+        : 'Operador';
     try {
       final response = await ApiClient.postUnvalidated(
         '/api/bom/revisiones/${_selectedRevision['id_revision']}/vins',
         headers: {
-          'X-Usuario': username, // === TAREA 2: header de usuario ===
+          'X-Usuario': username,
         },
         body: {'vin': vin},
       );
@@ -1379,13 +1441,15 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     // === TAREA 2: Leer usuario real para el header ===
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
-    final username = prefs.getString('username') ?? 'SISTEMA_VIN';
+    final username = prefs.getString('username')?.trim().isNotEmpty == true
+        ? prefs.getString('username')!.trim()
+        : 'Operador';
     try {
       final response = await ApiClient.deleteUnvalidated(
         '/api/bom/vins/$idUnidad',
         headers: {
           'Content-Type': 'application/json',
-          'X-Usuario': username, // === TAREA 2: header de usuario ===
+          'X-Usuario': username,
         },
       );
       if (!mounted) return;
@@ -1790,9 +1854,11 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
 
     setState(() => _isLoading = true);
     try {
+      final username = await _prefsUsername();
+      if (!mounted) return;
       final response = await ApiClient.postUnvalidated(
         '/api/bom/buscar_planos',
-        headers: {'X-Usuario': 'Admin PLM'},
+        headers: {'X-Usuario': username},
         body: {
           'codigos': codigos,
           'ruta_base': selectedDirectory,

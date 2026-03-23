@@ -336,8 +336,13 @@ def replace_vin_notas(id_unidad: int, payload: NotasReplacePayload, x_usuario: O
             )
             rev_row = cur2.fetchone()
             if rev_row:
-                registrar_log(cur2, rev_row.ID_Revision, "VIN_NOTA_BORRADA",
-                              f"{serie_label}: nota eliminada.")
+                registrar_log(
+                    cur2,
+                    rev_row.ID_Revision,
+                    "VIN_NOTA_BORRADA",
+                    f"{serie_label}: nota eliminada.",
+                    usuario=usuario_real,
+                )
             conn2.commit()
             conn2.close()
         except Exception:

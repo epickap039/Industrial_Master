@@ -118,12 +118,14 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
               IconButton(
                 icon: const Icon(FluentIcons.add),
                 onPressed:
-                    () => _showAddDialog(
-                      "Nuevo Ensamble para ${est['nombre']}",
-                      (nombre) {
-                        _addEnsamble(est['id'], nombre);
-                      },
-                    ),
+                    _manualBomMutating
+                        ? null
+                        : () => _showAddDialog(
+                          "Nuevo Ensamble para ${est['nombre']}",
+                          (nombre) {
+                            _addEnsamble(est['id'], nombre);
+                          },
+                        ),
               ),
               IconButton(
                 icon: const Icon(FluentIcons.delete),
@@ -184,9 +186,49 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
     }).toList();
   }
 
+  Widget _buildRevisionEmptyState() {
+    final Color base =
+        FluentTheme.of(context).typography.body?.color?.withOpacity(0.65) ??
+        Colors.grey;
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 360),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(FluentIcons.cube_shape, size: 48, color: base),
+              const SizedBox(height: 16),
+              Text(
+                'Revisión Vacía',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: base,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Agrega Ensambles desde el panel izquierdo o importa un archivo Excel para comenzar',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 13, color: base),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildPiezasTable() {
     if (_selectedRevision == null) {
       return const Center(child: Text("Selecciona una revisión primero."));
+    }
+    if (_arbol.isEmpty) {
+      return _buildRevisionEmptyState();
     }
     if (_selectedEnsamble == null) {
       return const Center(
@@ -263,6 +305,13 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                 ),
               ),
               Expanded(
+                flex: 2,
+                child: Text(
+                  "Notas / Obs.",
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                ),
+              ),
+              Expanded(
                 flex: 1,
                 child: Text(
                   "Simetría",
@@ -319,6 +368,10 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                       final hasLink = strLink.isNotEmpty && strLink != 'N/A';
                       final descripcion =
                           pieza['descripcion']?.toString() ?? '';
+                      final strObs =
+                          pieza['observaciones']?.toString().trim() ?? '';
+                      final Color? obsMuted =
+                          FluentTheme.of(context).typography.caption?.color;
 
                       return Container(
                         padding: const EdgeInsets.symmetric(
@@ -401,6 +454,42 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                 strProcesos,
                                 style: const TextStyle(fontSize: 11),
                               ),
+                            ),
+                            Expanded(
+                              flex: 2,
+                              child:
+                                  strObs.isEmpty
+                                      ? Text(
+                                        '—',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          color: obsMuted,
+                                        ),
+                                      )
+                                      : Tooltip(
+                                        message: strObs,
+                                        child: Row(
+                                          children: [
+                                            Icon(
+                                              FluentIcons.document,
+                                              size: 12,
+                                              color: obsMuted,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Expanded(
+                                              child: Text(
+                                                strObs,
+                                                style: const TextStyle(
+                                                  fontSize: 10,
+                                                ),
+                                                maxLines: 1,
+                                                overflow:
+                                                    TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
                             ),
                             Expanded(
                               flex: 1,
@@ -1160,11 +1249,14 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                                   FluentIcons.add,
                                                   size: 14,
                                                 ),
-                                                onPressed: () =>
-                                                    _showAddDialog(
-                                                  "Nueva Estación",
-                                                  _addEstacion,
-                                                ),
+                                                onPressed:
+                                                    _manualBomMutating
+                                                        ? null
+                                                        : () =>
+                                                            _showAddDialog(
+                                                              "Nueva Estación",
+                                                              _addEstacion,
+                                                            ),
                                               ),
                                             ),
                                         ],
@@ -1172,22 +1264,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                       const Divider(),
                                       Expanded(
                                         child: _arbol.isEmpty
-                                            ? Center(
-                                                child: Text(
-                                                  "Sin estaciones",
-                                                  style: TextStyle(
-                                                    color: (FluentTheme.of(
-                                                                    context)
-                                                                .typography
-                                                                .body
-                                                                ?.color
-                                                                ?.withOpacity(
-                                                                    0.5) ??
-                                                            Colors.grey),
-                                                    fontSize: 12,
-                                                  ),
-                                                ),
-                                              )
+                                            ? _buildRevisionEmptyState()
                                             : TreeView(
                                                 items: _buildTreeItems(),
                                                 selectionMode:
@@ -1208,7 +1285,9 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                           child: Card(
                             padding: const EdgeInsets.all(12),
                             child:
-                                _isLoading && _selectedEnsamble == null
+                                _manualBomMutating ||
+                                        (_isLoading &&
+                                            _selectedEnsamble == null)
                                     ? const Center(child: ProgressRing())
                                     : _buildPiezasTable(),
                           ),

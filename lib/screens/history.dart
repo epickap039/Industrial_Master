@@ -23,6 +23,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
   /// Búsqueda activa para paginación (sincronizada al refrescar / buscar).
   String _activeSearchQuery = '';
 
+  bool _isTimelineView = false;
+
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
@@ -167,6 +169,28 @@ class _HistoryScreenState extends State<HistoryScreen> {
       return Colors.red;
     }
     return Colors.orange; // Default/Unknown
+  }
+
+  /// Nodo de timeline: verde crear/aprobar, azul editar, rojo eliminar, naranja resto.
+  Color _getTimelineNodeColor(String action) {
+    final u = action.toUpperCase();
+    if (u.contains('APROB') ||
+        u.contains('CREACION') ||
+        u == 'NUEVO') {
+      return Colors.green;
+    }
+    if (u.contains('MODIFICACION') || u.contains('UPDATE')) {
+      return Colors.blue;
+    }
+    if (u.contains('ELIMINACION') || u.contains('DELETE')) {
+      return Colors.red;
+    }
+    return Colors.orange;
+  }
+
+  Color _timelineLineColor(BuildContext context) {
+    return FluentTheme.of(context).resources.dividerStrokeColorDefault ??
+        Colors.grey.withOpacity(0.45);
   }
 
   Widget _buildDiffView(
@@ -334,6 +358,375 @@ class _HistoryScreenState extends State<HistoryScreen> {
     }
   }
 
+  Widget _buildStandardView() {
+    return ListView.builder(
+      controller: _scrollController,
+      itemCount: _registros.length + (_isLoadingMore ? 1 : 0),
+      itemBuilder: (context, index) {
+        if (index == _registros.length) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 20),
+            child: Center(
+              child: ProgressRing(),
+            ),
+          );
+        }
+        final item = _registros[index];
+
+        return Card(
+          margin: const EdgeInsets.only(bottom: 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    item['fecha'] ?? 'Sin fecha',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: FluentTheme.of(context).brightness ==
+                              Brightness.dark
+                          ? Colors.white.withOpacity(0.54)
+                          : const Color(0xFF666666),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      '| Usuario: ${item['usuario'] ?? "Desconocido"}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: FluentTheme.of(context).brightness ==
+                                Brightness.dark
+                            ? Colors.white
+                            : Colors.black.withOpacity(0.87),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      item['accion'] ?? 'ACCIÓN',
+                      style: TextStyle(
+                        color: Colors.orange,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              SelectableText(
+                item['codigo'] ?? 'SIN CÓDIGO',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: FluentTheme.of(context).brightness == Brightness.dark
+                      ? Colors.white
+                      : Colors.black,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: FluentTheme.of(context).brightness == Brightness.dark
+                      ? Colors.black.withOpacity(0.2)
+                      : Colors.grey[20],
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: _buildDiffView(
+                  item['valor_anterior'],
+                  item['valor_nuevo'],
+                  context,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildTimelineView() {
+    final lineColor = _timelineLineColor(context);
+
+    return ListView.builder(
+      controller: _scrollController,
+      itemCount: _registros.length + (_isLoadingMore ? 1 : 0),
+      itemBuilder: (context, index) {
+        if (index == _registros.length) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 20),
+            child: Center(
+              child: ProgressRing(),
+            ),
+          );
+        }
+
+        final item = _registros[index];
+        final isFirst = index == 0;
+        final isLast = index == _registros.length - 1;
+        final accion = item['accion']?.toString() ?? '';
+        final nodeColor = _getTimelineNodeColor(accion);
+        final isDark = FluentTheme.of(context).brightness == Brightness.dark;
+        final metaColor = isDark
+            ? Colors.white.withOpacity(0.54)
+            : const Color(0xFF666666);
+        final titleColor =
+            isDark ? Colors.white : Colors.black.withOpacity(0.87);
+
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(
+                  width: 40,
+                  child: Column(
+                    children: [
+                      if (!isFirst)
+                        SizedBox(
+                          height: 12,
+                          width: 40,
+                          child: Center(
+                            child: Container(
+                              width: 2,
+                              height: 12,
+                              color: lineColor,
+                            ),
+                          ),
+                        )
+                      else
+                        const SizedBox(height: 12, width: 40),
+                      SizedBox(
+                        width: 40,
+                        height: 12,
+                        child: Center(
+                          child: Container(
+                            width: 12,
+                            height: 12,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: nodeColor,
+                              border: Border.all(
+                                color: isDark
+                                    ? Colors.white.withOpacity(0.35)
+                                    : Colors.black.withOpacity(0.2),
+                                width: 1,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (!isLast)
+                        Expanded(
+                          child: Center(
+                            child: Container(
+                              width: 2,
+                              color: lineColor,
+                            ),
+                          ),
+                        )
+                      else
+                        const SizedBox(height: 12, width: 40),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            item['fecha']?.toString() ?? 'Sin fecha',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: metaColor,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Usuario: ${item['usuario'] ?? "Desconocido"}',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: titleColor,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            accion.isEmpty ? 'ACCIÓN' : accion,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: _getActionColor(accion),
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Código: ${item['codigo'] ?? "SIN CÓDIGO"}',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: titleColor,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 8),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? Colors.black.withOpacity(0.2)
+                                  : Colors.grey[20],
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: _buildDiffView(
+                              item['valor_anterior'],
+                              item['valor_nuevo'],
+                              context,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showEventosAyuda() {
+    final typo = FluentTheme.of(context).typography;
+    final bodyStyle = typo.body?.copyWith(fontSize: 13) ??
+        const TextStyle(fontSize: 13);
+    final hintStyle = typo.caption?.copyWith(
+          fontSize: 12,
+          color: FluentTheme.of(context).inactiveColor,
+        ) ??
+        TextStyle(fontSize: 12, color: FluentTheme.of(context).inactiveColor);
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return ContentDialog(
+          constraints: const BoxConstraints(maxWidth: 440, maxHeight: 480),
+          title: const Text('Referencia de eventos'),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'La búsqueda coincide con código de pieza, usuario o nombre '
+                  'de acción (coincidencia parcial).',
+                  style: hintStyle,
+                ),
+                const SizedBox(height: 14),
+                _ayudaCategoria(
+                  'Catálogo',
+                  const [
+                    'CREAR_PIEZA',
+                    'MODIFICAR_PIEZA',
+                    'ELIMINAR_PIEZA',
+                  ],
+                  bodyStyle,
+                ),
+                _ayudaCategoria(
+                  'Ingeniería',
+                  const [
+                    'CREAR_REVISION',
+                    'APROBAR_REVISION',
+                    'ELIMINAR_REVISION',
+                    'DERIVACION',
+                    'ECR_BRANCHING',
+                  ],
+                  bodyStyle,
+                ),
+                _ayudaCategoria(
+                  'Estructura',
+                  const [
+                    'AGREGAR_PIEZA',
+                    'ELIMINAR_PIEZA_BOM',
+                    'MODIFICAR_CANTIDAD',
+                  ],
+                  bodyStyle,
+                ),
+                _ayudaCategoria(
+                  'Autenticación',
+                  const [
+                    'LOGIN_EXITOSO',
+                    'LOGIN_FALLIDO',
+                  ],
+                  bodyStyle,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            Button(
+              child: const Text('Cerrar'),
+              onPressed: () => Navigator.pop(ctx),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _ayudaCategoria(
+    String titulo,
+    List<String> eventos,
+    TextStyle bodyStyle,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            titulo,
+            style: bodyStyle.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          SelectableText(
+            eventos.join(' · '),
+            style: bodyStyle,
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ScaffoldPage(
@@ -344,157 +737,76 @@ class _HistoryScreenState extends State<HistoryScreen> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            // BARRA DE BÚSQUEDA
-            TextBox(
-              controller: _searchController,
-              placeholder: 'Buscar por Código o Usuario...',
-              suffix: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (_searchController.text.isNotEmpty)
-                    IconButton(
-                      icon: Icon(FluentIcons.clear),
-                      onPressed: () {
-                        _searchController.clear();
-                        _reloadHistory(query: '');
-                      },
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: TextBox(
+                    controller: _searchController,
+                    placeholder: 'Buscar por Código o Usuario...',
+                    suffix: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (_searchController.text.isNotEmpty)
+                          IconButton(
+                            icon: Icon(FluentIcons.clear),
+                            onPressed: () {
+                              _searchController.clear();
+                              _reloadHistory(query: '');
+                            },
+                          ),
+                        IconButton(
+                          icon: Icon(FluentIcons.search),
+                          onPressed: () =>
+                              _reloadHistory(query: _searchController.text),
+                        ),
+                        IconButton(
+                          icon: Icon(FluentIcons.refresh),
+                          onPressed: () =>
+                              _reloadHistory(query: _searchController.text),
+                        ),
+                      ],
                     ),
-                  IconButton(
-                    icon: Icon(FluentIcons.search),
-                    onPressed:
-                        () => _reloadHistory(query: _searchController.text),
+                    onSubmitted: (value) => _reloadHistory(query: value),
                   ),
-                  IconButton(
-                    icon: Icon(FluentIcons.refresh),
-                    onPressed:
-                        () => _reloadHistory(query: _searchController.text),
+                ),
+                const SizedBox(width: 8),
+                Tooltip(
+                  message:
+                      'Términos de acción que puedes buscar en el historial',
+                  child: IconButton(
+                    icon: const Icon(FluentIcons.info),
+                    onPressed: _showEventosAyuda,
                   ),
-                ],
-              ),
-              onSubmitted: (value) => _reloadHistory(query: value),
+                ),
+                Tooltip(
+                  message: _isTimelineView
+                      ? 'Ver como lista'
+                      : 'Ver línea de tiempo',
+                  child: IconButton(
+                    icon: Icon(
+                      _isTimelineView
+                          ? FluentIcons.bulleted_list_bullet
+                          : FluentIcons.timeline,
+                    ),
+                    onPressed: () {
+                      setState(() => _isTimelineView = !_isTimelineView);
+                    },
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 20),
-
-            // LISTA DE RESULTADOS
             Expanded(
-              child:
-                  _isLoading && _registros.isEmpty
-                      ? const Center(child: ProgressRing())
-                      : _registros.isEmpty
+              child: _isLoading && _registros.isEmpty
+                  ? const Center(child: ProgressRing())
+                  : _registros.isEmpty
                       ? const Center(
-                        child: Text('No se encontraron registros.'),
-                      )
-                      : ListView.builder(
-                        controller: _scrollController,
-                        itemCount:
-                            _registros.length + (_isLoadingMore ? 1 : 0),
-                        itemBuilder: (context, index) {
-                          if (index == _registros.length) {
-                            return const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 20),
-                              child: Center(
-                                child: ProgressRing(),
-                              ),
-                            );
-                          }
-                          final item = _registros[index];
-                          final actionColor = _getActionColor(
-                            item['accion'] ?? '',
-                          );
-
-                          return Card(
-                            margin: const EdgeInsets.only(bottom: 10),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                // Encabezado
-                                Row(
-                                  children: [
-                                    Text(
-                                      item['fecha'] ?? 'Sin fecha',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        // === TAREA 3: Color explícito en header ===
-                                        color: FluentTheme.of(context).brightness == Brightness.dark
-                                            ? Colors.white.withOpacity(0.54)
-                                            : const Color(0xFF666666),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Text(
-                                      '| Usuario: ${item['usuario'] ?? "Desconocido"}',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold,
-                                        color: FluentTheme.of(context).brightness == Brightness.dark
-                                            ? Colors.white
-                                            : Colors.black.withOpacity(0.87),
-                                      ),
-                                    ),
-                                    // 3. MEJORA DE BADGES (Etiqueta de Acción)
-                                    const Spacer(),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 4,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.orange.withOpacity(
-                                          0.2,
-                                        ), // Naranja tenue
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
-                                      child: Text(
-                                        item['accion'] ?? 'ACCIÓN',
-                                        style: TextStyle(
-                                          color: Colors.orange,
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 12,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
-
-                                // Título (Código)
-                                SelectableText(
-                                  item['codigo'] ?? 'SIN CÓDIGO',
-                                  style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                    // === TAREA 3: Explícito para modo oscuro ===
-                                    color: FluentTheme.of(context).brightness == Brightness.dark
-                                        ? Colors.white
-                                        : Colors.black,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-
-                                // Cuerpo (Cambios - Diff View)
-                                Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
-                                    color:
-                                        FluentTheme.of(context).brightness ==
-                                                Brightness.dark
-                                            ? Colors.black.withOpacity(0.2)
-                                            : Colors
-                                                .grey[20], // Still using grey[20] as it seemed fine before, just non-const
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: _buildDiffView(
-                                    item['valor_anterior'],
-                                    item['valor_nuevo'],
-                                    context,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
+                          child: Text('No se encontraron registros.'),
+                        )
+                      : _isTimelineView
+                          ? _buildTimelineView()
+                          : _buildStandardView(),
             ),
           ],
         ),

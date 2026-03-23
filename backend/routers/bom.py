@@ -28,6 +28,12 @@ from bom_audit_log import registrar_log
 
 router = APIRouter()
 
+
+def _usuario_ingenieria(x_usuario: Optional[str]) -> str:
+    s = (x_usuario or "").strip()
+    return s if s else "Operador_Desconocido"
+
+
 # === MODULO: BOM (Gestor de Listas) ===
 @router.get("/api/bom/estaciones/{id_revision}")
 def get_estaciones(id_revision: int):
@@ -42,7 +48,6 @@ def get_estaciones(id_revision: int):
     finally:
         conn.close()
 
-@router.post("/api/bom/estaciones")
 # Endpoints Revisiones
 # --- Endpoints Revisiones (v60.0: agrupados por ID_Version, no por cliente) ---
 @router.get("/api/bom/revisiones/version/{id_version}")
@@ -86,7 +91,11 @@ def get_revisiones_por_version(id_version: int):
         conn.close()
 
 @router.post("/api/bom/revisiones/version/{id_version}")
-def add_revision_version(id_version: int, payload: RevisionPayload):
+def add_revision_version(
+    id_version: int,
+    payload: RevisionPayload,
+    x_usuario: Optional[str] = Header(None, alias="X-Usuario"),
+):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -104,8 +113,11 @@ def add_revision_version(id_version: int, payload: RevisionPayload):
         id_rev = cursor.fetchone()[0]
         notas_txt = f' | Anotaciones: "{payload.notas}"' if payload.notas else ""
         registrar_log(
-            cursor, id_rev, "Creación",
+            cursor,
+            id_rev,
+            "Creación",
             f"Revisión {siguiente_rev} creada para Versión ID {id_version}{notas_txt}",
+            usuario=_usuario_ingenieria(x_usuario),
         )
         conn.commit()
         return {"status": "success", "id_revision": id_rev, "numero_revision": siguiente_rev}
@@ -139,7 +151,11 @@ def get_revisiones(id_cliente: int):
         conn.close()
 
 @router.post("/api/bom/revisiones/{id_cliente}")
-def add_revision(id_cliente: int, payload: RevisionPayload):
+def add_revision(
+    id_cliente: int,
+    payload: RevisionPayload,
+    x_usuario: Optional[str] = Header(None, alias="X-Usuario"),
+):
     """Legacy endpoint."""
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -162,8 +178,11 @@ def add_revision(id_cliente: int, payload: RevisionPayload):
         id_rev = cursor.fetchone()[0]
         notas_txt = f' | Anotaciones: "{payload.notas}"' if payload.notas else ""
         registrar_log(
-            cursor, id_rev, "Creación",
+            cursor,
+            id_rev,
+            "Creación",
             f"Revisión {siguiente_rev}{notas_txt} (vía cliente {id_cliente})",
+            usuario=_usuario_ingenieria(x_usuario),
         )
         conn.commit()
         return {"status": "success", "id_revision": id_rev}
@@ -174,7 +193,10 @@ def add_revision(id_cliente: int, payload: RevisionPayload):
         conn.close()
 
 @router.put("/api/bom/revisiones/{id_revision}/aprobar")
-def aprobar_revision(id_revision: int):
+def aprobar_revision(
+    id_revision: int,
+    x_usuario: Optional[str] = Header(None, alias="X-Usuario"),
+):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -211,8 +233,11 @@ def aprobar_revision(id_revision: int):
             (id_revision,),
         )
         registrar_log(
-            cursor, id_revision, "APROBAR_REVISION",
+            cursor,
+            id_revision,
+            "APROBAR_REVISION",
             f"Revisión {id_revision} aprobada. {obsoletas} revisión(es) anterior(es) marcadas como OBSOLETO.",
+            usuario=_usuario_ingenieria(x_usuario),
         )
         conn.commit()
         return {"status": "success"}
@@ -293,7 +318,11 @@ def _purge_tipo_physical(cursor, id_tipo: int) -> int:
 ADMIN_PASSWORD_INGENIERIA = "ADMIN_ING_2024"
 
 @router.delete("/api/bom/revisiones/{id_revision}")
-def eliminar_revision(id_revision: int, payload: EliminarRevisionPayload):
+def eliminar_revision(
+    id_revision: int,
+    payload: EliminarRevisionPayload,
+    x_usuario: Optional[str] = Header(None, alias="X-Usuario"),
+):
     """
     Borra una revisión y toda su estructura en cascada.
     - Borradores: no requieren contraseña.
@@ -323,6 +352,7 @@ def eliminar_revision(id_revision: int, payload: EliminarRevisionPayload):
                 raise HTTPException(status_code=401, detail="Clave incorrecta. Operación denegada.")
 
         # 3. Registrar en auditoría ANTES de borrar (sobrevive al borrado en cascada)
+        usuario_log = _usuario_ingenieria(x_usuario)
         cursor.execute("""
             INSERT INTO Tbl_Auditoria_Cambios (Codigo_Pieza, Accion, Valor_Anterior, Valor_Nuevo, Usuario, Fecha_Hora)
             VALUES (?, ?, ?, ?, ?, GETDATE())
@@ -331,7 +361,7 @@ def eliminar_revision(id_revision: int, payload: EliminarRevisionPayload):
             "ELIMINAR_REVISION",
             f"ID_Revision: {id_revision}, Estado: {estado}",
             f"Motivo: {payload.motivo or 'N/A'}",
-            "SISTEMA_BOM"
+            usuario_log,
         ))
         conn.commit()  # Asegurar que el log quede persistido
 
@@ -620,8 +650,7 @@ def asignar_revision_cliente(id_cliente: int, payload: AsignarRevisionPayload):
 def add_vin(id_revision: int, payload: VINPayload, x_usuario: Optional[str] = Header(None)):
     conn = get_db_connection()
     cursor = conn.cursor()
-    # === TAREA 2: Rastreo de usuario real ===
-    usuario_real = x_usuario if x_usuario else "SISTEMA_VIN"
+    usuario_real = _usuario_ingenieria(x_usuario)
     try:
         val = payload.observaciones if payload.observaciones is not None else payload.notas
         cursor.execute(
@@ -654,7 +683,13 @@ def add_vin(id_revision: int, payload: VINPayload, x_usuario: Optional[str] = He
         ))
 
         # We also can log it in Tbl_Log_Cambios_Ingenieria if it's for the revision, but user says Tbl_Auditoria_Cambios
-        registrar_log(cursor, id_revision, "VIN_CREADO", f"VIN {payload.vin.upper()} registrado a la revisión.")
+        registrar_log(
+            cursor,
+            id_revision,
+            "VIN_CREADO",
+            f"VIN {payload.vin.upper()} registrado a la revisión.",
+            usuario=usuario_real,
+        )
         
         conn.commit()
         return {"status": "success", "id_unidad": id_gen}
@@ -666,8 +701,7 @@ def add_vin(id_revision: int, payload: VINPayload, x_usuario: Optional[str] = He
 
 @router.delete("/api/bom/vins/{id_unidad}")
 def delete_vin_simple(id_unidad: int, x_usuario: Optional[str] = Header(None)):
-    # === TAREA 2: Rastreo de usuario real ===
-    usuario_real = x_usuario if x_usuario else "SISTEMA_VIN"
+    usuario_real = _usuario_ingenieria(x_usuario)
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -766,7 +800,10 @@ def clonar_bom(payload: ClonarPayload):
 
 
 @router.post("/api/bom/clonar/{id_revision_origen}")
-def deep_copy_bom(id_revision_origen: int):
+def deep_copy_bom(
+    id_revision_origen: int,
+    x_usuario: Optional[str] = Header(None, alias="X-Usuario"),
+):
     """
     Deep Copy: crea una revisión nueva completa (Borrador) copiando toda la
     jerarquía Estaciones → Ensambles → BOM_Estructura del origen.
@@ -859,6 +896,7 @@ def deep_copy_bom(id_revision_origen: int):
             "CLONAR_BOM",
             f"Deep copy desde Rev {num_rev_origen} (ID {id_revision_origen}). "
             f"{len(estaciones)} estaciones, {total_piezas} piezas.",
+            usuario=_usuario_ingenieria(x_usuario),
         )
         conn.commit()
         return {
@@ -881,7 +919,10 @@ def deep_copy_bom(id_revision_origen: int):
 
 # ── Control de Cambios (ECR) ──────────────────────────────────────────────────
 @router.post("/api/bom/branching")
-def branching_ecr(payload: BranchingPayload):
+def branching_ecr(
+    payload: BranchingPayload,
+    x_usuario: Optional[str] = Header(None, alias="X-Usuario"),
+):
     """
     Gatillo de Edición — PLM Change Control.
 
@@ -891,6 +932,7 @@ def branching_ecr(payload: BranchingPayload):
     """
     conn = get_db_connection()
     cursor = conn.cursor()
+    usuario_log = _usuario_ingenieria(x_usuario)
     try:
         # ── 1. Verificar origen ───────────────────────────────────────────────
         cursor.execute(
@@ -977,7 +1019,14 @@ def branching_ecr(payload: BranchingPayload):
 
             # 7. Log Seguro 
             mensaje_log = f"Creada {nombre_fork} desde original con {len(clientes_a_mover)} clientes."
-            registrar_log(cursor, nuevo_id_revision, 'DERIVACION', mensaje_log, 'Cambio Específico de Clientes')
+            registrar_log(
+                cursor,
+                nuevo_id_revision,
+                "DERIVACION",
+                mensaje_log,
+                "Cambio Específico de Clientes",
+                usuario=usuario_log,
+            )
             
             siguiente_rev = 0
 
@@ -1034,9 +1083,12 @@ def branching_ecr(payload: BranchingPayload):
                     total_piezas += 1
 
         registrar_log(
-            cursor, nuevo_id_revision, "ECR_BRANCHING",
+            cursor,
+            nuevo_id_revision,
+            "ECR_BRANCHING",
             f"Rama {payload.tipo_cambio} desde Rev {num_rev_origen} (ID {payload.id_revision_origen}). "
             f"{len(estaciones)} estaciones, {total_piezas} piezas clonadas.",
+            usuario=usuario_log,
         )
         conn.commit()
         return {
@@ -1176,17 +1228,6 @@ def propagar_cambios(payload: PropagarPayload):
     finally:
         conn.close()
 
-@router.get("/api/bom/estaciones/{id_revision}")
-def get_estaciones(id_revision: int):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute("SELECT ID_Estacion, ID_Revision, Nombre_Estacion, Orden FROM Tbl_Estaciones WHERE ID_Revision = ? ORDER BY Orden", (id_revision,))
-        rows = cursor.fetchall()
-        return [{"id": r.ID_Estacion, "id_revision": r.ID_Revision, "nombre": r.Nombre_Estacion, "orden": r.Orden} for r in rows]
-    finally:
-        conn.close()
-
 @router.post("/api/bom/estaciones")
 def add_estacion(payload: EstacionPayload):
     conn = get_db_connection()
@@ -1245,7 +1286,10 @@ def get_ensambles(id_estacion: int):
         conn.close()
 
 @router.post("/api/bom/ensambles")
-def add_ensamble(payload: EnsamblePayload):
+def add_ensamble(
+    payload: EnsamblePayload,
+    x_usuario: Optional[str] = Header(None, alias="X-Usuario"),
+):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -1258,8 +1302,13 @@ def add_ensamble(payload: EnsamblePayload):
         cursor.execute("SELECT ID_Revision FROM Tbl_Estaciones WHERE ID_Estacion = ?", (payload.id_estacion,))
         rev_row = cursor.fetchone()
         if rev_row:
-            registrar_log(cursor, rev_row.ID_Revision, "AGREGAR_ENSAMBLE",
-                          f"Nuevo ensamble '{payload.nombre.upper()}' en estación {payload.id_estacion}.")
+            registrar_log(
+                cursor,
+                rev_row.ID_Revision,
+                "AGREGAR_ENSAMBLE",
+                f"Nuevo ensamble '{payload.nombre.upper()}' en estación {payload.id_estacion}.",
+                usuario=_usuario_ingenieria(x_usuario),
+            )
         conn.commit()
         return {"status": "success"}
     except pyodbc.IntegrityError as e:
@@ -1373,10 +1422,14 @@ def get_bom_estructura(id_ensamble: int):
         conn.close()
 
 @router.post("/api/bom/estructura")
-def add_bom_estructura(payload: BOMPayload):
+def add_bom_estructura(
+    payload: BOMPayload,
+    x_usuario: Optional[str] = Header(None, alias="X-Usuario"),
+):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
+        # BOMPayload.observaciones → columna Observaciones_Proceso (notas de línea BOM)
         cursor.execute("""
             INSERT INTO Tbl_BOM_Estructura (ID_Ensamble, Codigo_Pieza, Cantidad, Observaciones_Proceso)
             VALUES (?, ?, ?, ?)
@@ -1389,8 +1442,13 @@ def add_bom_estructura(payload: BOMPayload):
         """, (payload.id_ensamble,))
         rev_row = cursor.fetchone()
         if rev_row:
-            registrar_log(cursor, rev_row.ID_Revision, "AGREGAR_PIEZA",
-                          f"Pieza '{payload.codigo_pieza}' x{payload.cantidad} agregada al ensamble {payload.id_ensamble}.")
+            registrar_log(
+                cursor,
+                rev_row.ID_Revision,
+                "AGREGAR_PIEZA",
+                f"Pieza '{payload.codigo_pieza}' x{payload.cantidad} agregada al ensamble {payload.id_ensamble}.",
+                usuario=_usuario_ingenieria(x_usuario),
+            )
         conn.commit()
         return {"status": "success"}
     except pyodbc.IntegrityError as e:

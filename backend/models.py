@@ -102,6 +102,7 @@ class BOMPayload(BaseModel):
     id_ensamble: int
     codigo_pieza: str
     cantidad: float
+    observaciones: str = ""
 
 
 class AsignarRevisionPayload(BaseModel):
