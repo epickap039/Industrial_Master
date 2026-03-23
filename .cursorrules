@@ -1,0 +1,19 @@
+# LEYES DEL PROYECTO: INDUSTRIAL MANAGER
+
+1. REGLA DE NO ELIMINACIÓN:
+Nunca elimines funciones existentes, endpoints o lógica de negocio a menos que el usuario lo exija explícitamente. Al refactorizar, mueve el código, no lo destruyas.
+
+2. ARQUITECTURA Y CONTEXTO:
+La fuente oficial de la verdad sobre la arquitectura es el archivo `PROYECTO_WIKI.md`. Consúltalo siempre para entender la estructura de navegación y la base de datos antes de proponer cambios estructurales.
+
+3. BASE DE DATOS OFICIAL (CATÁLOGO):
+La única tabla válida para el catálogo maestro de piezas es `Tbl_Maestro_Piezas`. Bajo ninguna circunstancia intentes crear o leer de `Tbl_Catalogo_Maestro`.
+
+4. REGLAS DE FLUTTER (FRONTEND):
+- NUNCA uses IPs literales o hardcodeadas (ej. http://192.168.1.73:8001). Utiliza siempre `kApiBaseUrl` desde `app_config.dart`.
+- Evita los "números mágicos" en la navegación del menú lateral.
+- Siempre protege las actualizaciones de estado después de operaciones asíncronas usando `if (!mounted) return;`.
+
+5. REGLAS DE FASTAPI (BACKEND):
+- Mantén el código modular. Evita inflar `server.py`.
+- Devuelve códigos HTTP semánticos correctos (200 OK, 400 Bad Request, 500 Internal Error) y maneja las excepciones SQL de forma controlada sin crashear el servidor.
