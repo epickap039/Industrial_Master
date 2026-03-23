@@ -109,37 +109,84 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
     );
   }
 
+  /// El [Checkbox] de fluent_ui une caja + [content] en un `Row(mainAxisSize: min)`,
+  /// así el texto no recibe límite de ancho y overflow (p. ej. tema Cyberpunk con fuente ancha).
+  /// Sin [content]: fila propia con [Expanded] para la etiqueta.
+  Widget _globalTaskRow({
+    required bool value,
+    required ValueChanged<bool?> onChanged,
+    required String label,
+  }) {
+    void toggle() => onChanged(!value);
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Checkbox(
+          checked: value,
+          onChanged: onChanged,
+        ),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.only(left: 8, top: 2),
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onTap: onChanged == null ? null : toggle,
+              child: Text(
+                label,
+                maxLines: 4,
+                overflow: TextOverflow.ellipsis,
+                softWrap: true,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildGlobalTasks() {
     return Card(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Tareas Globales de la Pieza', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-          const SizedBox(height: 16),
-          Checkbox(
-            checked: _gPlano,
-            onChanged: (v) => setState(() => _gPlano = v ?? false),
-            content: const Text('Actualizar Plano de Pieza (.SLDDRW)'),
-          ),
-          const SizedBox(height: 8),
-          Checkbox(
-            checked: _gPdfDxf,
-            onChanged: (v) => setState(() => _gPdfDxf = v ?? false),
-            content: const Text('Exportar nuevo PDF/DXF'),
-          ),
-          const SizedBox(height: 8),
-          Checkbox(
-            checked: _gEdrawing,
-            onChanged: (v) => setState(() => _gEdrawing = v ?? false),
-            content: const Text('Exportar E-Drawing'),
-          ),
-          const SizedBox(height: 8),
-          Checkbox(
-            checked: _gDrive,
-            onChanged: (v) => setState(() => _gDrive = v ?? false),
-            content: const Text('Reemplazar archivo en Drive'),
-          ),
-        ],
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Tareas Globales de la Pieza',
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 16),
+            _globalTaskRow(
+              value: _gPlano,
+              onChanged: (v) => setState(() => _gPlano = v ?? false),
+              label: 'Actualizar Plano de Pieza (.SLDDRW)',
+            ),
+            const SizedBox(height: 8),
+            _globalTaskRow(
+              value: _gPdfDxf,
+              onChanged: (v) => setState(() => _gPdfDxf = v ?? false),
+              label: 'Exportar nuevo PDF/DXF',
+            ),
+            const SizedBox(height: 8),
+            _globalTaskRow(
+              value: _gEdrawing,
+              onChanged: (v) => setState(() => _gEdrawing = v ?? false),
+              label: 'Exportar E-Drawing',
+            ),
+            const SizedBox(height: 8),
+            _globalTaskRow(
+              value: _gDrive,
+              onChanged: (v) => setState(() => _gDrive = v ?? false),
+              label: 'Reemplazar archivo en Drive',
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -160,12 +207,20 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                ensamble['nombre_ensamble'],
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+              Expanded(
+                child: Text(
+                  ensamble['nombre_ensamble'].toString(),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                  ),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
+              const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
@@ -235,7 +290,14 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
                   children: [
                     Icon(FluentIcons.fabric_folder, size: 16, color: Colors.blue),
                     const SizedBox(width: 8),
-                    Text(proyecto, style: const TextStyle(fontWeight: FontWeight.w600)),
+                    Expanded(
+                      child: Text(
+                        proyecto,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 8),
@@ -259,7 +321,17 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
             children: [
               const Icon(FluentIcons.group, size: 18),
               const SizedBox(width: 8),
-              Text(cliente, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              Expanded(
+                child: Text(
+                  cliente,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
           content: Column(
