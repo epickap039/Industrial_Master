@@ -1,14 +1,12 @@
-import 'dart:convert';
 import 'dart:io';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart'; // Clipboard
-import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:excel/excel.dart' as excel_lib;
 import 'package:file_picker/file_picker.dart';
 import '../utils/excel_helper.dart';
-import '../config/app_config.dart';
+import '../services/api_client.dart';
 
 class CatalogScreen extends StatefulWidget {
   const CatalogScreen({super.key});
@@ -88,17 +86,12 @@ class _CatalogScreenState extends State<CatalogScreen> {
     }
 
     try {
-      final response = await http.get(
-        Uri.parse('$kApiBaseUrl/api/catalog'),
+      final jsonList = await ApiClient.get('/api/catalog') as List<dynamic>;
+      List<Map<String, dynamic>> data = List<Map<String, dynamic>>.from(
+        jsonList,
       );
 
-      if (response.statusCode == 200) {
-        final List<dynamic> jsonList = json.decode(response.body);
-        List<Map<String, dynamic>> data = List<Map<String, dynamic>>.from(
-          jsonList,
-        );
-
-        if (data.isNotEmpty) {
+      if (data.isNotEmpty) {
           List<String> allKeys = data.first.keys.toList();
           allKeys.remove('Link_Drive'); // Metadata interna
           
@@ -143,20 +136,19 @@ class _CatalogScreenState extends State<CatalogScreen> {
           }
         }
 
-        if (mounted) {
-          setState(() {
-            _allData = data;
-            _applyFilters(resetScroll: showLoading);
-            _isLoading = false;
-          });
-        }
-      } else {
-        if (mounted) {
-          setState(() {
-            _errorMessage = 'Error servidor: ${response.statusCode}';
-            _isLoading = false;
-          });
-        }
+      if (mounted) {
+        setState(() {
+          _allData = data;
+          _applyFilters(resetScroll: showLoading);
+          _isLoading = false;
+        });
+      }
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Error servidor: ${e.statusCode}';
+          _isLoading = false;
+        });
       }
     } catch (e) {
       if (mounted) {
@@ -382,15 +374,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
       };
 
       // 3. Enviar al Backend
-      final response = await http.put(
-        Uri.parse('$kApiBaseUrl/api/material/update'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode(body),
-      );
-
-      if (response.statusCode != 200) {
-        throw Exception('Server Error: ${response.body}');
-      }
+      await ApiClient.put('/api/material/update', body: body);
 
       if (mounted) {
         displayInfoBar(
@@ -467,25 +451,20 @@ class _CatalogScreenState extends State<CatalogScreen> {
               onPressed: () async {
                 Navigator.pop(context);
                 try {
-                  final response = await http.delete(
-                    Uri.parse('$kApiBaseUrl/api/catalog/$codigo'),
+                  await ApiClient.delete('/api/catalog/$codigo');
+                  if (!mounted) return;
+                  _fetchData();
+                  displayInfoBar(
+                    context,
+                    builder: (context, close) {
+                      return InfoBar(
+                        title: const Text('Eliminada'),
+                        content: Text('La pieza $codigo ha sido eliminada.'),
+                        severity: InfoBarSeverity.success,
+                        onClose: close,
+                      );
+                    },
                   );
-                  if (response.statusCode == 200) {
-                    _fetchData();
-                    displayInfoBar(
-                      context,
-                      builder: (context, close) {
-                        return InfoBar(
-                          title: const Text('Eliminada'),
-                          content: Text('La pieza $codigo ha sido eliminada.'),
-                          severity: InfoBarSeverity.success,
-                          onClose: close,
-                        );
-                      },
-                    );
-                  } else {
-                    throw Exception(response.body);
-                  }
                 } catch (e) {
                   displayInfoBar(
                     context,
@@ -943,13 +922,15 @@ class _CatalogScreenState extends State<CatalogScreen> {
                     setStateDialog(() => isSearching = true);
                     
                     try {
-                      final urlPath = Uri.encodeComponent(plainPath);
-                      final uri = Uri.parse('$kApiBaseUrl/api/dxf/search/${searchController.text.trim()}?base_path=$urlPath');
-                      final req = await http.get(uri);
+                      final req = await ApiClient.getUnvalidated(
+                        '/api/dxf/search/${searchController.text.trim()}',
+                        queryParameters: {'base_path': plainPath},
+                      );
                       setStateDialog(() => isSearching = false);
                       if (req.statusCode == 200) {
-                        final data = json.decode(req.body);
+                        final data = req.decodeJson() as Map<String, dynamic>;
                         final dxfPath = data['dxf_path'];
+                        if (!context.mounted) return;
                         Navigator.pop(context); // close search dialog
                         // show success
                         showDialog(context: context, builder: (ctx) => ContentDialog(
@@ -964,12 +945,16 @@ class _CatalogScreenState extends State<CatalogScreen> {
                           ]
                         ));
                       } else {
-                        final err = json.decode(req.body);
+                        final err = req.decodeJson();
+                        final detail = err is Map
+                            ? (err['detail'] ?? 'No se encontraron archivos válidos.').toString()
+                            : 'No se encontraron archivos válidos.';
+                        if (!context.mounted) return;
                         displayInfoBar(
                           context, 
                           builder: (c, close) => InfoBar(
                             title: const Text('No encontrado'), 
-                            content: Text(err['detail'] ?? 'No se encontraron archivos válidos.'), 
+                            content: Text(detail), 
                             severity: InfoBarSeverity.warning, 
                             onClose: close
                           )

@@ -1,8 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../config/app_config.dart';
+
+import '../services/api_client.dart';
 
 class LoginScreen extends StatefulWidget {
   final VoidCallback onLoginSuccess;
@@ -27,22 +26,14 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _checkServerStatus() async {
-    try {
-      final response = await http
-          .get(Uri.parse('$kApiBaseUrl/'))
-          .timeout(const Duration(seconds: 3));
-
-      if (mounted) {
-        setState(() {
-          _isServerOnline = response.statusCode == 200;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isServerOnline = false;
-        });
-      }
+    final online = await ApiClient.isReachable(
+      '/',
+      timeout: const Duration(seconds: 3),
+    );
+    if (mounted) {
+      setState(() {
+        _isServerOnline = online;
+      });
     }
   }
 
@@ -53,37 +44,37 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      final response = await http.post(
-        Uri.parse('$kApiBaseUrl/api/login'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
+      final data = await ApiClient.post(
+        '/api/login',
+        body: {
           'username': _userController.text,
           'password': _passController.text,
-        }),
-      );
+        },
+      ) as Map<String, dynamic>;
+      final String rol = data['rol'] ?? 'USER';
 
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final String rol = data['rol'] ?? 'USER';
+      // Guardar Sesión
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('isLoggedIn', true);
+      await prefs.setString('loginDate', DateTime.now().toIso8601String());
+      await prefs.setString('username', _userController.text);
+      await prefs.setString('rol', rol);
 
-        // Guardar Sesión
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool('isLoggedIn', true);
-        await prefs.setString('loginDate', DateTime.now().toIso8601String());
-        await prefs.setString('username', _userController.text);
-        await prefs.setString('rol', rol);
-
-        widget.onLoginSuccess();
-        Navigator.pushReplacementNamed(context, '/main');
-      } else {
+      if (!mounted) return;
+      widget.onLoginSuccess();
+      Navigator.pushReplacementNamed(context, '/main');
+    } on ApiException {
+      if (mounted) {
         setState(() {
           _error = 'Credenciales incorrectas';
         });
       }
     } catch (e) {
-      setState(() {
-        _error = 'Error de conexión: $e';
-      });
+      if (mounted) {
+        setState(() {
+          _error = 'Error de conexión: $e';
+        });
+      }
     } finally {
       if (mounted) {
         setState(() {
