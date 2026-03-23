@@ -25,6 +25,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
   
   // Variables de Estado para KPIs
   int totalPiezas = 0;
+  int totalLineasBom = 0;
   int totalUnidades = 0;
   int totalVersiones = 0;
   double saludCad = 0.0;
@@ -59,6 +60,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
         if (mounted) {
           setState(() {
             totalPiezas    = (data['total_piezas']    ?? 0).toInt();
+            totalLineasBom = (data['total_lineas_bom'] ?? 0).toInt();
             totalUnidades  = (data['total_unidades']  ?? 0).toInt();
             totalVersiones = (data['total_versiones'] ?? 0).toInt();
             saludCad       = (data['salud_cad']       ?? 0.0).toDouble();
@@ -152,9 +154,16 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   _buildKPICard(
                     title: 'Catálogo Maestro',
                     value: totalPiezas.toString(),
-                    subtitle: 'Piezas Registradas',
+                    subtitle: 'Registros en Tbl_Maestro_Piezas',
                     icon: FluentIcons.database,
                     onTap: () => widget.onNavigate(2),
+                  ),
+                  _buildKPICard(
+                    title: 'Líneas en listas BOM',
+                    value: totalLineasBom.toString(),
+                    subtitle: 'Filas en Tbl_BOM_Estructura',
+                    icon: FluentIcons.bulleted_list2,
+                    onTap: () => widget.onNavigate(15),
                   ),
                   _buildKPICard(
                     title: 'Motor MRP',

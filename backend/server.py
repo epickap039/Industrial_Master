@@ -89,6 +89,23 @@ class LoginRequest(BaseModel):
     username: str
     password: str
 
+
+def _int_from_count_row(row) -> int:
+    """Lee COUNT(*) de pyodbc con alias Total (nombre o índice 0). Evita fallos por Row vs tuple."""
+    if row is None:
+        return 0
+    try:
+        v = getattr(row, "Total", None)
+        if v is not None:
+            return int(v)
+    except (TypeError, ValueError):
+        pass
+    try:
+        return int(row[0]) if row[0] is not None else 0
+    except (IndexError, TypeError, ValueError):
+        return 0
+
+
 @app.get("/")
 def read_root():
     return {"status": "online", "message": "Servidor Industrial Manager Activo"}
@@ -106,59 +123,99 @@ def health_check():
 @app.get("/api/dashboard/kpi")
 def get_dashboard_kpis():
     """Calcula indicadores clave (KPI) para el lobby principal.
-    AUDITADO (sin riesgo de producto cartesiano): el CTE sólo cruza
-    BOM_Estructura → Ensambles → Estaciones → Maestro_Piezas.
-    No hay JOIN a Tbl_Clientes_Configuracion en ninguna agregación."""
+
+    - **total_piezas**: query exacta `SELECT COUNT(*) FROM Tbl_Maestro_Piezas` (única tabla oficial del catálogo).
+    - **total_lineas_bom**: `COUNT(*)` en **`Tbl_BOM_Estructura`** (filas en listas BOM; 0 tras purga de fantasmas).
+    - **salud_cad**: % sobre líneas BOM enlazadas a maestro (si no hay líneas → 0 %).
+    """
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # 1. Obtener conteo de piezas válidas vs huérfanas (Misma lógica que Analytics)
-        cursor.execute("""
-            WITH PiezasBase AS (
+        salud_cad = 0.0
+        # 1. Salud CAD (no debe tumbar el endpoint si BOM vacío o error SQL puntual)
+        try:
+            cursor.execute("""
+                WITH PiezasBase AS (
+                    SELECT 
+                        COALESCE(NULLIF(LTRIM(RTRIM(M.Material)), ''), NULLIF(LTRIM(RTRIM(M.Descripcion)), ''), 'FALTA ASIGNAR EN CAD') AS MaterialLimpio,
+                        TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS LargoLimpio,
+                        TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Ancho_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS AnchoLimpio,
+                        TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Area_CAD, ' mm^2', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS AreaLimpia
+                    FROM Tbl_BOM_Estructura E
+                    JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
+                    JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
+                    JOIN Tbl_Maestro_Piezas M ON E.Codigo_Pieza = M.Codigo_Pieza
+                )
                 SELECT 
-                    COALESCE(NULLIF(LTRIM(RTRIM(M.Material)), ''), NULLIF(LTRIM(RTRIM(M.Descripcion)), ''), 'FALTA ASIGNAR EN CAD') AS MaterialLimpio,
-                    TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS LargoLimpio,
-                    TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Ancho_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS AnchoLimpio,
-                    TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Area_CAD, ' mm^2', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS AreaLimpia
-                FROM Tbl_BOM_Estructura E
-                JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
-                JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
-                JOIN Tbl_Maestro_Piezas M ON E.Codigo_Pieza = M.Codigo_Pieza
-            )
-            SELECT 
-                SUM(CASE WHEN MaterialLimpio != 'FALTA ASIGNAR EN CAD' AND (ISNULL(AreaLimpia, 0) > 0 OR ISNULL(LargoLimpio, 0) > 0 OR (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0)) > 0) THEN 1 ELSE 0 END) AS Piezas_Validas,
-                SUM(CASE WHEN MaterialLimpio = 'FALTA ASIGNAR EN CAD' OR (ISNULL(AreaLimpia, 0) = 0 AND ISNULL(LargoLimpio, 0) = 0 AND (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0)) = 0) THEN 1 ELSE 0 END) AS Piezas_Huerfanas
-            FROM PiezasBase
-        """)
-        row = cursor.fetchone()
-        validas = int(row.Piezas_Validas or 0)
-        huerfanas = int(row.Piezas_Huerfanas or 0)
-        total = validas + huerfanas
+                    SUM(CASE WHEN MaterialLimpio != 'FALTA ASIGNAR EN CAD' AND (ISNULL(AreaLimpia, 0) > 0 OR ISNULL(LargoLimpio, 0) > 0 OR (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0)) > 0) THEN 1 ELSE 0 END) AS Piezas_Validas,
+                    SUM(CASE WHEN MaterialLimpio = 'FALTA ASIGNAR EN CAD' OR (ISNULL(AreaLimpia, 0) = 0 AND ISNULL(LargoLimpio, 0) = 0 AND (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0)) = 0) THEN 1 ELSE 0 END) AS Piezas_Huerfanas
+                FROM PiezasBase
+            """)
+            row = cursor.fetchone()
+            if row is not None:
+                pv = getattr(row, "Piezas_Validas", None)
+                ph = getattr(row, "Piezas_Huerfanas", None)
+                if pv is None:
+                    try:
+                        pv = row[0]
+                    except (IndexError, TypeError):
+                        pv = 0
+                if ph is None:
+                    try:
+                        ph = row[1]
+                    except (IndexError, TypeError):
+                        ph = 0
+                validas = int(pv or 0)
+                huerfanas = int(ph or 0)
+                total_bom_lineas = validas + huerfanas
+                salud_cad = (validas / total_bom_lineas * 100.0) if total_bom_lineas > 0 else 0.0
+        except Exception as ex_salud:
+            print(f"[KPI] salud_cad omitida (fallback 0%): {ex_salud}")
+            salud_cad = 0.0
 
-        # 2. Cálculo de salud en Python
-        salud_cad = (validas / total * 100.0) if total > 0 else 0.0
+        # 2. total_piezas — catálogo maestro único: Tbl_Maestro_Piezas
+        total_piezas_maestro = 0
+        try:
+            cursor.execute("SELECT COUNT(*) FROM Tbl_Maestro_Piezas")
+            total_piezas_maestro = _int_from_count_row(cursor.fetchone())
+        except Exception as ex_m:
+            print(f"[KPI] Tbl_Maestro_Piezas: {ex_m} → total_piezas=0.")
+            total_piezas_maestro = 0
 
-        # 3. Conteo de unidades físicas (VINs) registradas
-        cursor.execute("SELECT COUNT(*) AS Total FROM Tbl_Unidades_Fisicas")
-        row_u = cursor.fetchone()
-        total_unidades = int(row_u.Total or 0) if row_u else 0
+        # 2b. Filas en Tbl_BOM_Estructura (volumen listas BOM / posibles fantasmas antes de purga)
+        total_lineas_bom = 0
+        try:
+            cursor.execute("SELECT COUNT(*) AS Total FROM Tbl_BOM_Estructura")
+            total_lineas_bom = _int_from_count_row(cursor.fetchone())
+        except Exception as ex_b:
+            print(f"[KPI] Tbl_BOM_Estructura: {ex_b} → total_lineas_bom=0.")
+            total_lineas_bom = 0
 
-        # 4. Versiones de ingeniería — conteo REAL sobre la tabla maestra de versiones.
-        #    (COUNT desde Tbl_BOM_Revisiones puede quedar inflado o huérfano si quedan
-        #    revisiones sin fila en Tbl_Versiones_Ingenieria tras purgas parciales.)
-        cursor.execute("SELECT COUNT(*) AS Total FROM Tbl_Versiones_Ingenieria")
-        row_v = cursor.fetchone()
-        total_versiones = int(row_v[0] if row_v is not None else 0)
+        # 3. Unidades físicas (VINs)
+        try:
+            cursor.execute("SELECT COUNT(*) AS Total FROM Tbl_Unidades_Fisicas")
+            total_unidades = _int_from_count_row(cursor.fetchone())
+        except Exception as ex_u:
+            print(f"[KPI] total_unidades fallback 0: {ex_u}")
+            total_unidades = 0
+
+        # 4. Versiones de ingeniería
+        try:
+            cursor.execute("SELECT COUNT(*) AS Total FROM Tbl_Versiones_Ingenieria")
+            total_versiones = _int_from_count_row(cursor.fetchone())
+        except Exception as ex_v:
+            print(f"[KPI] total_versiones fallback 0: {ex_v}")
+            total_versiones = 0
 
         return {
-            "total_piezas":    total,
-            "total_unidades":  total_unidades,
-            "total_versiones": total_versiones,
+            # Compat: total_piezas = maestro técnico (Lobby "Catálogo Maestro" = registros en Maestro_Piezas)
+            "total_piezas": int(total_piezas_maestro),
+            "total_lineas_bom": int(total_lineas_bom),
+            "total_unidades": int(total_unidades),
+            "total_versiones": int(total_versiones),
             "merma_configurada": 15,
-            "salud_cad": round(salud_cad, 2),
+            "salud_cad": round(float(salud_cad), 2),
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
 
@@ -997,6 +1054,20 @@ def get_analytics_dashboard(id_revision: str, exclude_ids: Optional[str] = None)
         row_u2 = cursor.fetchone()
         total_unidades = int(row_u2.Total or 0) if row_u2 else 0
 
+        # 7. Referencia de volumen físico (tablas; independiente de filtros de gráficos)
+        #    total_lineas_bom_estructura = filas en Tbl_BOM_Estructura (0 tras purga_fantasmas.sql)
+        #    total_registros_maestro_piezas = filas en Tbl_Maestro_Piezas (no se purga con BOM)
+        try:
+            cursor.execute("SELECT COUNT(*) AS Total FROM Tbl_BOM_Estructura")
+            total_lineas_bom_estructura = _int_from_count_row(cursor.fetchone())
+        except Exception:
+            total_lineas_bom_estructura = 0
+        try:
+            cursor.execute("SELECT COUNT(*) AS Total FROM Tbl_Maestro_Piezas")
+            total_registros_maestro_piezas = _int_from_count_row(cursor.fetchone())
+        except Exception:
+            total_registros_maestro_piezas = 0
+
         return {
             "top_piezas":            top_piezas,
             "distribucion_material": distribucion,
@@ -1005,6 +1076,8 @@ def get_analytics_dashboard(id_revision: str, exclude_ids: Optional[str] = None)
             "sugerencia":            sugerencia_texto,
             "total_versiones":       total_versiones,
             "total_unidades":        total_unidades,
+            "total_lineas_bom_estructura": total_lineas_bom_estructura,
+            "total_registros_maestro_piezas": total_registros_maestro_piezas,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -3818,8 +3891,8 @@ async def get_catalog():
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        query = "SELECT * FROM Tbl_Maestro_Piezas"
-        cursor.execute(query)
+        # Catálogo maestro oficial: Tbl_Maestro_Piezas (misma fuente que total_piezas en /api/dashboard/kpi).
+        cursor.execute("SELECT * FROM Tbl_Maestro_Piezas")
         columns = [column[0] for column in cursor.description]
         data = []
         for row in cursor.fetchall():
@@ -3915,10 +3988,10 @@ async def update_material(request: Request, payload: Dict[str, Any]):
     cursor = conn.cursor()
     
     try:
-        # Asegurar columna Modificado_Por
+        # Asegurar columna Modificado_Por en maestro de piezas
         try:
             cursor.execute("SELECT Modificado_Por FROM Tbl_Maestro_Piezas WHERE 1=0")
-        except:
+        except Exception:
              conn.rollback()
              cursor.execute("ALTER TABLE Tbl_Maestro_Piezas ADD Modificado_Por NVARCHAR(50)")
              conn.commit()
@@ -3961,7 +4034,7 @@ async def update_material(request: Request, payload: Dict[str, Any]):
              valor_anterior = f"ERROR LECTURA PREVIA: {audit_read_e}"
         # ------------------------------------------
 
-        # Query Principal
+        # Query Principal — Tbl_Maestro_Piezas (catálogo maestro)
         query = f"UPDATE Tbl_Maestro_Piezas SET {query_set} WHERE Codigo_Pieza = ?"
         values.append(id_param)
         

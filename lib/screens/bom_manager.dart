@@ -296,6 +296,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
           _selectedRevision = nuevaSeleccion; // null si lista vacía
         });
         await _ensureRevisionClientContext();
+        if (!mounted) return;
         // Disparar carga del árbol FUERA del setState — evita RangeError
         // por reconstrucción del widget tree con datos a medio actualizar.
         if (nuevaSeleccion != null) {
@@ -330,13 +331,14 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
         headers: {'Content-Type': 'application/json', 'X-Usuario': 'Admin PLM'},
         body: jsonEncode({'notas': notas.isEmpty ? null : notas}),
       );
+      if (!mounted) return;
       if (response.statusCode == 200) {
         await _fetchRevisiones();
       } else {
         _showError("Error al crear revisión: ${response.statusCode}");
       }
     } catch (e) {
-      _showError("Error: $e");
+      if (mounted) _showError("Error: $e");
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -440,6 +442,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
           '$API_URL/api/bom/revisiones/${_selectedRevision['id_revision']}/aprobar',
         ),
       );
+      if (!mounted) return;
       if (response.statusCode == 200) {
         _showError("Revisión Aprobada Correctamente", isError: false);
         // Limpieza atómica para evitar RangeError por estado inconsistente tras recargar.
@@ -455,9 +458,9 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
         _showError("Error al aprobar: ${response.body}");
       }
     } catch (e) {
-      _showError("Error de conexión: $e");
+      if (mounted) _showError("Error de conexión: $e");
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -468,6 +471,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
       final response = await http.get(
         Uri.parse('$API_URL/api/bom/arbol/${_selectedRevision['id_revision']}'),
       );
+      if (!mounted) return;
       if (response.statusCode == 200) {
         setState(() {
           _arbol = json.decode(response.body);
@@ -492,9 +496,9 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
         _showError("Error cargar árbol: ${response.statusCode}");
       }
     } catch (e) {
-      _showError("Error al cargar árbol: $e");
+      if (mounted) _showError("Error al cargar árbol: $e");
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -507,6 +511,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
           '$API_URL/api/bom/plana/${_selectedRevision['id_revision']}',
         ),
       );
+      if (!mounted) return;
       if (response.statusCode == 200) {
         setState(() {
           _bomPlana = json.decode(response.body);
@@ -517,9 +522,9 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
         _showError("Error al cargar vista plana: ${response.statusCode}");
       }
     } catch (e) {
-      _showError("Error al cargar vista plana: $e");
+      if (mounted) _showError("Error al cargar vista plana: $e");
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -529,6 +534,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
         type: FileType.custom,
         allowedExtensions: ['xlsx', 'xls'],
       );
+      if (!mounted) return;
 
       if (result != null && result.files.single.path != null) {
         if (_selectedRevision == null) {
@@ -551,6 +557,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
 
         var streamedResponse = await request.send();
         var response = await http.Response.fromStream(streamedResponse);
+        if (!mounted) return;
 
         if (response.statusCode == 200) {
           final data = json.decode(response.body);
@@ -602,9 +609,9 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
         }
       }
     } catch (e) {
-      _showError("Error durante la importación: $e");
+      if (mounted) _showError("Error durante la importación: $e");
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -619,13 +626,14 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
           'nombre': nombre,
         }),
       );
+      if (!mounted) return;
       if (response.statusCode == 200) {
         _fetchArbol();
       } else {
         _showError("Error al agregar la estación");
       }
     } catch (e) {
-      _showError("Error: $e");
+      if (mounted) _showError("Error: $e");
     }
   }
 
@@ -634,6 +642,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
       final response = await http.delete(
         Uri.parse('$API_URL/api/bom/estaciones/$id'),
       );
+      if (!mounted) return;
       if (response.statusCode == 200) {
         if (_selectedEnsamble != null && _arbol.any((est) => est['id'] == id)) {
           _selectedEnsamble = null;
@@ -645,7 +654,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
         _showError(errorMsg);
       }
     } catch (e) {
-      _showError("Error al eliminar la estación: $e");
+      if (mounted) _showError("Error al eliminar la estación: $e");
     }
   }
 
@@ -656,13 +665,14 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
         headers: {'Content-Type': 'application/json', 'X-Usuario': 'Admin PLM'},
         body: jsonEncode({'id_estacion': idEstacion, 'nombre': nombre}),
       );
+      if (!mounted) return;
       if (response.statusCode == 200) {
         _fetchArbol();
       } else {
         _showError("Error al agregar el ensamble");
       }
     } catch (e) {
-      _showError("Error: $e");
+      if (mounted) _showError("Error: $e");
     }
   }
 
@@ -671,6 +681,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
       final response = await http.delete(
         Uri.parse('$API_URL/api/bom/ensambles/$id'),
       );
+      if (!mounted) return;
       if (response.statusCode == 200) {
         if (_selectedEnsamble != null && _selectedEnsamble['id'] == id) {
           _selectedEnsamble = null;
@@ -682,7 +693,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
         _showError(errorMsg);
       }
     } catch (e) {
-      _showError("Error al eliminar el ensamble: $e");
+      if (mounted) _showError("Error al eliminar el ensamble: $e");
     }
   }
 
@@ -699,13 +710,14 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
           'observaciones': obs,
         }),
       );
+      if (!mounted) return;
       if (response.statusCode == 200) {
         _fetchArbol();
       } else {
         _showError("Error al agregar la pieza");
       }
     } catch (e) {
-      _showError("Error: $e");
+      if (mounted) _showError("Error: $e");
     }
   }
 
@@ -714,6 +726,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
       final response = await http.delete(
         Uri.parse('$API_URL/api/bom/estructura/$idBom'),
       );
+      if (!mounted) return;
       if (response.statusCode == 200) {
         if (_vistaPlana) {
           _fetchBomPlana();
@@ -722,7 +735,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
         }
       }
     } catch (e) {
-      _showError("Error al eliminar la pieza: $e");
+      if (mounted) _showError("Error al eliminar la pieza: $e");
     }
   }
 
@@ -742,6 +755,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
         headers: {'Content-Type': 'application/json', 'X-Usuario': 'Admin PLM'},
         body: jsonEncode({'cantidad': nuevaCantidad}),
       );
+      if (!mounted) return;
       if (response.statusCode == 200) {
         if (mounted) setState(() => _hasPendingChanges = false);
         _showError("✅ Cantidad actualizada correctamente", isError: false);
@@ -757,7 +771,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
         _showError(detail);
       }
     } catch (e) {
-      _showError("Error de conexión: $e");
+      if (mounted) _showError("Error de conexión: $e");
     }
   }
 
@@ -770,21 +784,24 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
           '$API_URL/api/bom/exportar/${_selectedRevision['id_revision']}',
         ),
       );
+      if (!mounted) return;
       if (response.statusCode == 200) {
         final directory = await getApplicationDocumentsDirectory();
+        if (!mounted) return;
         final filePath =
             '${directory.path}/BOM_Rev_${_selectedRevision['numero_revision']}.xlsx';
         final file = File(filePath);
         await file.writeAsBytes(response.bodyBytes);
+        if (!mounted) return;
         _showError("Archivo exportado en: $filePath", isError: false);
         OpenFile.open(filePath);
       } else {
         _showError("Error al exportar: ${response.statusCode}");
       }
     } catch (e) {
-      _showError("Error: $e");
+      if (mounted) _showError("Error: $e");
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -902,7 +919,8 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
   Future<void> _showBranchingDialog() async {
     if (_selectedRevision == null) return;
     await _ensureRevisionClientContext();
-    
+    if (!mounted) return;
+
     final bool hasBorrador = _revisiones.any((r) => r['estado'] == 'Borrador' || r['estado'] == 'PENDIENTE');
     if (hasBorrador) {
        _showError('No se puede crear otra revisión. Ya existe una en edición permanente ("Borrador" / "Pendiente"). Finalízala primero.');
@@ -1153,7 +1171,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
         final dynamic decoded = _safeDecode(response.body);
         final detail = (decoded is Map ? decoded['detail'] : null) ??
             'Error desconocido (${response.statusCode})';
-        _showError('Error al crear rama: $detail');
+        if (mounted) _showError('Error al crear rama: $detail');
       }
     } catch (e) {
       if (mounted) _showError('Error de conexión durante branching: $e');
@@ -1196,12 +1214,14 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
           _showError("✅ Revisión eliminada correctamente", isError: false);
         }
       } else if (response.statusCode == 401) {
-        _showError("❌ Contraseña incorrecta. Operación denegada.");
+        if (mounted) {
+          _showError("❌ Contraseña incorrecta. Operación denegada.");
+        }
       } else {
         final dynamic decoded = _safeDecode(response.body);
         final detail = (decoded is Map ? decoded['detail'] : null)
             ?? 'Error desconocido (${response.statusCode})';
-        _showError("Error al eliminar: $detail");
+        if (mounted) _showError("Error al eliminar: $detail");
       }
     } catch (e) {
       if (mounted) {
@@ -1365,6 +1385,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
         Uri.parse('$API_URL/api/bom/clonar/$idOrigen'),
         headers: {'Content-Type': 'application/json', 'X-Usuario': 'Admin PLM'},
       );
+      if (!mounted) return;
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final int nuevoId = data['nuevo_id_revision'];
@@ -1382,9 +1403,9 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
         _showError("Error al clonar BOM: $detail");
       }
     } catch (e) {
-      _showError("Error: $e");
+      if (mounted) _showError("Error: $e");
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -1396,6 +1417,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
           ? '$API_URL/api/bom/revisiones/version/$_masterId'
           : '$API_URL/api/bom/revisiones/$_masterId';
       final response = await http.get(Uri.parse(url));
+      if (!mounted) return;
       if (response.statusCode == 200) {
         _clearData();
         setState(() {
@@ -1410,9 +1432,9 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
         if (_vistaPlana) _fetchBomPlana();
       }
     } catch (e) {
-      _showError("Error al recargar revisiones: $e");
+      if (mounted) _showError("Error al recargar revisiones: $e");
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -1425,11 +1447,12 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
           {'vin': '', 'notas': notas},
         ), // vin es requerido por el modelo pero ignorado si es vacío en el update
       );
+      if (!mounted) return;
       if (response.statusCode == 200) {
         await _fetchVINs();
       }
     } catch (e) {
-      _showError("Error guardando notas: $e");
+      if (mounted) _showError("Error guardando notas: $e");
     }
   }
 
@@ -1441,13 +1464,14 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
           '$API_URL/api/bom/revisiones/${_selectedRevision['id_revision']}/vins',
         ),
       );
+      if (!mounted) return;
       if (response.statusCode == 200) {
         setState(() {
           _vins = json.decode(response.body);
         });
       }
     } catch (e) {
-      _showError("Error al cargar VINs: $e");
+      if (mounted) _showError("Error al cargar VINs: $e");
     }
   }
 
@@ -1455,6 +1479,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
     if (_selectedRevision == null) return;
     // === TAREA 2: Leer usuario real para el header ===
     final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
     final username = prefs.getString('username') ?? 'SISTEMA_VIN';
     try {
       final response = await http.post(
@@ -1467,19 +1492,21 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
         },
         body: jsonEncode({'vin': vin}),
       );
+      if (!mounted) return;
       if (response.statusCode == 200) {
         await _fetchVINs();
       } else {
         _showError("Error al agregar VIN");
       }
     } catch (e) {
-      _showError("Error: $e");
+      if (mounted) _showError("Error: $e");
     }
   }
 
   Future<void> _deleteVIN(int idUnidad) async {
     // === TAREA 2: Leer usuario real para el header ===
     final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
     final username = prefs.getString('username') ?? 'SISTEMA_VIN';
     try {
       final response = await http.delete(
@@ -1489,13 +1516,14 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
           'X-Usuario': username, // === TAREA 2: header de usuario ===
         },
       );
+      if (!mounted) return;
       if (response.statusCode == 200) {
         await _fetchVINs();
       } else {
         _showError("Error al eliminar VIN");
       }
     } catch (e) {
-      _showError("Error: $e");
+      if (mounted) _showError("Error: $e");
     }
   }
 
@@ -2246,6 +2274,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
       dialogTitle: 'Selecciona la carpeta de Planos DXF/PDF',
     );
     if (selectedDirectory == null) return; // canceló el selector
+    if (!mounted) return;
 
     setState(() => _isLoading = true);
     try {
@@ -2257,6 +2286,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
           'ruta_base': selectedDirectory,
         }),
       );
+      if (!mounted) return;
       if (response.statusCode == 200) {
         final data = json.decode(response.body) as Map<String, dynamic>;
         _showAuditoriaPlanosDialog(data);
@@ -2264,9 +2294,9 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> {
         _showError("Error al buscar planos: ${response.statusCode}");
       }
     } catch (e) {
-      _showError("Error de conexión: $e");
+      if (mounted) _showError("Error de conexión: $e");
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -3283,6 +3313,7 @@ class _DiffAuditorDialogState extends State<_DiffAuditorDialog> {
       final respDelta = await http.get(
         Uri.parse('$API_URL/api/bom/delta/${widget.idRevision}'),
       );
+      if (!mounted) return;
       if (respDelta.statusCode != 200) {
         setState(() {
           _error   = 'Error en delta: ${respDelta.statusCode}';
@@ -3307,6 +3338,7 @@ class _DiffAuditorDialogState extends State<_DiffAuditorDialog> {
       final respPlana = await http.get(
         Uri.parse('$API_URL/api/bom/plana/${widget.idRevision}'),
       );
+      if (!mounted) return;
       final Map<String, String> descMap = {};
       final Map<String, double> cantMap = {};
       if (respPlana.statusCode == 200) {
@@ -3365,7 +3397,7 @@ class _DiffAuditorDialogState extends State<_DiffAuditorDialog> {
         _loading        = false;
       });
     } catch (e) {
-      setState(() { _error = 'Error: $e'; _loading = false; });
+      if (mounted) setState(() { _error = 'Error: $e'; _loading = false; });
     }
   }
 

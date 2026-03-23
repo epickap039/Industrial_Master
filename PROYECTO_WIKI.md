@@ -1,200 +1,388 @@
-# Industrial Master — Proyecto Wiki (v60)
+# Industrial Master — Wiki de proyecto (auditoría completa)
 
-Documentación estructural del sistema: Flutter (cliente), FastAPI (`backend/server.py`) y SQL Server.
-
----
-
-## Capítulo 1 — Arquitectura y navegación
-
-### 1.1 Flujo general
-
-- **Cliente:** Flutter + `fluent_ui`, punto de entrada `lib/main.dart`.
-- **API:** FastAPI en `backend/server.py` (puerto típico **8001** según `uvicorn` al final del archivo).
-- **Configuración de URL:** `lib/config/app_config.dart` (`kApiBaseUrl`).
-
-### 1.2 Roles y paneles
-
-| Rol | Comportamiento |
-|-----|----------------|
-| **QA** | Solo ve **Catálogo Maestro** (`CatalogScreen`). |
-| **ADMIN / USER** | Navegación completa: Lobby, consultas, procesamiento, control de producción, historial. |
-
-### 1.3 Índices del `NavigationPane` (usuario no-QA)
-
-El `NavigationPane` de `fluent_ui` asigna un **índice plano** a cada `PaneItem` en el orden en que aparecen en `main.dart` (incluidos los hijos de los `PaneItemExpander`).
-
-| Índice | Ubicación en menú | Archivo Dart | Función resumida |
-|--------|-------------------|--------------|------------------|
-| **0** | Lobby Principal | `lib/screens/lobby_screen.dart` | Dashboard, KPIs, accesos rápidos. |
-| **2** | Consultas → Catálogo Maestro | `lib/screens/catalog.dart` | Piezas/catálogo maestro, enlaces CAD. |
-| **3** | Consultas → Materiales Oficiales | `lib/screens/materials_list.dart` | Lista de materiales aprobados. |
-| **4** | Consultas → Mapa de Ingeniería | `lib/screens/engineering_map.dart` | Árbol tracto → tipo → versión → revisiones; abre `BomManagerScreen`. |
-| **5** | Consultas → Radar de Impacto | `lib/screens/impact_radar_screen.dart` | Where-used / impacto de piezas. |
-| **7** | Procesamiento → Escáner CAD | `lib/screens/cad_scanner_screen.dart` | Escaneo de metadatos CAD. |
-| **8** | Procesamiento → Importar Excel | `lib/screens/arbitration.dart` | Carga/arbitraje Excel (`ArbitrationScreen`). |
-| **9** | Procesamiento → Auditor | `lib/screens/auditor.dart` | Integridad de archivos enlazados. |
-| **10** | Procesamiento → Estandarización | `lib/screens/standardization.dart` | Normalización masiva de datos. |
-| **12** | Control → MRP | `lib/screens/mrp_screen.dart` | Requerimientos de materiales. |
-| **13** | Control → Gestión de Proyectos | `lib/screens/project_management.dart` | Tractos, tipos, versiones, clientes; enlaza con BOM. |
-| **14** | Control → Expedientes VIN | `lib/screens/vin_dossier.dart` | Unidades físicas; puede navegar al mapa BOM (índice **4**). |
-| **15** | Control → Dashboard Analytics | `lib/screens/analytics_screen.dart` | Métricas y salud CAD por revisión/global. |
-| **16** | Control → Centro de QA | `lib/screens/qa_dashboard.dart` | Reportes beta, capturas, resolución. |
-| **17** | Historial de Cambios | `lib/screens/history.dart` | Vista de auditoría vía API historial. |
-
-**Pantallas auxiliares (no son ítems del pane principal):**
-
-- `lib/screens/bom_manager.dart` — Editor BOM (estaciones, ensambles, estructura); se abre con `Navigator.push` desde mapa de ingeniería, proyectos o VIN según flujo.
-- `lib/screens/login.dart`, `lib/screens/splash_screen.dart` — Autenticación y arranque.
-- `lib/screens/settings.dart` — **Footer** del `NavigationPane` (Configuración).
-- `lib/screens/editor.dart`, `lib/screens/home.dart`, `lib/screens/home_screen.dart` — **Legado / no enlazados** al pane actual; `editor.dart` puede quedar importado en `main.dart` sin uso en el árbol visible.
-
-### 1.4 Footer del pane (documentado — no son “huérfanos”)
-
-- **Selector de tema** (`AppThemeMode`): cambia apariencia global.
-- **Reportar Bug** (`_showBugDialog` en `main.dart`): diálogo con captura; POST a `/api/reportes/nuevo`.
-- **Configuración** → `SettingsScreen` (`lib/screens/settings.dart`).
-
-### 1.5 Lobby y KPIs
-
-- **Archivo:** `lib/screens/lobby_screen.dart`.
-- **Endpoint:** `GET /api/dashboard/kpi`.
-- **Campos usados:** `total_piezas`, `total_unidades`, `total_versiones`, `salud_cad`, `merma_configurada`.
-
-Las tarjetas del Lobby llaman a `onNavigate(n)` con los índices **2, 12, 13, 14, 15** y la cuadrícula inferior usa **7, 8, 9, 13, 14, 16**, coherentes con la tabla anterior.
+Documento generado a partir del código en `lib/`, `lib/screens/`, `lib/widgets/` y `backend/server.py`.  
+**API base recomendada:** `lib/config/app_config.dart` → `kApiBaseUrl` (varias pantallas aún usan IP fija; ver §7).
 
 ---
 
-## Capítulo 2 — Lógica de ingeniería (corazón del PLM)
+## 1. Rutas Flutter (`lib/main.dart`)
 
-### 2.1 Jerarquía de datos
+| Ruta | Widget | Función |
+|------|--------|---------|
+| `/` | `SplashScreen` | Espera breve y redirige a `/login` o `/main` según sesión (7 días). |
+| `/login` | `LoginScreen` | Autenticación contra backend; guarda rol y usuario en `SharedPreferences`. |
+| `/main` | `NavigationView` | Shell principal con `NavigationPane` (rol **QA** = solo catálogo; resto = menú completo). |
 
-1. **Tracto** (`Tbl_Proyectos_Tracto`) — Proyecto / línea de producto.
-2. **Tipo** (`Tbl_Tipos_Proyecto`) — Variante bajo un tracto.
-3. **Versión de ingeniería** (`Tbl_Versiones_Ingenieria`) — Línea de diseño (p. ej. **V1, V2, V3…** tras branching específico).
-4. **Cliente(s)** (`Tbl_Clientes_Configuracion`) — Asignados a una **versión** (`ID_Version`).
-5. **Revisión BOM** (`Tbl_BOM_Revisiones`) — Snapshots numerados (**0, 1, 2…**) bajo una misma versión; estados típicos: Borrador, PENDIENTE, Aprobada, OBSOLETO.
-6. **Estaciones → Ensambles → Estructura** — `Tbl_Estaciones` → `Tbl_Ensambles` → `Tbl_BOM_Estructura` (líneas de BOM por ensamble).
-
-### 2.2 Versiones (V1, V2…) y revisiones
-
-- Una **versión** es una fila en `Tbl_Versiones_Ingenieria` (pertenece a un tipo).
-- Cada versión puede tener **N revisiones** en `Tbl_BOM_Revisiones` (`Numero_Revision` incremental en la misma `ID_Version`).
-- La **ingeniería editable** suele ser la revisión en curso (Borrador / PENDIENTE); al **aprobar**, las anteriores pueden pasar a OBSOLETO según reglas del endpoint de aprobación.
-
-### 2.3 Branching ECR (`POST /api/bom/branching`)
-
-Implementación en `branching_ecr` (`server.py`):
-
-| `tipo_cambio` | Efecto |
-|---------------|--------|
-| **GLOBAL** | Nueva **revisión** en la **misma** `ID_Version` (Rev N+1), clonando estaciones/ensambles/estructura desde la revisión origen. Estado inicial **Borrador**. |
-| **ESPECIFICO** | Nueva **versión** en el mismo tipo (nomenclatura **V{n}** según versiones existentes del tipo), **opcionalmente** mueve clientes (`Tbl_Clientes_Configuracion.ID_Version`), crea **Revisión 0** en la nueva versión, clona la BOM desde la revisión origen. Log `DERIVACION` en ingeniería. |
-
-Tras clonar, se registra acción **ECR_BRANCHING** vía `registrar_log`.
-
-### 2.4 Borrado físico en cascada (confirmación)
-
-Funciones clave en `server.py`:
-
-1. **`_physical_delete_revision_cascade(cursor, id_revision)`**  
-   Elimina en orden: log de ingeniería (si existe), **estructura BOM**, **ensambles**, **estaciones**, **unidades físicas** ligadas a la revisión, fila en **`Tbl_BOM_Revisiones`**.
-
-2. **`_purge_version_physical(cursor, id_version)`**  
-   Para cada revisión de la versión llama a `_physical_delete_revision_cascade`, luego **`Tbl_Clientes_Configuracion`** de esa versión y **`Tbl_Versiones_Ingenieria`**.
-
-3. **`_purge_tipo_physical(cursor, id_tipo)`**  
-   Purga todas las versiones del tipo y borra **`Tbl_Tipos_Proyecto`**.
-
-4. **API** `DELETE /api/bom/revisiones/{id_revision}` — Tras reglas de contraseña para estados no editables, ejecuta `_physical_delete_revision_cascade` y deja rastro en **`Tbl_Auditoria_Cambios`** antes del borrado.
-
-5. **Script operativo:** `scripts/purge_ingenieria_fisico.py` — Purga completa de ingeniería llamando a `_purge_tipo_physical` por cada tipo; **no** borra tractos ni catálogo maestro de piezas.
-
-**Orden conceptual:** tipos (vía purga) → versiones → revisiones → estaciones/ensambles → estructura (y VINs asociados a revisiones).
+**Footer del pane (no son pestañas de cuerpo principal):** selector de tema (`AppThemeMode`), **Reportar Bug** (`_showBugDialog` → `POST /api/reportes/nuevo`), **Configuración** (`SettingsScreen`).
 
 ---
 
-## Capítulo 3 — API y base de datos
+## 2. Índice de pestañas del `NavigationPane` (rol ≠ QA)
 
-### 3.1 Catálogo vs BOM
+Orden **plano** según la lista `items` en `main.dart` (comportamiento típico de `fluent_ui`: `PaneItem` raíz + hijos de cada `PaneItemExpander` en orden).
 
-| Tabla / concepto | Rol |
-|------------------|-----|
-| **`Tbl_Catalogo_Maestro` / API catálogo** | Registro de **piezas únicas** (códigos, descripciones, metadatos de negocio) tal como las expone el módulo de catálogo (`/api/catalog`, etc.). |
-| **`Tbl_Maestro_Piezas`** | Maestro técnico de piezas (materiales, dimensiones CAD, etc.), muy usado en joins de BOM y analytics. |
-| **`Tbl_BOM_Estructura`** | **Uso** de una pieza dentro de un **ensamble** concreto: `Codigo_Pieza`, `Cantidad`, `ID_Ensamble`. Una misma pieza del maestro puede aparecer en muchas filas (muchas listas / muchos ensambles). |
+| Índice | Título en UI | Archivo | Qué hace |
+|--------|----------------|---------|----------|
+| **0** | Lobby Principal | `lib/screens/lobby_screen.dart` | KPIs (`GET /api/dashboard/kpi`), accesos rápidos (`onNavigate`). |
+| **1** | *(cabecera)* Consultas Rápidas | — | Expander; cuerpo `SizedBox.shrink()`. |
+| **2** | Catálogo Maestro | `lib/screens/catalog.dart` | `GET /api/catalog`, `PUT /api/material/update`, `DELETE /api/catalog/{codigo}` → **`Tbl_Maestro_Piezas`**; exportes, DXF, planos. |
+| **3** | Materiales Oficiales | `lib/screens/materials_list.dart` | Lista `GET /api/config/materiales`; alta/baja de materiales aprobados (**URL hardcodeada en archivo**). |
+| **4** | Mapa de Ingeniería | `lib/screens/engineering_map.dart` | Árbol `GET /api/mapa/jerarquia`; abre `BOMManagerScreen` con `Navigator.push`. Si `targetRevisionId` viene de VIN, auto-navega a la revisión. |
+| **5** | Radar de Impacto | `lib/screens/impact_radar_screen.dart` | Where-used `GET /api/bom/where-used/{codigo}`; checklists locales de impacto. |
+| **6** | *(cabecera)* Procesamiento de Datos | — | Expander. |
+| **7** | Escáner CAD 3D/2D | `lib/screens/cad_scanner_screen.dart` | Macro VBA, `POST /api/cad/*` (scan, upload, status, download, abort, procesar-directorio). |
+| **8** | Importar Excel | `lib/screens/arbitration.dart` | Motor Excel/arbitraje: `ConflictResolutionDialog` (`lib/widgets/conflict_dialog.dart`), sincronización y conflictos vía `/api/excel/*`. |
+| **9** | Auditor de Archivos | `lib/screens/auditor.dart` | Sube Excel; auditoría/corrección `/api/excel/auditar`, `/api/excel/corregir`, enlaces, etc. |
+| **10** | Estandarización | `lib/screens/standardization.dart` | Descripciones `GET /api/limpieza/descripciones_unicas`, masivo `POST /api/limpieza/actualizar_masivo`, materiales (**URL hardcodeada**). |
+| **11** | *(cabecera)* Control de Producción | — | Expander. |
+| **12** | Requerimientos (MRP) | `lib/screens/mrp_screen.dart` | Revisiones `GET /api/mrp/revisiones`, cálculo `GET /api/mrp/calculate/{id}`; pestañas materia prima / comerciales / huérfanos; export Excel. |
+| **13** | Gestión de Proyectos | `lib/screens/project_management.dart` | CRUD tractos/tipos/versiones/clientes `/api/proyectos/*`; abre `BOMManagerScreen` con `Navigator.push`. |
+| **14** | Expedientes VIN | `lib/screens/vin_dossier.dart` | Búsqueda `GET /api/vins/buscar`, ADN, notas, archivos, vincular socios; `onNavigateToBOM` → `_handleNavigation(4, id: idRevision)` (Mapa de Ingeniería). |
+| **15** | Dashboard Analytics | `lib/screens/analytics_screen.dart` | Datos `GET /api/analytics/dashboard/{id_revision\|global}`; exclusión de revisiones en modo global. |
+| **16** | Centro de QA | `lib/screens/qa_dashboard.dart` | Reportes `GET /api/reportes`, export, resolver; usa `API_URL` de `main.dart`. |
+| **17** | Historial de Cambios | `lib/screens/history.dart` | `GET /api/historial`; export/descarga según implementación en pantalla. |
 
-En resumen: **maestro = qué es la pieza**; **estructura = dónde y cuánto se usa en una lista BOM**.
+### Rol **QA**
 
-### 3.2 Mapeo resumido endpoint → tablas
-
-(Selección representativa; el archivo completo define muchos más.)
-
-| Área | Endpoint(s) | Tablas principales |
-|------|-------------|-------------------|
-| Health | `GET /api/health` | Conexión BD |
-| **KPI Lobby** | `GET /api/dashboard/kpi` | `Tbl_Maestro_Piezas`, `Tbl_BOM_Estructura`, `Tbl_Ensambles`, `Tbl_Estaciones`, `Tbl_Unidades_Fisicas`, **`Tbl_Versiones_Ingenieria`** (`total_versiones` = `COUNT(*)`) |
-| Proyectos | `/api/proyectos/tractos`, `tipos`, `versiones`, `clientes` | `Tbl_Proyectos_Tracto`, `Tbl_Tipos_Proyecto`, `Tbl_Versiones_Ingenieria`, `Tbl_Clientes_Configuracion` |
-| Mapa | `GET /api/mapa/jerarquia` | Jerarquía tracto → tipo → versión |
-| MRP | `/api/mrp/*` | Revisiones, estructura, maestro |
-| Analytics | `GET /api/analytics/dashboard/{id_revision}` | Agregaciones sobre estructura + maestro; `total_versiones` alineado con **`Tbl_Versiones_Ingenieria`** |
-| BOM | `/api/bom/*` (estaciones, ensambles, estructura, árbol, import/export, aprobar, eliminar) | `Tbl_BOM_Revisiones`, `Tbl_Estaciones`, `Tbl_Ensambles`, `Tbl_BOM_Estructura` |
-| Clonación / ECR | `POST /api/bom/clonar*`, `POST /api/bom/branching` | Mismas tablas BOM + versiones/clientes |
-| VINs | `/api/vins/*`, adjuntos en disco | `Tbl_Unidades_Fisicas`, carpetas bajo `VIN_FILES_BASE` |
-| Catálogo | `/api/catalog`, DXF, materiales | `Tbl_Catalogo_Maestro`, `Tbl_Maestro_Piezas`, `Tbl_Materiales_Aprobados` |
-| Excel / CAD | `/api/excel/*`, `/api/cad/*` | Varía (maestro, archivos, procesos) |
-| **Historial UI** | `GET /api/historial` | **`Tbl_Auditoria_Cambios`** |
-| Log ingeniería | (interno `registrar_log`) | **`Tbl_Log_Cambios_Ingenieria`** (`ID_Revision`, acción, detalle) |
-| QA / bugs | `/api/reportes/*` | **`Tbl_Reportes_Beta`** |
-| Login | `POST /api/login` | Según implementación de usuarios en BD |
+Un solo ítem: índice **0** = **Catálogo Maestro** (`CatalogScreen`).
 
 ---
 
-## Capítulo 4 — QA y auditoría
+## 3. Pantallas y archivos fuera del pane (o legado)
 
-### 4.1 Reportes QA (Zoom, Base64)
-
-- Los reportes se persisten en **`Tbl_Reportes_Beta`** con campo **`Captura_Base64`** (imagen adjunta codificada).
-- **Alta:** `POST /api/reportes/nuevo` — cuerpo con usuario, módulo, descripción, gravedad y captura.
-- **Listado:** `GET /api/reportes` — devuelve metadatos + `captura_base64` para el **Centro de QA** (`qa_dashboard.dart`).
-- **Export:** `GET /api/reportes/exportar_gemini` (JSON con capturas), `GET /api/reportes/exportar` (Excel sin embebido binario en celdas).
-- **Cierre:** `PUT /api/reportes/{id}/resolver` — marca estado **Cerrado**.
-
-En Flutter, el detalle del reporte usa vistas que permiten **zoom/pan** (p. ej. `InteractiveViewer`) sobre la imagen decodificada desde Base64.
-
-### 4.2 Log de cambios y trazabilidad
-
-| Sistema | Tabla | Alcance |
-|---------|--------|---------|
-| **Auditoría global** | `Tbl_Auditoria_Cambios` | Eventos diversos (piezas, VIN, eliminación de revisiones, etc.). **Historial de Cambios** en app → `GET /api/historial`. |
-| **Log de ingeniería por revisión** | `Tbl_Log_Cambios_Ingenieria` | Acciones BOM (aprobar, branching, derivaciones…); asociado a `ID_Revision`. Consulta vía endpoints de log de BOM (`/api/bom/log/{id_revision}`). |
-
-`registrar_log` no debe romper la transacción principal: los errores de inserción se ignoran de forma controlada.
+| Archivo | Clase principal | Enlace en la app actual |
+|---------|-----------------|-------------------------|
+| `lib/screens/bom_manager.dart` | `BOMManagerScreen` | Solo por **`Navigator.push`** desde Mapa de Ingeniería, Gestión de Proyectos o contextos VIN/BOM. |
+| `lib/widgets/conflict_dialog.dart` | `ConflictResolutionDialog` | Diálogo de comparación Excel vs SQL en **Importar Excel**. |
+| `lib/screens/editor.dart` | `EditorScreen` | **No** referenciado en `NavigationPane`; import en `main.dart` sin uso en rutas actuales (placeholder CRUD). |
+| `lib/screens/home.dart` | `HomeScreen` (Stateless) | **No** usado en `main.dart` actual. |
+| `lib/screens/home_screen.dart` | `HomeScreen` (Stateful) | **No** usado en `main.dart` actual (lobby antiguo con `onNavigate`). |
 
 ---
 
-## PASO 3 — Verificación post-corrección del Lobby
+## 4. Flujos de usuario (A → B)
 
-### Conteo de versiones = 0 tras purga
+### 4.1 Autenticación
 
-1. En SQL:  
-   `SELECT COUNT(*) FROM Tbl_Versiones_Ingenieria;`  
-   Debe ser **0** si la purga de ingeniería fue completa.
+**Splash** → (sesión válida) **Main** / (no) **Login** → **Login** exitoso → **Main** (`pushReplacementNamed`).
 
-2. En API (backend en marcha):  
-   `GET /api/dashboard/kpi` → campo **`total_versiones`** debe ser **0** (misma fuente: `COUNT(*)` sobre **`Tbl_Versiones_Ingenieria`**).
+### 4.2 Lobby
 
-3. En app: abrir **Lobby Principal** y comprobar la tarjeta **“Versiones de Ing.”** — debe mostrar **0**.
+**Lobby** → tarjetas KPI / módulos llaman `onNavigate(n)` (índices **2, 7–9, 12–16**, etc.) sin `Navigator`; el `NavigationPane` cambia de pestaña.
 
-### Coherencia Analytics
+### 4.3 Ingeniería / PLM
 
-`GET /api/analytics/dashboard/{id_revision}` incluye **`total_versiones`** con la misma lógica (`Tbl_Versiones_Ingenieria`), para no desviarse del Lobby.
+- **Mapa de Ingeniería** → icono abrir revisión → **`BOMManagerScreen`** → (volver con `true`) refresco `GET /api/mapa/jerarquia`.
+- **Gestión de Proyectos** → selección tracto/tipo/versión/cliente → abrir BOM → **`BOMManagerScreen`**.
+- **VIN** → “ir a BOM” → cambia a índice **4** (Mapa) + `targetRevisionId`; el mapa auto-abre BOM si encuentra la revisión en el árbol.
 
-### Elementos UI documentados
+### 4.4 Catálogo e inventario de datos
 
-- Todo ítem del menú lateral principal y footer está referenciado en **§1.3–1.4**.
-- **BOM Manager** y rutas de login/splash están en **§1.3** (auxiliares).
-- Archivos **home/editor** sin enlace en el pane actual están marcados como **legado** para evitar confusiones con “botones huérfanos” no documentados.
+- **Catálogo Maestro**: listado/edición/borrado vía `/api/catalog` y `/api/material/update` sobre **`Tbl_Maestro_Piezas`**.
+- **Materiales oficiales** y **Estandarización**: listas y reglas de limpieza enlazadas a **`Tbl_Maestro_Piezas`** / **`Tbl_Materiales_Aprobados`** según endpoint (ver §6).
+
+### 4.5 Producción / MRP / Analytics
+
+- **MRP**: elige revisión → cálculo de requerimientos por API MRP.
+- **Analytics**: elige revisión o **global** → gráficos y KPIs de dashboard.
+
+### 4.6 CAD y Excel
+
+- **Escáner CAD**: flujo de carpeta → backend CAD asíncrono (estado en `/api/cad/status`).
+- **Importar Excel / Auditor**: ficheros locales → `/api/excel/*` (procesar, sincronizar, auditar, corregir, exportar).
+
+### 4.7 QA y auditoría global
+
+- **Reportar Bug** (footer) → diálogo → `POST /api/reportes/nuevo`.
+- **Centro de QA** → listado abierto → detalle con captura Base64 → resolver `PUT /api/reportes/{id}/resolver`.
+- **Historial** → `GET /api/historial` (`Tbl_Auditoria_Cambios`).
+
+### 4.8 Configuración
+
+- **Configuración** (footer) → `SettingsScreen`: prueba de conexión, sincronización según botones del archivo, rol QA visible.
 
 ---
 
-*Última actualización: alineación KPI `total_versiones` con `Tbl_Versiones_Ingenieria` y creación de esta wiki.*
+## 5. KPI del Lobby (`GET /api/dashboard/kpi`)
+
+Los indicadores **no mezclan** el tamaño del maestro de piezas con el volumen de filas en listas BOM:
+
+| Campo JSON | Significado | Origen SQL |
+|------------|-------------|------------|
+| **`total_piezas`** | Registros del **catálogo maestro** (p. ej. ~1 595) | `SELECT COUNT(*) FROM Tbl_Maestro_Piezas` |
+| **`total_lineas_bom`** | **Filas** en listas de materiales (incluye posibles fantasmas si no se ha purgado) | `SELECT COUNT(*) FROM Tbl_BOM_Estructura` → **0** tras `backend/sql/purga_fantasmas.sql` |
+| **`salud_cad`** | % CAD sobre líneas BOM **enlazadas** a maestro (join completo) | CTE `PiezasBase` (estructura→ensamble→estación→`Tbl_Maestro_Piezas`). Sin filas BOM → `0%`. |
+| **`total_unidades`** | VINs | `Tbl_Unidades_Fisicas` |
+| **`total_versiones`** | Versiones de ingeniería | `Tbl_Versiones_Ingenieria` |
+| **`merma_configurada`** | Fijo | `15` |
+
+**Pantalla Catálogo (`GET /api/catalog`):** lee y escribe **`Tbl_Maestro_Piezas`** (misma fuente que `total_piezas` del Lobby).
+
+**Purga de fantasmas BOM:** `backend/sql/purga_fantasmas.sql` — vacía ingeniería transaccional **sin** tocar **`Tbl_Maestro_Piezas`**.
+
+---
+
+## 6. Mapa de base de datos (`Tbl_*` referenciadas en `server.py`)
+
+### 6.0 Catálogo maestro vs listas BOM
+
+| Tabla | Rol |
+|-------|-----|
+| **`Tbl_Maestro_Piezas`** | **Única tabla oficial del catálogo** — grilla Catálogo (`GET/DELETE /api/catalog`, `PUT /api/material/update`), **KPI Lobby `total_piezas`** = `SELECT COUNT(*) FROM Tbl_Maestro_Piezas`, joins BOM/MRP/analytics/Excel. **No se borra** con purga de ingeniería. |
+| **`Tbl_BOM_Estructura`** | **Listas BOM transaccionales** — **KPI `total_lineas_bom`** (`COUNT(*)`); se vacía con `backend/sql/purga_fantasmas.sql`. |
+
+El Lobby muestra **dos números**: piezas en maestro (~1 595) y filas en estructura BOM (0 si no hay listas).
+
+Lista **única** de tablas detectadas en el backend (puede haber más en SQL fuera del repo):
+
+| Tabla | Rol resumido |
+|-------|----------------|
+| **Tbl_Auditoria_Cambios** | Log transversal (pieza/código, acción, valores, usuario, fecha). |
+| **Tbl_BOM_Estructura** | Líneas de BOM por ensamble (código, cantidad, observaciones). |
+| **Tbl_BOM_Revisiones** | Revisiones por versión (número, estado: Borrador, PENDIENTE, Aprobada, OBSOLETO). |
+| **Tbl_Clientes_Configuracion** | Clientes asignados a una versión de ingeniería. |
+| **Tbl_Ensambles** | Ensambles bajo estación. |
+| **Tbl_Estaciones** | Estaciones de línea bajo una revisión. |
+| **Tbl_Log_Cambios_Ingenieria** | Log por `ID_Revision` (acciones BOM/ECR); best-effort insert. |
+| **Tbl_Maestro_Piezas** | Catálogo maestro + metadatos CAD; ver §6.0. |
+| **Tbl_Materiales_Aprobados** | Materiales oficiales. |
+| **Tbl_Proyectos_Tracto** | Tractos / proyectos raíz. |
+| **Tbl_Reportes_Beta** | Bugs/QA (incl. `Captura_Base64`). |
+| **Tbl_Tipos_Proyecto** | Tipos bajo tracto. |
+| **Tbl_Unidades_Fisicas** | VINs / unidades; notas, socios, archivos en disco aparte. |
+| **Tbl_Usuarios** | Login (creación condicional en arranque de endpoint login). |
+| **Tbl_Versiones_Ingenieria** | Versiones (V1, V2…) bajo tipo. |
+
+**Relación conceptual:**  
+`Tracto` → `Tipo` → `Versión` → (`Clientes`) + `Revisiones` → `Estaciones` → `Ensambles` → `BOM_Estructura` (piezas ↔ **`Tbl_Maestro_Piezas`** por código para metadatos CAD en ingeniería).  
+**Catálogo de pantalla y KPI `total_piezas`** = **`Tbl_Maestro_Piezas`**.
+
+El motor **Excel** (`/api/excel/*`) y sincronizaciones masivas actualizan **`Tbl_Maestro_Piezas`** (coherente con el catálogo UI).
+
+---
+
+## 7. Endpoints HTTP (`backend/server.py`) — inventario
+
+> Nota: hay rutas duplicadas en Python (p. ej. `GET/POST /api/bom/estaciones/{id_revision}`); FastAPI conserva la **última** definición en el archivo.
+
+### Raíz y sistema
+
+| Método | Ruta |
+|--------|------|
+| GET | `/` |
+| GET | `/api/health` |
+| POST | `/api/system/open_file` |
+
+### KPI y configuración
+
+| Método | Ruta |
+|--------|------|
+| GET | `/api/dashboard/kpi` |
+| GET/POST | `/api/config/materiales` |
+| DELETE | `/api/config/materiales/{material_name}` |
+| POST/DELETE | `/api/materiales/oficial`, `/api/materiales/oficial/{identificador}` |
+| GET/POST | `/api/config/regla_espejo` |
+| POST | `/api/config/update_links` |
+
+### Proyectos / jerarquía
+
+| Método | Ruta |
+|--------|------|
+| GET/POST/DELETE | `/api/proyectos/tractos`, `/api/proyectos/tractos/{id_tracto}` |
+| GET/POST/DELETE | `/api/proyectos/tipos/{id_tracto}`, `/api/proyectos/tipos`, `/api/proyectos/tipos/{id_tipo}` |
+| GET/POST/DELETE | `/api/proyectos/versiones/{id_tipo}`, `/api/proyectos/versiones`, `/api/proyectos/versiones/{id_version}` |
+| GET/POST/DELETE | `/api/proyectos/clientes/{id_version}`, `/api/proyectos/clientes`, `/api/proyectos/clientes/{id_cliente}` |
+| PUT | `/api/proyectos/clientes/{id_cliente}/asignar_revision` |
+| GET | `/api/mapa/jerarquia` |
+
+### MRP y analytics
+
+| Método | Ruta |
+|--------|------|
+| GET | `/api/mrp/revisiones` |
+| GET | `/api/mrp/calculate/{id_revision}` |
+| GET | `/api/analytics/dashboard/{id_revision}` |
+
+**Respuesta Analytics (campos añadidos, sin romper los existentes):**  
+`total_lineas_bom_estructura` → `COUNT(*)` sobre **`Tbl_BOM_Estructura`** (volumen físico de la tabla).  
+`total_registros_maestro_piezas` → `COUNT(*)` sobre **`Tbl_Maestro_Piezas`**.  
+Las gráficas siguen usando joins BOM+maestro con el alcance de revisión / global ya definido.
+
+### Catálogo y materiales
+
+| Método | Ruta |
+|--------|------|
+| GET/DELETE | `/api/catalog`, `/api/catalog/{codigo}` |
+| GET | `/api/dxf/search/{codigo}` |
+| PUT | `/api/material/update` |
+
+### VINs y archivos
+
+| Método | Ruta |
+|--------|------|
+| GET | `/api/vins/buscar` |
+| GET/PUT/DELETE | `/api/vins/{id_unidad}/adn`, notas, notas_reemplazar, `DELETE /api/vins/{serie}` |
+| POST | `/api/vins/{id_unidad}/vincular/{id_socio}` |
+| GET/POST/DELETE | `/api/vins/{id_vin}/archivos`, subir, borrar por nombre |
+
+### BOM / revisiones / estructura
+
+(Incluye duplicados literales en el archivo; listar como contrato funcional.)
+
+| Método | Ruta (patrón) |
+|--------|----------------|
+| GET | `/api/bom/where-used/{codigo_pieza}` |
+| GET/POST/DELETE | `/api/bom/estaciones/...`, `/api/bom/ensambles/...`, `/api/bom/estructura/...` |
+| GET/POST | `/api/bom/revisiones/version/{id_version}`, `/api/bom/revisiones/{id_cliente}` |
+| PUT/DELETE | `/api/bom/revisiones/{id_revision}/aprobar`, `DELETE .../{id_revision}` |
+| GET/POST/DELETE | VINs ligados a revisión, exportar, log, importar, árbol, plana, delta |
+| POST | `/api/bom/clonar`, `/api/bom/clonar/{id_revision_origen}`, `/api/bom/branching` |
+| POST | `/api/bom/buscar_planos`, `/api/bom/propagar` |
+| GET | `/api/bom/{id_revision}/calcular_placas` |
+| PUT | `/api/bom/estructura/cantidad/{id_bom}`, `/api/bom/piezas/{id_bom}` |
+
+### Excel
+
+| Método | Ruta |
+|--------|------|
+| POST | `/api/excel/procesar`, `sincronizar`, `actualizar_enlaces`, `auditar`, `corregir`, `exportar_reporte` |
+
+### Historial, limpieza, reportes, login, CAD
+
+| Método | Ruta |
+|--------|------|
+| GET | `/api/historial` |
+| GET/POST | `/api/limpieza/descripciones_unicas`, `/api/limpieza/actualizar_masivo` |
+| POST/GET/PUT | `/api/reportes/nuevo`, `/api/reportes`, `/api/reportes/exportar`, `/api/reportes/exportar_gemini`, `/api/reportes/{id}/resolver` |
+| POST | `/api/login` |
+| POST/GET | `/api/cad/abort`, `scan`, `procesar-directorio`, `status`, `download`, `upload` |
+
+### 7.1 Lista plana de decoradores `@app` en `server.py` (orden de aparición)
+
+```
+GET    /
+GET    /api/health
+GET    /api/dashboard/kpi
+GET    /api/config/materiales
+POST   /api/config/materiales
+DELETE /api/config/materiales/{material_name}
+POST   /api/materiales/oficial
+DELETE /api/materiales/oficial/{identificador}
+GET    /api/proyectos/tractos
+POST   /api/proyectos/tractos
+DELETE /api/proyectos/tractos/{id_tracto}
+GET    /api/proyectos/tipos/{id_tracto}
+POST   /api/proyectos/tipos
+DELETE /api/proyectos/tipos/{id_tipo}
+GET    /api/proyectos/versiones/{id_tipo}
+POST   /api/proyectos/versiones
+DELETE /api/proyectos/versiones/{id_version}
+GET    /api/proyectos/clientes/{id_version}
+POST   /api/proyectos/clientes
+DELETE /api/proyectos/clientes/{id_cliente}
+GET    /api/mapa/jerarquia
+GET    /api/bom/where-used/{codigo_pieza}
+GET    /api/mrp/revisiones
+GET    /api/mrp/calculate/{id_revision}
+GET    /api/analytics/dashboard/{id_revision}
+GET    /api/vins/{id_vin}/archivos
+POST   /api/vins/{id_vin}/subir_archivo
+GET    /api/vins/{id_vin}/archivos/{nombre_archivo}
+GET    /api/bom/estaciones/{id_revision}
+POST   /api/bom/estaciones
+GET    /api/bom/revisiones/version/{id_version}
+POST   /api/bom/revisiones/version/{id_version}
+GET    /api/bom/revisiones/{id_cliente}
+POST   /api/bom/revisiones/{id_cliente}
+PUT    /api/bom/revisiones/{id_revision}/aprobar
+DELETE /api/bom/revisiones/{id_revision}
+GET    /api/bom/revisiones/{id_revision}/vins
+GET    /api/bom/buscar_pieza_jerarquia/{codigo_pieza}
+GET    /api/bom/exportar/{id_revision}
+GET    /api/bom/log/{id_revision}
+PUT    /api/proyectos/clientes/{id_cliente}/asignar_revision
+POST   /api/bom/revisiones/{id_revision}/vins
+DELETE /api/bom/vins/{id_unidad}
+GET    /api/vins/buscar
+GET    /api/vins/{id_unidad}/adn
+POST   /api/vins/{id_unidad}/vincular/{id_socio}
+PUT    /api/vins/{id_unidad}/notas
+PUT    /api/vins/{id_unidad}/notas_reemplazar
+DELETE /api/vins/{id_vin}/archivos/{nombre_archivo}
+DELETE /api/vins/{serie}
+POST   /api/bom/clonar
+POST   /api/bom/clonar/{id_revision_origen}
+POST   /api/bom/branching
+POST   /api/bom/buscar_planos
+POST   /api/bom/propagar
+GET    /api/bom/estaciones/{id_revision}   ← segunda definición en archivo
+POST   /api/bom/estaciones                 ← segunda definición
+DELETE /api/bom/estaciones/{id_estacion}
+GET    /api/bom/ensambles/{id_estacion}
+POST   /api/bom/ensambles
+GET    /api/bom/{id_revision}/calcular_placas
+DELETE /api/bom/ensambles/{id_ensamble}
+GET    /api/bom/estructura/{id_ensamble}
+POST   /api/bom/estructura
+DELETE /api/bom/estructura/{id_bom}
+PUT    /api/bom/estructura/cantidad/{id_bom}
+PUT    /api/bom/piezas/{id_bom}
+GET    /api/bom/arbol/{id_revision}
+GET    /api/bom/plana/{id_revision}
+GET    /api/bom/delta/{id_revision}
+POST   /api/bom/importar/{id_revision}
+GET    /api/config/regla_espejo
+POST   /api/config/regla_espejo
+POST   /api/login
+GET    /api/catalog
+DELETE /api/catalog/{codigo}
+GET    /api/dxf/search/{codigo}
+PUT    /api/material/update
+POST   /api/excel/procesar
+POST   /api/excel/sincronizar
+POST   /api/config/update_links
+POST   /api/excel/actualizar_enlaces
+POST   /api/excel/auditar
+POST   /api/excel/corregir
+POST   /api/system/open_file
+POST   /api/excel/exportar_reporte
+GET    /api/historial
+GET    /api/limpieza/descripciones_unicas
+POST   /api/limpieza/actualizar_masivo
+POST   /api/reportes/nuevo
+GET    /api/reportes/exportar_gemini
+GET    /api/reportes
+GET    /api/reportes/exportar
+PUT    /api/reportes/{id_reporte}/resolver
+POST   /api/cad/abort
+POST   /api/cad/scan
+POST   /api/cad/procesar-directorio
+GET    /api/cad/status
+GET    /api/cad/download
+POST   /api/cad/upload
+```
+
+---
+
+## 8. Deuda técnica detectada en el cliente
+
+- **`lib/screens/standardization.dart`**: `API_URL = "http://192.168.1.73:8001"` — debería usar `kApiBaseUrl`.
+- **`lib/screens/materials_list.dart`**: misma IP fija en `GET` de materiales.
+- **`lib/screens/login.dart`**: health check a IP fija; el resto de la app usa `kApiBaseUrl` en muchos módulos.
+
+### Base de datos (alineación Catálogo vs Maestro)
+
+- Mantener **`Tbl_Maestro_Piezas`** como fuente única del catálogo (~1 595 piezas corregidas).
+
+---
+
+## 9. Verificación rápida post-cambio KPI
+
+1. Purga BOM fantasma (si aplica): `backend/sql/purga_fantasmas.sql` → `SELECT COUNT(*) FROM Tbl_BOM_Estructura` = **0**.
+2. API: `GET /api/dashboard/kpi` → `total_piezas` = `COUNT(*)` en **`Tbl_Maestro_Piezas`**; `total_lineas_bom` = **`Tbl_BOM_Estructura`**.
+3. `GET /api/catalog` devuelve filas de **`Tbl_Maestro_Piezas`** (sin error 208 por tabla inexistente).
+4. Lobby: tarjetas alineadas con maestro vs BOM.
+
+---
+
+*Documento alineado con el código en el repositorio; ante migraciones de BD no reflejadas aquí, contrastar con SQL Server.*

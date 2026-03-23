@@ -4,7 +4,7 @@ Purga FÍSICA de la estructura de ingeniería (BOM / versiones / tipos).
 
 NO modifica:
   - Tbl_Proyectos_Tracto (tractos del lobby)
-  - Tbl_Catalogo_Maestro / Tbl_Maestro_Piezas (catálogo)
+  - Tbl_Maestro_Piezas (catálogo maestro)
 
 Sí vacía (orden respetando FKs):
   - Tbl_Log_Cambios_Ingenieria (si existe; errores ignorados)

@@ -5,6 +5,13 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import '../config/app_config.dart';
 
+int _analyticsInt(dynamic v) {
+  if (v == null) return 0;
+  if (v is int) return v;
+  if (v is num) return v.toInt();
+  return int.tryParse(v.toString()) ?? 0;
+}
+
 class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
 
@@ -418,6 +425,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     final sugerencia = _dashboardData!['sugerencia'] ?? "";
     final totalVersiones = (_dashboardData!['total_versiones'] ?? 0) as int;
     final totalUnidades  = (_dashboardData!['total_unidades']  ?? 0) as int;
+    final lineasBomTbl = _analyticsInt(_dashboardData!['total_lineas_bom_estructura']);
+    final registrosMaestro = _analyticsInt(_dashboardData!['total_registros_maestro_piezas']);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -435,11 +444,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               isDark: isDark,
             ),
             _kpiCard(
-              title: "Total Piezas",
+              title: "Piezas en BOM (análisis)",
               value: "$total",
-              icon: FluentIcons.database,
+              icon: FluentIcons.processing,
               color: isDark ? Colors.green.lighter : Colors.green.darker,
               isDark: isDark,
+              subtitle: "válidas+huérfanas en scope",
             ),
             _kpiCard(
               title: "Nesting Scrap",
@@ -465,6 +475,22 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               color: isDark ? const Color(0xFF80CBC4) : const Color(0xFF00695C),
               isDark: isDark,
               subtitle: "unidades registradas",
+            ),
+            _kpiCard(
+              title: "Filas Tbl_BOM_Estructura",
+              value: _numFormat.format(lineasBomTbl),
+              icon: FluentIcons.list,
+              color: isDark ? const Color(0xFFB0BEC5) : const Color(0xFF455A64),
+              isDark: isDark,
+              subtitle: "volumen físico tabla BOM",
+            ),
+            _kpiCard(
+              title: "Registros Tbl_Maestro_Piezas",
+              value: _numFormat.format(registrosMaestro),
+              icon: FluentIcons.database,
+              color: isDark ? const Color(0xFF9FA8DA) : const Color(0xFF3949AB),
+              isDark: isDark,
+              subtitle: "catálogo técnico BD",
             ),
           ],
         ),
