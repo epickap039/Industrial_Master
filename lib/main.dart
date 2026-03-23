@@ -1,7 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
@@ -31,6 +30,7 @@ import 'package:flutter/services.dart';
 import 'theme/app_themes.dart';
 import 'screens/splash_screen.dart';
 import 'config/app_config.dart';
+import 'services/api_client.dart';
 
 const String API_URL = kApiBaseUrl;
 
@@ -363,16 +363,15 @@ class _MyAppState extends State<MyApp> {
                           final currentUser =
                               prefs.getString('username') ?? "Desconocido";
 
-                          await http.post(
-                            Uri.parse('$API_URL/api/reportes/nuevo'),
-                            headers: {"Content-Type": "application/json"},
-                            body: json.encode({
+                          await ApiClient.post(
+                            '/api/reportes/nuevo',
+                            body: {
                               "usuario": currentUser,
                               "modulo": modulo,
                               "gravedad": gravedad,
                               "descripcion": descripcion,
                               "captura": capturaBase64,
-                            }),
+                            },
                           );
                           Navigator.pop(context);
                           displayInfoBar(
@@ -652,9 +651,12 @@ class _NetworkStatusIndicatorState extends State<NetworkStatusIndicator> {
 
   Future<void> _checkHealth() async {
     try {
-      final response = await http.get(Uri.parse('$API_URL/api/health')).timeout(const Duration(seconds: 5));
+      final response = await ApiClient.getUnvalidated(
+        '/api/health',
+        timeout: const Duration(seconds: 5),
+      );
       if (response.statusCode == 200) {
-        final data = json.decode(response.body);
+        final data = response.decodeJson() as Map<String, dynamic>;
         if (mounted) {
           setState(() {
             _isConnected = data['status'] == 'ok' && data['db_connected'] == true;

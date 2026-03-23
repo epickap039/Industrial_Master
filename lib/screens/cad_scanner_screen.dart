@@ -1,11 +1,9 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/services.dart';
-import '../main.dart'; // Para API_URL
+import '../services/api_client.dart';
 
 class CADScannerScreen extends StatefulWidget {
   const CADScannerScreen({Key? key}) : super(key: key);
@@ -224,9 +222,9 @@ End Sub''';
 
   Future<void> _fetchStatus() async {
     try {
-      final response = await http.get(Uri.parse('$API_URL/api/cad/status'));
+      final response = await ApiClient.getUnvalidated('/api/cad/status');
       if (response.statusCode == 200) {
-        final data = json.decode(response.body);
+        final data = response.decodeJson() as Map<String, dynamic>;
         if (mounted) {
           setState(() {
             _status = data['status'] ?? 'idle';
@@ -328,10 +326,10 @@ End Sub''';
     });
 
     try {
-      final response = await http.post(
-        Uri.parse('$API_URL/api/cad/scan'),
+      final response = await ApiClient.postUnvalidated(
+        '/api/cad/scan',
         headers: {'Content-Type': 'application/json'},
-        body: json.encode({'root_path': rootPath}),
+        body: {'root_path': rootPath},
       );
 
       if (response.statusCode == 200) {
@@ -362,11 +360,11 @@ End Sub''';
 
   Future<void> _cancelScan() async {
     try {
-      final response = await http.post(
-        Uri.parse('$API_URL/api/cad/abort'),
+      final response = await ApiClient.postUnvalidated(
+        '/api/cad/abort',
         headers: {'Content-Type': 'application/json'},
       );
-      
+
       if (response.statusCode == 200) {
         _stopPolling();
         setState(() {
@@ -435,10 +433,10 @@ End Sub''';
     });
 
     try {
-      final response = await http.post(
-        Uri.parse('$API_URL/api/cad/procesar-directorio'),
+      final response = await ApiClient.postUnvalidated(
+        '/api/cad/procesar-directorio',
         headers: {'Content-Type': 'application/json'},
-        body: json.encode({'root_path': rootPath}),
+        body: {'root_path': rootPath},
       );
 
       if (response.statusCode == 200) {
@@ -481,10 +479,10 @@ End Sub''';
     });
 
     try {
-      final response = await http.post(
-        Uri.parse('$API_URL/api/cad/collect-missing'),
+      final response = await ApiClient.postUnvalidated(
+        '/api/cad/collect-missing',
         headers: {'Content-Type': 'application/json'},
-        body: json.encode({'source_folder': selectedDirectory}),
+        body: {'source_folder': selectedDirectory},
       );
 
       setState(() {
@@ -492,7 +490,7 @@ End Sub''';
       });
 
       if (response.statusCode == 200) {
-        final data = json.decode(response.body);
+        final data = response.decodeJson() as Map<String, dynamic>;
         showDialog(
           context: context,
           builder: (context) => ContentDialog(
@@ -511,7 +509,7 @@ End Sub''';
           ),
         );
       } else {
-        throw Exception('Error del servidor: ${response.body}');
+        throw Exception('Error del servidor: ${response.rawBody}');
       }
     } catch (e) {
       setState(() {
@@ -551,21 +549,17 @@ End Sub''';
     if (outputFile == null) return;
     
     try {
-      final response = await http.get(Uri.parse('$API_URL/api/cad/download'));
-      if (response.statusCode == 200) {
-        final file = File(outputFile);
-        await file.writeAsBytes(response.bodyBytes);
-        displayInfoBar(context, builder: (context, close) {
-          return InfoBar(
-            title: const Text('Descarga Completa'),
-            content: Text('Guardado en:\n$outputFile'),
-            severity: InfoBarSeverity.success,
-            onClose: close,
-          );
-        });
-      } else {
-        throw Exception('Error al descargar: ${response.statusCode}');
-      }
+      final bytes = await ApiClient.getBytes('/api/cad/download');
+      final file = File(outputFile);
+      await file.writeAsBytes(bytes);
+      displayInfoBar(context, builder: (context, close) {
+        return InfoBar(
+          title: const Text('Descarga Completa'),
+          content: Text('Guardado en:\n$outputFile'),
+          severity: InfoBarSeverity.success,
+          onClose: close,
+        );
+      });
     } catch (e) {
       displayInfoBar(context, builder: (context, close) {
         return InfoBar(
@@ -602,64 +596,58 @@ End Sub''';
     );
 
     try {
-      var request = http.MultipartRequest('POST', Uri.parse('$API_URL/api/cad/upload'));
-      request.files.add(await http.MultipartFile.fromPath('file', filePath));
-      request.headers.addAll({'X-Usuario': 'Alejandro'});
-      
-      var response = await request.send();
-      var responseData = await http.Response.fromStream(response);
-      
+      final data = await ApiClient.postMultipart(
+        '/api/cad/upload',
+        headers: {'X-Usuario': 'Alejandro'},
+        files: {'file': await ApiClient.fileField('file', filePath)},
+      ) as Map<String, dynamic>;
+
       Navigator.pop(context); // Cerrar diálogo de carga
       isUploading = false;
 
-      if (response.statusCode == 200) {
-        final data = json.decode(responseData.body);
-        int act = data['actualizadas'] ?? 0;
-        int err = data['errores'] ?? 0;
-        List<dynamic> det = data['detalles_errores'] ?? [];
-        
-        showDialog(
-          context: context,
-          builder: (context) {
-            return ContentDialog(
-              title: const Text('Resultado de la Actualización'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Piezas actualizadas correctamente: $act'),
-                  Text('Filas con error o ignoradas: $err'),
-                  if (det.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    const Text('Detalles de errores:', style: TextStyle(fontWeight: FontWeight.bold)),
-                    Container(
-                      height: 100,
-                      decoration: BoxDecoration(border: Border.all(color: Colors.grey)),
-                      child: ListView.builder(
-                        itemCount: det.length,
-                        itemBuilder: (context, idx) {
-                          return Padding(
-                            padding: const EdgeInsets.all(4.0),
-                            child: Text('- ${det[idx]}'),
-                          );
-                        },
-                      ),
-                    )
-                  ]
-                ],
-              ),
-              actions: [
-                Button(
-                   child: const Text('Cerrar'), 
-                   onPressed: () => Navigator.pop(context),
-                )
+      int act = data['actualizadas'] ?? 0;
+      int err = data['errores'] ?? 0;
+      List<dynamic> det = data['detalles_errores'] ?? [];
+
+      showDialog(
+        context: context,
+        builder: (context) {
+          return ContentDialog(
+            title: const Text('Resultado de la Actualización'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Piezas actualizadas correctamente: $act'),
+                Text('Filas con error o ignoradas: $err'),
+                if (det.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  const Text('Detalles de errores:', style: TextStyle(fontWeight: FontWeight.bold)),
+                  Container(
+                    height: 100,
+                    decoration: BoxDecoration(border: Border.all(color: Colors.grey)),
+                    child: ListView.builder(
+                      itemCount: det.length,
+                      itemBuilder: (context, idx) {
+                        return Padding(
+                          padding: const EdgeInsets.all(4.0),
+                          child: Text('- ${det[idx]}'),
+                        );
+                      },
+                    ),
+                  )
+                ]
               ],
-            );
-          }
-        );
-      } else {
-        throw Exception('El servidor devolvió Error ${response.statusCode}: ${responseData.body}');
-      }
+            ),
+            actions: [
+              Button(
+                 child: const Text('Cerrar'),
+                 onPressed: () => Navigator.pop(context),
+              )
+            ],
+          );
+        }
+      );
     } catch (e) {
       if (isUploading) Navigator.pop(context);
       displayInfoBar(context, builder: (context, close) {

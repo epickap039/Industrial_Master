@@ -1,11 +1,10 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:io';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
-import '../config/app_config.dart';
+import '../services/api_client.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
@@ -31,21 +30,16 @@ class _HistoryScreenState extends State<HistoryScreen> {
     });
 
     try {
-      String url = '$kApiBaseUrl/api/historial?limite=50';
+      final qp = <String, String>{'limite': '50'};
       if (query != null && query.isNotEmpty) {
-        url += '&busqueda=$query';
+        qp['busqueda'] = query;
       }
-
-      final response = await http.get(Uri.parse(url));
-
-      if (response.statusCode == 200) {
-        final List<dynamic> data = json.decode(response.body);
-        setState(() {
-          _history = data;
-        });
-      } else {
-        throw Exception('Error al cargar historial: ${response.statusCode}');
-      }
+      final List<dynamic> data =
+          await ApiClient.get('/api/historial', queryParameters: qp)
+              as List<dynamic>;
+      setState(() {
+        _history = data;
+      });
     } catch (e) {
       _showErrorDialog(e.toString());
     } finally {
@@ -216,15 +210,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
   Future<void> _exportarBugs() async {
     setState(() => _isLoading = true);
     try {
-      final response = await http.get(
-        Uri.parse('$kApiBaseUrl/api/reportes/exportar_gemini'),
-      );
+      final response =
+          await ApiClient.getUnvalidated('/api/reportes/exportar_gemini');
       if (response.statusCode == 200) {
         final dir = await getDownloadsDirectory();
         final filePath =
             '${dir?.path ?? "C:\\"}\\Tbl_Reportes_Beta_Gemini.json';
         final file = File(filePath);
-        await file.writeAsString(response.body);
+        await file.writeAsString(response.rawBody);
 
         displayInfoBar(
           context,

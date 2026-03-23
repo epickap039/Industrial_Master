@@ -1,8 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import '../config/app_config.dart';
+import '../services/api_client.dart';
 
 class StandardizationScreen extends StatefulWidget {
   @override
@@ -27,11 +25,9 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
 
   Future<void> _fetchOfficialMaterials() async {
     try {
-      final response = await http.get(
-        Uri.parse('$kApiBaseUrl/api/config/materiales'),
-      );
+      final response = await ApiClient.getUnvalidated('/api/config/materiales');
       if (response.statusCode == 200) {
-        final List<dynamic> data = json.decode(response.body);
+        final List<dynamic> data = response.decodeJson() as List<dynamic>;
         setState(() {
           _officialMaterials = List<String>.from(data);
         });
@@ -44,11 +40,10 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
   Future<void> _fetchDescriptions() async {
     setState(() => _isLoading = true);
     try {
-      final response = await http.get(
-        Uri.parse('$kApiBaseUrl/api/limpieza/descripciones_unicas'),
-      );
+      final response =
+          await ApiClient.getUnvalidated('/api/limpieza/descripciones_unicas');
       if (response.statusCode == 200) {
-        final List<dynamic> data = json.decode(response.body);
+        final List<dynamic> data = response.decodeJson() as List<dynamic>;
         setState(() {
           _descriptions = List<Map<String, dynamic>>.from(data);
           _filteredDescriptions = _descriptions;
@@ -163,18 +158,17 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
     String usuario = "Usuario_Estandarizacion";
 
     try {
-      final response = await http.post(
-        Uri.parse('$kApiBaseUrl/api/limpieza/actualizar_masivo'),
-        headers: {"Content-Type": "application/json"},
-        body: json.encode({
+      final response = await ApiClient.postUnvalidated(
+        '/api/limpieza/actualizar_masivo',
+        body: {
           "old_desc": oldDesc,
           "new_desc": newDesc,
           "usuario": usuario,
-        }),
+        },
       );
 
       if (response.statusCode == 200) {
-        final result = json.decode(response.body);
+        final result = response.decodeJson() as Map<String, dynamic>;
         _showSuccess("Se actualizaron ${result['actualizadas']} piezas.");
         _fetchDescriptions(); // Recargar lista
       } else {
@@ -190,10 +184,9 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
   Future<void> _hacerOficial(String desc) async {
     setState(() => _isLoading = true);
     try {
-      final response = await http.post(
-        Uri.parse('$kApiBaseUrl/api/materiales/oficial'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'descripcion': desc}),
+      final response = await ApiClient.postUnvalidated(
+        '/api/materiales/oficial',
+        body: {'descripcion': desc},
       );
 
       if (response.statusCode == 200) {
@@ -213,10 +206,8 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
   Future<void> _eliminarOficial(String desc) async {
     setState(() => _isLoading = true);
     try {
-      final response = await http.delete(
-        Uri.parse(
-          '$kApiBaseUrl/api/materiales/oficial/${Uri.encodeComponent(desc)}',
-        ),
+      final response = await ApiClient.deleteUnvalidated(
+        '/api/materiales/oficial/${Uri.encodeComponent(desc)}',
       );
 
       if (response.statusCode == 200) {

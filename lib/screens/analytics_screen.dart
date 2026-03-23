@@ -1,9 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
-import '../config/app_config.dart';
+import '../services/api_client.dart';
 
 int _analyticsInt(dynamic v) {
   if (v == null) return 0;
@@ -30,7 +28,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   // IDs de revisión que el usuario ha elegido excluir del análisis global
   Set<String> _excludedRevisionIds = {};
 
-  final String _apiUrl = kApiBaseUrl;
   final _numFormat = NumberFormat('#,##0');
 
   @override
@@ -41,8 +38,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   Future<void> _fetchRevisions() async {
     try {
-      final res = await http.get(Uri.parse('$_apiUrl/api/mapa/jerarquia'));
-      
+      final res = await ApiClient.getUnvalidated('/api/mapa/jerarquia');
+
       // Lista base con la opción Global garantizada
       List<dynamic> safeRevisions = [
         {
@@ -52,7 +49,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       ];
 
       if (res.statusCode == 200) {
-        final decoded = json.decode(res.body);
+        final decoded = res.decodeJson();
 
         // Conjunto para deduplicar: una versión con N clientes genera N filas
         // en /api/mapa/jerarquia → filtramos por ID de revisión ya visto.
@@ -126,15 +123,18 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     });
 
     try {
-      String url = '$_apiUrl/api/analytics/dashboard/$_selectedRevisionId';
+      final qp = <String, String>{};
       if (_excludedRevisionIds.isNotEmpty && _selectedRevisionId == 'global') {
-        url += '?exclude_ids=${_excludedRevisionIds.join(',')}';
+        qp['exclude_ids'] = _excludedRevisionIds.join(',');
       }
-      final res = await http.get(Uri.parse(url));
+      final res = await ApiClient.getUnvalidated(
+        '/api/analytics/dashboard/$_selectedRevisionId',
+        queryParameters: qp.isEmpty ? null : qp,
+      );
       if (res.statusCode == 200) {
         if (mounted) {
           setState(() {
-            _dashboardData = json.decode(res.body);
+            _dashboardData = res.decodeJson() as Map<String, dynamic>;
             _isLoadingData = false;
           });
         }

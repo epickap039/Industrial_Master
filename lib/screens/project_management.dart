@@ -1,10 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
 import 'bom_manager.dart';
-import '../config/app_config.dart';
-
-const String API_URL = kApiBaseUrl;
+import '../services/api_client.dart';
 
 class ProjectManagementScreen extends StatefulWidget {
   const ProjectManagementScreen({Key? key}) : super(key: key);
@@ -37,12 +33,10 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   Future<void> _fetchTractos() async {
     setState(() => _isLoading = true);
     try {
-      final response = await http.get(
-        Uri.parse('$API_URL/api/proyectos/tractos'),
-      );
+      final response = await ApiClient.getUnvalidated('/api/proyectos/tractos');
       if (response.statusCode == 200) {
         setState(() {
-          _tractos = json.decode(response.body);
+          _tractos = response.decodeJson();
           _tipos = [];
           _versiones = [];
           _clientes = [];
@@ -61,10 +55,9 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
 
   Future<void> _addTracto(String nombre) async {
     try {
-      final response = await http.post(
-        Uri.parse('$API_URL/api/proyectos/tractos'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'nombre': nombre}),
+      final response = await ApiClient.postUnvalidated(
+        '/api/proyectos/tractos',
+        body: {'nombre': nombre},
       );
       if (response.statusCode == 200) {
         _fetchTractos();
@@ -78,9 +71,8 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
 
   Future<void> _deleteTracto(int id) async {
     try {
-      final response = await http.delete(
-        Uri.parse('$API_URL/api/proyectos/tractos/$id'),
-      );
+      final response =
+          await ApiClient.deleteUnvalidated('/api/proyectos/tractos/$id');
       if (response.statusCode == 200) {
         _fetchTractos();
       }
@@ -93,12 +85,11 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   Future<void> _fetchTipos(int idTracto) async {
     setState(() => _isLoading = true);
     try {
-      final response = await http.get(
-        Uri.parse('$API_URL/api/proyectos/tipos/$idTracto'),
-      );
+      final response =
+          await ApiClient.getUnvalidated('/api/proyectos/tipos/$idTracto');
       if (response.statusCode == 200) {
         setState(() {
-          _tipos = json.decode(response.body);
+          _tipos = response.decodeJson();
           _versiones = [];
           _clientes = [];
           _selectedTipo = null;
@@ -116,13 +107,12 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   Future<void> _addTipo(String nombre) async {
     if (_selectedTracto == null) return;
     try {
-      final response = await http.post(
-        Uri.parse('$API_URL/api/proyectos/tipos'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
+      final response = await ApiClient.postUnvalidated(
+        '/api/proyectos/tipos',
+        body: {
           'id_tracto': _selectedTracto['id'],
           'nombre': nombre,
-        }),
+        },
       );
       if (response.statusCode == 200) {
         _fetchTipos(_selectedTracto['id']);
@@ -136,9 +126,8 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
 
   Future<void> _deleteTipo(int id) async {
     try {
-      final response = await http.delete(
-        Uri.parse('$API_URL/api/proyectos/tipos/$id'),
-      );
+      final response =
+          await ApiClient.deleteUnvalidated('/api/proyectos/tipos/$id');
       if (response.statusCode == 200) {
         _fetchTipos(_selectedTracto['id']);
       }
@@ -151,12 +140,11 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   Future<void> _fetchVersiones(int idTipo) async {
     setState(() => _isLoading = true);
     try {
-      final response = await http.get(
-        Uri.parse('$API_URL/api/proyectos/versiones/$idTipo'),
-      );
+      final response =
+          await ApiClient.getUnvalidated('/api/proyectos/versiones/$idTipo');
       if (response.statusCode == 200) {
         setState(() {
-          _versiones = json.decode(response.body);
+          _versiones = response.decodeJson();
           _clientes = [];
           _selectedVersion = null;
           _selectedCliente = null;
@@ -172,10 +160,9 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   Future<void> _addVersion(String nombre) async {
     if (_selectedTipo == null) return;
     try {
-      final response = await http.post(
-        Uri.parse('$API_URL/api/proyectos/versiones'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'id_tipo': _selectedTipo['id'], 'nombre': nombre}),
+      final response = await ApiClient.postUnvalidated(
+        '/api/proyectos/versiones',
+        body: {'id_tipo': _selectedTipo['id'], 'nombre': nombre},
       );
       if (response.statusCode == 200) {
         _fetchVersiones(_selectedTipo['id']);
@@ -189,9 +176,8 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
 
   Future<void> _deleteVersion(int id) async {
     try {
-      final response = await http.delete(
-        Uri.parse('$API_URL/api/proyectos/versiones/$id'),
-      );
+      final response =
+          await ApiClient.deleteUnvalidated('/api/proyectos/versiones/$id');
       if (response.statusCode == 200) {
         _fetchVersiones(_selectedTipo['id']);
       }
@@ -204,12 +190,11 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   Future<void> _fetchClientes(int idVersion) async {
     setState(() => _isLoading = true);
     try {
-      final response = await http.get(
-        Uri.parse('$API_URL/api/proyectos/clientes/$idVersion'),
-      );
+      final response =
+          await ApiClient.getUnvalidated('/api/proyectos/clientes/$idVersion');
       if (response.statusCode == 200) {
         setState(() {
-          _clientes = json.decode(response.body);
+          _clientes = response.decodeJson();
           _selectedCliente = null;
         });
       }
@@ -223,13 +208,12 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   Future<void> _addCliente(String nombre) async {
     if (_selectedVersion == null) return;
     try {
-      final response = await http.post(
-        Uri.parse('$API_URL/api/proyectos/clientes'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
+      final response = await ApiClient.postUnvalidated(
+        '/api/proyectos/clientes',
+        body: {
           'id_version': _selectedVersion['id'],
           'nombre': nombre,
-        }),
+        },
       );
       if (response.statusCode == 200) {
         _fetchClientes(_selectedVersion['id']);
@@ -243,9 +227,8 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
 
   Future<void> _deleteCliente(int id) async {
     try {
-      final response = await http.delete(
-        Uri.parse('$API_URL/api/proyectos/clientes/$id'),
-      );
+      final response =
+          await ApiClient.deleteUnvalidated('/api/proyectos/clientes/$id');
       if (response.statusCode == 200) {
         _fetchClientes(_selectedVersion['id']);
       }

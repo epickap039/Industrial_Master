@@ -1,15 +1,11 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
 import 'package:intl/intl.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:excel/excel.dart' as excel_lib;
 import '../utils/excel_helper.dart';
-import '../config/app_config.dart';
+import '../services/api_client.dart';
 
 import 'dart:io';
-
-const String _apiUrl = kApiBaseUrl;
 
 class MRPScreen extends StatefulWidget {
   const MRPScreen({super.key});
@@ -47,10 +43,9 @@ class _MRPScreenState extends State<MRPScreen> {
     setState(() => _isLoadingRevisions = true);
     try {
       // Endpoint dedicado: DISTINCT sin JOIN de clientes → sin duplicados.
-      final res =
-          await http.get(Uri.parse('$_apiUrl/api/mrp/revisiones'));
+      final res = await ApiClient.getUnvalidated('/api/mrp/revisiones');
       if (res.statusCode == 200) {
-        final List<dynamic> rows = json.decode(res.body);
+        final List<dynamic> rows = res.decodeJson() as List<dynamic>;
 
         final flattened = rows
             .map((r) {
@@ -98,12 +93,12 @@ class _MRPScreenState extends State<MRPScreen> {
     });
 
     try {
-      final res = await http.get(
-        Uri.parse('$_apiUrl/api/mrp/calculate/$_selectedRevisionId'),
+      final res = await ApiClient.getUnvalidated(
+        '/api/mrp/calculate/$_selectedRevisionId',
       );
 
       if (res.statusCode == 200) {
-        final Map<String, dynamic> data = json.decode(res.body);
+        final Map<String, dynamic> data = res.decodeJson() as Map<String, dynamic>;
         if (mounted) {
           setState(() {
             _mrpData =
@@ -115,7 +110,7 @@ class _MRPScreenState extends State<MRPScreen> {
           });
         }
       } else {
-        throw Exception("Error del servidor: ${res.statusCode} - ${res.body}");
+        throw Exception("Error del servidor: ${res.statusCode} - ${res.rawBody}");
       }
     } catch (e) {
       if (mounted) setState(() => _errorMessage = e.toString());

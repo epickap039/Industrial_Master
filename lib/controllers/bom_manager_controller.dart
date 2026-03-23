@@ -97,9 +97,9 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     if (!needsContext) return;
 
     try {
-      final res = await http.get(Uri.parse('$API_URL/api/mapa/jerarquia'));
+      final res = await ApiClient.getUnvalidated('/api/mapa/jerarquia');
       if (!mounted || res.statusCode != 200) return;
-      final dynamic decoded = json.decode(res.body);
+      final dynamic decoded = res.decodeJson();
       if (decoded is! List) return;
 
       final Map<int, Map<String, dynamic>> metaByRevision = {};
@@ -165,14 +165,13 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     setState(() => _isLoading = true);
     try {
       // v60.0: usa endpoint por version si está disponible
-      final url =
-          _usingVersionMode
-              ? '$API_URL/api/bom/revisiones/version/$_masterId'
-              : '$API_URL/api/bom/revisiones/$_masterId';
-      final response = await http.get(Uri.parse(url));
+      final path = _usingVersionMode
+          ? '/api/bom/revisiones/version/$_masterId'
+          : '/api/bom/revisiones/$_masterId';
+      final response = await ApiClient.getUnvalidated(path);
       if (!mounted) return;
       if (response.statusCode == 200) {
-        final List<dynamic> lista = json.decode(response.body);
+        final List<dynamic> lista = response.decodeJson() as List<dynamic>;
         _clearData();
         // Determinar qué revisión seleccionar — FUERA del setState para
         // no llamar _fetchArbol() ni _fetchBomPlana() dentro del callback.
@@ -226,14 +225,13 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
 
     setState(() => _isLoading = true);
     try {
-      final url =
-          _usingVersionMode
-              ? '$API_URL/api/bom/revisiones/version/$_masterId'
-              : '$API_URL/api/bom/revisiones/$_masterId';
-      final response = await http.post(
-        Uri.parse(url),
-        headers: {'Content-Type': 'application/json', 'X-Usuario': 'Admin PLM'},
-        body: jsonEncode({'notas': notas.isEmpty ? null : notas}),
+      final path = _usingVersionMode
+          ? '/api/bom/revisiones/version/$_masterId'
+          : '/api/bom/revisiones/$_masterId';
+      final response = await ApiClient.postUnvalidated(
+        path,
+        headers: {'X-Usuario': 'Admin PLM'},
+        body: {'notas': notas.isEmpty ? null : notas},
       );
       if (!mounted) return;
       if (response.statusCode == 200) {
@@ -341,10 +339,8 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     if (_selectedRevision == null) return;
     setState(() => _isLoading = true);
     try {
-      final response = await http.put(
-        Uri.parse(
-          '$API_URL/api/bom/revisiones/${_selectedRevision['id_revision']}/aprobar',
-        ),
+      final response = await ApiClient.putUnvalidated(
+        '/api/bom/revisiones/${_selectedRevision['id_revision']}/aprobar',
       );
       if (!mounted) return;
       if (response.statusCode == 200) {
@@ -359,7 +355,7 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
         });
         await _fetchRevisiones();
       } else {
-        _showError("Error al aprobar: ${response.body}");
+        _showError("Error al aprobar: ${response.rawBody}");
       }
     } catch (e) {
       if (mounted) _showError("Error de conexión: $e");
@@ -372,13 +368,13 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     if (_selectedRevision == null) return;
     setState(() => _isLoading = true);
     try {
-      final response = await http.get(
-        Uri.parse('$API_URL/api/bom/arbol/${_selectedRevision['id_revision']}'),
+      final response = await ApiClient.getUnvalidated(
+        '/api/bom/arbol/${_selectedRevision['id_revision']}',
       );
       if (!mounted) return;
       if (response.statusCode == 200) {
         setState(() {
-          _arbol = json.decode(response.body);
+          _arbol = response.decodeJson();
           _hasPendingChanges = false;
           _lastSavedAt = DateTime.now();
           // Actualizar selectedEnsamble si es que se borró o cambió
@@ -410,15 +406,13 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     if (_selectedRevision == null) return;
     setState(() => _isLoading = true);
     try {
-      final response = await http.get(
-        Uri.parse(
-          '$API_URL/api/bom/plana/${_selectedRevision['id_revision']}',
-        ),
+      final response = await ApiClient.getUnvalidated(
+        '/api/bom/plana/${_selectedRevision['id_revision']}',
       );
       if (!mounted) return;
       if (response.statusCode == 200) {
         setState(() {
-          _bomPlana = json.decode(response.body);
+          _bomPlana = response.decodeJson();
           _hasPendingChanges = false;
           _lastSavedAt = DateTime.now();
         });
@@ -450,21 +444,16 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
 
         setState(() => _isLoading = true);
 
-        var request = http.MultipartRequest(
-          'POST',
-          Uri.parse(
-            '$API_URL/api/bom/importar/${_selectedRevision['id_revision']}',
-          ),
-        );
-
-        request.files.add(await http.MultipartFile.fromPath('file', filePath));
-
-        var streamedResponse = await request.send();
-        var response = await http.Response.fromStream(streamedResponse);
+        final uploadFile = await ApiClient.fileField('file', filePath);
         if (!mounted) return;
 
-        if (response.statusCode == 200) {
-          final data = json.decode(response.body);
+        try {
+          final data = await ApiClient.postMultipart(
+            '/api/bom/importar/${_selectedRevision['id_revision']}',
+            files: {'file': uploadFile},
+          ) as Map<String, dynamic>;
+          if (!mounted) return;
+
           int importadas = data['insertados'] ?? 0;
           List errores = data['errores'] ?? [];
 
@@ -505,11 +494,8 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
             );
           }
           _fetchArbol();
-        } else {
-          final errorMsg =
-              json.decode(response.body)['detail'] ??
-              "Error desconocido en el servidor";
-          _showError("Error al importar: $errorMsg");
+        } on ApiException catch (e) {
+          if (mounted) _showError("Error al importar: $e");
         }
       }
     } catch (e) {
@@ -522,13 +508,13 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
   Future<void> _addEstacion(String nombre) async {
     if (_selectedRevision == null) return;
     try {
-      final response = await http.post(
-        Uri.parse('$API_URL/api/bom/estaciones'),
-        headers: {'Content-Type': 'application/json', 'X-Usuario': 'Admin PLM'},
-        body: jsonEncode({
+      final response = await ApiClient.postUnvalidated(
+        '/api/bom/estaciones',
+        headers: {'X-Usuario': 'Admin PLM'},
+        body: {
           'id_revision': _selectedRevision['id_revision'],
           'nombre': nombre,
-        }),
+        },
       );
       if (!mounted) return;
       if (response.statusCode == 200) {
@@ -543,9 +529,7 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
 
   Future<void> _deleteEstacion(int id) async {
     try {
-      final response = await http.delete(
-        Uri.parse('$API_URL/api/bom/estaciones/$id'),
-      );
+      final response = await ApiClient.deleteUnvalidated('/api/bom/estaciones/$id');
       if (!mounted) return;
       if (response.statusCode == 200) {
         if (_selectedEnsamble != null && _arbol.any((est) => est['id'] == id)) {
@@ -553,8 +537,9 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
         }
         _fetchArbol();
       } else {
+        final decoded = response.decodeJsonLenient();
         final errorMsg =
-            json.decode(response.body)['detail'] ?? "Error desconocido";
+            (decoded is Map ? decoded['detail'] : null) ?? "Error desconocido";
         _showError(errorMsg);
       }
     } catch (e) {
@@ -564,10 +549,10 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
 
   Future<void> _addEnsamble(int idEstacion, String nombre) async {
     try {
-      final response = await http.post(
-        Uri.parse('$API_URL/api/bom/ensambles'),
-        headers: {'Content-Type': 'application/json', 'X-Usuario': 'Admin PLM'},
-        body: jsonEncode({'id_estacion': idEstacion, 'nombre': nombre}),
+      final response = await ApiClient.postUnvalidated(
+        '/api/bom/ensambles',
+        headers: {'X-Usuario': 'Admin PLM'},
+        body: {'id_estacion': idEstacion, 'nombre': nombre},
       );
       if (!mounted) return;
       if (response.statusCode == 200) {
@@ -582,9 +567,7 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
 
   Future<void> _deleteEnsamble(int id) async {
     try {
-      final response = await http.delete(
-        Uri.parse('$API_URL/api/bom/ensambles/$id'),
-      );
+      final response = await ApiClient.deleteUnvalidated('/api/bom/ensambles/$id');
       if (!mounted) return;
       if (response.statusCode == 200) {
         if (_selectedEnsamble != null && _selectedEnsamble['id'] == id) {
@@ -592,8 +575,9 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
         }
         _fetchArbol();
       } else {
+        final decoded = response.decodeJsonLenient();
         final errorMsg =
-            json.decode(response.body)['detail'] ?? "Error desconocido";
+            (decoded is Map ? decoded['detail'] : null) ?? "Error desconocido";
         _showError(errorMsg);
       }
     } catch (e) {
@@ -604,15 +588,15 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
   Future<void> _addPieza(String codigo, double cantidad, String obs) async {
     if (_selectedEnsamble == null) return;
     try {
-      final response = await http.post(
-        Uri.parse('$API_URL/api/bom/estructura'),
-        headers: {'Content-Type': 'application/json', 'X-Usuario': 'Admin PLM'},
-        body: jsonEncode({
+      final response = await ApiClient.postUnvalidated(
+        '/api/bom/estructura',
+        headers: {'X-Usuario': 'Admin PLM'},
+        body: {
           'id_ensamble': _selectedEnsamble['id'],
           'codigo_pieza': codigo,
           'cantidad': cantidad,
           'observaciones': obs,
-        }),
+        },
       );
       if (!mounted) return;
       if (response.statusCode == 200) {
@@ -627,9 +611,7 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
 
   Future<void> _deletePieza(int idBom) async {
     try {
-      final response = await http.delete(
-        Uri.parse('$API_URL/api/bom/estructura/$idBom'),
-      );
+      final response = await ApiClient.deleteUnvalidated('/api/bom/estructura/$idBom');
       if (!mounted) return;
       if (response.statusCode == 200) {
         if (_vistaPlana) {
@@ -654,10 +636,10 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     }
     if (mounted) setState(() => _hasPendingChanges = true);
     try {
-      final response = await http.put(
-        Uri.parse('$API_URL/api/bom/estructura/cantidad/$idBom'),
-        headers: {'Content-Type': 'application/json', 'X-Usuario': 'Admin PLM'},
-        body: jsonEncode({'cantidad': nuevaCantidad}),
+      final response = await ApiClient.putUnvalidated(
+        '/api/bom/estructura/cantidad/$idBom',
+        headers: {'X-Usuario': 'Admin PLM'},
+        body: {'cantidad': nuevaCantidad},
       );
       if (!mounted) return;
       if (response.statusCode == 200) {
@@ -669,7 +651,7 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
           _fetchArbol();
         }
       } else {
-        final dynamic decoded = _safeDecode(response.body);
+        final dynamic decoded = response.decodeJsonLenient();
         final String detail = (decoded is Map ? decoded['detail'] : null) ??
             'Error ${response.statusCode}';
         _showError(detail);
@@ -683,25 +665,21 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     if (_selectedRevision == null) return;
     setState(() => _isLoading = true);
     try {
-      final response = await http.get(
-        Uri.parse(
-          '$API_URL/api/bom/exportar/${_selectedRevision['id_revision']}',
-        ),
+      final bytes = await ApiClient.getBytes(
+        '/api/bom/exportar/${_selectedRevision['id_revision']}',
       );
       if (!mounted) return;
-      if (response.statusCode == 200) {
-        final directory = await getApplicationDocumentsDirectory();
-        if (!mounted) return;
-        final filePath =
-            '${directory.path}/BOM_Rev_${_selectedRevision['numero_revision']}.xlsx';
-        final file = File(filePath);
-        await file.writeAsBytes(response.bodyBytes);
-        if (!mounted) return;
-        _showError("Archivo exportado en: $filePath", isError: false);
-        OpenFile.open(filePath);
-      } else {
-        _showError("Error al exportar: ${response.statusCode}");
-      }
+      final directory = await getApplicationDocumentsDirectory();
+      if (!mounted) return;
+      final filePath =
+          '${directory.path}/BOM_Rev_${_selectedRevision['numero_revision']}.xlsx';
+      final file = File(filePath);
+      await file.writeAsBytes(bytes);
+      if (!mounted) return;
+      _showError("Archivo exportado en: $filePath", isError: false);
+      OpenFile.open(filePath);
+    } on ApiException catch (e) {
+      if (mounted) _showError("Error al exportar: ${e.statusCode}");
     } catch (e) {
       if (mounted) _showError("Error: $e");
     } finally {
@@ -842,10 +820,9 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     // Cargar clientes para poder ofrecer la opción ESPECÍFICO
     List<Map<String, dynamic>> clientes = [];
     try {
-      final resp = await http.get(
-          Uri.parse('$API_URL/api/proyectos/clientes/$idVersion'));
+      final resp = await ApiClient.getUnvalidated('/api/proyectos/clientes/$idVersion');
       if (resp.statusCode == 200) {
-        clientes = List<Map<String, dynamic>>.from(json.decode(resp.body));
+        clientes = List<Map<String, dynamic>>.from(resp.decodeJson() as List);
       }
     } catch (_) {}
     if (!mounted) return;
@@ -1018,19 +995,19 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     }
 
     try {
-      final response = await http.post(
-        Uri.parse('$API_URL/api/bom/branching'),
-        headers: {'Content-Type': 'application/json', 'X-Usuario': 'Admin PLM'},
-        body: jsonEncode({
+      final response = await ApiClient.postUnvalidated(
+        '/api/bom/branching',
+        headers: {'X-Usuario': 'Admin PLM'},
+        body: {
           'id_revision_origen': _selectedRevision!['id_revision'],
           'tipo_cambio': tipoCambio,
           'lista_clientes': listaClientes,
-        }),
+        },
       );
       if (!mounted) return null;
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        final data   = json.decode(response.body) as Map<String, dynamic>;
+        final data   = response.decodeJson() as Map<String, dynamic>;
         final int nuevoId = data['nuevo_id_revision'] as int;
 
         if (tipoCambio == 'ESPECIFICO') {
@@ -1072,7 +1049,7 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
         }
         return data;
       } else {
-        final dynamic decoded = _safeDecode(response.body);
+        final dynamic decoded = response.decodeJsonLenient();
         final detail = (decoded is Map ? decoded['detail'] : null) ??
             'Error desconocido (${response.statusCode})';
         if (mounted) _showError('Error al crear rama: $detail');
@@ -1095,10 +1072,10 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     if (!mounted) return;
     setState(() => _isLoading = true);
     try {
-      final response = await http.delete(
-        Uri.parse('$API_URL/api/bom/revisiones/$idRev'),
-        headers: {'Content-Type': 'application/json', 'X-Usuario': 'Admin PLM'},
-        body: jsonEncode({'password': password, 'motivo': motivo}),
+      final response = await ApiClient.deleteUnvalidated(
+        '/api/bom/revisiones/$idRev',
+        headers: {'X-Usuario': 'Admin PLM'},
+        body: {'password': password, 'motivo': motivo},
       );
       if (!mounted) return;
       if (response.statusCode == 200) {
@@ -1122,7 +1099,7 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
           _showError("❌ Contraseña incorrecta. Operación denegada.");
         }
       } else {
-        final dynamic decoded = _safeDecode(response.body);
+        final dynamic decoded = response.decodeJsonLenient();
         final detail = (decoded is Map ? decoded['detail'] : null)
             ?? 'Error desconocido (${response.statusCode})';
         if (mounted) _showError("Error al eliminar: $detail");
@@ -1136,15 +1113,6 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  /// Decodifica JSON de forma segura; retorna null en vez de lanzar excepción.
-  dynamic _safeDecode(String body) {
-    try {
-      return json.decode(body);
-    } catch (_) {
-      return null;
     }
   }
 
@@ -1285,13 +1253,16 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     final int idOrigen = _selectedRevision['id_revision'];
     setState(() => _isLoading = true);
     try {
-      final response = await http.post(
-        Uri.parse('$API_URL/api/bom/clonar/$idOrigen'),
-        headers: {'Content-Type': 'application/json', 'X-Usuario': 'Admin PLM'},
+      final response = await ApiClient.postUnvalidated(
+        '/api/bom/clonar/$idOrigen',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Usuario': 'Admin PLM',
+        },
       );
       if (!mounted) return;
       if (response.statusCode == 200) {
-        final data = json.decode(response.body);
+        final data = response.decodeJson() as Map<String, dynamic>;
         final int nuevoId = data['nuevo_id_revision'];
         final int numRev = data['numero_revision'];
         final int piezas = data['piezas_clonadas'] ?? 0;
@@ -1302,8 +1273,9 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
         // Re-cargar revisiones y seleccionar automáticamente la recién creada
         await _fetchRevisionesYSeleccionar(nuevoId);
       } else {
+        final decoded = response.decodeJsonLenient();
         final detail =
-            json.decode(response.body)['detail'] ?? 'Error desconocido';
+            (decoded is Map ? decoded['detail'] : null) ?? 'Error desconocido';
         _showError("Error al clonar BOM: $detail");
       }
     } catch (e) {
@@ -1317,15 +1289,15 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
   Future<void> _fetchRevisionesYSeleccionar(int targetId) async {
     setState(() => _isLoading = true);
     try {
-      final url = _usingVersionMode
-          ? '$API_URL/api/bom/revisiones/version/$_masterId'
-          : '$API_URL/api/bom/revisiones/$_masterId';
-      final response = await http.get(Uri.parse(url));
+      final path = _usingVersionMode
+          ? '/api/bom/revisiones/version/$_masterId'
+          : '/api/bom/revisiones/$_masterId';
+      final response = await ApiClient.getUnvalidated(path);
       if (!mounted) return;
       if (response.statusCode == 200) {
         _clearData();
         setState(() {
-          _revisiones = json.decode(response.body);
+          _revisiones = response.decodeJson();
           _selectedRevision = _revisiones.firstWhere(
             (r) => r['id_revision'] == targetId,
             orElse: () =>
@@ -1344,12 +1316,13 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
 
   Future<void> _updateVINNotas(int idUnidad, String notas) async {
     try {
-      final response = await http.put(
-        Uri.parse('$API_URL/api/vins/$idUnidad/notas'),
-        headers: {'Content-Type': 'application/json', 'X-Usuario': 'Admin PLM'},
-        body: jsonEncode(
-          {'vin': '', 'notas': notas},
-        ), // vin es requerido por el modelo pero ignorado si es vacío en el update
+      final response = await ApiClient.putUnvalidated(
+        '/api/vins/$idUnidad/notas',
+        headers: {'X-Usuario': 'Admin PLM'},
+        body: {
+          'vin': '',
+          'notas': notas,
+        }, // vin es requerido por el modelo pero ignorado si es vacío en el update
       );
       if (!mounted) return;
       if (response.statusCode == 200) {
@@ -1363,15 +1336,13 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
   Future<void> _fetchVINs() async {
     if (_selectedRevision == null) return;
     try {
-      final response = await http.get(
-        Uri.parse(
-          '$API_URL/api/bom/revisiones/${_selectedRevision['id_revision']}/vins',
-        ),
+      final response = await ApiClient.getUnvalidated(
+        '/api/bom/revisiones/${_selectedRevision['id_revision']}/vins',
       );
       if (!mounted) return;
       if (response.statusCode == 200) {
         setState(() {
-          _vins = json.decode(response.body);
+          _vins = response.decodeJson();
         });
       }
     } catch (e) {
@@ -1386,15 +1357,12 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     if (!mounted) return;
     final username = prefs.getString('username') ?? 'SISTEMA_VIN';
     try {
-      final response = await http.post(
-        Uri.parse(
-          '$API_URL/api/bom/revisiones/${_selectedRevision['id_revision']}/vins',
-        ),
+      final response = await ApiClient.postUnvalidated(
+        '/api/bom/revisiones/${_selectedRevision['id_revision']}/vins',
         headers: {
-          'Content-Type': 'application/json',
           'X-Usuario': username, // === TAREA 2: header de usuario ===
         },
-        body: jsonEncode({'vin': vin}),
+        body: {'vin': vin},
       );
       if (!mounted) return;
       if (response.statusCode == 200) {
@@ -1413,8 +1381,8 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     if (!mounted) return;
     final username = prefs.getString('username') ?? 'SISTEMA_VIN';
     try {
-      final response = await http.delete(
-        Uri.parse('$API_URL/api/bom/vins/$idUnidad'),
+      final response = await ApiClient.deleteUnvalidated(
+        '/api/bom/vins/$idUnidad',
         headers: {
           'Content-Type': 'application/json',
           'X-Usuario': username, // === TAREA 2: header de usuario ===
@@ -1822,17 +1790,17 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
 
     setState(() => _isLoading = true);
     try {
-      final response = await http.post(
-        Uri.parse('$API_URL/api/bom/buscar_planos'),
-        headers: {'Content-Type': 'application/json', 'X-Usuario': 'Admin PLM'},
-        body: jsonEncode({
+      final response = await ApiClient.postUnvalidated(
+        '/api/bom/buscar_planos',
+        headers: {'X-Usuario': 'Admin PLM'},
+        body: {
           'codigos': codigos,
           'ruta_base': selectedDirectory,
-        }),
+        },
       );
       if (!mounted) return;
       if (response.statusCode == 200) {
-        final data = json.decode(response.body) as Map<String, dynamic>;
+        final data = response.decodeJson() as Map<String, dynamic>;
         _showAuditoriaPlanosDialog(data);
       } else {
         _showError("Error al buscar planos: ${response.statusCode}");

@@ -2,10 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:http/http.dart' as http;
 import 'package:file_picker/file_picker.dart';
-import 'package:path_provider/path_provider.dart';
-import '../config/app_config.dart';
+import '../services/api_client.dart';
 
 class AuditorScreen extends StatefulWidget {
   const AuditorScreen({super.key});
@@ -39,24 +37,15 @@ class _AuditorScreenState extends State<AuditorScreen> {
         _filePath = result.files.single.path!;
       });
 
-      var request = http.MultipartRequest(
-        'POST',
-        Uri.parse('$kApiBaseUrl/api/excel/auditar'),
-      );
-      request.files.add(await http.MultipartFile.fromPath('file', _filePath!));
+      final data = await ApiClient.postMultipart(
+        '/api/excel/auditar',
+        files: {'file': await ApiClient.fileField('file', _filePath!)},
+      ) as Map<String, dynamic>;
 
-      final streamedResponse = await request.send();
-      final response = await http.Response.fromStream(streamedResponse);
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        setState(() {
-          _errors = data['errores'];
-          _detailedReport = data['reporte_detallado'];
-        });
-      } else {
-        throw Exception(response.body);
-      }
+      setState(() {
+        _errors = data['errores'];
+        _detailedReport = data['reporte_detallado'];
+      });
     } catch (e) {
       _showErrorDialog("Error de Auditoría", e.toString());
     } finally {
@@ -95,50 +84,41 @@ class _AuditorScreenState extends State<AuditorScreen> {
     setState(() => _isProcessing = true);
 
     try {
-      var request = http.MultipartRequest(
-        'POST',
-        Uri.parse('$kApiBaseUrl/api/excel/corregir'),
+      final bytes = await ApiClient.postMultipartBytes(
+        '/api/excel/corregir',
+        fields: {'correcciones': json.encode(_errors)},
+        files: {'file': await ApiClient.fileField('file', _filePath!)},
       );
 
-      request.files.add(await http.MultipartFile.fromPath('file', _filePath!));
-      request.fields['correcciones'] = json.encode(_errors);
+      String? outputFile = await FilePicker.platform.saveFile(
+        dialogTitle: 'Guardar Archivo Corregido',
+        fileName: 'CORREGIDO_${_fileName ?? "archivo.xlsx"}',
+        allowedExtensions: ['xlsx'],
+      );
 
-      final streamedResponse = await request.send();
-      final response = await http.Response.fromStream(streamedResponse);
+      if (outputFile != null) {
+        if (!outputFile.endsWith('.xlsx')) outputFile += '.xlsx';
+        final file = File(outputFile);
+        await file.writeAsBytes(bytes);
 
-      if (response.statusCode == 200) {
-        String? outputFile = await FilePicker.platform.saveFile(
-          dialogTitle: 'Guardar Archivo Corregido',
-          fileName: 'CORREGIDO_${_fileName ?? "archivo.xlsx"}',
-          allowedExtensions: ['xlsx'],
-        );
-
-        if (outputFile != null) {
-          if (!outputFile.endsWith('.xlsx')) outputFile += '.xlsx';
-          final file = File(outputFile);
-          await file.writeAsBytes(response.bodyBytes);
-
-          if (mounted) {
-            displayInfoBar(
-              context,
-              builder: (context, close) {
-                return InfoBar(
-                  title: const Text('Corrección Exitosa'),
-                  content: Text("Archivo guardado en: $outputFile"),
-                  severity: InfoBarSeverity.success,
-                  action: Button(
-                    onPressed: () => _openLocalFile(outputFile!),
-                    child: const Text('Abrir File'),
-                  ),
-                  onClose: close,
-                );
-              },
-            );
-            setState(() => _errors = []);
-          }
+        if (mounted) {
+          displayInfoBar(
+            context,
+            builder: (context, close) {
+              return InfoBar(
+                title: const Text('Corrección Exitosa'),
+                content: Text("Archivo guardado en: $outputFile"),
+                severity: InfoBarSeverity.success,
+                action: Button(
+                  onPressed: () => _openLocalFile(outputFile!),
+                  child: const Text('Abrir File'),
+                ),
+                onClose: close,
+              );
+            },
+          );
+          setState(() => _errors = []);
         }
-      } else {
-        throw Exception(response.body);
       }
     } catch (e) {
       _showErrorDialog("Error al Corregir", e.toString());
@@ -151,14 +131,10 @@ class _AuditorScreenState extends State<AuditorScreen> {
   Future<void> _openFile() async {
     if (_filePath == null) return;
     try {
-      final response = await http.post(
-        Uri.parse('$kApiBaseUrl/api/system/open_file'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({'path': _filePath}),
+      await ApiClient.post(
+        '/api/system/open_file',
+        body: {'path': _filePath},
       );
-      if (response.statusCode != 200) {
-        throw Exception(response.body);
-      }
     } catch (e) {
       _showErrorDialog("Error al Abrir", e.toString());
     }
@@ -168,45 +144,39 @@ class _AuditorScreenState extends State<AuditorScreen> {
   Future<void> _exportReport() async {
     if (_detailedReport == null || _detailedReport!.isEmpty) return;
     try {
-      final response = await http.post(
-        Uri.parse('$kApiBaseUrl/api/excel/exportar_reporte'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode(_detailedReport),
+      final reportBytes = await ApiClient.postBytes(
+        '/api/excel/exportar_reporte',
+        body: _detailedReport,
       );
 
-      if (response.statusCode == 200) {
-        // Guardar archivo
-        String? outputFile = await FilePicker.platform.saveFile(
-          dialogTitle: 'Guardar Reporte',
-          fileName: 'Reporte_Auditoria.xlsx',
-          allowedExtensions: ['xlsx'],
-        );
+      String? outputFile = await FilePicker.platform.saveFile(
+        dialogTitle: 'Guardar Reporte',
+        fileName: 'Reporte_Auditoria.xlsx',
+        allowedExtensions: ['xlsx'],
+      );
 
-        if (outputFile != null) {
-          if (!outputFile.endsWith('.xlsx')) outputFile += '.xlsx';
-          final file = File(outputFile);
-          await file.writeAsBytes(response.bodyBytes);
+      if (outputFile != null) {
+        if (!outputFile.endsWith('.xlsx')) outputFile += '.xlsx';
+        final file = File(outputFile);
+        await file.writeAsBytes(reportBytes);
 
-          if (mounted) {
-            displayInfoBar(
-              context,
-              builder: (context, close) {
-                return InfoBar(
-                  title: const Text('Reporte Exportado'),
-                  content: Text('Guardado en: $outputFile'),
-                  severity: InfoBarSeverity.success,
-                  action: Button(
-                    onPressed: () => _openLocalFile(outputFile!),
-                    child: const Text('Abrir'),
-                  ),
-                  onClose: close,
-                );
-              },
-            );
-          }
+        if (mounted) {
+          displayInfoBar(
+            context,
+            builder: (context, close) {
+              return InfoBar(
+                title: const Text('Reporte Exportado'),
+                content: Text('Guardado en: $outputFile'),
+                severity: InfoBarSeverity.success,
+                action: Button(
+                  onPressed: () => _openLocalFile(outputFile!),
+                  child: const Text('Abrir'),
+                ),
+                onClose: close,
+              );
+            },
+          );
         }
-      } else {
-        throw Exception(response.body);
       }
     } catch (e) {
       _showErrorDialog("Error Exportando", e.toString());
@@ -215,10 +185,9 @@ class _AuditorScreenState extends State<AuditorScreen> {
 
   Future<void> _openLocalFile(String path) async {
     try {
-      await http.post(
-        Uri.parse('$kApiBaseUrl/api/system/open_file'),
-        body: json.encode({'path': path}),
-        headers: {'Content-Type': 'application/json'},
+      await ApiClient.post(
+        '/api/system/open_file',
+        body: {'path': path},
       );
     } catch (_) {}
   }

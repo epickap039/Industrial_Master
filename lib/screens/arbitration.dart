@@ -1,10 +1,8 @@
-import 'dart:convert';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:http/http.dart' as http;
 import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/conflict_dialog.dart';
-import '../config/app_config.dart';
+import '../services/api_client.dart';
 
 class ArbitrationScreen extends StatefulWidget {
   const ArbitrationScreen({super.key});
@@ -68,33 +66,22 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
       if (result != null) {
         setState(() => _isLoading = true);
 
-        var request = http.MultipartRequest(
-          'POST',
-          Uri.parse('$kApiBaseUrl/api/excel/procesar'),
+        final mf = ApiClient.multipartFromBytes(
+          'file',
+          result.files.first.bytes!,
+          filename: result.files.first.name,
         );
+        final data = await ApiClient.postMultipart(
+          '/api/excel/procesar',
+          files: {'file': mf},
+        ) as Map<String, dynamic>;
 
-        request.files.add(
-          http.MultipartFile.fromBytes(
-            'file',
-            result.files.first.bytes!,
-            filename: result.files.first.name,
-          ),
-        );
-
-        var streamedResponse = await request.send();
-        var response = await http.Response.fromStream(streamedResponse);
-
-        if (response.statusCode == 200) {
-          final data = json.decode(response.body);
-          setState(() {
-            _conflicts = data['conflictos'];
-            _totalProcessed = data['total_leidos'];
-            _selectedUpdates.clear();
-            _filterStatus = 'TODOS';
-          });
-        } else {
-          _showError("Error al procesar: ${response.statusCode}");
-        }
+        setState(() {
+          _conflicts = data['conflictos'];
+          _totalProcessed = data['total_leidos'];
+          _selectedUpdates.clear();
+          _filterStatus = 'TODOS';
+        });
       }
     } catch (e) {
       _showError("Error de archivo: $e");
@@ -162,49 +149,35 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
 
       if (updatesToSend.isEmpty) return;
 
-      final response = await http.post(
-        Uri.parse('$kApiBaseUrl/api/excel/sincronizar'),
-        headers: {'Content-Type': 'application/json', 'X-Usuario': 'Alejandro'},
-        body: json.encode(
-          updatesToSend,
-        ), // Enviar lista directa si el backend lo espera así, o envolver en {'updates': ...}
+      final result = await ApiClient.post(
+        '/api/excel/sincronizar',
+        headers: {'X-Usuario': 'Alejandro'},
+        body: updatesToSend,
+      ) as Map<String, dynamic>;
+
+      await showDialog(
+        context: context,
+        builder:
+            (c) => ContentDialog(
+              title: const Text("Sincronización Completada"),
+              content: Text("Mensaje: ${result['message']}"),
+              actions: [
+                Button(
+                  child: const Text("OK"),
+                  onPressed: () => Navigator.pop(c),
+                ),
+              ],
+            ),
       );
 
-      // NOTA: El backend espera List<SincronizacionItem>, no un objeto con clave 'updates'.
-      // CORRECCIÓN: server.py definía `async def sincronizar_excel(items: List[SincronizacionItem]):`
-      // Por tanto, debemos enviar la lista directamente.
-
-      if (response.statusCode == 200) {
-        final result = json.decode(response.body);
-
-        await showDialog(
-          context: context,
-          builder:
-              (c) => ContentDialog(
-                title: const Text("Sincronización Completada"),
-                content: Text("Mensaje: ${result['message']}"),
-                actions: [
-                  Button(
-                    child: const Text("OK"),
-                    onPressed: () => Navigator.pop(c),
-                  ),
-                ],
-              ),
+      // Limpiar lista visualmente
+      setState(() {
+        _conflicts.removeWhere(
+          (c) => _selectedUpdates.contains(c['Codigo_Pieza']),
         );
-
-        // Limpiar lista visualmente
-        setState(() {
-          _conflicts.removeWhere(
-            (c) => _selectedUpdates.contains(c['Codigo_Pieza']),
-          );
-          _selectedUpdates.clear();
-          if (_conflicts.isEmpty) _totalProcessed = 0;
-        });
-      } else {
-        throw Exception(
-          "Error Backend: ${response.statusCode} - ${response.body}",
-        );
-      }
+        _selectedUpdates.clear();
+        if (_conflicts.isEmpty) _totalProcessed = 0;
+      });
     } catch (e) {
       _showError(e.toString());
     } finally {
@@ -316,17 +289,11 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
 
   // Helper para sync individual (reutiliza lógica si es posible, o crea nueva)
   Future<void> _syncSingleItem(Map<String, dynamic> itemPayload) async {
-    final response = await http.post(
-      Uri.parse('$kApiBaseUrl/api/excel/sincronizar'),
-      headers: {'Content-Type': 'application/json', 'X-Usuario': 'Alejandro'},
-      body: json.encode([itemPayload]), // Enviar como lista de 1
+    await ApiClient.post(
+      '/api/excel/sincronizar',
+      headers: {'X-Usuario': 'Alejandro'},
+      body: [itemPayload],
     );
-
-    if (response.statusCode != 200) {
-      throw Exception(
-        "Error Backend: ${response.statusCode} - ${response.body}",
-      );
-    }
   }
 
   void _showSnack(String msg) {

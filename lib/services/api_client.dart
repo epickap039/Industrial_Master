@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -15,6 +16,16 @@ class ApiHttpResult {
   dynamic decodeJson() {
     if (rawBody.isEmpty) return null;
     return json.decode(rawBody);
+  }
+
+  /// Como [decodeJson], pero ante JSON inválido devuelve `null` (no lanza).
+  dynamic decodeJsonLenient() {
+    if (rawBody.isEmpty) return null;
+    try {
+      return json.decode(rawBody);
+    } catch (_) {
+      return null;
+    }
   }
 }
 
@@ -105,12 +116,89 @@ class ApiClient {
     String path, {
     Map<String, String>? queryParameters,
     Map<String, String>? headers,
+    Duration? timeout,
   }) async {
-    final r = await http.get(
+    Future<http.Response> future = http.get(
       uri(path, queryParameters),
       headers: headers,
     );
+    final r =
+        timeout != null ? await future.timeout(timeout) : await future;
     return ApiHttpResult(r.statusCode, r.body);
+  }
+
+  /// POST sin validar status. Con [body] no nulo añade `Content-Type: application/json`.
+  static Future<ApiHttpResult> postUnvalidated(
+    String path, {
+    Object? body,
+    Map<String, String>? headers,
+    Map<String, String>? queryParameters,
+  }) async {
+    final Map<String, String> h = {
+      if (body != null) 'Content-Type': 'application/json',
+      ...?headers,
+    };
+    final r = await http.post(
+      uri(path, queryParameters),
+      headers: h.isEmpty ? null : h,
+      body: body == null ? null : json.encode(body),
+    );
+    return ApiHttpResult(r.statusCode, r.body);
+  }
+
+  /// PUT sin validar status.
+  static Future<ApiHttpResult> putUnvalidated(
+    String path, {
+    Object? body,
+    Map<String, String>? headers,
+    Map<String, String>? queryParameters,
+  }) async {
+    final Map<String, String> h = {
+      if (body != null) 'Content-Type': 'application/json',
+      ...?headers,
+    };
+    final r = await http.put(
+      uri(path, queryParameters),
+      headers: h.isEmpty ? null : h,
+      body: body == null ? null : json.encode(body),
+    );
+    return ApiHttpResult(r.statusCode, r.body);
+  }
+
+  /// DELETE sin validar status (p. ej. borrado con body JSON y 401).
+  static Future<ApiHttpResult> deleteUnvalidated(
+    String path, {
+    Object? body,
+    Map<String, String>? headers,
+    Map<String, String>? queryParameters,
+  }) async {
+    final Map<String, String> h = {
+      if (body != null) 'Content-Type': 'application/json',
+      ...?headers,
+    };
+    final r = await http.delete(
+      uri(path, queryParameters),
+      headers: h.isEmpty ? null : h,
+      body: body == null ? null : json.encode(body),
+    );
+    return ApiHttpResult(r.statusCode, r.body);
+  }
+
+  /// GET binario (2xx); exportaciones Excel, etc.
+  static Future<Uint8List> getBytes(
+    String path, {
+    Map<String, String>? queryParameters,
+    Map<String, String>? headers,
+    Duration? timeout,
+  }) async {
+    Future<http.Response> future = http.get(
+      uri(path, queryParameters),
+      headers: headers,
+    );
+    final r =
+        timeout != null ? await future.timeout(timeout) : await future;
+    _ensureSuccess(r);
+    return r.bodyBytes;
   }
 
   /// POST JSON; cuerpo se codifica con [json.encode]. Respuesta decodificada si hay cuerpo.
@@ -128,16 +216,36 @@ class ApiClient {
     return _decodeSuccessBody(r);
   }
 
-  /// PUT JSON.
+  /// POST JSON; cuerpo de éxito binario (p. ej. Excel generado desde JSON).
+  static Future<Uint8List> postBytes(
+    String path, {
+    Object? body,
+    Map<String, String>? headers,
+    Map<String, String>? queryParameters,
+  }) async {
+    final r = await http.post(
+      uri(path, queryParameters),
+      headers: {..._jsonHeaders(), ...?headers},
+      body: body == null ? null : json.encode(body),
+    );
+    _ensureSuccess(r);
+    return r.bodyBytes;
+  }
+
+  /// PUT JSON si hay [body]; sin cuerpo no fuerza `Content-Type` (p. ej. aprobar revisión).
   static Future<dynamic> put(
     String path, {
     Object? body,
     Map<String, String>? headers,
     Map<String, String>? queryParameters,
   }) async {
+    final Map<String, String> h = {
+      if (body != null) ..._jsonHeaders(),
+      ...?headers,
+    };
     final r = await http.put(
       uri(path, queryParameters),
-      headers: {..._jsonHeaders(), ...?headers},
+      headers: h.isEmpty ? null : h,
       body: body == null ? null : json.encode(body),
     );
     return _decodeSuccessBody(r);
@@ -176,6 +284,40 @@ class ApiClient {
     final streamed = await request.send();
     final response = await http.Response.fromStream(streamed);
     return _decodeSuccessBody(response);
+  }
+
+  /// POST multipart cuyo cuerpo de éxito es binario (p. ej. Excel), no JSON.
+  static Future<Uint8List> postMultipartBytes(
+    String path, {
+    Map<String, String> fields = const {},
+    Map<String, http.MultipartFile> files = const {},
+    Map<String, String>? headers,
+    Map<String, String>? queryParameters,
+  }) async {
+    final request = http.MultipartRequest('POST', uri(path, queryParameters));
+    request.fields.addAll(fields);
+    for (final e in files.entries) {
+      request.files.add(e.value);
+    }
+    if (headers != null) {
+      request.headers.addAll(headers);
+    }
+    final streamed = await request.send();
+    final response = await http.Response.fromStream(streamed);
+    _ensureSuccess(response);
+    return response.bodyBytes;
+  }
+
+  static http.MultipartFile multipartFromBytes(
+    String fieldName,
+    List<int> bytes, {
+    String? filename,
+  }) {
+    return http.MultipartFile.fromBytes(
+      fieldName,
+      bytes,
+      filename: filename,
+    );
   }
 
   /// Helper: archivo desde ruta (content-type inferido por extensión).

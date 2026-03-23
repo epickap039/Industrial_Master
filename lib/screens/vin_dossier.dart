@@ -1,16 +1,10 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:open_file/open_file.dart';
 import 'package:shared_preferences/shared_preferences.dart'; // === TAREA 2 ===
 import 'dart:io';
-import 'bom_manager.dart';
 
-import '../config/app_config.dart';
-
-const String API_URL = kApiBaseUrl;
+import '../services/api_client.dart';
 
 class VINDossierScreen extends StatefulWidget {
   final Function(int idRevision)? onNavigateToBOM;
@@ -47,10 +41,13 @@ class _VINDossierScreenState extends State<VINDossierScreen> with AutomaticKeepA
   Future<void> _fetchAllVins() async {
     setState(() => _isLoading = true);
     try {
-      final response = await http.get(Uri.parse('$API_URL/api/vins/buscar?q='));
+      final response = await ApiClient.getUnvalidated(
+        '/api/vins/buscar',
+        queryParameters: {'q': ''},
+      );
       if (response.statusCode == 200) {
         setState(() {
-          _allVins = json.decode(response.body);
+          _allVins = response.decodeJson() as List<dynamic>;
           _filteredVins = List.from(_allVins);
         });
       }
@@ -77,11 +74,12 @@ class _VINDossierScreenState extends State<VINDossierScreen> with AutomaticKeepA
     if (query.isEmpty) return;
     setState(() => _isLoading = true);
     try {
-      final response = await http.get(
-        Uri.parse('$API_URL/api/vins/buscar?q=$query'),
+      final response = await ApiClient.getUnvalidated(
+        '/api/vins/buscar',
+        queryParameters: {'q': query},
       );
       if (response.statusCode == 200) {
-        final List results = json.decode(response.body);
+        final List results = response.decodeJson() as List<dynamic>;
         setState(() {
           if (results.isNotEmpty) {
             _vinData = results.first;
@@ -106,11 +104,11 @@ class _VINDossierScreenState extends State<VINDossierScreen> with AutomaticKeepA
     if (_vinData == null) return;
     setState(() => _isLoadingArchivos = true);
     try {
-      final res = await http.get(
-        Uri.parse('$API_URL/api/vins/${_vinData['id_unidad']}/archivos'),
+      final res = await ApiClient.getUnvalidated(
+        '/api/vins/${_vinData['id_unidad']}/archivos',
       );
       if (res.statusCode == 200) {
-        setState(() => _archivos = json.decode(res.body));
+        setState(() => _archivos = res.decodeJson() as List<dynamic>);
       }
     } catch (_) {
       // silencioso
@@ -130,20 +128,14 @@ class _VINDossierScreenState extends State<VINDossierScreen> with AutomaticKeepA
     try {
       final prefs = await SharedPreferences.getInstance();
       final username = prefs.getString('username') ?? 'Operador';
-      final req = http.MultipartRequest(
-        'POST',
-        Uri.parse('$API_URL/api/vins/${_vinData['id_unidad']}/subir_archivo'),
+      await ApiClient.postMultipart(
+        '/api/vins/${_vinData['id_unidad']}/subir_archivo',
+        headers: {'X-Usuario': username},
+        files: {'file': await ApiClient.fileField('file', pf.path!)},
       );
-      req.headers['X-Usuario'] = username; // Para auditoría
-      req.files.add(await http.MultipartFile.fromPath('file', pf.path!));
-      final streamed = await req.send();
-      if (streamed.statusCode == 200) {
-        // Primero refrescar la lista, luego notificar — evita race condition
-        await _fetchArchivos();
-        _showError("Archivo subido correctamente", isError: false);
-      } else {
-        _showError("Error al subir archivo: ${streamed.statusCode}");
-      }
+      // Primero refrescar la lista, luego notificar — evita race condition
+      await _fetchArchivos();
+      _showError("Archivo subido correctamente", isError: false);
     } catch (e) {
       _showError("Error: $e");
     } finally {
@@ -153,17 +145,15 @@ class _VINDossierScreenState extends State<VINDossierScreen> with AutomaticKeepA
 
   Future<void> _abrirArchivoDesdeServer(String nombreArchivo) async {
     if (_vinData == null) return;
-    final url =
-        '$API_URL/api/vins/${_vinData['id_unidad']}/archivos/$nombreArchivo';
     try {
       // Descargar a carpeta temporal y abrir
-      final res = await http.get(Uri.parse(url));
-      if (res.statusCode == 200) {
-        final tmpDir = Directory.systemTemp;
-        final tmpFile = File('${tmpDir.path}\\$nombreArchivo');
-        await tmpFile.writeAsBytes(res.bodyBytes);
-        await OpenFile.open(tmpFile.path);
-      }
+      final bytes = await ApiClient.getBytes(
+        '/api/vins/${_vinData['id_unidad']}/archivos/$nombreArchivo',
+      );
+      final tmpDir = Directory.systemTemp;
+      final tmpFile = File('${tmpDir.path}\\$nombreArchivo');
+      await tmpFile.writeAsBytes(bytes);
+      await OpenFile.open(tmpFile.path);
     } catch (e) {
       _showError("No se pudo abrir el archivo: $e");
     }
@@ -175,13 +165,13 @@ class _VINDossierScreenState extends State<VINDossierScreen> with AutomaticKeepA
       // === TAREA 2/3: Enviar usuario para el historial acumulativo ===
       final prefs = await SharedPreferences.getInstance();
       final username = prefs.getString('username') ?? 'Operador';
-      final response = await http.put(
-        Uri.parse('$API_URL/api/vins/${_vinData['id_unidad']}/notas'),
-        headers: {'Content-Type': 'application/json', 'X-Usuario': username},
-        body: jsonEncode({
+      final response = await ApiClient.putUnvalidated(
+        '/api/vins/${_vinData['id_unidad']}/notas',
+        headers: {'X-Usuario': username},
+        body: {
           'vin': _vinData['vin'],
           'observaciones': _notesController.text,
-        }),
+        },
       );
       if (response.statusCode == 200) {
         _showError("Nota guardada en el historial", isError: false);
@@ -199,8 +189,8 @@ class _VINDossierScreenState extends State<VINDossierScreen> with AutomaticKeepA
     try {
       final prefs = await SharedPreferences.getInstance();
       final username = prefs.getString('username') ?? 'Operador';
-      final res = await http.delete(
-        Uri.parse('$API_URL/api/vins/${_vinData['id_unidad']}/archivos/$nombreArchivo'),
+      final res = await ApiClient.deleteUnvalidated(
+        '/api/vins/${_vinData['id_unidad']}/archivos/$nombreArchivo',
         headers: {'X-Usuario': username},
       );
       if (res.statusCode == 200) {
@@ -245,19 +235,19 @@ class _VINDossierScreenState extends State<VINDossierScreen> with AutomaticKeepA
     final nuevasLineas = List<String>.from(lineasActuales)..removeAt(indice);
     final textoFinal = nuevasLineas.join('\n');
     try {
-      final res = await http.put(
-        Uri.parse('$API_URL/api/vins/${_vinData['id_unidad']}/notas_reemplazar'),
-        headers: {'Content-Type': 'application/json', 'X-Usuario': username},
-        body: jsonEncode({'observaciones': textoFinal}), // NotasReplacePayload: solo observaciones, sin vin
+      final res = await ApiClient.putUnvalidated(
+        '/api/vins/${_vinData['id_unidad']}/notas_reemplazar',
+        headers: {'X-Usuario': username},
+        body: {'observaciones': textoFinal},
       );
       if (res.statusCode == 200) {
         _showError('Nota eliminada', isError: false);
         _searchVIN(_vinData['vin']); // Refrescar para ver historial actualizado
       } else {
-        _showError('Error al borrar nota: \${res.statusCode}');
+        _showError('Error al borrar nota: ${res.statusCode}');
       }
     } catch (e) {
-      _showError('Error: \$e');
+      _showError('Error: $e');
     }
   }
 
@@ -295,22 +285,18 @@ class _VINDossierScreenState extends State<VINDossierScreen> with AutomaticKeepA
           (context) => StatefulBuilder(
             builder: (context, setDState) {
               if (dialogLoading) {
-                http
-                    .get(
-                      Uri.parse(
-                        '$API_URL/api/vins/${_vinData['id_unidad']}/adn',
-                      ),
-                    )
-                    .then((res) {
-                      if (res.statusCode == 200) {
-                        setDState(() {
-                          log = json.decode(res.body);
-                          dialogLoading = false;
-                        });
-                      } else {
-                        setDState(() => dialogLoading = false);
-                      }
+                ApiClient.getUnvalidated(
+                  '/api/vins/${_vinData['id_unidad']}/adn',
+                ).then((res) {
+                  if (res.statusCode == 200) {
+                    setDState(() {
+                      log = res.decodeJson() as List<dynamic>;
+                      dialogLoading = false;
                     });
+                  } else {
+                    setDState(() => dialogLoading = false);
+                  }
+                });
                 return const ContentDialog(
                   content: Center(child: ProgressRing()),
                 );
@@ -424,11 +410,9 @@ class _VINDossierScreenState extends State<VINDossierScreen> with AutomaticKeepA
     final prefs = await SharedPreferences.getInstance();
     final username = prefs.getString('username') ?? 'SISTEMA_VIN';
     try {
-      final res = await http.post(
-        Uri.parse(
-          '$API_URL/api/vins/${_vinData['id_unidad']}/vincular/$idSocio',
-        ),
-        headers: {'X-Usuario': username}, // === TAREA 2: header de usuario real ===
+      final res = await ApiClient.postUnvalidated(
+        '/api/vins/${_vinData['id_unidad']}/vincular/$idSocio',
+        headers: {'X-Usuario': username},
       );
       if (res.statusCode == 200) {
         _showError(
@@ -547,16 +531,16 @@ class _VINDossierScreenState extends State<VINDossierScreen> with AutomaticKeepA
                         // === TAREA 2: Leer usuario real para el header ===
                         final prefs = await SharedPreferences.getInstance();
                         final username = prefs.getString('username') ?? 'SISTEMA_VIN';
-                        final res = await http.delete(
-                          Uri.parse('$API_URL/api/vins/${_vinData['vin']}'),
+                        final res = await ApiClient.deleteUnvalidated(
+                          '/api/vins/${_vinData['vin']}',
                           headers: {
                             "Content-Type": "application/json",
-                            "X-Usuario": username, // === TAREA 2: usuario real ===
+                            "X-Usuario": username,
                           },
-                          body: json.encode({
+                          body: {
                             "password": password.trim(),
                             "motivo": motivo.trim(),
-                          }),
+                          },
                         );
                         if (res.statusCode == 200) {
                           Navigator.pop(context);
@@ -572,7 +556,7 @@ class _VINDossierScreenState extends State<VINDossierScreen> with AutomaticKeepA
                           _showError("Contraseña incorrecta");
                         } else {
                           setDState(() => eliminando = false);
-                          _showError("Error: ${res.body}");
+                          _showError("Error: ${res.rawBody}");
                         }
                       } catch (e) {
                         setDState(() => eliminando = false);

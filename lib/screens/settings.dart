@@ -1,10 +1,9 @@
-import 'dart:convert';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:http/http.dart' as http;
 import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 import '../config/app_config.dart';
+import '../services/api_client.dart';
 
 class SettingsScreen extends StatefulWidget {
   final bool isDarkMode;
@@ -57,9 +56,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
 
     try {
-      final response = await http
-          .get(Uri.parse('$kApiBaseUrl/api/catalog?limit=1'))
-          .timeout(const Duration(seconds: 3));
+      final response = await ApiClient.getUnvalidated(
+        '/api/catalog',
+        queryParameters: {'limit': '1'},
+        timeout: const Duration(seconds: 3),
+      );
 
       if (response.statusCode == 200) {
         if (mounted) {
@@ -145,43 +146,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final filePath = result.files.single.path!;
       final fileName = result.files.single.name;
 
-      var request = http.MultipartRequest(
-        'POST',
-        Uri.parse('$kApiBaseUrl/api/excel/actualizar_enlaces'),
-      );
+      final data = await ApiClient.postMultipart(
+        '/api/excel/actualizar_enlaces',
+        files: {'file': await ApiClient.fileField('file', filePath)},
+      ) as Map;
 
-      request.files.add(await http.MultipartFile.fromPath('file', filePath));
-
-      final streamedResponse = await request.send();
-      final response = await http.Response.fromStream(streamedResponse);
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (mounted) {
-          displayInfoBar(
-            context,
-            builder: (context, close) {
-              return InfoBar(
-                title: const Text('Sincronización Exitosa'),
-                content: Text(
-                  'Se actualizaron ${data['actualizados']} enlaces desde "$fileName".',
-                ),
-                severity: InfoBarSeverity.success,
-                onClose: close,
-              );
-            },
-          );
-        }
-      } else {
-        String errorDetail = response.body;
-        try {
-          final errorData = json.decode(response.body);
-          if (errorData is Map && errorData.containsKey('detail')) {
-            errorDetail = errorData['detail'].toString();
-          }
-        } catch (_) {}
-        throw Exception(
-          "Error del servidor (${response.statusCode}): $errorDetail",
+      if (mounted) {
+        displayInfoBar(
+          context,
+          builder: (context, close) {
+            return InfoBar(
+              title: const Text('Sincronización Exitosa'),
+              content: Text(
+                'Se actualizaron ${data['actualizados']} enlaces desde "$fileName".',
+              ),
+              severity: InfoBarSeverity.success,
+              onClose: close,
+            );
+          },
         );
       }
     } catch (e) {

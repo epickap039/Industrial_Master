@@ -1,6 +1,4 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/services.dart';
@@ -9,11 +7,9 @@ import 'package:open_file/open_file.dart';
 import 'package:shared_preferences/shared_preferences.dart'; // === TAREA 2: Para rastreo de usuario ===
 import 'dart:io';
 
-import '../config/app_config.dart';
+import '../services/api_client.dart';
 
 part '../controllers/bom_manager_controller.dart';
-
-const String API_URL = kApiBaseUrl;
 
 class BOMManagerScreen extends StatefulWidget {
   final int? idCliente;
@@ -1270,8 +1266,8 @@ class _DiffAuditorDialogState extends State<_DiffAuditorDialog> {
 
   Future<void> _loadDiff() async {
     try {
-      final respDelta = await http.get(
-        Uri.parse('$API_URL/api/bom/delta/${widget.idRevision}'),
+      final respDelta = await ApiClient.getUnvalidated(
+        '/api/bom/delta/${widget.idRevision}',
       );
       if (!mounted) return;
       if (respDelta.statusCode != 200) {
@@ -1281,7 +1277,7 @@ class _DiffAuditorDialogState extends State<_DiffAuditorDialog> {
         });
         return;
       }
-      final delta = json.decode(respDelta.body) as Map<String, dynamic>;
+      final delta = respDelta.decodeJson() as Map<String, dynamic>;
 
       if (delta['tiene_anterior'] != true) {
         setState(() { _rows = []; _loading = false; });
@@ -1295,14 +1291,14 @@ class _DiffAuditorDialogState extends State<_DiffAuditorDialog> {
       final Map<String, dynamic> modificados =
           Map<String, dynamic>.from(delta['modificados'] as Map? ?? {});
 
-      final respPlana = await http.get(
-        Uri.parse('$API_URL/api/bom/plana/${widget.idRevision}'),
+      final respPlana = await ApiClient.getUnvalidated(
+        '/api/bom/plana/${widget.idRevision}',
       );
       if (!mounted) return;
       final Map<String, String> descMap = {};
       final Map<String, double> cantMap = {};
       if (respPlana.statusCode == 200) {
-        final plana = json.decode(respPlana.body) as List<dynamic>;
+        final plana = respPlana.decodeJson() as List<dynamic>;
         for (final row in plana) {
           if ((row['nivel'] as num).toInt() == 3) {
             final cod    = row['codigo_pieza']?.toString() ?? '';

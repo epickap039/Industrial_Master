@@ -1,8 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
 import '../config/app_config.dart';
+import '../services/api_client.dart';
 
 class LobbyScreen extends StatefulWidget {
   final Function(int) onNavigate;
@@ -52,22 +51,17 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
   Future<void> _fetchKPIs() async {
     try {
-      final response = await http.get(
-        Uri.parse('$kApiBaseUrl/api/dashboard/kpi'),
-      );
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (mounted) {
-          setState(() {
-            totalPiezas    = (data['total_piezas']    ?? 0).toInt();
-            totalLineasBom = (data['total_lineas_bom'] ?? 0).toInt();
-            totalUnidades  = (data['total_unidades']  ?? 0).toInt();
-            totalVersiones = (data['total_versiones'] ?? 0).toInt();
-            saludCad       = (data['salud_cad']       ?? 0.0).toDouble();
-            mermaConsolidada = (data['merma_configurada'] ?? 15).toInt();
-            isLoadingKPI = false;
-          });
-        }
+      final data = await ApiClient.get('/api/dashboard/kpi') as Map<String, dynamic>;
+      if (mounted) {
+        setState(() {
+          totalPiezas    = (data['total_piezas']    ?? 0).toInt();
+          totalLineasBom = (data['total_lineas_bom'] ?? 0).toInt();
+          totalUnidades  = (data['total_unidades']  ?? 0).toInt();
+          totalVersiones = (data['total_versiones'] ?? 0).toInt();
+          saludCad       = (data['salud_cad']       ?? 0.0).toDouble();
+          mermaConsolidada = (data['merma_configurada'] ?? 15).toInt();
+          isLoadingKPI = false;
+        });
       }
     } catch (e) {
       debugPrint("Error fetching KPIs: $e");

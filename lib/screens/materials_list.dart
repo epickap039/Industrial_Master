@@ -1,8 +1,6 @@
-import 'dart:convert';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
-import 'package:http/http.dart' as http;
-import '../config/app_config.dart';
+import '../services/api_client.dart';
 
 class MaterialsListScreen extends StatefulWidget {
   const MaterialsListScreen({super.key});
@@ -25,17 +23,12 @@ class _MaterialsListScreenState extends State<MaterialsListScreen> {
   Future<void> _fetchMaterials() async {
     setState(() => _isLoading = true);
     try {
-      final response = await http.get(
-        Uri.parse('$kApiBaseUrl/api/config/materiales'),
-      );
-      if (response.statusCode == 200) {
-        final List<dynamic> data = json.decode(response.body);
+      final data = await ApiClient.get('/api/config/materiales') as List<dynamic>;
+      if (mounted) {
         setState(() {
           _descripcionesOficiales = List<String>.from(data);
           _isLoading = false;
         });
-      } else {
-        throw Exception('Error al cargar materiales');
       }
     } catch (e) {
       if (mounted) {
@@ -96,32 +89,35 @@ class _MaterialsListScreenState extends State<MaterialsListScreen> {
 
   Future<void> _saveMaterialToBackend(String material) async {
     try {
-      final response = await http.post(
-        Uri.parse('$kApiBaseUrl/api/config/materiales'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({'material': material}),
-      );
-
-      if (response.statusCode == 200) {
-        await _fetchMaterials();
-        if (mounted) {
-          displayInfoBar(
-            context,
-            duration: const Duration(seconds: 3),
-            builder: (context, close) {
-              return InfoBar(
-                title: const Text('Éxito'),
-                content: Text('Material "$material" agregado correctamente.'),
-                severity: InfoBarSeverity.success,
-                onClose: close,
-              );
-            },
-          );
-        }
-      } else {
-        final error =
-            json.decode(response.body)['detail'] ?? 'Error desconocido';
-        throw Exception(error);
+      await ApiClient.post('/api/config/materiales', body: {'material': material});
+      await _fetchMaterials();
+      if (mounted) {
+        displayInfoBar(
+          context,
+          duration: const Duration(seconds: 3),
+          builder: (context, close) {
+            return InfoBar(
+              title: const Text('Éxito'),
+              content: Text('Material "$material" agregado correctamente.'),
+              severity: InfoBarSeverity.success,
+              onClose: close,
+            );
+          },
+        );
+      }
+    } on ApiException catch (e) {
+      if (mounted) {
+        displayInfoBar(
+          context,
+          builder: (context, close) {
+            return InfoBar(
+              title: const Text('Error al Guardar'),
+              content: Text(e.message),
+              severity: InfoBarSeverity.error,
+              onClose: close,
+            );
+          },
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -143,34 +139,37 @@ class _MaterialsListScreenState extends State<MaterialsListScreen> {
   Future<void> _deleteMaterial(String material) async {
     try {
       final encodedMaterial = Uri.encodeComponent(material);
-      final response = await http.delete(
-        Uri.parse(
-          '$kApiBaseUrl/api/config/materiales/$encodedMaterial',
-        ),
-      );
-
-      if (response.statusCode == 200) {
+      await ApiClient.delete('/api/config/materiales/$encodedMaterial');
+      if (mounted) {
         setState(() {
           _descripcionesOficiales.remove(material);
         });
-        if (mounted) {
-          displayInfoBar(
-            context,
-            duration: const Duration(seconds: 3),
-            builder: (context, close) {
-              return InfoBar(
-                title: const Text('Eliminado'),
-                content: Text('Material "$material" eliminado exitosamente.'),
-                severity: InfoBarSeverity.success,
-                onClose: close,
-              );
-            },
-          );
-        }
-      } else {
-        final error =
-            json.decode(response.body)['detail'] ?? 'Error desconocido';
-        throw Exception(error);
+        displayInfoBar(
+          context,
+          duration: const Duration(seconds: 3),
+          builder: (context, close) {
+            return InfoBar(
+              title: const Text('Eliminado'),
+              content: Text('Material "$material" eliminado exitosamente.'),
+              severity: InfoBarSeverity.success,
+              onClose: close,
+            );
+          },
+        );
+      }
+    } on ApiException catch (e) {
+      if (mounted) {
+        displayInfoBar(
+          context,
+          builder: (context, close) {
+            return InfoBar(
+              title: const Text('Error'),
+              content: Text(e.message),
+              severity: InfoBarSeverity.error,
+              onClose: close,
+            );
+          },
+        );
       }
     } catch (e) {
       if (mounted) {

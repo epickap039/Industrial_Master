@@ -1,12 +1,11 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
 
-import '../main.dart';
+import '../services/api_client.dart';
 
 class QADashboardScreen extends StatefulWidget {
   const QADashboardScreen({super.key});
@@ -42,10 +41,10 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
   Future<void> _fetchReportes() async {
     setState(() => _isLoading = true);
     try {
-      final res = await http.get(Uri.parse('$API_URL/api/reportes'));
+      final res = await ApiClient.getUnvalidated('/api/reportes');
       if (res.statusCode == 200) {
         setState(() {
-          _reportes = json.decode(res.body);
+          _reportes = res.decodeJson();
           _syncSelectionAfterFetch();
         });
       } else {
@@ -61,34 +60,30 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
   Future<void> _exportarExcel() async {
     setState(() => _isLoading = true);
     try {
-      final response = await http.get(
-        Uri.parse('$API_URL/api/reportes/exportar'),
-      );
-      if (response.statusCode == 200) {
-        final dir = await getDownloadsDirectory();
-        final filePath = '${dir?.path ?? "C:\\"}\\Centro_QA_Reportes.xlsx';
-        final file = File(filePath);
-        await file.writeAsBytes(response.bodyBytes);
+      final bytes = await ApiClient.getBytes('/api/reportes/exportar');
+      final dir = await getDownloadsDirectory();
+      final filePath = '${dir?.path ?? "C:\\"}\\Centro_QA_Reportes.xlsx';
+      final file = File(filePath);
+      await file.writeAsBytes(bytes);
 
-        if (!mounted) return;
-        displayInfoBar(
-          context,
-          builder: (context, close) {
-            return InfoBar(
-              title: const Text('Exportado Correctamente'),
-              content: Text('Guardado en: $filePath'),
-              severity: InfoBarSeverity.success,
-              action: Button(
-                child: const Text("Abrir"),
-                onPressed: () => OpenFile.open(filePath),
-              ),
-              onClose: close,
-            );
-          },
-        );
-      } else {
-        _showError("Error al exportar a Excel.");
-      }
+      if (!mounted) return;
+      displayInfoBar(
+        context,
+        builder: (context, close) {
+          return InfoBar(
+            title: const Text('Exportado Correctamente'),
+            content: Text('Guardado en: $filePath'),
+            severity: InfoBarSeverity.success,
+            action: Button(
+              child: const Text("Abrir"),
+              onPressed: () => OpenFile.open(filePath),
+            ),
+            onClose: close,
+          );
+        },
+      );
+    } on ApiException catch (_) {
+      _showError("Error al exportar a Excel.");
     } catch (e) {
       _showError(e.toString());
     } finally {
@@ -495,9 +490,7 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
   Future<void> _resolverReporte(int id) async {
     setState(() => _isLoading = true);
     try {
-      final res = await http.put(
-        Uri.parse('$API_URL/api/reportes/$id/resolver'),
-      );
+      final res = await ApiClient.putUnvalidated('/api/reportes/$id/resolver');
       if (res.statusCode == 200) {
         await _fetchReportes();
       } else {

@@ -1,8 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
 import '../theme/app_themes.dart';
-import '../config/app_config.dart';
+import '../services/api_client.dart';
 
 class ImpactRadarScreen extends StatefulWidget {
   const ImpactRadarScreen({super.key});
@@ -40,13 +38,11 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
     });
 
     try {
-      final response = await http.get(Uri.parse('$kApiBaseUrl/api/bom/where-used/$query'));
-      
-      if (response.statusCode == 200) {
-        final List<dynamic> data = json.decode(response.body);
-        
-        // Agrupar datos
-        final tempGrouped = <String, Map<String, List<dynamic>>>{};
+      final List<dynamic> data =
+          await ApiClient.get('/api/bom/where-used/$query') as List<dynamic>;
+
+      // Agrupar datos
+      final tempGrouped = <String, Map<String, List<dynamic>>>{};
         
         for (var item in data) {
           final cliente = item['cliente'] as String;
@@ -76,13 +72,9 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
           }
         }
         
-        setState(() {
-          _groupedResults = tempGrouped;
-        });
-
-      } else {
-        _showError("No se encontraron resultados o hubo un error en la búsqueda.");
-      }
+      setState(() {
+        _groupedResults = tempGrouped;
+      });
     } catch (e) {
       _showError("No se pudo conectar al servidor: $e");
     } finally {

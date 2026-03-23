@@ -1,10 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
 import 'bom_manager.dart';
-import '../config/app_config.dart';
-
-const String _API = kApiBaseUrl;
+import '../services/api_client.dart';
 
 class EngineeringMapScreen extends StatefulWidget {
   final int? targetRevisionId;
@@ -86,10 +82,10 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
   Future<void> _fetchArbol() async {
     setState(() => _isLoading = true);
     try {
-      final res = await http.get(Uri.parse('$_API/api/mapa/jerarquia'));
+      final res = await ApiClient.getUnvalidated('/api/mapa/jerarquia');
       if (res.statusCode == 200) {
         setState(() {
-          _arbol = json.decode(res.body);
+          _arbol = res.decodeJson();
           _checkAndAutoLoad();
         });
       }
