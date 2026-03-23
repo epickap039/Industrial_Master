@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 import openpyxl
 import pandas as pd
 import pyodbc
-from fastapi import APIRouter, BackgroundTasks, File, Form, Header, HTTPException, Request, Response, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, Form, Header, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import StreamingResponse
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
@@ -27,73 +27,83 @@ from models import *
 
 router = APIRouter()
 
-import ast
+
+def _row_to_item(row) -> Dict[str, Any]:
+    val_ant = row[3]
+    val_nue = row[4]
+
+    if val_ant and isinstance(val_ant, str):
+        val_ant_s = val_ant.strip()
+        try:
+            if val_ant_s.startswith("{") or val_ant_s.startswith("["):
+                val_ant = json.loads(val_ant.replace("'", '"'))
+            elif val_ant_s.startswith("("):
+                val_ant = ast.literal_eval(val_ant)
+        except Exception:
+            pass
+
+    if val_nue and isinstance(val_nue, str):
+        val_nue_s = val_nue.strip()
+        try:
+            if val_nue_s.startswith("{") or val_nue_s.startswith("["):
+                val_nue = json.loads(val_nue.replace("'", '"'))
+            elif val_nue_s.startswith("("):
+                val_nue = ast.literal_eval(val_nue)
+        except Exception:
+            pass
+
+    return {
+        "id": row[0],
+        "codigo": row[1],
+        "accion": row[2],
+        "valor_anterior": val_ant,
+        "valor_nuevo": val_nue,
+        "usuario": row[5],
+        "fecha": row[6].strftime("%Y-%m-%d %H:%M:%S") if row[6] else None,
+    }
+
 
 @router.get("/api/historial")
-async def obtener_historial(busqueda: Optional[str] = None, limite: int = 50):
-    print(f"--- CONSULTANDO HISTORIAL (Busqueda: {busqueda}, Limite: {limite}) ---")
+async def obtener_historial(
+    busqueda: Optional[str] = None,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+):
+    print(
+        f"--- CONSULTANDO HISTORIAL (Busqueda: {busqueda}, offset: {offset}, limit: {limit}) ---"
+    )
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
+        fetch_n = limit + 1
         query = """
-            SELECT TOP (?) ID_Log, Codigo_Pieza, Accion, Valor_Anterior, Valor_Nuevo, Usuario, Fecha_Hora 
-            FROM Tbl_Auditoria_Cambios 
+            SELECT ID_Log, Codigo_Pieza, Accion, Valor_Anterior, Valor_Nuevo, Usuario, Fecha_Hora
+            FROM Tbl_Auditoria_Cambios
         """
-        params = [limite]
-        
+        params: List[Any] = []
+
         if busqueda:
-            # Busca en código, usuario Y acción para que eventos VIN aparezcan
-            query += " WHERE Codigo_Pieza LIKE ? OR Usuario LIKE ? OR Accion LIKE ? "
+            query += (
+                " WHERE Codigo_Pieza LIKE ? OR Usuario LIKE ? OR Accion LIKE ? "
+            )
             search_term = f"%{busqueda}%"
             params.extend([search_term, search_term, search_term])
 
-        query += " ORDER BY Fecha_Hora DESC"
-        
+        query += " ORDER BY Fecha_Hora DESC OFFSET ? ROWS FETCH NEXT ? ROWS ONLY"
+        params.extend([offset, fetch_n])
+
         cursor.execute(query, params)
         rows = cursor.fetchall()
-        
+
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+
         historial = []
         for row in rows:
-            val_ant = row[3]
-            val_nue = row[4]
-            
-            # Intentar parsear Valor_Anterior
-            if val_ant and isinstance(val_ant, str):
-                val_ant_s = val_ant.strip()
-                try:
-                    if val_ant_s.startswith('{') or val_ant_s.startswith('['):
-                         val_ant = json.loads(val_ant.replace("'", '"')) # Attempt JSON fix or standard load
-                    elif val_ant_s.startswith('('):
-                         val_ant = ast.literal_eval(val_ant)
-                    # NOTA: evitamos evaluar incondicionalmente con ast.literal_eval
-                    # porque si val_ant es un string numérico con ceros a la izq ("002")
-                    # Python lanza SyntaxWarning: invalid decimal literal
-                except:
-                    pass # Keep as string if fail
+            historial.append(_row_to_item(row))
 
-            # Intentar parsear Valor_Nuevo
-            if val_nue and isinstance(val_nue, str):
-                val_nue_s = val_nue.strip()
-                try:
-                    if val_nue_s.startswith('{') or val_nue_s.startswith('['):
-                         val_nue = json.loads(val_nue.replace("'", '"'))
-                    elif val_nue_s.startswith('('):
-                         val_nue = ast.literal_eval(val_nue)
-                except:
-                    pass
-
-            historial.append({
-                "id": row[0],
-                "codigo": row[1],
-                "accion": row[2],
-                "valor_anterior": val_ant,
-                "valor_nuevo": val_nue,
-                "usuario": row[5],
-                "fecha": row[6].strftime("%Y-%m-%d %H:%M:%S") if row[6] else None
-            })
-            
-        return historial
+        return {"items": historial, "has_more": has_more}
 
     except Exception as e:
         print(f"ERROR HISTORIAL: {e}")

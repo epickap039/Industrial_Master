@@ -14,38 +14,126 @@ class HistoryScreen extends StatefulWidget {
 }
 
 class _HistoryScreenState extends State<HistoryScreen> {
-  List<dynamic> _history = [];
+  static const int _pageSize = 50;
+
+  List<dynamic> _registros = [];
+  bool _hasMore = true;
   bool _isLoading = false;
+  bool _isLoadingMore = false;
+  /// Búsqueda activa para paginación (sincronizada al refrescar / buscar).
+  String _activeSearchQuery = '';
+
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
-    _fetchHistory();
+    _scrollController.addListener(_onScroll);
+    _reloadHistory();
   }
 
-  Future<void> _fetchHistory({String? query}) async {
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!mounted) return;
+    if (!_scrollController.hasClients) return;
+    if (!_hasMore || _isLoadingMore || _isLoading) return;
+    final pos = _scrollController.position;
+    if (pos.pixels >= pos.maxScrollExtent - 120) {
+      _loadMore();
+    }
+  }
+
+  /// Si la lista no llena el viewport, pide más páginas (sin scroll).
+  void _scheduleFillIfNeeded() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (!_hasMore || _isLoadingMore || _isLoading) return;
+      if (!_scrollController.hasClients) return;
+      if (_registros.isEmpty) return;
+      final max = _scrollController.position.maxScrollExtent;
+      if (max < 80) {
+        _loadMore().then((_) {
+          if (mounted) _scheduleFillIfNeeded();
+        });
+      }
+    });
+  }
+
+  Map<String, String> _historialQueryParams(int offset) {
+    final qp = <String, String>{
+      'offset': '$offset',
+      'limit': '$_pageSize',
+    };
+    if (_activeSearchQuery.isNotEmpty) {
+      qp['busqueda'] = _activeSearchQuery;
+    }
+    return qp;
+  }
+
+  Future<void> _reloadHistory({String? query}) async {
+    final q = (query ?? _searchController.text).trim();
+    if (!mounted) return;
     setState(() {
       _isLoading = true;
+      _isLoadingMore = false;
+      _registros = [];
+      _hasMore = true;
+      _activeSearchQuery = q;
     });
 
     try {
-      final qp = <String, String>{'limite': '50'};
-      if (query != null && query.isNotEmpty) {
-        qp['busqueda'] = query;
-      }
-      final List<dynamic> data =
-          await ApiClient.get('/api/historial', queryParameters: qp)
-              as List<dynamic>;
+      final data = await ApiClient.get(
+        '/api/historial',
+        queryParameters: _historialQueryParams(0),
+      ) as Map<String, dynamic>;
+
+      if (!mounted) return;
       setState(() {
-        _history = data;
+        _registros = List<dynamic>.from(data['items'] as List? ?? []);
+        _hasMore = data['has_more'] == true;
       });
+      _scheduleFillIfNeeded();
     } catch (e) {
+      if (!mounted) return;
       _showErrorDialog(e.toString());
     } finally {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _loadMore() async {
+    if (!_hasMore || _isLoadingMore || _isLoading) return;
+    if (!mounted) return;
+
+    setState(() => _isLoadingMore = true);
+
+    try {
+      final data = await ApiClient.get(
+        '/api/historial',
+        queryParameters: _historialQueryParams(_registros.length),
+      ) as Map<String, dynamic>;
+
+      if (!mounted) return;
       setState(() {
-        _isLoading = false;
+        _registros.addAll(List<dynamic>.from(data['items'] as List? ?? []));
+        _hasMore = data['has_more'] == true;
       });
+      _scheduleFillIfNeeded();
+    } catch (e) {
+      if (!mounted) return;
+      _showErrorDialog(e.toString());
+    } finally {
+      if (!mounted) return;
+      setState(() => _isLoadingMore = false);
     }
   }
 
@@ -268,38 +356,48 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       icon: Icon(FluentIcons.clear),
                       onPressed: () {
                         _searchController.clear();
-                        _fetchHistory();
+                        _reloadHistory(query: '');
                       },
                     ),
                   IconButton(
                     icon: Icon(FluentIcons.search),
                     onPressed:
-                        () => _fetchHistory(query: _searchController.text),
+                        () => _reloadHistory(query: _searchController.text),
                   ),
                   IconButton(
                     icon: Icon(FluentIcons.refresh),
                     onPressed:
-                        () => _fetchHistory(query: _searchController.text),
+                        () => _reloadHistory(query: _searchController.text),
                   ),
                 ],
               ),
-              onSubmitted: (value) => _fetchHistory(query: value),
+              onSubmitted: (value) => _reloadHistory(query: value),
             ),
             const SizedBox(height: 20),
 
             // LISTA DE RESULTADOS
             Expanded(
               child:
-                  _isLoading
+                  _isLoading && _registros.isEmpty
                       ? const Center(child: ProgressRing())
-                      : _history.isEmpty
+                      : _registros.isEmpty
                       ? const Center(
                         child: Text('No se encontraron registros.'),
                       )
                       : ListView.builder(
-                        itemCount: _history.length,
+                        controller: _scrollController,
+                        itemCount:
+                            _registros.length + (_isLoadingMore ? 1 : 0),
                         itemBuilder: (context, index) {
-                          final item = _history[index];
+                          if (index == _registros.length) {
+                            return const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 20),
+                              child: Center(
+                                child: ProgressRing(),
+                              ),
+                            );
+                          }
+                          final item = _registros[index];
                           final actionColor = _getActionColor(
                             item['accion'] ?? '',
                           );
