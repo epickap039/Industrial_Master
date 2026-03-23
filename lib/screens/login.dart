@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../config/app_config.dart';
 
 class LoginScreen extends StatefulWidget {
   final VoidCallback onLoginSuccess;
@@ -28,7 +29,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _checkServerStatus() async {
     try {
       final response = await http
-          .get(Uri.parse('http://192.168.1.73:8001/'))
+          .get(Uri.parse('$kApiBaseUrl/'))
           .timeout(const Duration(seconds: 3));
 
       if (mounted) {
@@ -53,7 +54,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       final response = await http.post(
-        Uri.parse('http://192.168.1.73:8001/api/login'),
+        Uri.parse('$kApiBaseUrl/api/login'),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({
           'username': _userController.text,

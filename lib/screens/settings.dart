@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
+import '../config/app_config.dart';
 
 class SettingsScreen extends StatefulWidget {
   final bool isDarkMode;
@@ -57,7 +58,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     try {
       final response = await http
-          .get(Uri.parse('http://192.168.1.73:8001/api/catalog?limit=1'))
+          .get(Uri.parse('$kApiBaseUrl/api/catalog?limit=1'))
           .timeout(const Duration(seconds: 3));
 
       if (response.statusCode == 200) {
@@ -146,7 +147,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
       var request = http.MultipartRequest(
         'POST',
-        Uri.parse('http://192.168.1.73:8001/api/excel/actualizar_enlaces'),
+        Uri.parse('$kApiBaseUrl/api/excel/actualizar_enlaces'),
       );
 
       request.files.add(await http.MultipartFile.fromPath('file', filePath));
@@ -286,9 +287,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ],
                 ),
                 const SizedBox(height: 10),
-                const Text(
-                  'Prueba la conexión con el servidor (192.168.1.73:8001) y la base de datos SQL.',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                Text(
+                  'Prueba la conexión con el servidor ($kApiBaseUrl) y la base de datos SQL.',
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
                 ),
               ],
             ),

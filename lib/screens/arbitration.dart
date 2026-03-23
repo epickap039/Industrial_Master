@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/conflict_dialog.dart';
+import '../config/app_config.dart';
 
 class ArbitrationScreen extends StatefulWidget {
   const ArbitrationScreen({super.key});
@@ -69,7 +70,7 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
 
         var request = http.MultipartRequest(
           'POST',
-          Uri.parse('http://192.168.1.73:8001/api/excel/procesar'),
+          Uri.parse('$kApiBaseUrl/api/excel/procesar'),
         );
 
         request.files.add(
@@ -162,7 +163,7 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
       if (updatesToSend.isEmpty) return;
 
       final response = await http.post(
-        Uri.parse('http://192.168.1.73:8001/api/excel/sincronizar'),
+        Uri.parse('$kApiBaseUrl/api/excel/sincronizar'),
         headers: {'Content-Type': 'application/json', 'X-Usuario': 'Alejandro'},
         body: json.encode(
           updatesToSend,
@@ -316,7 +317,7 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
   // Helper para sync individual (reutiliza lógica si es posible, o crea nueva)
   Future<void> _syncSingleItem(Map<String, dynamic> itemPayload) async {
     final response = await http.post(
-      Uri.parse('http://192.168.1.73:8001/api/excel/sincronizar'),
+      Uri.parse('$kApiBaseUrl/api/excel/sincronizar'),
       headers: {'Content-Type': 'application/json', 'X-Usuario': 'Alejandro'},
       body: json.encode([itemPayload]), // Enviar como lista de 1
     );

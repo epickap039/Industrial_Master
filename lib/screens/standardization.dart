@@ -2,8 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-
-const String API_URL = "http://192.168.1.73:8001";
+import '../config/app_config.dart';
 
 class StandardizationScreen extends StatefulWidget {
   @override
@@ -29,7 +28,7 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
   Future<void> _fetchOfficialMaterials() async {
     try {
       final response = await http.get(
-        Uri.parse('$API_URL/api/config/materiales'),
+        Uri.parse('$kApiBaseUrl/api/config/materiales'),
       );
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
@@ -46,7 +45,7 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
     setState(() => _isLoading = true);
     try {
       final response = await http.get(
-        Uri.parse('$API_URL/api/limpieza/descripciones_unicas'),
+        Uri.parse('$kApiBaseUrl/api/limpieza/descripciones_unicas'),
       );
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
@@ -165,7 +164,7 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
 
     try {
       final response = await http.post(
-        Uri.parse('$API_URL/api/limpieza/actualizar_masivo'),
+        Uri.parse('$kApiBaseUrl/api/limpieza/actualizar_masivo'),
         headers: {"Content-Type": "application/json"},
         body: json.encode({
           "old_desc": oldDesc,
@@ -192,7 +191,7 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
     setState(() => _isLoading = true);
     try {
       final response = await http.post(
-        Uri.parse('$API_URL/api/materiales/oficial'),
+        Uri.parse('$kApiBaseUrl/api/materiales/oficial'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'descripcion': desc}),
       );
@@ -216,7 +215,7 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
     try {
       final response = await http.delete(
         Uri.parse(
-          '$API_URL/api/materiales/oficial/${Uri.encodeComponent(desc)}',
+          '$kApiBaseUrl/api/materiales/oficial/${Uri.encodeComponent(desc)}',
         ),
       );
 

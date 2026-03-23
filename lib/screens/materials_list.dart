@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import '../config/app_config.dart';
 
 class MaterialsListScreen extends StatefulWidget {
   const MaterialsListScreen({super.key});
@@ -25,7 +26,7 @@ class _MaterialsListScreenState extends State<MaterialsListScreen> {
     setState(() => _isLoading = true);
     try {
       final response = await http.get(
-        Uri.parse('http://192.168.1.73:8001/api/config/materiales'),
+        Uri.parse('$kApiBaseUrl/api/config/materiales'),
       );
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
@@ -96,7 +97,7 @@ class _MaterialsListScreenState extends State<MaterialsListScreen> {
   Future<void> _saveMaterialToBackend(String material) async {
     try {
       final response = await http.post(
-        Uri.parse('http://192.168.1.73:8001/api/config/materiales'),
+        Uri.parse('$kApiBaseUrl/api/config/materiales'),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({'material': material}),
       );
@@ -144,7 +145,7 @@ class _MaterialsListScreenState extends State<MaterialsListScreen> {
       final encodedMaterial = Uri.encodeComponent(material);
       final response = await http.delete(
         Uri.parse(
-          'http://192.168.1.73:8001/api/config/materiales/$encodedMaterial',
+          '$kApiBaseUrl/api/config/materiales/$encodedMaterial',
         ),
       );
 
