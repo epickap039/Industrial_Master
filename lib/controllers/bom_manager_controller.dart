@@ -440,80 +440,239 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     }
   }
 
-  Future<void> _importarExcel() async {
+  Future<void> _importarExcel() => _importarBomDesdeExcel(sumar: false);
+
+  Future<void> _sumarExcel() => _importarBomDesdeExcel(sumar: true);
+
+  void _showGuiaImportacionDialog() {
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        final t = FluentTheme.of(dialogCtx).typography;
+        return ContentDialog(
+          title: const Text('Guía de Importación'),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Importar Excel', style: t.bodyStrong),
+                const SizedBox(height: 8),
+                Text(
+                  'Borra toda la lista de la versión y la reemplaza por el Excel.',
+                  style: t.body,
+                ),
+                const SizedBox(height: 16),
+                Text('Sumar Excel', style: t.bodyStrong),
+                const SizedBox(height: 8),
+                Text(
+                  'Mantiene la lista actual, suma las cantidades y añade las piezas nuevas.',
+                  style: t.body,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogCtx),
+              child: const Text('Entendido'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// [sumar]: false = reemplazo total de la revisión; true = upsert y suma de cantidades.
+  Future<void> _importarBomDesdeExcel({required bool sumar}) async {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['xlsx', 'xls'],
+        withData: true,
       );
       if (!mounted) return;
 
-      if (result != null && result.files.single.path != null) {
-        if (_selectedRevision == null) {
-          _showError("Crea o selecciona una revisión primero");
-          return;
+      if (result == null || result.files.isEmpty) return;
+
+      if (_selectedRevision == null) {
+        _showError("Crea o selecciona una revisión primero");
+        return;
+      }
+
+      final picked = result.files.single;
+      String? filePath = picked.path;
+      if (filePath == null || filePath.isEmpty) {
+        final bytes = picked.bytes;
+        if (bytes != null) {
+          final dir = await getTemporaryDirectory();
+          final safe =
+              picked.name.replaceAll(RegExp(r'[<>:"/\\|?*]'), '_');
+          final prefix = sumar ? 'bom_sumar_' : 'bom_import_';
+          filePath =
+              '${dir.path}${Platform.pathSeparator}$prefix$safe';
+          await File(filePath).writeAsBytes(bytes, flush: true);
         }
+      }
 
-        String filePath = result.files.single.path!;
+      if (filePath == null || filePath.isEmpty) {
+        if (mounted) {
+          _showError(
+            'No se pudo acceder al archivo (sin ruta ni datos en memoria).',
+          );
+        }
+        return;
+      }
 
-        setState(() => _isLoading = true);
+      final resolvedPath = filePath;
 
-        final uploadFile = await ApiClient.fileField('file', filePath);
+      setState(() => _isLoading = true);
+
+      final uploadFile = await ApiClient.fileField('file', resolvedPath);
+      if (!mounted) return;
+
+      final username = await _prefsUsername();
+      if (!mounted) return;
+
+      final idRev = _selectedRevision['id_revision'];
+      final path = sumar
+          ? '/api/bom/importar_sumar/$idRev'
+          : '/api/bom/importar/$idRev';
+
+      try {
+        final data = await ApiClient.postMultipart(
+          path,
+          files: {'file': uploadFile},
+          headers: {'X-Usuario': username},
+        ) as Map<String, dynamic>;
         if (!mounted) return;
 
-        try {
-          final data = await ApiClient.postMultipart(
-            '/api/bom/importar/${_selectedRevision['id_revision']}',
-            files: {'file': uploadFile},
-          ) as Map<String, dynamic>;
-          if (!mounted) return;
+        final int importadas = data['insertados'] ?? 0;
+        final int actualizadas = data['actualizados'] is int
+            ? data['actualizados'] as int
+            : int.tryParse('${data['actualizados']}') ?? 0;
+        final List<dynamic> erroresRaw = data['errores'] ?? [];
+        final List<String> errores =
+            erroresRaw.map((e) => e.toString()).toList();
 
-          int importadas = data['insertados'] ?? 0;
-          List errores = data['errores'] ?? [];
+        final String okMsg = sumar
+            ? '✅ Sumar Excel: $importadas líneas nuevas en estructura, '
+                '$actualizadas cantidades actualizadas.'
+            : '✅ Se cargaron $importadas piezas con éxito (reemplazo total).';
 
-          if (errores.isEmpty) {
-            _showError(
-              "✅ Se cargaron $importadas piezas con éxito.",
-              isError: false,
-            );
-          } else {
-            showDialog(
-              context: context,
-              builder:
-                  (context) => ContentDialog(
-                    title: const Text("Resumen de Importación"),
-                    content: Text(
-                      "Se cargaron $importadas piezas con éxito.\n\n"
-                      "Los siguientes códigos no existen en el catálogo maestro y fueron omitidos:\n${errores.join(', ')}",
+        if (errores.isEmpty) {
+          _showError(
+            okMsg,
+            isError: false,
+          );
+        } else {
+          final String intro = sumar
+              ? '$okMsg\n\n'
+                  'Los siguientes códigos no existen en el catálogo maestro y fueron omitidos:'
+              : 'Se cargaron $importadas piezas con éxito.\n\n'
+                  'Los siguientes códigos no existen en el catálogo maestro y fueron omitidos:';
+
+          showDialog(
+            context: context,
+            builder: (dialogCtx) => ContentDialog(
+              constraints: const BoxConstraints(maxWidth: 520, maxHeight: 560),
+              title: Text(sumar ? 'Resumen Sumar Excel' : 'Resumen de Importación'),
+              content: SizedBox(
+                width: 480,
+                height: 360,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(intro),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Omitidos (${errores.length})',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
-                    actions: [
-                      Button(
-                        child: const Text('Copiar Errores'),
-                        onPressed: () {
-                          Clipboard.setData(
-                            ClipboardData(text: errores.join(', ')),
-                          );
-                          _showError(
-                            "Errores copiados al portapapeles",
-                            isError: false,
-                          );
-                        },
+                    const SizedBox(height: 6),
+                    Expanded(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: FluentTheme.of(dialogCtx)
+                                .resources
+                                .dividerStrokeColorDefault,
+                          ),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: ListView.builder(
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 4,
+                            horizontal: 8,
+                          ),
+                          itemCount: errores.length,
+                          itemBuilder: (context, index) {
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              child: SelectableText(
+                                errores[index],
+                                style: FluentTheme.of(context).typography.body,
+                              ),
+                            );
+                          },
+                        ),
                       ),
-                      Button(
-                        child: const Text('Cerrar'),
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                    ],
-                  ),
-            );
-          }
-          _fetchArbol();
-        } on ApiException catch (e) {
-          if (mounted) _showError("Error al importar: $e");
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                FilledButton(
+                  onPressed: () async {
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setString(
+                      'bom_bridge_excel_path',
+                      resolvedPath,
+                    );
+                    await prefs.setBool('bom_bridge_filter_nuevos', true);
+                    if (!dialogCtx.mounted) return;
+                    Navigator.pop(dialogCtx);
+                    if (!mounted) return;
+                    MainNav.goToPanePopOverlays(
+                      context,
+                      kMainPaneImportarExcel,
+                    );
+                  },
+                  child: const Text('Registrar Piezas Nuevas en Catálogo'),
+                ),
+                Button(
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: errores.join('\n')));
+                    _showError(
+                      'Lista copiada al portapapeles',
+                      isError: false,
+                    );
+                  },
+                  child: const Text('Copiar lista'),
+                ),
+                Button(
+                  onPressed: () => Navigator.pop(dialogCtx),
+                  child: const Text('Cerrar'),
+                ),
+              ],
+            ),
+          );
+        }
+        _fetchArbol();
+      } on ApiException catch (e) {
+        if (mounted) {
+          _showError(
+            sumar ? "Error al sumar Excel: $e" : "Error al importar: $e",
+          );
         }
       }
     } catch (e) {
-      if (mounted) _showError("Error durante la importación: $e");
+      if (mounted) {
+        _showError(
+          sumar
+              ? "Error durante la suma desde Excel: $e"
+              : "Error durante la importación: $e",
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -531,6 +690,21 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
       }
     }
     return 'Error desconocido';
+  }
+
+  /// Mensaje legible desde [ApiHttpResult]: prioriza `detail` JSON y si no, el cuerpo crudo (p. ej. SQL en 500).
+  String _apiErrorDetailFromResponse(ApiHttpResult response) {
+    final decoded = response.decodeJsonLenient();
+    var msg = _apiErrorDetail(decoded);
+    if (msg == 'Error desconocido') {
+      final raw = response.rawBody.trim();
+      if (raw.isNotEmpty) {
+        msg = raw.length > 2500 ? '${raw.substring(0, 2500)}…' : raw;
+      } else {
+        msg = 'Error HTTP ${response.statusCode}';
+      }
+    }
+    return msg;
   }
 
   Future<void> _addEstacion(String nombre) async {
@@ -627,30 +801,38 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     }
   }
 
-  Future<void> _addPieza(String codigo, double cantidad, String obs) async {
+  Future<void> _addPieza(
+    String codigo,
+    double cantidad,
+    String obs, {
+    Map<String, dynamic>? maestroRegistro,
+  }) async {
     if (_selectedEnsamble == null) return;
     setState(() => _manualBomMutating = true);
     try {
       final username = await _prefsUsername();
       if (!mounted) return;
-      // `observaciones` → BOMPayload.observaciones → Tbl_BOM_Estructura.Observaciones_Proceso
+      // `observaciones` → BOMPayload; si no hay fila en maestro, `maestro` → INSERT catálogo + BOM
+      final body = <String, dynamic>{
+        'id_ensamble': _selectedEnsamble['id'],
+        'codigo_pieza': codigo,
+        'cantidad': cantidad,
+        'observaciones': obs,
+      };
+      if (maestroRegistro != null && maestroRegistro.isNotEmpty) {
+        body['maestro'] = maestroRegistro;
+      }
       final response = await ApiClient.postUnvalidated(
         '/api/bom/estructura',
         headers: {'X-Usuario': username},
-        body: {
-          'id_ensamble': _selectedEnsamble['id'],
-          'codigo_pieza': codigo,
-          'cantidad': cantidad,
-          'observaciones': obs,
-        },
+        body: body,
       );
       if (!mounted) return;
       if (response.statusCode == 200) {
         _showError('Pieza agregada al ensamble.', isError: false);
         _fetchArbol();
       } else {
-        final decoded = response.decodeJsonLenient();
-        _showError(_apiErrorDetail(decoded));
+        _showError(_apiErrorDetailFromResponse(response));
       }
     } catch (e) {
       if (mounted) _showError('Error al agregar la pieza: $e');
@@ -842,7 +1024,7 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
                 _showError('Contraseña incorrecta');
               }
             },
-            child: const Text('Forzar Borrado', style: TextStyle(color: Colors.white)),
+            child: const Text('Forzar Borrado'),
           ),
         ],
       ),
@@ -1469,7 +1651,18 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
       builder: (context, close) {
         return InfoBar(
           title: Text(isError ? 'Error' : 'Éxito'),
-          content: Text(message),
+          content:
+              isError
+                  ? ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      maxHeight: 280,
+                      maxWidth: 560,
+                    ),
+                    child: SingleChildScrollView(
+                      child: SelectableText(message),
+                    ),
+                  )
+                  : Text(message),
           severity: isError ? InfoBarSeverity.error : InfoBarSeverity.success,
           onClose: close,
         );
@@ -1514,67 +1707,395 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     );
   }
 
-  void _showAddPiezaDialog() {
-    String codigoValue = "";
-    String cantStr = "";
-    String obsValue = "";
+  Future<void> _showAddPiezaDialog() async {
+    List<String> materialesOficiales = [];
+    try {
+      final res = await ApiClient.getUnvalidated('/api/config/materiales');
+      if (res.statusCode == 200) {
+        final decoded = res.decodeJson();
+        if (decoded is List) {
+          materialesOficiales =
+              decoded.map((e) => e.toString()).where((s) => s.isNotEmpty).toList();
+        }
+      }
+    } catch (_) {}
+    if (!mounted) return;
 
-    showDialog(
+    final codigoCtrl = TextEditingController();
+    final cantCtrl = TextEditingController();
+    final obsCtrl = TextEditingController();
+    final descCtrl = TextEditingController();
+    final matSuggestCtrl = TextEditingController();
+    String? procPrimario;
+    String? procOpt1;
+    String? procOpt2;
+    String? procOpt3;
+    final estado = <String, dynamic>{
+      'inCatalog': null,
+      'checking': false,
+      'checkedCodigo': '',
+    };
+    Timer? debounce;
+
+    Future<void> runCheck(void Function(void Function()) setD) async {
+      final c = codigoCtrl.text.trim();
+      if (c.isEmpty) {
+        estado['inCatalog'] = null;
+        estado['checkedCodigo'] = '';
+        setD(() {});
+        return;
+      }
+      estado['checking'] = true;
+      setD(() {});
+      final res = await ApiClient.getUnvalidated(
+        '/api/catalog/pieza/${Uri.encodeComponent(c)}',
+      );
+      if (!context.mounted) return;
+      estado['checking'] = false;
+      estado['inCatalog'] = res.statusCode == 200;
+      estado['checkedCodigo'] = c;
+      setD(() {});
+    }
+
+    showDialog<void>(
       context: context,
-      builder:
-          (context) => ContentDialog(
-            title: const Text("Agregar Pieza"),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                InfoLabel(
-                  label: "Código de Pieza (del Catálogo)",
-                  child: TextBox(
-                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                    onChanged: (v) => codigoValue = v,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (context, setD) {
+            final bool checking = estado['checking'] == true;
+            final bool? inCat = estado['inCatalog'] as bool?;
+            final String checked = estado['checkedCodigo'] as String;
+            final String codeNow = codigoCtrl.text.trim();
+            final bool stateApplies =
+                checked.isNotEmpty && checked == codeNow;
+            final String matTrim = matSuggestCtrl.text.trim();
+            final bool matNoHomologado = matTrim.isNotEmpty &&
+                !_materialHomologado(matTrim, materialesOficiales);
+
+            return ContentDialog(
+              title: const Text('Agregar Pieza'),
+              content: SizedBox(
+                width: 440,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      InfoLabel(
+                        label: 'Código de pieza',
+                        child: TextBox(
+                          controller: codigoCtrl,
+                          placeholder: 'Catálogo o código nuevo',
+                          onChanged: (_) {
+                            estado['inCatalog'] = null;
+                            estado['checkedCodigo'] = '';
+                            debounce?.cancel();
+                            debounce = Timer(
+                              const Duration(milliseconds: 500),
+                              () {
+                                runCheck(setD);
+                              },
+                            );
+                            setD(() {});
+                          },
+                        ),
+                      ),
+                      if (checking) ...[
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: ProgressRing(strokeWidth: 2),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Comprobando catálogo…',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: FluentTheme.of(context)
+                                    .typography
+                                    .caption
+                                    ?.color,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                      if (stateApplies && inCat == true) ...[
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Pieza reconocida en el catálogo.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF1B5E20),
+                          ),
+                        ),
+                      ],
+                      if (stateApplies && inCat == false) ...[
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Esta pieza no está en el catálogo',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFFE65100),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        InfoLabel(
+                          label: 'Descripción (obligatoria)',
+                          child: TextBox(
+                            controller: descCtrl,
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 12,
+                              horizontal: 16,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        InfoLabel(
+                          label: 'Material (obligatorio)',
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Expanded(
+                                child: AutoSuggestBox<String>(
+                                  controller: matSuggestCtrl,
+                                  placeholder:
+                                      'Buscar en lista oficial o escribir…',
+                                  items: materialesOficiales
+                                      .map(
+                                        (e) => AutoSuggestBoxItem<String>(
+                                          value: e,
+                                          label: e,
+                                          child: Tooltip(
+                                            message: e,
+                                            child: Text(
+                                              e,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ),
+                                      )
+                                      .toList(),
+                                  onSelected: (_) => setD(() {}),
+                                  onChanged: (_, __) => setD(() {}),
+                                ),
+                              ),
+                              if (matNoHomologado) ...[
+                                const SizedBox(width: 8),
+                                Tooltip(
+                                  message:
+                                      'Material no homologado. Deberá estandarizarse luego.',
+                                  child: Icon(
+                                    FluentIcons.warning,
+                                    size: 18,
+                                    color: Colors.orange,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        InfoLabel(
+                          label: 'Proceso primario (obligatorio)',
+                          child: ComboBox<String?>(
+                            placeholder: const Text('Seleccione de la lista oficial'),
+                            value: procPrimario,
+                            isExpanded: true,
+                            items: _procesosOficialesAlta
+                                .map(
+                                  (e) => ComboBoxItem<String?>(
+                                    value: e,
+                                    child: Text(
+                                      e,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (v) => setD(() => procPrimario = v),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        InfoLabel(
+                          label: 'Proceso adicional 1 (opcional)',
+                          child: ComboBox<String?>(
+                            placeholder: const Text('— Ninguno —'),
+                            value: procOpt1,
+                            isExpanded: true,
+                            items: [
+                              const ComboBoxItem<String?>(
+                                value: null,
+                                child: Text('— Ninguno —'),
+                              ),
+                              ..._procesosOficialesAlta.map(
+                                (e) => ComboBoxItem<String?>(
+                                  value: e,
+                                  child: Text(
+                                    e,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ),
+                            ],
+                            onChanged: (v) => setD(() => procOpt1 = v),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        InfoLabel(
+                          label: 'Proceso adicional 2 (opcional)',
+                          child: ComboBox<String?>(
+                            placeholder: const Text('— Ninguno —'),
+                            value: procOpt2,
+                            isExpanded: true,
+                            items: [
+                              const ComboBoxItem<String?>(
+                                value: null,
+                                child: Text('— Ninguno —'),
+                              ),
+                              ..._procesosOficialesAlta.map(
+                                (e) => ComboBoxItem<String?>(
+                                  value: e,
+                                  child: Text(
+                                    e,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ),
+                            ],
+                            onChanged: (v) => setD(() => procOpt2 = v),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        InfoLabel(
+                          label: 'Proceso adicional 3 (opcional)',
+                          child: ComboBox<String?>(
+                            placeholder: const Text('— Ninguno —'),
+                            value: procOpt3,
+                            isExpanded: true,
+                            items: [
+                              const ComboBoxItem<String?>(
+                                value: null,
+                                child: Text('— Ninguno —'),
+                              ),
+                              ..._procesosOficialesAlta.map(
+                                (e) => ComboBoxItem<String?>(
+                                  value: e,
+                                  child: Text(
+                                    e,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ),
+                            ],
+                            onChanged: (v) => setD(() => procOpt3 = v),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 16),
+                      InfoLabel(
+                        label: 'Cantidad',
+                        child: TextBox(
+                          controller: cantCtrl,
+                          keyboardType: TextInputType.number,
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 12,
+                            horizontal: 16,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      InfoLabel(
+                        label: 'Observaciones (BOM)',
+                        child: TextBox(
+                          controller: obsCtrl,
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 12,
+                            horizontal: 16,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 16),
-                InfoLabel(
-                  label: "Cantidad",
-                  child: TextBox(
-                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                    keyboardType: TextInputType.number,
-                    onChanged: (v) => cantStr = v,
-                  ),
+              ),
+              actions: [
+                Button(
+                  child: const Text('Cancelar'),
+                  onPressed: () => Navigator.pop(dialogCtx),
                 ),
-                const SizedBox(height: 16),
-                InfoLabel(
-                  label: "Observaciones",
-                  child: TextBox(
-                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                    onChanged: (v) => obsValue = v,
-                  ),
+                FilledButton(
+                  child: const Text('Agregar'),
+                  onPressed: () async {
+                    final code = codigoCtrl.text.trim();
+                    final cantStr = cantCtrl.text.trim();
+                    if (code.isEmpty || cantStr.isEmpty) {
+                      _showError('Código y cantidad son obligatorios.');
+                      return;
+                    }
+                    final cant = double.tryParse(cantStr);
+                    if (cant == null || cant <= 0) {
+                      _showError('Cantidad inválida.');
+                      return;
+                    }
+                    final String checkedNow =
+                        estado['checkedCodigo'] as String;
+                    final bool? inCatalogNow =
+                        estado['inCatalog'] as bool?;
+                    final bool appliesNow =
+                        checkedNow.isNotEmpty && checkedNow == code;
+                    if (inCatalogNow == null || !appliesNow) {
+                      _showError(
+                        'Espere a que termine la comprobación automática del código.',
+                      );
+                      return;
+                    }
+                    Map<String, dynamic>? maestro;
+                    if (inCatalogNow == false) {
+                      final d = descCtrl.text.trim();
+                      final m = matSuggestCtrl.text.trim();
+                      final p = procPrimario?.trim() ?? '';
+                      if (d.isEmpty || m.isEmpty || p.isEmpty) {
+                        _showError(
+                          'Pieza nueva: complete descripción, material y proceso primario.',
+                        );
+                        return;
+                      }
+                      maestro = {
+                        'descripcion': d,
+                        'material': m,
+                        'proceso_primario': p,
+                        'proceso_1': procOpt1?.trim() ?? '',
+                        'proceso_2': procOpt2?.trim() ?? '',
+                        'proceso_3': procOpt3?.trim() ?? '',
+                      };
+                    }
+                    Navigator.pop(dialogCtx);
+                    await _addPieza(
+                      code,
+                      cant,
+                      obsCtrl.text.trim(),
+                      maestroRegistro: maestro,
+                    );
+                  },
                 ),
               ],
-            ),
-            actions: [
-              Button(
-                child: const Text('Cancelar'),
-                onPressed: () => Navigator.pop(context),
-              ),
-              FilledButton(
-                child: const Text('Agregar'),
-                onPressed: () {
-                  if (codigoValue.trim().isNotEmpty && cantStr.isNotEmpty) {
-                    double? cant = double.tryParse(cantStr);
-                    if (cant != null) {
-                      _addPieza(codigoValue.trim(), cant, obsValue.trim());
-                      Navigator.pop(context);
-                    } else {
-                      _showError("Cantidad inválida");
-                    }
-                  }
-                },
-              ),
-            ],
-          ),
-    );
+            );
+          },
+        );
+      },
+    ).then((_) {
+      debounce?.cancel();
+      codigoCtrl.dispose();
+      cantCtrl.dispose();
+      obsCtrl.dispose();
+      descCtrl.dispose();
+      matSuggestCtrl.dispose();
+    });
   }
 
   void _confirmDelete(String title, VoidCallback onConfirm) {
@@ -1820,6 +2341,25 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     'RECTO',
     'COMERCIAL',
   ];
+
+  /// Catálogo cerrado para alta de pieza nueva (ComboBox en diálogo BOM).
+  static const List<String> _procesosOficialesAlta = [
+    'SIERRACINTA RECTO',
+    'SIERRACINTA GRADOS',
+    'TAILIFT',
+    'LASER',
+    'WATERJET',
+    'DOBLEZ',
+    'MAQUINADOS',
+    'PUNZONADO',
+    'COMERCIAL',
+  ];
+
+  bool _materialHomologado(String texto, List<String> oficiales) {
+    final t = texto.trim().toUpperCase();
+    if (t.isEmpty) return true;
+    return oficiales.any((m) => m.toUpperCase() == t);
+  }
 
   /// Devuelve true si la pieza debe omitirse del auditor de planos.
   bool _esPiezaSinPlano(Map<String, dynamic> row) {

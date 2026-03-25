@@ -4,16 +4,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 import '../config/app_config.dart';
 import '../services/api_client.dart';
+import '../widgets/compact_page_header.dart';
 
 class SettingsScreen extends StatefulWidget {
-  final bool isDarkMode;
-  final Function(bool) onThemeChanged;
-
-  const SettingsScreen({
-    super.key,
-    required this.isDarkMode,
-    required this.onThemeChanged,
-  });
+  const SettingsScreen({super.key});
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -199,35 +193,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return ScaffoldPage(
-      header: const PageHeader(title: Text('Configuración del Sistema')),
+      padding: const EdgeInsets.only(top: 8),
+      header: CompactPageHeader(
+        title: Text(
+          'Configuración del Sistema',
+          style: FluentTheme.of(context).typography.title,
+        ),
+      ),
       content: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          // 1. APARIENCIA
-          Expander(
-            header: const Text(
-              'Apariencia',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            initiallyExpanded: true,
-            content: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                ToggleSwitch(
-                  checked: widget.isDarkMode,
-                  onChanged: widget.onThemeChanged,
-                  content: Text(
-                    widget.isDarkMode
-                        ? 'Modo Oscuro Activado'
-                        : 'Modo Claro Activado',
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 10),
-
-          // 2. DIAGNÓSTICO DE RED (Modificado)
+          // 1. DIAGNÓSTICO DE RED
           Expander(
             header: const Text(
               'Diagnóstico de Red',
@@ -237,13 +213,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
             content: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     const Text(
                       'Estado del Servidor:',
                       style: TextStyle(fontWeight: FontWeight.w600),
                     ),
-                    const SizedBox(width: 10),
                     Container(
                       width: 10,
                       height: 10,
@@ -252,9 +230,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         shape: BoxShape.circle,
                       ),
                     ),
-                    const SizedBox(width: 8),
                     Text(_connectionStatus),
-                    const Spacer(),
                     Button(
                       // Acción modificada: usa la nueva lógica con feedback visual
                       onPressed:
@@ -278,7 +254,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 10),
 
-          // 3. MANTENIMIENTO
+          // 2. MANTENIMIENTO
           if (_userRole != 'QA') ...[
             Expander(
               header: const Text(

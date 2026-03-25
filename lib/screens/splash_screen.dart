@@ -51,15 +51,21 @@ class _SplashScreenState extends State<SplashScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text(
+                  Text(
                     'INGENIERÍA JAES',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 48,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 4,
-                      decoration: TextDecoration.none, // Evita subrayado amarillo si no hay Scaffold
-                    ),
+                    style: FluentTheme.of(context).typography.title?.copyWith(
+                          fontSize: 48,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 4,
+                          decoration: TextDecoration.none,
+                          color: FluentTheme.of(context).typography.body?.color,
+                        ) ??
+                        const TextStyle(
+                          fontSize: 48,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 4,
+                          decoration: TextDecoration.none,
+                        ),
                   ),
                   const SizedBox(height: 10),
                   Container(

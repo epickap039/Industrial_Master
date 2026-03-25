@@ -48,6 +48,50 @@ async def get_catalog():
     finally:
         conn.close()
 
+
+@router.get("/api/catalog/pieza/{codigo}")
+def get_catalog_pieza_by_codigo(codigo: str):
+    """Comprueba si el código existe en Tbl_Maestro_Piezas (búsqueda ligera para el BOM)."""
+    c = (codigo or "").strip()
+    if not c:
+        raise HTTPException(status_code=400, detail="Código vacío")
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """
+            SELECT TOP 1
+                Codigo_Pieza, Descripcion, Material,
+                Proceso_Primario, Proceso_1, Proceso_2, Proceso_3
+            FROM Tbl_Maestro_Piezas
+            WHERE Codigo_Pieza = ?
+            """,
+            (c,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(
+                status_code=404,
+                detail="Esta pieza no está en el catálogo",
+            )
+        return {
+            "exists": True,
+            "codigo_pieza": str(getattr(row, "Codigo_Pieza", "") or c),
+            "descripcion": str(getattr(row, "Descripcion", "") or ""),
+            "material": str(getattr(row, "Material", "") or ""),
+            "proceso_primario": str(getattr(row, "Proceso_Primario", "") or ""),
+            "proceso_1": str(getattr(row, "Proceso_1", "") or ""),
+            "proceso_2": str(getattr(row, "Proceso_2", "") or ""),
+            "proceso_3": str(getattr(row, "Proceso_3", "") or ""),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
 @router.delete("/api/catalog/{codigo}")
 async def delete_material_catalog(codigo: str):
     conn = get_db_connection()

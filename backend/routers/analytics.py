@@ -57,9 +57,10 @@ def get_analytics_dashboard(id_revision: str, exclude_ids: Optional[str] = None)
             try:
                 id_int = int(id_revision)
                 # Filtro para omitir piezas incompletas en métricas a nivel proyecto
+                # Métricas de material: sólo columna SQL Material (sin fallback a Descripcion).
                 where_clause = f"""WHERE ES.ID_Revision = {id_int} 
                     AND (
-                        COALESCE(NULLIF(LTRIM(RTRIM(M.Material)), ''), NULLIF(LTRIM(RTRIM(M.Descripcion)), ''), 'FALTA ASIGNAR EN CAD') != 'FALTA ASIGNAR EN CAD' 
+                        NULLIF(LTRIM(RTRIM(M.Material)), '') IS NOT NULL
                         AND (
                             TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Area_CAD, ' mm^2', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) > 0 
                             OR TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) > 0 
@@ -92,7 +93,7 @@ def get_analytics_dashboard(id_revision: str, exclude_ids: Optional[str] = None)
         cursor.execute(f"""
             WITH PiezasBase AS (
                 SELECT 
-                    COALESCE(NULLIF(LTRIM(RTRIM(M.Material)), ''), NULLIF(LTRIM(RTRIM(M.Descripcion)), ''), 'FALTA ASIGNAR EN CAD') AS MaterialLimpio,
+                    COALESCE(NULLIF(LTRIM(RTRIM(M.Material)), ''), 'FALTA ASIGNAR EN CAD') AS MaterialLimpio,
                     E.Cantidad,
                     TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS LargoLimpio,
                     TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Ancho_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS AnchoLimpio,
@@ -117,7 +118,7 @@ def get_analytics_dashboard(id_revision: str, exclude_ids: Optional[str] = None)
         cursor.execute(f"""
             WITH PiezasBase AS (
                 SELECT 
-                    COALESCE(NULLIF(LTRIM(RTRIM(M.Material)), ''), NULLIF(LTRIM(RTRIM(M.Descripcion)), ''), 'FALTA ASIGNAR EN CAD') AS MaterialLimpio,
+                    COALESCE(NULLIF(LTRIM(RTRIM(M.Material)), ''), 'FALTA ASIGNAR EN CAD') AS MaterialLimpio,
                     TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS LargoLimpio,
                     TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Ancho_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS AnchoLimpio,
                     TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Area_CAD, ' mm^2', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS AreaLimpia

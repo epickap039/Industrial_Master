@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_config.dart';
 import '../services/api_client.dart';
+import '../theme/page_title_style.dart';
 
 class LobbyScreen extends StatefulWidget {
   final Function(int) onNavigate;
@@ -83,15 +84,23 @@ class _LobbyScreenState extends State<LobbyScreen> {
     final cardBgColor = isDark ? Color(0xFF1E1E1E) : theme.cardColor;
 
     return ScaffoldPage(
-      header: PageHeader(
-        title: Column(
+      padding: const EdgeInsets.only(top: 8),
+      header: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               'Bienvenido, $_userName',
-              style: TextStyle(fontSize: 32, fontWeight: FontWeight.w800),
+              style: pageTitleTextStyle(context, fontSize: 32).copyWith(
+                fontWeight: FontWeight.w800,
+                color: theme.typography.title?.color,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              softWrap: false,
             ),
-            SizedBox(height: 4),
+            const SizedBox(height: 4),
             Text(
               'Panel de Control Jaes | Rol: $_userRole',
               style: TextStyle(
@@ -103,14 +112,18 @@ class _LobbyScreenState extends State<LobbyScreen> {
         ),
       ),
       content: SingleChildScrollView(
-        padding: EdgeInsets.all(32),
+        padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // --- SECCIÓN SUPERIOR: TARJETAS KPI ---
             Text(
               'Accesos Rápidos e Indicadores',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: theme.typography.title?.color,
+              ),
             ),
             SizedBox(height: 24),
             
@@ -150,42 +163,42 @@ class _LobbyScreenState extends State<LobbyScreen> {
                     value: totalPiezas.toString(),
                     subtitle: 'Registros en Tbl_Maestro_Piezas',
                     icon: FluentIcons.database,
-                    onTap: () => widget.onNavigate(2),
+                    onTap: () => widget.onNavigate(1),
                   ),
                   _buildKPICard(
                     title: 'Líneas en listas BOM',
                     value: totalLineasBom.toString(),
                     subtitle: 'Filas en Tbl_BOM_Estructura',
                     icon: FluentIcons.bulleted_list2,
-                    onTap: () => widget.onNavigate(15),
+                    onTap: () => widget.onNavigate(9),
                   ),
                   _buildKPICard(
                     title: 'Motor MRP',
                     value: '$mermaConsolidada%',
                     subtitle: 'Merma Configurada',
                     icon: FluentIcons.shopping_cart,
-                    onTap: () => widget.onNavigate(12),
+                    onTap: () => widget.onNavigate(9),
                   ),
                   _buildKPICard(
                     title: 'Salud CAD',
                     value: '${saludCad.toStringAsFixed(1)}%',
                     subtitle: 'Piezas Listas',
                     icon: FluentIcons.line_chart,
-                    onTap: () => widget.onNavigate(15),
+                    onTap: () => widget.onNavigate(3),
                   ),
                   _buildKPICard(
                     title: 'Versiones de Ing.',
                     value: totalVersiones.toString(),
                     subtitle: 'Listas Únicas',
                     icon: FluentIcons.fabric_folder,
-                    onTap: () => widget.onNavigate(13),
+                    onTap: () => widget.onNavigate(10),
                   ),
                   _buildKPICard(
                     title: 'VINs Producidos',
                     value: totalUnidades.toString(),
                     subtitle: 'Unidades Físicas',
                     icon: FluentIcons.car,
-                    onTap: () => widget.onNavigate(14),
+                    onTap: () => widget.onNavigate(11),
                   ),
                 ],
               ),
@@ -201,62 +214,65 @@ class _LobbyScreenState extends State<LobbyScreen> {
             ),
             SizedBox(height: 24),
 
-            GridView.builder(
-              shrinkWrap: true,
-              physics: NeverScrollableScrollPhysics(),
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3, // 3 columnas fijas por fila
-                crossAxisSpacing: 20,
-                mainAxisSpacing: 20,
-                childAspectRatio: 2.8, // Relación de aspecto para que sean rectangulares
-              ),
-              itemCount: 6,
-              itemBuilder: (context, index) {
+            LayoutBuilder(
+              builder: (context, constraints) {
                 final modules = [
                   {
                     'icon': FluentIcons.cube_shape,
                     'title': 'Escáner CAD',
                     'desc': 'Extracción automática de metadatos.',
-                    'nav': 7
+                    'nav': 5
                   },
                   {
                     'icon': FluentIcons.excel_logo,
                     'title': 'Importar Excel',
                     'desc': 'Carga masiva de listas BOM.',
-                    'nav': 8
+                    'nav': 6
                   },
                   {
                     'icon': FluentIcons.check_list,
                     'title': 'Auditor',
                     'desc': 'Radar de integridad de archivos.',
-                    'nav': 9
+                    'nav': 7
                   },
                   {
                     'icon': FluentIcons.fabric_folder,
                     'title': 'Gestión de Proyectos',
                     'desc': 'Control de versiones y tractos.',
-                    'nav': 13
+                    'nav': 10
                   },
                   {
                     'icon': FluentIcons.car,
                     'title': 'Expedientes VIN',
                     'desc': 'Trazabilidad de manufactura.',
-                    'nav': 14
+                    'nav': 11
                   },
                   {
                     'icon': FluentIcons.tablet,
                     'title': 'Centro de QA',
                     'desc': 'Gestión de calidad y no conformes.',
-                    'nav': 16
+                    'nav': 13
                   },
                 ];
 
-                final mod = modules[index];
-                return _buildModuleItem(
-                  icon: mod['icon'] as IconData,
-                  title: mod['title'] as String,
-                  description: mod['desc'] as String,
-                  onTap: () => widget.onNavigate(mod['nav'] as int),
+                final cardWidth = constraints.maxWidth < 360
+                    ? constraints.maxWidth
+                    : 340.0;
+
+                return Wrap(
+                  spacing: 20,
+                  runSpacing: 20,
+                  children: modules.map((mod) {
+                    return SizedBox(
+                      width: cardWidth,
+                      child: _buildModuleItem(
+                        icon: mod['icon'] as IconData,
+                        title: mod['title'] as String,
+                        description: mod['desc'] as String,
+                        onTap: () => widget.onNavigate(mod['nav'] as int),
+                      ),
+                    );
+                  }).toList(),
                 );
               },
             ),

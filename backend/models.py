@@ -1,7 +1,7 @@
 """Modelos Pydantic compartidos (extraídos de server.py)."""
-from typing import List, Optional
+from typing import List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
 class MirrorConfig(BaseModel):
@@ -98,11 +98,23 @@ class EnsamblePayload(BaseModel):
     nombre: str
 
 
+class MaestroPiezaBomPayload(BaseModel):
+    """Datos mínimos para alta en Tbl_Maestro_Piezas cuando el código no existe aún."""
+
+    descripcion: str
+    material: str
+    proceso_primario: str
+    proceso_1: str = ""
+    proceso_2: str = ""
+    proceso_3: str = ""
+
+
 class BOMPayload(BaseModel):
     id_ensamble: int
     codigo_pieza: str
     cantidad: float
     observaciones: str = ""
+    maestro: Optional[MaestroPiezaBomPayload] = None
 
 
 class AsignarRevisionPayload(BaseModel):
@@ -178,10 +190,21 @@ class PiezaPlanaItem(BaseModel):
 
 
 class SincronizacionItem(BaseModel):
+    """Payload de fila Excel → maestro. descripcion/material son independientes (JSON camel/pascal/minúsculas)."""
+
     Codigo_Pieza: str
-    Descripcion: Optional[str] = None
-    Medida: Optional[str] = None
-    Material: Optional[str] = None
+    Descripcion: str = Field(
+        default="",
+        validation_alias=AliasChoices("Descripcion", "descripcion"),
+    )
+    Medida: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("Medida", "medida"),
+    )
+    Material: str = Field(
+        default="",
+        validation_alias=AliasChoices("Material", "material"),
+    )
     Link_Drive: Optional[str] = None
     Simetria: Optional[str] = None
     Proceso_Primario: Optional[str] = None
@@ -195,9 +218,12 @@ class SincronizacionItem(BaseModel):
 
 
 class MasivoUpdate(BaseModel):
+    """Estandarización masiva: `old_desc`/`new_desc` son el valor viejo y nuevo del campo indicado en `campo`."""
+
     old_desc: str
     new_desc: str
-    usuario: str
+    usuario: str = ""
+    campo: Literal["material", "descripcion"] = "material"
 
 
 class ScanCADPayload(BaseModel):

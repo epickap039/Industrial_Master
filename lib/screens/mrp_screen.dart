@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:excel/excel.dart' as excel_lib;
 import '../utils/excel_helper.dart';
 import '../services/api_client.dart';
+import '../widgets/compact_page_header.dart';
 
 import 'dart:io';
 
@@ -300,18 +301,22 @@ class _MRPScreenState extends State<MRPScreen> {
         _mrpData.isNotEmpty || _comercialesData.isNotEmpty || _orphanData.isNotEmpty;
 
     return ScaffoldPage(
-      header: PageHeader(
-        title: const Text('MRPII: Requerimiento de Materiales'),
+      padding: const EdgeInsets.only(top: 8),
+      header: CompactPageHeader(
+        title: Text(
+          'MRPII: Requerimiento de Materiales',
+          style: FluentTheme.of(context).typography.title,
+        ),
         commandBar: Wrap(
-          alignment: WrapAlignment.end,
+          alignment: WrapAlignment.start,
           crossAxisAlignment: WrapCrossAlignment.center,
-          spacing: 10,
-          runSpacing: 10,
+          spacing: 8,
+          runSpacing: 8,
           children: [
             _isLoadingRevisions
                 ? const ProgressRing(strokeWidth: 2)
                 : ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 440),
+                    constraints: const BoxConstraints(maxWidth: 300),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,

@@ -5,11 +5,19 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
 import 'package:shared_preferences/shared_preferences.dart'; // === TAREA 2: Para rastreo de usuario ===
+import 'dart:async';
 import 'dart:io';
 
 import '../services/api_client.dart';
+import '../services/main_nav.dart';
+import '../theme/app_themes.dart';
+import '../widgets/compact_page_header.dart';
 
 part '../controllers/bom_manager_controller.dart';
+
+/// Anchos fijos alineados con el encabezado de la tabla de piezas (evita overflow).
+const double _kBomPiezaColCant = 76.0;
+const double _kBomPiezaColAcciones = 96.0;
 
 class BOMManagerScreen extends StatefulWidget {
   final int? idCliente;
@@ -267,367 +275,550 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
           ],
         ),
         const SizedBox(height: 8),
-        // ─── Header de columnas ───
-        Container(
-          padding: const EdgeInsets.symmetric(vertical: 6.0, horizontal: 12.0),
-          decoration: BoxDecoration(
-            color: Colors.blue.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: const Row(
-            children: [
-              Expanded(
-                flex: 2,
-                child: Text(
-                  "Código",
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                ),
-              ),
-              Expanded(
-                flex: 4,
-                child: Text(
-                  "Descripción Oficial",
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                ),
-              ),
-              Expanded(
-                flex: 1,
-                child: Text(
-                  "Cant.",
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                ),
-              ),
-              Expanded(
-                flex: 2,
-                child: Text(
-                  "Procesos",
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                ),
-              ),
-              Expanded(
-                flex: 2,
-                child: Text(
-                  "Notas / Obs.",
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                ),
-              ),
-              Expanded(
-                flex: 1,
-                child: Text(
-                  "Simetría",
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                ),
-              ),
-              Expanded(
-                flex: 1,
-                child: Text(
-                  "Acciones",
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 4),
-        // ─── Lista de piezas ─── Expanded recibe constraints del Column padre
+        // Tabla con scroll horizontal: evita overflow (p. ej. columna notas + acciones).
         Expanded(
-          child:
-              piezas.isEmpty
-                  ? Center(
-                    child: Text(
-                      "No hay piezas en este ensamble.",
-                      style: TextStyle(
-                        color:
-                            (FluentTheme.of(
-                                  context,
-                                ).typography.body?.color?.withOpacity(0.5) ??
-                                Colors.grey),
-                      ),
-                    ),
-                  )
-                  : ListView.builder(
-                    itemCount: piezas.length,
-                    itemBuilder: (context, index) {
-                      // Guardia: nunca acceder fuera de rango
-                      if (index >= piezas.length)
-                        return const SizedBox.shrink();
-                      final pieza = piezas[index];
-
-                      final List<String> procesos = [];
-                      for (final key in [
-                        'proceso_primario',
-                        'proceso_1',
-                        'proceso_2',
-                        'proceso_3',
-                      ]) {
-                        final v = pieza[key]?.toString() ?? '';
-                        if (v.isNotEmpty) procesos.add(v);
-                      }
-                      final strProcesos = procesos.join(', ');
-                      final strLink = pieza['link_drive']?.toString() ?? '';
-                      final hasLink = strLink.isNotEmpty && strLink != 'N/A';
-                      final descripcion =
-                          pieza['descripcion']?.toString() ?? '';
-                      final strObs =
-                          pieza['observaciones']?.toString().trim() ?? '';
-                      final Color? obsMuted =
-                          FluentTheme.of(context).typography.caption?.color;
-
-                      return Container(
+          child: LayoutBuilder(
+            builder: (context, bx) {
+              final double tableW =
+                  bx.maxWidth < 960 ? 960.0 : bx.maxWidth;
+              return SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: SizedBox(
+                  width: tableW,
+                  height: bx.maxHeight,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Container(
                         padding: const EdgeInsets.symmetric(
-                          vertical: 3.0,
+                          vertical: 6.0,
                           horizontal: 12.0,
                         ),
                         decoration: BoxDecoration(
-                          border: Border(
-                            bottom: BorderSide(
-                              color:
-                                  FluentTheme.of(
-                                    context,
-                                  ).scaffoldBackgroundColor,
-                            ),
-                          ),
+                          color: Colors.blue.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(4),
                         ),
                         child: Row(
                           children: [
                             Expanded(
                               flex: 2,
                               child: Text(
-                                pieza['codigo']?.toString() ?? '',
-                                style: const TextStyle(fontSize: 12),
+                                "Código",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                  color: FluentTheme.of(context)
+                                      .typography
+                                      .body
+                                      ?.color,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                             Expanded(
                               flex: 4,
-                              child: Tooltip(
-                                message: descripcion,
-                                child: Text(
-                                  descripcion,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontSize: 12),
+                              child: Text(
+                                "Descripción Oficial",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                  color: FluentTheme.of(context)
+                                      .typography
+                                      .body
+                                      ?.color,
                                 ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                            Expanded(
-                              flex: 1,
-                              child: Row(
-                                children: [
-                                  ConstrainedBox(
-                                    constraints: const BoxConstraints(
-                                      maxWidth: 80,
-                                    ),
-                                    child: TextBox(
-                                      controller: TextEditingController(
-                                        text:
-                                            pieza['cantidad']?.toString() ??
-                                            '0',
-                                      ),
-                                      keyboardType: TextInputType.number,
-                                      textInputAction: TextInputAction.done,
-                                      enabled: !isAprobada,
-                                      placeholder: "Cant.",
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                      ),
-                                      textAlign: TextAlign.center,
-                                      onSubmitted: (value) {
-                                        final cant = double.tryParse(value);
-                                        if (cant != null && cant > 0) {
-                                          _updateCantidadPieza(
-                                            pieza['id_estructura'],
-                                            cant,
-                                          );
-                                        } else {
-                                          _showError(
-                                            "Cantidad inválida o igual a 0",
-                                          );
-                                        }
-                                      },
-                                    ),
-                                  ),
-                                ],
+                            SizedBox(
+                              width: _kBomPiezaColCant,
+                              child: Text(
+                                "Cant.",
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                  color: FluentTheme.of(context)
+                                      .typography
+                                      .body
+                                      ?.color,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                             Expanded(
                               flex: 2,
                               child: Text(
-                                strProcesos,
-                                style: const TextStyle(fontSize: 11),
+                                "Procesos",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                  color: FluentTheme.of(context)
+                                      .typography
+                                      .body
+                                      ?.color,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                             Expanded(
                               flex: 2,
-                              child:
-                                  strObs.isEmpty
-                                      ? Text(
-                                        '—',
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          color: obsMuted,
+                              child: Text(
+                                "Notas / Obs.",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                  color: FluentTheme.of(context)
+                                      .typography
+                                      .body
+                                      ?.color,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            Expanded(
+                              flex: 1,
+                              child: Text(
+                                "Simetría",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                  color: FluentTheme.of(context)
+                                      .typography
+                                      .body
+                                      ?.color,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            SizedBox(
+                              width: _kBomPiezaColAcciones,
+                              child: Text(
+                                "Acciones",
+                                textAlign: TextAlign.end,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                  color: FluentTheme.of(context)
+                                      .typography
+                                      .body
+                                      ?.color,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Expanded(
+                        child:
+                            piezas.isEmpty
+                                ? Center(
+                                  child: Text(
+                                    "No hay piezas en este ensamble.",
+                                    style: TextStyle(
+                                      color:
+                                          (FluentTheme.of(
+                                                context,
+                                              ).typography.body?.color
+                                                  ?.withOpacity(0.5) ??
+                                              Colors.grey),
+                                    ),
+                                  ),
+                                )
+                                : ListView.builder(
+                                  itemCount: piezas.length,
+                                  itemBuilder: (context, index) {
+                                    if (index >= piezas.length) {
+                                      return const SizedBox.shrink();
+                                    }
+                                    final pieza = piezas[index];
+
+                                    final List<String> procesos = [];
+                                    for (final key in [
+                                      'proceso_primario',
+                                      'proceso_1',
+                                      'proceso_2',
+                                      'proceso_3',
+                                    ]) {
+                                      final v = pieza[key]?.toString() ?? '';
+                                      if (v.isNotEmpty) procesos.add(v);
+                                    }
+                                    final strProcesos = procesos.join(', ');
+                                    final strLink =
+                                        pieza['link_drive']?.toString() ?? '';
+                                    final hasLink =
+                                        strLink.isNotEmpty &&
+                                        strLink != 'N/A';
+                                    final descripcion =
+                                        pieza['descripcion']?.toString() ?? '';
+                                    final strObs =
+                                        pieza['observaciones']
+                                            ?.toString()
+                                            .trim() ??
+                                        '';
+                                    final Color? obsMuted =
+                                        FluentTheme.of(
+                                          context,
+                                        ).typography.caption?.color;
+                                    final themeRow = FluentTheme.of(context);
+                                    final Color bodyColor =
+                                        themeRow.typography.body?.color ??
+                                            (themeRow.brightness ==
+                                                    Brightness.dark
+                                                ? const Color(0xFFE8E8E8)
+                                                : const Color(0xFF242424));
+
+                                    return Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 3.0,
+                                        horizontal: 12.0,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        border: Border(
+                                          bottom: BorderSide(
+                                            color:
+                                                FluentTheme.of(
+                                                  context,
+                                                ).scaffoldBackgroundColor,
+                                          ),
                                         ),
-                                      )
-                                      : Tooltip(
-                                        message: strObs,
-                                        child: Row(
-                                          children: [
-                                            Icon(
-                                              FluentIcons.document,
-                                              size: 12,
-                                              color: obsMuted,
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Expanded(
+                                            flex: 2,
+                                            child: Text(
+                                              pieza['codigo']?.toString() ?? '',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: bodyColor,
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
                                             ),
-                                            const SizedBox(width: 4),
-                                            Expanded(
+                                          ),
+                                          Expanded(
+                                            flex: 4,
+                                            child: Tooltip(
+                                              message: descripcion,
                                               child: Text(
-                                                strObs,
-                                                style: const TextStyle(
-                                                  fontSize: 10,
+                                                descripcion,
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: bodyColor,
                                                 ),
                                                 maxLines: 1,
                                                 overflow:
                                                     TextOverflow.ellipsis,
                                               ),
                                             ),
-                                          ],
-                                        ),
-                                      ),
-                            ),
-                            Expanded(
-                              flex: 1,
-                              child: Text(
-                                pieza['simetria']?.toString() ?? '',
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                            ),
-                            Expanded(
-                              flex: 1,
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  if (hasLink)
-                                    Tooltip(
-                                      message: "Abrir Plano",
-                                      child: IconButton(
-                                        icon: Icon(
-                                          FluentIcons.link,
-                                          color: Colors.blue,
-                                          size: 14,
-                                        ),
-                                        onPressed: () async {
-                                          final uri = Uri.parse(strLink);
-                                          if (await canLaunchUrl(uri)) {
-                                            await launchUrl(uri);
-                                          }
-                                          if (!mounted) return;
-                                        },
-                                      ),
-                                    ),
-                                  if (!isAprobada)
-                                    IconButton(
-                                      icon: Icon(
-                                        FluentIcons.delete,
-                                        color: Colors.red,
-                                        size: 14,
-                                      ),
-                                      onPressed:
-                                          () => _confirmDelete(
-                                            "¿Seguro de quitar la pieza ${pieza['codigo']}?",
-                                            () => _deletePieza(pieza['id']),
                                           ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
+                                          SizedBox(
+                                            width: _kBomPiezaColCant,
+                                            child: Align(
+                                              alignment: Alignment.center,
+                                              child: TextBox(
+                                                controller:
+                                                    TextEditingController(
+                                                      text:
+                                                          pieza['cantidad']
+                                                              ?.toString() ??
+                                                          '0',
+                                                    ),
+                                                keyboardType:
+                                                    TextInputType.number,
+                                                textInputAction:
+                                                    TextInputAction.done,
+                                                enabled: !isAprobada,
+                                                placeholder: "Cant.",
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 6,
+                                                    ),
+                                                textAlign: TextAlign.center,
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  color: bodyColor,
+                                                ),
+                                                placeholderStyle: TextStyle(
+                                                  fontSize: 10,
+                                                  color: obsMuted,
+                                                ),
+                                                onSubmitted: (value) {
+                                                  final cant =
+                                                      double.tryParse(
+                                                        value,
+                                                      );
+                                                  if (cant != null &&
+                                                      cant > 0) {
+                                                    _updateCantidadPieza(
+                                                      pieza['id_estructura'],
+                                                      cant,
+                                                    );
+                                                  } else {
+                                                    _showError(
+                                                      "Cantidad inválida o igual a 0",
+                                                    );
+                                                  }
+                                                },
+                                              ),
+                                            ),
+                                          ),
+                                          Expanded(
+                                            flex: 2,
+                                            child: Tooltip(
+                                              message: strProcesos,
+                                              child: Text(
+                                                strProcesos,
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  color: bodyColor,
+                                                ),
+                                                maxLines: 1,
+                                                overflow:
+                                                    TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          ),
+                                          Expanded(
+                                            flex: 2,
+                                            child:
+                                                strObs.isEmpty
+                                                    ? Text(
+                                                      '—',
+                                                      style: TextStyle(
+                                                        fontSize: 10,
+                                                        color: obsMuted,
+                                                      ),
+                                                      maxLines: 1,
+                                                      overflow: TextOverflow
+                                                          .ellipsis,
+                                                    )
+                                                    : Tooltip(
+                                                      message: strObs,
+                                                      child: Row(
+                                                        children: [
+                                                          Icon(
+                                                            FluentIcons
+                                                                .document,
+                                                            size: 12,
+                                                            color: obsMuted,
+                                                          ),
+                                                          const SizedBox(
+                                                            width: 4,
+                                                          ),
+                                                          Expanded(
+                                                            child: Text(
+                                                              strObs,
+                                                              style:
+                                                                  TextStyle(
+                                                                    fontSize:
+                                                                        10,
+                                                                    color:
+                                                                        bodyColor,
+                                                                  ),
+                                                              maxLines: 1,
+                                                              overflow:
+                                                                  TextOverflow
+                                                                      .ellipsis,
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                          ),
+                                          Expanded(
+                                            flex: 1,
+                                            child: Text(
+                                              pieza['simetria']
+                                                      ?.toString() ??
+                                                  '',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: bodyColor,
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                          SizedBox(
+                                            width: _kBomPiezaColAcciones,
+                                            child: Row(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.end,
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                if (hasLink)
+                                                  Tooltip(
+                                                    message: "Abrir Plano",
+                                                    child: IconButton(
+                                                      icon: Icon(
+                                                        FluentIcons.link,
+                                                        color: Colors.blue,
+                                                        size: 14,
+                                                      ),
+                                                      onPressed: () async {
+                                                        final uri = Uri.parse(
+                                                          strLink,
+                                                        );
+                                                        if (await canLaunchUrl(
+                                                          uri,
+                                                        )) {
+                                                          await launchUrl(
+                                                            uri,
+                                                          );
+                                                        }
+                                                        if (!mounted) return;
+                                                      },
+                                                    ),
+                                                  ),
+                                                if (!isAprobada)
+                                                  IconButton(
+                                                    icon: Icon(
+                                                      FluentIcons.delete,
+                                                      color: Colors.red,
+                                                      size: 14,
+                                                    ),
+                                                    onPressed:
+                                                        () => _confirmDelete(
+                                                          "¿Seguro de quitar la pieza ${pieza['codigo']}?",
+                                                          () => _deletePieza(
+                                                            pieza['id'],
+                                                          ),
+                                                        ),
+                                                  ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                ),
+                      ),
+                    ],
                   ),
+                ),
+              );
+            },
+          ),
         ),
       ],
     );
   }
 
-  // === VISTA PLANA ESTILO EXCEL ===
+  // === VISTA PLANA ESTILO EXCEL (flex + tema nativo) ===
   Widget _buildVistaPlanaExcel() {
-    final bool isDark =
-        MediaQuery.of(context).platformBrightness == Brightness.dark;
-    final Color textColor = isDark ? Colors.white : Colors.black;
-    final Color rowEven =
-        isDark ? const Color(0xFF242424) : Colors.white;
-    final Color rowOdd =
-        isDark ? const Color(0xFF2E2E2E) : const Color(0xFFF3F6FA);
-    final Color hdBg = _accentColor;
-    final Color borderColor =
-        isDark ? const Color(0xFF3C3C3C) : const Color(0xFFDDE1E6);
-    final Color lvl1Color = _accentColor;
-    final Color lvl2Color =
-        isDark ? const Color(0xFF90CAF9) : const Color(0xFF0D47A1);
+    final theme = FluentTheme.of(context);
+    final res = theme.resources;
+    final Color bodyColor = theme.typography.body?.color ??
+        (theme.brightness == Brightness.dark
+            ? const Color(0xFFE8E8E8)
+            : const Color(0xFF242424));
+    final Color baseRow = Color.alphaBlend(
+      res.cardBackgroundFillColorDefault,
+      theme.scaffoldBackgroundColor,
+    );
+    final Color rowEven = baseRow;
+    final Color rowOdd = Color.alphaBlend(
+      (theme.brightness == Brightness.dark ? Colors.white : Colors.black)
+          .withValues(alpha: 0.07),
+      baseRow,
+    );
+    final Color borderColor = res.dividerStrokeColorDefault;
+    final Color headerFill = res.controlFillColorDefault;
 
-    const double wNivel = 160.0;
-    const double wCodigo = 180.0;
-    const double wDesc = 380.0;
-    const double wCant = 80.0;
-    const double wMat = 140.0;
-    const double wMedida = 65.0; // Largo, Ancho, Espesor
-    const double wProceso = 85.0; // P. Primario, 1, 2, 3
-    const double wSimetria = 80.0;
-    const double totalWidth = wNivel + wCodigo + wDesc + wCant + wMat + (wMedida * 3) + (wProceso * 4) + wSimetria;
+    // Expanded solo admite int: Simetría flex 1; L/A/E flex 2 c/u (≈1.5 vs columnas base).
+    const int flexCodigo = 2;
+    const int flexMedida = 3;
+    const int flexCantidad = 1;
+    const int flexMaterial = 5;
+    const int flexSimetria = 1;
+    const int flexPPrim = 3;
+    const int flexP1 = 3;
+    const int flexP2 = 3;
+    const int flexLargo = 2;
+    const int flexAncho = 2;
+    const int flexEspesor = 2;
 
-    Widget headerCell(String label, double w) {
-      return Container(
-        width: w,
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-        decoration: BoxDecoration(
-          color: hdBg,
-          border: Border(
-            right: BorderSide(
-              color: Colors.white.withOpacity(0.25),
-              width: 0.5,
+    Widget flexHeaderCell(String label, int flex, {TextAlign align = TextAlign.start}) {
+      return Expanded(
+        flex: flex,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          decoration: BoxDecoration(
+            color: headerFill,
+            border: Border(
+              right: BorderSide(
+                color: borderColor.withValues(alpha: 0.65),
+                width: 0.5,
+              ),
             ),
           ),
-        ),
-        child: Text(
-          label,
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-            fontSize: 11,
-            letterSpacing: 0.4,
+          alignment: align == TextAlign.center
+              ? Alignment.center
+              : AlignmentDirectional.centerStart,
+          child: Text(
+            label,
+            style: TextStyle(
+              color: bodyColor,
+              fontWeight: FontWeight.bold,
+              fontSize: 11,
+              letterSpacing: 0.2,
+            ),
+            textAlign: align,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ),
       );
     }
 
-    Widget dataCell(
+    Widget flexDataText(
       String text,
-      double w, {
-      bool isNumber = false,
+      int flex, {
       Color? colorOverride,
       FontWeight fontWeight = FontWeight.normal,
       bool tooltip = false,
+      TextAlign align = TextAlign.start,
     }) {
-      final txt = Text(
+      final Color tc = colorOverride ?? bodyColor;
+      final child = Text(
         text,
         style: TextStyle(
-          color: colorOverride ?? textColor,
+          color: tc,
           fontSize: 12,
           fontWeight: fontWeight,
         ),
-        textAlign: isNumber ? TextAlign.center : TextAlign.start,
-        overflow: TextOverflow.ellipsis,
+        textAlign: align,
         maxLines: 1,
+        overflow: TextOverflow.ellipsis,
       );
-      return Container(
-        width: w,
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-        decoration: BoxDecoration(
-          border: Border(
-            right: BorderSide(color: borderColor, width: 0.5),
+      return Expanded(
+        flex: flex,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+          decoration: BoxDecoration(
+            border: Border(
+              right: BorderSide(color: borderColor, width: 0.5),
+            ),
           ),
+          alignment: align == TextAlign.center
+              ? Alignment.center
+              : AlignmentDirectional.centerStart,
+          child: tooltip && text.length > 36
+              ? Tooltip(message: text, child: child)
+              : child,
         ),
-        child: tooltip && text.length > 35
-            ? Tooltip(message: text, child: txt)
-            : txt,
       );
     }
 
@@ -640,13 +831,20 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(FluentIcons.table, size: 48, color: Colors.grey),
+            Icon(
+              FluentIcons.table,
+              size: 48,
+              color: res.textFillColorSecondary,
+            ),
             const SizedBox(height: 12),
             Text(
               _selectedRevision == null
                   ? "Selecciona una revisión para ver la Vista Plana."
                   : "No hay datos para mostrar en esta revisión.",
-              style: TextStyle(color: textColor, fontSize: 13),
+              style: TextStyle(
+                color: bodyColor,
+                fontSize: 13,
+              ),
             ),
           ],
         ),
@@ -659,7 +857,6 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // ─── Título compacto + botón auditoría ───
         Padding(
           padding: const EdgeInsets.only(bottom: 8.0),
           child: Row(
@@ -673,7 +870,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
                     fontSize: 13,
-                    color: textColor,
+                    color: bodyColor,
                   ),
                 ),
               ),
@@ -687,8 +884,10 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                       Icon(FluentIcons.document_search,
                           size: 13, color: _accentColor),
                       const SizedBox(width: 5),
-                      const Text("Auditar Planos",
-                          style: TextStyle(fontSize: 12)),
+                      Text(
+                        "Auditar Planos",
+                        style: TextStyle(fontSize: 12, color: bodyColor),
+                      ),
                     ],
                   ),
                 ),
@@ -696,135 +895,264 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
             ],
           ),
         ),
-        // ─── Tabla con doble scroll ───
         Expanded(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: SizedBox(
-              width: totalWidth,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Header fijo
-                  Container(
-                    decoration: BoxDecoration(
-                      border: Border(
-                        bottom: BorderSide(color: borderColor, width: 1.5),
+          child: LayoutBuilder(
+            builder: (context, bx) {
+              final double parentW =
+                  bx.maxWidth.isFinite && bx.maxWidth > 0 ? bx.maxWidth : 1200;
+              final double tableW = parentW < 1280 ? 1280 : parentW;
+              return SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: SizedBox(
+                  width: tableW,
+                  height: bx.maxHeight,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Container(
+                        decoration: BoxDecoration(
+                          color: headerFill,
+                          border: Border(
+                            bottom: BorderSide(color: borderColor, width: 1.5),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            flexHeaderCell('Código pieza', flexCodigo),
+                            flexHeaderCell('Medida', flexMedida),
+                            flexHeaderCell('Cantidad', flexCantidad,
+                                align: TextAlign.center),
+                            flexHeaderCell('Material', flexMaterial),
+                            flexHeaderCell('Simetría', flexSimetria),
+                            flexHeaderCell('P. primario', flexPPrim),
+                            flexHeaderCell('P. 1', flexP1),
+                            flexHeaderCell('P. 2', flexP2),
+                            flexHeaderCell('Largo', flexLargo,
+                                align: TextAlign.center),
+                            flexHeaderCell('Ancho', flexAncho,
+                                align: TextAlign.center),
+                            flexHeaderCell('Espesor', flexEspesor,
+                                align: TextAlign.center),
+                          ],
+                        ),
                       ),
-                    ),
-                    child: Row(
-                      children: [
-                        headerCell("Estación", wNivel),
-                        headerCell("Código", wCodigo),
-                        headerCell("Descripción", wDesc),
-                        headerCell("Material", wMat),
-                        headerCell("Cantidad", wCant),
-                        headerCell("Largo", wMedida),
-                        headerCell("Ancho", wMedida),
-                        headerCell("Espesor", wMedida),
-                        headerCell("Proc. P", wProceso),
-                        headerCell("Proc. 1", wProceso),
-                        headerCell("Proc. 2", wProceso),
-                        headerCell("Proc. 3", wProceso),
-                        headerCell("Tiene DXF", wSimetria),
-                      ],
-                    ),
-                  ),
-                  // Filas virtualizadas
-                  Expanded(
-                    child: ListView.builder(
-                      itemCount: _bomPlana.length,
-                      itemBuilder: (context, index) {
-                        final row = _bomPlana[index];
-                        final int nivel = (row['nivel'] as num).toInt();
-                        final bool isOdd = index.isOdd;
+                      Expanded(
+                        child: ListView.builder(
+                          itemCount: _bomPlana.length,
+                          itemBuilder: (context, index) {
+                            final row = _bomPlana[index];
+                            final int nivel = (row['nivel'] as num).toInt();
+                            final bool isOdd = index.isOdd;
 
-                        Color? rowTextOverride;
-                        FontWeight fw = FontWeight.normal;
-                        String nivelLabel;
+                            final codigoTxt =
+                                row['codigo_pieza']?.toString() ?? '';
 
-                        if (nivel == 1) {
-                          rowTextOverride = lvl1Color;
-                          fw = FontWeight.bold;
-                          nivelLabel = "▶ EST";
-                        } else if (nivel == 2) {
-                          rowTextOverride = lvl2Color;
-                          fw = FontWeight.w600;
-                          nivelLabel = "  ▸ ENS";
-                        } else {
-                          // Tarea 5: Mostrar Ensamble Padre o PIEZA
-                          final padre = row['nombre_ensamble']?.toString() ?? "PIEZA";
-                          nivelLabel = "      " + (padre.length > 20 ? padre.substring(0, 20) : padre);
-                        }
+                            if (nivel == 1 || nivel == 2) {
+                              final String etiqueta =
+                                  nivel == 1 ? 'ESTACIÓN' : 'ENSAMBLE';
+                              final TextStyle? baseGrp =
+                                  theme.typography.subtitle ??
+                                      theme.typography.bodyStrong;
+                              final Color accentText = theme.accentColor;
+                              final sepBg = Color.alphaBlend(
+                                res.subtleFillColorSecondary,
+                                Color.alphaBlend(
+                                  res.subtleFillColorTransparent,
+                                  baseRow,
+                                ),
+                              );
+                              return Container(
+                                width: tableW,
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: sepBg,
+                                  border: Border(
+                                    bottom: BorderSide(
+                                      color: borderColor,
+                                      width: 1,
+                                    ),
+                                  ),
+                                ),
+                                child: Center(
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 20,
+                                    ),
+                                    child: Text(
+                                      '$etiqueta · $codigoTxt',
+                                      textAlign: TextAlign.center,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: baseGrp?.copyWith(
+                                            color: accentText,
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: (baseGrp.fontSize ?? 13) +
+                                                0.5,
+                                          ) ??
+                                          TextStyle(
+                                            color: accentText,
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 13.5,
+                                          ),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }
 
-                        final cantStr = row['cantidad'] != null
-                            ? (row['cantidad'] as num)
-                                .toStringAsFixed(2)
-                                .replaceAll(RegExp(r'\.?0+$'), '')
-                            : '';
+                            final cantStr = row['cantidad'] != null
+                                ? (row['cantidad'] as num)
+                                    .toStringAsFixed(2)
+                                    .replaceAll(RegExp(r'\.?0+$'), '')
+                                : '';
 
-                        return Container(
-                          decoration: BoxDecoration(
-                            color: isOdd ? rowOdd : rowEven,
-                            border: Border(
-                              bottom: BorderSide(
-                                color: borderColor,
-                                width: 0.5,
+                            final medidaTxt = row['medida']?.toString() ?? '';
+                            final matTxt = row['material']?.toString() ?? '';
+                            final simTxt = row['simetria']?.toString() ?? '';
+
+                            return Container(
+                              decoration: BoxDecoration(
+                                color: isOdd ? rowOdd : rowEven,
+                                border: Border(
+                                  bottom: BorderSide(
+                                    color: borderColor,
+                                    width: 0.5,
+                                  ),
+                                ),
                               ),
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              dataCell(
-                                nivelLabel,
-                                wNivel,
-                                isNumber: true,
-                                colorOverride: rowTextOverride,
-                                fontWeight: fw,
-                              ),
-                              dataCell(row['codigo_pieza']?.toString() ?? '', wCodigo, colorOverride: rowTextOverride, fontWeight: fw),
-                              dataCell(row['descripcion']?.toString() ?? '', wDesc, tooltip: true),
-                              dataCell(row['material']?.toString() ?? '', wMat, tooltip: true),
-                              nivel == 3
-                                  ? Container(
-                                      width: wCant,
-                                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                                      decoration: BoxDecoration(border: Border(right: BorderSide(color: borderColor, width: 0.5))),
-                                      child: TextBox(
-                                        controller: TextEditingController(text: cantStr),
-                                        keyboardType: TextInputType.number,
-                                        enabled: _esEditable,
-                                        textAlign: TextAlign.center,
-                                        onSubmitted: (value) async {
-                                          final cant = double.tryParse(value);
-                                          if (cant != null && cant > 0) {
-                                            final idEst = row['id_estructura'];
-                                            if (idEst != null) {
-                                              await _updateCantidadPieza((idEst as num).toInt(), cant);
-                                              if (!mounted) return;
-                                            } else { _showError("Sin id_estructura"); }
-                                          } else { _showError("Cantidad inválida"); }
-                                        },
+                              child: Row(
+                                children: [
+                                  flexDataText(
+                                    codigoTxt,
+                                    flexCodigo,
+                                    tooltip: true,
+                                  ),
+                                  flexDataText(
+                                    medidaTxt,
+                                    flexMedida,
+                                    tooltip: true,
+                                  ),
+                                  Expanded(
+                                    flex: flexCantidad,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 4,
+                                        vertical: 2,
                                       ),
-                                    )
-                                  : dataCell(cantStr, wCant, isNumber: true),
-                              dataCell(row['largo_cad']?.toString() ?? '', wMedida, isNumber: true),
-                              dataCell(row['ancho_cad']?.toString() ?? '', wMedida, isNumber: true),
-                              dataCell(row['espesor_cad']?.toString() ?? '', wMedida, isNumber: true),
-                              dataCell(row['proceso_primario']?.toString() ?? '', wProceso, tooltip: true),
-                              dataCell(row['proceso_1']?.toString() ?? '', wProceso, tooltip: true),
-                              dataCell(row['proceso_2']?.toString() ?? '', wProceso, tooltip: true),
-                              dataCell(row['proceso_3']?.toString() ?? '', wProceso, tooltip: true),
-                              dataCell(row['tiene_dxf']?.toString() ?? '', wSimetria, tooltip: true),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
+                                      decoration: BoxDecoration(
+                                        border: Border(
+                                          right: BorderSide(
+                                            color: borderColor,
+                                            width: 0.5,
+                                          ),
+                                        ),
+                                      ),
+                                      child: nivel == 3
+                                          ? TextBox(
+                                              controller: TextEditingController(
+                                                text: cantStr,
+                                              ),
+                                              keyboardType: TextInputType.number,
+                                              enabled: _esEditable,
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                color: bodyColor,
+                                                fontSize: 12,
+                                              ),
+                                              cursorColor: theme.accentColor,
+                                              placeholderStyle: TextStyle(
+                                                color: res.textFillColorSecondary,
+                                                fontSize: 11,
+                                              ),
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                horizontal: 6,
+                                              ),
+                                              onSubmitted: (value) async {
+                                                final cant =
+                                                    double.tryParse(value);
+                                                if (cant != null && cant > 0) {
+                                                  final idEst =
+                                                      row['id_estructura'];
+                                                  if (idEst != null) {
+                                                    await _updateCantidadPieza(
+                                                      (idEst as num).toInt(),
+                                                      cant,
+                                                    );
+                                                    if (!mounted) return;
+                                                  } else {
+                                                    _showError("Sin id_estructura");
+                                                  }
+                                                } else {
+                                                  _showError("Cantidad inválida");
+                                                }
+                                              },
+                                            )
+                                          : Text(
+                                              cantStr,
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                color: bodyColor,
+                                                fontSize: 12,
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                    ),
+                                  ),
+                                  flexDataText(
+                                    matTxt,
+                                    flexMaterial,
+                                    tooltip: true,
+                                  ),
+                                  flexDataText(
+                                    simTxt,
+                                    flexSimetria,
+                                    tooltip: true,
+                                  ),
+                                  flexDataText(
+                                    row['proceso_primario']?.toString() ?? '',
+                                    flexPPrim,
+                                    tooltip: true,
+                                  ),
+                                  flexDataText(
+                                    row['proceso_1']?.toString() ?? '',
+                                    flexP1,
+                                    tooltip: true,
+                                  ),
+                                  flexDataText(
+                                    row['proceso_2']?.toString() ?? '',
+                                    flexP2,
+                                    tooltip: true,
+                                  ),
+                                  flexDataText(
+                                    row['largo_cad']?.toString() ?? '',
+                                    flexLargo,
+                                    align: TextAlign.center,
+                                  ),
+                                  flexDataText(
+                                    row['ancho_cad']?.toString() ?? '',
+                                    flexAncho,
+                                    align: TextAlign.center,
+                                  ),
+                                  flexDataText(
+                                    row['espesor_cad']?.toString() ?? '',
+                                    flexEspesor,
+                                    align: TextAlign.center,
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-            ),
+                ),
+              );
+            },
           ),
         ),
       ],
@@ -943,7 +1271,8 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
   @override
   Widget build(BuildContext context) {
     return ScaffoldPage(
-      header: PageHeader(
+      padding: const EdgeInsets.only(top: 8),
+      header: CompactPageHeader(
         leading: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8.0),
           child: IconButton(
@@ -957,7 +1286,10 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('Gestor de Listas (BOM)'),
+            Text(
+              'Gestor de Listas (BOM)',
+              style: FluentTheme.of(context).typography.title,
+            ),
             if (_clientesDeRevision(_selectedRevision).isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 2),
@@ -1064,6 +1396,31 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                       ? const Color(0xFF9E9E9E) 
                                       : const Color(0xFFF9A825)
                             ),
+                          ),
+                        ),
+                        Tooltip(
+                          message: 'Cambiar tema visual',
+                          child: IconButton(
+                            icon: Icon(
+                              FluentIcons.color,
+                              color: _accentColor,
+                              size: 18,
+                            ),
+                            onPressed: () => showAppThemePickerDialog(context),
+                          ),
+                        ),
+                        Tooltip(
+                          message: 'Guía de importación Excel',
+                          child: IconButton(
+                            icon: Icon(
+                              FluentIcons.info,
+                              size: 18,
+                              color: FluentTheme.of(context)
+                                  .typography
+                                  .body
+                                  ?.color,
+                            ),
+                            onPressed: _showGuiaImportacionDialog,
                           ),
                         ),
                         Expanded(
@@ -1201,6 +1558,18 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                         !_esEditable)
                                     ? null
                                     : _importarExcel,
+                              ),
+                              CommandBarButton(
+                                icon: const Icon(FluentIcons.add_to),
+                                label: Tooltip(
+                                  message:
+                                      'Añade o suma cantidades por ruta Estación → Ensamble → Código sin borrar la BOM actual',
+                                  child: const Text("Sumar Excel"),
+                                ),
+                                onPressed: (_selectedRevision == null ||
+                                        !_esEditable)
+                                    ? null
+                                    : _sumarExcel,
                               ),
                             ],
                           ),
@@ -1469,10 +1838,12 @@ class _DiffAuditorDialogState extends State<_DiffAuditorDialog> {
         decoration: BoxDecoration(
           color: widget.accentColor,
           border: Border(right: BorderSide(
-              color: Colors.white.withOpacity(0.15), width: 0.5)),
+              color: const Color(0xFFF8F8F8).withValues(alpha: 0.15), width: 0.5)),
         ),
         child: Text(label,
-          style: const TextStyle(color: Colors.white,
+          style: TextStyle(
+              color: FluentTheme.of(context).typography.title?.color ??
+                  const Color(0xFFF8F8F8),
               fontWeight: FontWeight.bold, fontSize: 11, letterSpacing: 0.3),
           textAlign: align, overflow: TextOverflow.ellipsis),
       );
@@ -1592,8 +1963,10 @@ class _DiffAuditorDialogState extends State<_DiffAuditorDialog> {
                                     Container(
                                       width: wFlag, color: flagClr,
                                       alignment: Alignment.center,
-                                      child: Text(icon, style: const TextStyle(
-                                          color: Colors.white, fontSize: 10,
+                                      child: Text(icon, style: TextStyle(
+                                          color: FluentTheme.of(context).typography.title?.color ??
+                                              const Color(0xFFF8F8F8),
+                                          fontSize: 10,
                                           fontWeight: FontWeight.bold)),
                                     ),
                                     dCell(r.codigo, wCod,
@@ -1648,11 +2021,16 @@ class _DiffAuditorDialogState extends State<_DiffAuditorDialog> {
         FilledButton(
           style: ButtonStyle(backgroundColor: WidgetStateProperty.all(clrGreen)),
           onPressed: widget.onConfirm,
-          child: const Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(FluentIcons.check_mark, size: 13, color: Colors.white),
-            SizedBox(width: 6),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(FluentIcons.check_mark, size: 13,
+                color: FluentTheme.of(context).typography.title?.color ??
+                    const Color(0xFFF8F8F8)),
+            const SizedBox(width: 6),
             Text('Confirmar y Aprobar Revisión',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                style: TextStyle(
+                    color: FluentTheme.of(context).typography.title?.color ??
+                        const Color(0xFFF8F8F8),
+                    fontWeight: FontWeight.bold)),
           ]),
         ),
       ],

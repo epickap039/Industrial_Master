@@ -52,6 +52,8 @@ class _LoginScreenState extends State<LoginScreen> {
         },
       ) as Map<String, dynamic>;
       final String rol = data['rol'] ?? 'USER';
+      final token = data['access_token'];
+      final String? accessToken = token is String && token.isNotEmpty ? token : null;
 
       // Guardar Sesión
       final prefs = await SharedPreferences.getInstance();
@@ -59,6 +61,11 @@ class _LoginScreenState extends State<LoginScreen> {
       await prefs.setString('loginDate', DateTime.now().toIso8601String());
       await prefs.setString('username', _userController.text);
       await prefs.setString('rol', rol);
+      if (accessToken != null) {
+        await prefs.setString('access_token', accessToken);
+      } else {
+        await prefs.remove('access_token');
+      }
 
       if (!mounted) return;
       widget.onLoginSuccess();
@@ -87,6 +94,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return ScaffoldPage(
+      padding: const EdgeInsets.only(top: 8),
       content: Stack(
         children: [
           Center(

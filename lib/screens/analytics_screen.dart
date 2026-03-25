@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import '../services/api_client.dart';
+import '../widgets/compact_page_header.dart';
 
 int _analyticsInt(dynamic v) {
   if (v == null) return 0;
@@ -306,8 +307,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     final isDark = FluentTheme.of(context).brightness == Brightness.dark;
 
     return ScaffoldPage(
-      header: PageHeader(
-        title: const Text('Dashboard Analytics - Control de Producción'),
+      padding: const EdgeInsets.only(top: 8),
+      header: CompactPageHeader(
+        title: Text(
+          'Dashboard Analytics - Control de Producción',
+          style: FluentTheme.of(context).typography.title,
+        ),
         commandBar: Wrap(
           alignment: WrapAlignment.end,
           crossAxisAlignment: WrapCrossAlignment.center,
@@ -609,7 +614,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     getTooltipItem: (group, groupIndex, rod, rodIndex) {
                       return BarTooltipItem(
                         '${top[groupIndex]['Codigo_Pieza']}\n',
-                        const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                        TextStyle(
+                          color: isDark
+                              ? const Color(0xFFF5F5F5)
+                              : const Color(0xFF1A1A1A),
+                          fontWeight: FontWeight.bold,
+                        ),
                         children: [
                           TextSpan(
                             text: '${rod.toY.toInt()} Piezas',

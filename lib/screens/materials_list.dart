@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import '../services/api_client.dart';
+import '../widgets/compact_page_header.dart';
 
 class MaterialsListScreen extends StatefulWidget {
   const MaterialsListScreen({super.key});
@@ -200,8 +201,12 @@ class _MaterialsListScreenState extends State<MaterialsListScreen> {
             .toList();
 
     return ScaffoldPage(
-      header: PageHeader(
-        title: const Text("Materiales Oficiales"),
+      padding: const EdgeInsets.only(top: 8),
+      header: CompactPageHeader(
+        title: Text(
+          "Materiales Oficiales",
+          style: FluentTheme.of(context).typography.title,
+        ),
         commandBar: FilledButton(
           onPressed: _addMaterial,
           child: const Row(

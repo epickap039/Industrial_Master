@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'bom_manager.dart';
 import '../services/api_client.dart';
+import '../widgets/compact_page_header.dart';
 
 class EngineeringMapScreen extends StatefulWidget {
   final int? targetRevisionId;
@@ -399,9 +400,17 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
   @override
   Widget build(BuildContext context) {
     return ScaffoldPage(
-      header: PageHeader(
-        title: const Text('Mapa de Ingeniería'),
-        commandBar: Row(
+      padding: const EdgeInsets.only(top: 8),
+      header: CompactPageHeader(
+        title: Text(
+          'Mapa de Ingeniería',
+          style: FluentTheme.of(context).typography.title,
+        ),
+        commandBar: Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             SizedBox(
               width: 180,
@@ -416,8 +425,8 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
                 },
               ),
             ),
-            const SizedBox(width: 8),
-            Expanded(
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
               child: TextBox(
                 placeholder: 'Crit. de Búsqueda...',
                 prefix: const Padding(
@@ -427,7 +436,6 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
                 onChanged: (v) => setState(() => _filter = v),
               ),
             ),
-            const SizedBox(width: 8),
             Tooltip(
               message: "Centrar Mapa a Origen",
               child: IconButton(
@@ -437,7 +445,6 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
                 },
               ),
             ),
-            const SizedBox(width: 8),
             Tooltip(
               message: "Recargar árbol",
               child: IconButton(

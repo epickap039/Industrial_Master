@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:file_picker/file_picker.dart';
 import '../services/api_client.dart';
+import '../widgets/compact_page_header.dart';
 
 class AuditorScreen extends StatefulWidget {
   const AuditorScreen({super.key});
@@ -248,7 +249,13 @@ class _AuditorScreenState extends State<AuditorScreen> {
   @override
   Widget build(BuildContext context) {
     return ScaffoldPage(
-      header: const PageHeader(title: Text('Auditor de Archivos')),
+      padding: const EdgeInsets.only(top: 8),
+      header: CompactPageHeader(
+        title: Text(
+          'Auditor de Archivos',
+          style: FluentTheme.of(context).typography.title,
+        ),
+      ),
       content: Padding(
         padding: const EdgeInsets.all(20.0),
         child: Column(
@@ -343,7 +350,7 @@ class _AuditorScreenState extends State<AuditorScreen> {
                       ),
                       child: const Row(
                         children: [
-                          Icon(FluentIcons.repair, color: Colors.white),
+                          Icon(FluentIcons.repair),
                           SizedBox(width: 8),
                           Text('Corregir Archivo Excel'),
                         ],
@@ -551,18 +558,19 @@ class _AuditorScreenState extends State<AuditorScreen> {
                                                 filas.length > 1
                                                     ? 'Filas: $filasStr'
                                                     : 'Fila: $filasStr',
-                                                style: TextStyle(
-                                                  color: Colors.white,
+                                                style: const TextStyle(
                                                   fontWeight: FontWeight.bold,
                                                   fontSize: 12,
                                                 ),
                                               ),
                                             ),
                                             const SizedBox(width: 12),
-                                            const Text(
+                                            Text(
                                               'Columna: ',
                                               style: TextStyle(
-                                                color: Colors.grey,
+                                                color: FluentTheme.of(
+                                                  context,
+                                                ).resources.textFillColorSecondary,
                                                 fontSize: 13,
                                               ),
                                             ),

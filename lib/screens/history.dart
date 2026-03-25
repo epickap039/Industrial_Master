@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
 import '../services/api_client.dart';
+import '../widgets/compact_page_header.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
@@ -730,8 +731,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
   @override
   Widget build(BuildContext context) {
     return ScaffoldPage(
-      header: const PageHeader(
-        title: Text('Historial Global de Cambios'),
+      padding: const EdgeInsets.only(top: 8),
+      header: CompactPageHeader(
+        title: Text(
+          'Historial Global de Cambios',
+          style: FluentTheme.of(context).typography.title,
+        ),
       ),
       content: Padding(
         padding: const EdgeInsets.all(16.0),

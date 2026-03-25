@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config/app_config.dart';
 
@@ -66,6 +67,19 @@ class ApiClient {
     };
   }
 
+  /// Añade `Authorization: Bearer …` si hay token guardado tras el login.
+  static Future<Map<String, String>> _withAuth(Map<String, String>? headers) async {
+    final out = <String, String>{...?headers};
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final t = prefs.getString('access_token');
+      if (t != null && t.isNotEmpty) {
+        out.putIfAbsent('Authorization', () => 'Bearer $t');
+      }
+    } catch (_) {}
+    return out;
+  }
+
   static String _messageFromErrorBody(String body) {
     if (body.isEmpty) return 'Solicitud rechazada por el servidor';
     try {
@@ -106,7 +120,7 @@ class ApiClient {
   }) async {
     final r = await http.get(
       uri(path, queryParameters),
-      headers: headers,
+      headers: await _withAuth(headers),
     );
     return _decodeSuccessBody(r);
   }
@@ -120,7 +134,7 @@ class ApiClient {
   }) async {
     Future<http.Response> future = http.get(
       uri(path, queryParameters),
-      headers: headers,
+      headers: await _withAuth(headers),
     );
     final r =
         timeout != null ? await future.timeout(timeout) : await future;
@@ -136,7 +150,7 @@ class ApiClient {
   }) async {
     final Map<String, String> h = {
       if (body != null) 'Content-Type': 'application/json',
-      ...?headers,
+      ...await _withAuth(headers),
     };
     final r = await http.post(
       uri(path, queryParameters),
@@ -155,7 +169,7 @@ class ApiClient {
   }) async {
     final Map<String, String> h = {
       if (body != null) 'Content-Type': 'application/json',
-      ...?headers,
+      ...await _withAuth(headers),
     };
     final r = await http.put(
       uri(path, queryParameters),
@@ -174,7 +188,7 @@ class ApiClient {
   }) async {
     final Map<String, String> h = {
       if (body != null) 'Content-Type': 'application/json',
-      ...?headers,
+      ...await _withAuth(headers),
     };
     final r = await http.delete(
       uri(path, queryParameters),
@@ -193,7 +207,7 @@ class ApiClient {
   }) async {
     Future<http.Response> future = http.get(
       uri(path, queryParameters),
-      headers: headers,
+      headers: await _withAuth(headers),
     );
     final r =
         timeout != null ? await future.timeout(timeout) : await future;
@@ -210,7 +224,7 @@ class ApiClient {
   }) async {
     final r = await http.post(
       uri(path, queryParameters),
-      headers: {..._jsonHeaders(), ...?headers},
+      headers: {...await _withAuth(null), ..._jsonHeaders(), ...?headers},
       body: body == null ? null : json.encode(body),
     );
     return _decodeSuccessBody(r);
@@ -225,7 +239,7 @@ class ApiClient {
   }) async {
     final r = await http.post(
       uri(path, queryParameters),
-      headers: {..._jsonHeaders(), ...?headers},
+      headers: {...await _withAuth(null), ..._jsonHeaders(), ...?headers},
       body: body == null ? null : json.encode(body),
     );
     _ensureSuccess(r);
@@ -241,7 +255,7 @@ class ApiClient {
   }) async {
     final Map<String, String> h = {
       if (body != null) ..._jsonHeaders(),
-      ...?headers,
+      ...await _withAuth(headers),
     };
     final r = await http.put(
       uri(path, queryParameters),
@@ -260,7 +274,7 @@ class ApiClient {
   }) async {
     final r = await http.delete(
       uri(path, queryParameters),
-      headers: headers,
+      headers: await _withAuth(headers),
     );
     return _decodeSuccessBody(r);
   }
@@ -278,9 +292,7 @@ class ApiClient {
     for (final e in files.entries) {
       request.files.add(e.value);
     }
-    if (headers != null) {
-      request.headers.addAll(headers);
-    }
+    request.headers.addAll(await _withAuth(headers));
     final streamed = await request.send();
     final response = await http.Response.fromStream(streamed);
     return _decodeSuccessBody(response);
@@ -299,9 +311,7 @@ class ApiClient {
     for (final e in files.entries) {
       request.files.add(e.value);
     }
-    if (headers != null) {
-      request.headers.addAll(headers);
-    }
+    request.headers.addAll(await _withAuth(headers));
     final streamed = await request.send();
     final response = await http.Response.fromStream(streamed);
     _ensureSuccess(response);

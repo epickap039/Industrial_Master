@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
 
 import '../services/api_client.dart';
+import '../widgets/compact_page_header.dart';
 
 class QADashboardScreen extends StatefulWidget {
   const QADashboardScreen({super.key});
@@ -408,10 +409,12 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
                                               ?.toString()
                                               .toUpperCase() ??
                                           'N/A',
-                                      style: const TextStyle(
-                                        color: Colors.white,
+                                      style: TextStyle(
                                         fontSize: 10,
                                         fontWeight: FontWeight.w600,
+                                        color: FluentTheme.of(
+                                          context,
+                                        ).typography.bodyStrong?.color,
                                       ),
                                     ),
                                   ),
@@ -506,8 +509,12 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
   @override
   Widget build(BuildContext context) {
     return ScaffoldPage(
-      header: PageHeader(
-        title: const Text("Centro de QA y Reportes"),
+      padding: const EdgeInsets.only(top: 8),
+      header: CompactPageHeader(
+        title: Text(
+          "Centro de QA y Reportes",
+          style: FluentTheme.of(context).typography.title,
+        ),
         commandBar: Row(
           mainAxisSize: MainAxisSize.min,
           children: [

@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/services.dart';
 import '../services/api_client.dart';
+import '../widgets/compact_page_header.dart';
 
 class CADScannerScreen extends StatefulWidget {
   const CADScannerScreen({Key? key}) : super(key: key);
@@ -668,9 +669,14 @@ End Sub''';
     final bool isProcessing = _procesarStatus == 'processing';
     final bool isBusy = isScanning || isProcessing;
 
+    final pageHPad = PageHeader.horizontalPadding(context);
     return ScaffoldPage.scrollable(
-      header: const PageHeader(
-        title: Text('Escáner de Directorios CAD'),
+      padding: EdgeInsets.fromLTRB(pageHPad, 8, pageHPad, 24),
+      header: CompactPageHeader(
+        title: Text(
+          'Escáner de Directorios CAD',
+          style: FluentTheme.of(context).typography.title,
+        ),
       ),
       children: [
         Center(
@@ -829,35 +835,36 @@ End Sub''';
                       ),
                     ),
                     const SizedBox(height: 16),
-                    Row(
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      alignment: WrapAlignment.start,
                       children: [
                         FilledButton(
                           onPressed: isBusy ? null : _procesarDirectorio,
                           style: ButtonStyle(
-                            backgroundColor: isBusy 
-                              ? ButtonState.all(Colors.grey) 
-                              : ButtonState.all(Colors.orange),
+                            backgroundColor: isBusy
+                                ? ButtonState.all(Colors.grey)
+                                : ButtonState.all(Colors.orange),
                           ),
                           child: const Padding(
                             padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                             child: Text('Paso 2: Convertir DWG a DXF', style: TextStyle(fontSize: 16)),
                           ),
                         ),
-                        const SizedBox(width: 16),
                         FilledButton(
                           onPressed: isBusy ? null : _startScan,
                           style: ButtonStyle(
-                            backgroundColor: isBusy 
-                              ? ButtonState.all(Colors.grey) 
-                              : ButtonState.all(Colors.green),
+                            backgroundColor: isBusy
+                                ? ButtonState.all(Colors.grey)
+                                : ButtonState.all(Colors.green),
                           ),
                           child: const Padding(
                             padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                             child: Text('Paso 3: Generar Reporte Excel', style: TextStyle(fontSize: 16)),
                           ),
                         ),
-                        if (isBusy) ...[
-                          const SizedBox(width: 16),
+                        if (isBusy)
                           Button(
                             onPressed: _cancelScan,
                             style: ButtonStyle(
@@ -869,7 +876,6 @@ End Sub''';
                               child: Text('Cancelar Escaneo', style: TextStyle(fontSize: 16)),
                             ),
                           ),
-                        ],
                       ],
                     ),
                   ],

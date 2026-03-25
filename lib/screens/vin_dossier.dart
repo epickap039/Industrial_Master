@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart'; // === TAREA 2 ===
 import 'dart:io';
 
 import '../services/api_client.dart';
+import '../widgets/compact_page_header.dart';
 
 class VINDossierScreen extends StatefulWidget {
   final Function(int idRevision)? onNavigateToBOM;
@@ -590,7 +591,13 @@ class _VINDossierScreenState extends State<VINDossierScreen> with AutomaticKeepA
   Widget build(BuildContext context) {
     super.build(context);
     return ScaffoldPage(
-      header: const PageHeader(title: Text("Expedientes VIN / Dossier")),
+      padding: const EdgeInsets.only(top: 8),
+      header: CompactPageHeader(
+        title: Text(
+          "Expedientes VIN / Dossier",
+          style: FluentTheme.of(context).typography.title,
+        ),
+      ),
       content: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(

@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../widgets/compact_page_header.dart';
 
 class HomeScreen extends StatefulWidget {
   final Function(int) onNavigate;
@@ -86,19 +87,32 @@ class _HomeScreenState extends State<HomeScreen> {
     final theme = FluentTheme.of(context);
 
     return ScaffoldPage(
-      header: PageHeader(
+      padding: const EdgeInsets.only(top: 8),
+      header: CompactPageHeader(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Hola, $_userName', style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w800)),
+            Text(
+              'Hola, $_userName',
+              style: theme.typography.title?.copyWith(
+                fontSize: 32,
+                fontWeight: FontWeight.w800,
+                color: theme.typography.title?.color,
+              ),
+            ),
             const SizedBox(height: 4),
-            Text('Rol: $_userRole | Bienvenido al Centro de Mando Jaes', 
-              style: TextStyle(fontSize: 14, color: theme.typography.caption?.color)),
+            Text(
+              'Rol: $_userRole | Bienvenido al Centro de Mando Jaes',
+              style: TextStyle(
+                fontSize: 14,
+                color: theme.typography.caption?.color,
+              ),
+            ),
           ],
         ),
       ),
       content: SingleChildScrollView(
-        padding: const EdgeInsets.all(32),
+        padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -120,21 +134,21 @@ class _HomeScreenState extends State<HomeScreen> {
                   description: 'Gestión centralizada de materia prima y CAD.',
                   icon: FluentIcons.database,
                   color: Colors.blue,
-                  onTap: () => widget.onNavigate(2), // Catalog
+                  onTap: () => widget.onNavigate(1), // Catálogo Maestro
                 ),
                 _buildQuickCard(
                   title: 'Motor MRP',
                   description: 'Cálculo de compras y requerimientos.',
                   icon: FluentIcons.shopping_cart,
                   color: Colors.green,
-                  onTap: () => widget.onNavigate(12), // MRP
+                  onTap: () => widget.onNavigate(9), // MRP
                 ),
                 _buildQuickCard(
                   title: 'Dashboard Analytics',
                   description: 'Métricas e inteligencia de negocio.',
                   icon: FluentIcons.pie_single,
                   color: Colors.orange,
-                  onTap: () => widget.onNavigate(15), // Analytics
+                  onTap: () => widget.onNavigate(12), // Analytics
                 ),
               ],
             ),

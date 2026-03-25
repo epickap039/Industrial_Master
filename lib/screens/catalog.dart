@@ -7,6 +7,7 @@ import 'package:excel/excel.dart' as excel_lib;
 import 'package:file_picker/file_picker.dart';
 import '../utils/excel_helper.dart';
 import '../services/api_client.dart';
+import '../widgets/compact_page_header.dart';
 
 class CatalogScreen extends StatefulWidget {
   const CatalogScreen({super.key});
@@ -31,10 +32,6 @@ class _CatalogScreenState extends State<CatalogScreen> {
   final Map<String, TextEditingController> _filterControllers = {};
   final ScrollController _horizontalScrollController = ScrollController();
   final ScrollController _verticalScrollController = ScrollController();
-
-  // Búsqueda rápida independiente: Descripción y Material
-  final TextEditingController _searchDescCtrl  = TextEditingController();
-  final TextEditingController _searchMatCtrl   = TextEditingController();
 
   // Estado
   bool _isLoading = true;
@@ -67,8 +64,6 @@ class _CatalogScreenState extends State<CatalogScreen> {
   void dispose() {
     _horizontalScrollController.dispose();
     _verticalScrollController.dispose();
-    _searchDescCtrl.dispose();
-    _searchMatCtrl.dispose();
     for (var controller in _filterControllers.values) {
       controller.dispose();
     }
@@ -106,10 +101,10 @@ class _CatalogScreenState extends State<CatalogScreen> {
 
           if (_visibleColumns.isEmpty) {
             // Columnas ocultas por defecto (ruido técnico).
-            // IMPORTANTE: Codigo_Pieza, Descripcion y Material deben
-            // quedar siempre visibles para que el usuario pueda validar
-            // la independencia de ambos campos.
+            // Descripcion oculta: el foco operativo es Material; la descripción
+            // sigue disponible en el selector de columnas y en búsqueda/filtros.
             const hiddenByDefault = {
+              'Descripcion',
               'Modificado_Por',
               'Ultima_Actualizacion',
               'Fecha_Creacion',
@@ -160,37 +155,31 @@ class _CatalogScreenState extends State<CatalogScreen> {
     }
   }
 
-  /// Aplica filtros locales.
-  /// Los controladores dedicados de Descripción y Material sincronizan
-  /// siempre al mapa genérico antes de filtrar.
+  List<Map<String, dynamic>> _computeFilteredRows() {
+    return _allData.where((row) {
+      if (_onlyWithPlano) {
+        final link = row['Link_Drive']?.toString();
+        if (link == null || link.isEmpty || link == '-') return false;
+      }
+
+      for (var entry in _filterControllers.entries) {
+        final filterText = entry.value.text.trim().toLowerCase();
+        if (filterText.isEmpty) continue;
+        final col = entry.key;
+        final cellValue = row[col]?.toString().toLowerCase() ?? '';
+        if (!cellValue.contains(filterText)) return false;
+      }
+      return true;
+    }).toList();
+  }
+
+  /// Aplica filtros locales usando solo los controladores persistentes por columna.
   void _applyFilters({bool resetScroll = true}) {
-    // Sincronizar búsquedas rápidas → mapa genérico
-    if (_filterControllers.containsKey('Descripcion')) {
-      _filterControllers['Descripcion']!.text = _searchDescCtrl.text;
-    }
-    if (_filterControllers.containsKey('Material')) {
-      _filterControllers['Material']!.text = _searchMatCtrl.text;
-    }
-
+    final next = _computeFilteredRows();
     setState(() {
-      _filteredData =
-          _allData.where((row) {
-            if (_onlyWithPlano) {
-              final link = row['Link_Drive']?.toString();
-              if (link == null || link.isEmpty || link == '-') return false;
-            }
-
-            for (var entry in _filterControllers.entries) {
-              String col = entry.key;
-              String filterText = entry.value.text.toLowerCase();
-              String cellValue = row[col]?.toString().toLowerCase() ?? '';
-              if (!cellValue.contains(filterText)) return false;
-            }
-            return true;
-          }).toList();
+      _filteredData = next;
     });
 
-    // Mantenemos posición de scroll al filtrar/editar, solo reset en carga inicial
     if (resetScroll &&
         _filteredData.isNotEmpty &&
         _verticalScrollController.hasClients) {
@@ -228,8 +217,6 @@ class _CatalogScreenState extends State<CatalogScreen> {
   }
 
   void _clearFilters() {
-    _searchDescCtrl.clear();
-    _searchMatCtrl.clear();
     for (var controller in _filterControllers.values) {
       controller.clear();
     }
@@ -987,57 +974,16 @@ class _CatalogScreenState extends State<CatalogScreen> {
   Widget build(BuildContext context) {
     return ScaffoldPage(
       padding: EdgeInsets.zero,
-      header: Padding(
-        padding: const EdgeInsets.only(
-          left: 10.0,
-          right: 10.0,
-          top: 4.0,
-          bottom: 0.0,
+      header: CompactPageHeader(
+        title: Text(
+          'Catálogo Maestro',
+          style: FluentTheme.of(context).typography.title,
         ),
-        child: PageHeader(
-          title: const Text('Catálogo Maestro'),
-          commandBar: _buildCommandBar(),
-        ),
+        commandBar: _buildCommandBar(),
       ),
       content: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ── Barra de búsqueda rápida: Descripción y Material ──────────
-          Padding(
-            padding: const EdgeInsets.fromLTRB(10, 6, 10, 4),
-            child: Row(
-              children: [
-                Expanded(
-                  flex: 3,
-                  child: TextBox(
-                    controller: _searchDescCtrl,
-                    placeholder: 'Buscar por Descripción…',
-                    prefix: const Padding(
-                      padding: EdgeInsets.only(left: 8),
-                      child: Icon(FluentIcons.search, size: 13),
-                    ),
-                    onChanged: (_) => _applyFilters(resetScroll: true),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  flex: 2,
-                  child: TextBox(
-                    controller: _searchMatCtrl,
-                    placeholder: 'Buscar por Material…',
-                    prefix: const Padding(
-                      padding: EdgeInsets.only(left: 8),
-                      child: Icon(FluentIcons.product_catalog, size: 13),
-                    ),
-                    onChanged: (_) => _applyFilters(resetScroll: true),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // ── Tabla principal ───────────────────────────────────────────
-          Expanded(child: _buildContent()),
-        ],
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [Expanded(child: _buildContent())],
       ),
       bottomBar: Container(
         padding: const EdgeInsets.all(10),
@@ -1047,20 +993,20 @@ class _CatalogScreenState extends State<CatalogScreen> {
   }
 
   Widget _buildCommandBar() {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      alignment: WrapAlignment.center,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         ToggleSwitch(
           checked: _onlyWithPlano,
           content: Text(_onlyWithPlano ? 'Con Plano/Drive' : 'Todos'),
           onChanged: (v) {
-            setState(() {
-              _onlyWithPlano = v;
-              _applyFilters();
-            });
+            setState(() => _onlyWithPlano = v);
+            _applyFilters();
           },
         ),
-        const SizedBox(width: 20),
         Tooltip(
           message: "Seleccionar Columnas",
           child: IconButton(
@@ -1068,7 +1014,6 @@ class _CatalogScreenState extends State<CatalogScreen> {
             onPressed: _showColumnSelector,
           ),
         ),
-        const SizedBox(width: 10),
         Tooltip(
           message: "Refrescar Datos",
           child: IconButton(
@@ -1076,7 +1021,6 @@ class _CatalogScreenState extends State<CatalogScreen> {
             onPressed: _fetchData,
           ),
         ),
-        const SizedBox(width: 10),
         Tooltip(
           message: "Limpiar Filtros",
           child: IconButton(
@@ -1084,8 +1028,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
             onPressed: _clearFilters,
           ),
         ),
-        const SizedBox(width: 10),
-        if (_userRole != 'QA') ...[
+        if (_userRole != 'QA')
           Tooltip(
             message: "Buscar DXF",
             child: Button(
@@ -1100,8 +1043,6 @@ class _CatalogScreenState extends State<CatalogScreen> {
               ),
             ),
           ),
-          const SizedBox(width: 10),
-        ],
         Tooltip(
           message: "Exportar a Excel",
           child: IconButton(
@@ -1271,6 +1212,11 @@ class _CatalogScreenState extends State<CatalogScreen> {
   }
 
   Widget _buildHeaderRow(List<String> activeCols, double actionsWidth) {
+    final theme = FluentTheme.of(context);
+    final filterTextStyle =
+        theme.typography.body?.copyWith(fontSize: 12) ??
+        TextStyle(fontSize: 12, color: theme.resources.textFillColorPrimary);
+
     return Row(
       children: [
         // Espacio acciones (Sin Settings Icon)
@@ -1320,10 +1266,12 @@ class _CatalogScreenState extends State<CatalogScreen> {
                   SizedBox(
                     width: _getColumnWidth(col),
                     child: TextBox(
-                      controller: _filterControllers[col],
+                      key: ValueKey('catalog_col_filter_$col'),
+                      controller: _filterControllers[col]!,
                       placeholder: 'Buscar',
-                      style: TextStyle(fontSize: 12),
-                      onChanged: (v) => _applyFilters(resetScroll: true),
+                      style: filterTextStyle,
+                      onChanged: (_) =>
+                          _applyFilters(resetScroll: false),
                     ),
                   ),
                 ],

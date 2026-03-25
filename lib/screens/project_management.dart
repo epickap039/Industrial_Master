@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'bom_manager.dart';
 import '../services/api_client.dart';
+import '../widgets/compact_page_header.dart';
 
 class ProjectManagementScreen extends StatefulWidget {
   const ProjectManagementScreen({Key? key}) : super(key: key);
@@ -417,7 +418,13 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   @override
   Widget build(BuildContext context) {
     return ScaffoldPage(
-      header: const PageHeader(title: Text('Jerarquía de Proyectos')),
+      padding: const EdgeInsets.only(top: 8),
+      header: CompactPageHeader(
+        title: Text(
+          'Jerarquía de Proyectos',
+          style: FluentTheme.of(context).typography.title,
+        ),
+      ),
       content: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(

@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException
 
 from auth_service import hash_password
 from database import get_db_connection
+from jwt_tokens import create_access_token
 from models import LoginRequest
 
 router = APIRouter()
@@ -20,7 +21,10 @@ def login(request: LoginRequest):
         conn.close()
         
         if user:
-            return {"success": True, "rol": user[0]}
+            username = (request.username or "").strip()
+            rol = user[0] or "USER"
+            token = create_access_token(username, str(rol))
+            return {"success": True, "rol": rol, "access_token": token}
         else:
             from fastapi import HTTPException
             raise HTTPException(status_code=401, detail="Credenciales incorrectas")

@@ -43,81 +43,67 @@ async def procesar_excel(file: UploadFile = File(...)):
         last_estacion = None
         last_ensamble = None
         
-        # ── 2. Detección dinámica de columnas desde cabeceras (filas 1-5) ─────
-        # Soporta múltiples sinónimos para mayor compatibilidad con plantillas
-        # antiguas y de terceros. Material siempre se trata de forma independiente;
-        # si no se encuentra su columna, se guarda vacío (sin copiar Descripcion).
-        SINONIMOS_DESC = {
-            'DESCRIPCION', 'DESCRIPCIÓN', 'DESC', 'DETALLE', 'NOMBRE',
-            'DESCRIPTION', 'NOMBRE PIEZA', 'NOMBRE_PIEZA',
-        }
-        SINONIMOS_MAT = {
-            'MATERIAL', 'MAT', 'MATERIA', 'COMPOSICION', 'COMPOSICIÓN',
-            'TIPO MATERIAL', 'TIPO_MATERIAL', 'MATERIAL BASE',
-        }
-
-        idx_descripcion = 4        # fallback seguro: Col E
-        idx_material    = None     # None = columna no encontrada → campo vacío
-
-        for r_idx in range(1, 6):
-            if r_idx > ws.max_row:
-                break
-            for c_idx, cell in enumerate(ws[r_idx]):
-                val = str(cell.value or '').strip().upper()
-                if val in SINONIMOS_DESC:
-                    idx_descripcion = c_idx
-                elif val in SINONIMOS_MAT:
-                    idx_material = c_idx
-
-        # Mapeo de columnas (0-based) — valores de fallback para plantillas sin cabecera:
-        # D (3): CODIGO_PIEZA
-        # E (4): DESCRIPCION
-        # F (5): MEDIDA
-        # G (6): MATERIAL (si no se detecta cabecera, queda None → vacío)
-        # H (7): SIMETRIA  |  I (8): PROCESO PRIMARIO  |  J-L (9-11): PROCESO 1-3
+        # ── 2. Mapeo fijo por coordenadas (sin detección de cabeceras) ─────────
+        # Formato esperado:
+        # B=1 Estacion, C=2 Ensamble, D=3 Codigo, E=4 Material, F=5 Medida,
+        # G=6 Cantidad, H=7 Simetria, I=8 Proceso_Primario, J=9 Proceso_1,
+        # K=10 Proceso_2, L=11 Proceso_3
+        IDX_ESTACION = 1
+        IDX_ENSAMBLE = 2
+        IDX_CODIGO = 3
+        IDX_MATERIAL = 4
+        IDX_MEDIDA = 5
+        IDX_CANTIDAD = 6
+        IDX_SIMETRIA = 7
+        IDX_PP = 8
+        IDX_P1 = 9
+        IDX_P2 = 10
+        IDX_P3 = 11
         start_row = 6
         for row in ws.iter_rows(min_row=start_row, values_only=True):
             
             if not row: continue
 
             # Forward Fill Logic
-            estacion = row[1] if len(row) > 1 and row[1] is not None else last_estacion
-            ensamble = row[2] if len(row) > 2 and row[2] is not None else last_ensamble
+            estacion = row[IDX_ESTACION] if len(row) > IDX_ESTACION and row[IDX_ESTACION] is not None else last_estacion
+            ensamble = row[IDX_ENSAMBLE] if len(row) > IDX_ENSAMBLE and row[IDX_ENSAMBLE] is not None else last_ensamble
             
             if estacion: last_estacion = estacion
             if ensamble: last_ensamble = ensamble
 
             # Validar Codigo Pieza (Columna D - Index 3)
-            if len(row) <= 3: continue
-            raw_codigo = row[3]
+            if len(row) <= IDX_CODIGO: continue
+            raw_codigo = row[IDX_CODIGO]
             codigo_pieza = str(raw_codigo).strip() if raw_codigo else None
             
             if not codigo_pieza or codigo_pieza.lower() in ['none', 'codigo', 'codigo_pieza', '']:
                 continue
 
-            # Extracción segura con manejo de nulos
-            def get_val(idx):
+            # Extracción segura con manejo de nulos.
+            def get_val(idx: int) -> str:
                 if idx < len(row) and row[idx] is not None:
                     return str(row[idx]).strip()
                 return ""
 
-            # Material: sólo leer si se detectó su columna; de lo contrario vacío.
-            # Nunca copiar Descripcion → Material (regla espejo eliminada).
-            material_excel = get_val(idx_material) if idx_material is not None else ""
+            # El archivo no incluye columna de descripción; se fija valor estático.
+            descripcion_excel = "N/A"
+            material_excel = get_val(IDX_MATERIAL)
 
             scan_data.append({
                 'Estacion':          last_estacion,
                 'Ensamble':          last_ensamble,
                 'Codigo_Pieza':      codigo_pieza,
-                'Cantidad':          0,
-                'Descripcion_Excel': get_val(idx_descripcion),
-                'Medida_Excel':      get_val(5),
+                'Cantidad':          get_val(IDX_CANTIDAD),
+                'descripcion':       descripcion_excel,
+                'material':          material_excel,
+                'Descripcion_Excel': descripcion_excel,
+                'Medida_Excel':      get_val(IDX_MEDIDA),
                 'Material_Excel':    material_excel,
-                'Simetria':          get_val(7),
-                'Proceso_Primario':  get_val(8),
-                'Proceso_1':         get_val(9),
-                'Proceso_2':         get_val(10),
-                'Proceso_3':         get_val(11),
+                'Simetria':          get_val(IDX_SIMETRIA),
+                'Proceso_Primario':  get_val(IDX_PP),
+                'Proceso_1':         get_val(IDX_P1),
+                'Proceso_2':         get_val(IDX_P2),
+                'Proceso_3':         get_val(IDX_P3),
                 'Link_Drive':        "",
             })
 
@@ -166,6 +152,11 @@ async def procesar_excel(file: UploadFile = File(...)):
                      if item['Descripcion_Excel']: # Solo si excel tiene dato
                         status = "CONFLICTO"
                         detalles.append(f"Desc: '{item['Descripcion_Excel']}' vs SQL '{desc_sql}'")
+
+                if item['Material_Excel'].lower() != mat_sql.lower():
+                     if item['Material_Excel']:
+                        status = "CONFLICTO"
+                        detalles.append(f"Mat: '{item['Material_Excel']}' vs SQL '{mat_sql}'")
                 
                 if item['Medida_Excel'].lower() != med_sql.lower():
                      if item['Medida_Excel']:
@@ -192,15 +183,6 @@ async def procesar_excel(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"Error procesando Excel: {str(e)}")
 @router.post("/api/excel/sincronizar")
 async def sincronizar_excel(items: List[SincronizacionItem], x_usuario: Optional[str] = Header(None)):
-    # === TAREA 1: Escudo de Sincronización - Validación de seguridad ===
-    conflictos_sin_resolver = [item for item in items if item.Estado == 'CONFLICTO']
-    if conflictos_sin_resolver:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Hay {len(conflictos_sin_resolver)} conflicto(s) sin resolver. Resuélvelos antes de sincronizar."
-        )
-    # === FIN Escudo ===
-
     conn = get_db_connection()
     cursor = conn.cursor()
     
@@ -209,8 +191,8 @@ async def sincronizar_excel(items: List[SincronizacionItem], x_usuario: Optional
     
     try:
         for item in items:
-            # REGLA ESPEJO ELIMINADA: Material y Descripcion son independientes.
-            # Sanitizar datos (Evitar NULLs -> Strings Vacíos)
+            # Sincronización estricta: payload.Descripcion → SQL Descripcion;
+            # payload.Material → SQL Material (sin cruce entre campos).
             desc = item.Descripcion if item.Descripcion is not None else ""
             medida = item.Medida if item.Medida is not None else ""
             material = item.Material if item.Material is not None else ""
@@ -225,7 +207,7 @@ async def sincronizar_excel(items: List[SincronizacionItem], x_usuario: Optional
             usuario = item.Modificado_Por if item.Modificado_Por else (x_usuario if x_usuario else "Importador Excel")
 
             if item.Estado == "NUEVO":
-                # Lógica de Inserción (INSERT COMPLETO)
+                # INSERT: 1er ? = IF NOT EXISTS; luego (Codigo_Pieza, Descripcion, Medida, Material, ...).
                 cursor.execute("""
                     IF NOT EXISTS (SELECT 1 FROM Tbl_Maestro_Piezas WHERE Codigo_Pieza = ?)
                     BEGIN
@@ -233,7 +215,20 @@ async def sincronizar_excel(items: List[SincronizacionItem], x_usuario: Optional
                         (Codigo_Pieza, Descripcion, Medida, Material, Simetria, Proceso_Primario, Proceso_1, Proceso_2, Proceso_3, Link_Drive, Ultima_Actualizacion, Modificado_Por)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, GETDATE(), ?)
                     END
-                """, (item.Codigo_Pieza, item.Codigo_Pieza, desc, medida, material, simetria, proc_prim, proc_1, proc_2, proc_3, link, usuario))
+                """, (
+                    item.Codigo_Pieza,
+                    item.Codigo_Pieza,
+                    desc,
+                    medida,
+                    material,
+                    simetria,
+                    proc_prim,
+                    proc_1,
+                    proc_2,
+                    proc_3,
+                    link,
+                    usuario,
+                ))
                 
 
                 if cursor.rowcount > 0:
@@ -248,7 +243,7 @@ async def sincronizar_excel(items: List[SincronizacionItem], x_usuario: Optional
                 row_old = cursor.fetchone()
                 val_anterior = str(row_old) if row_old else "DESCONOCIDO"
 
-                # 2. Ejecutar Update
+                # UPDATE: orden de ? = Descripcion, Medida, Material, …, último ? = Codigo_Pieza (WHERE).
                 cursor.execute("""
                     UPDATE Tbl_Maestro_Piezas
                     SET Descripcion = ?,
@@ -263,7 +258,19 @@ async def sincronizar_excel(items: List[SincronizacionItem], x_usuario: Optional
                         Ultima_Actualizacion = GETDATE(),
                         Modificado_Por = ?
                     WHERE Codigo_Pieza = ?
-                """, (desc, medida, material, simetria, proc_prim, proc_1, proc_2, proc_3, link, usuario, item.Codigo_Pieza))
+                """, (
+                    desc,
+                    medida,
+                    material,
+                    simetria,
+                    proc_prim,
+                    proc_1,
+                    proc_2,
+                    proc_3,
+                    link,
+                    usuario,
+                    item.Codigo_Pieza,
+                ))
                 
                 if cursor.rowcount > 0:
                     procesados += 1
@@ -455,14 +462,16 @@ async def auditar_excel(file: UploadFile = File(...)):
     errores = []
     reporte_detallado = [] # Lista de objetos con contexto completo
     
+    # Índices 0-based en fila Excel (col D=3 código; E=4 Desc; F=5 Medida; G=6 Material)
     field_map = {
         'Descripcion': 4,
         'Medida': 5,
+        'Material': 6,
         'Simetria': 7,
         'Proceso_Primario': 8,
         'Proceso_1': 9,
         'Proceso_2': 10,
-        'Proceso_3': 11
+        'Proceso_3': 11,
     }
 
     try:
@@ -480,7 +489,7 @@ async def auditar_excel(file: UploadFile = File(...)):
             if not codigo_excel: continue
 
             cursor.execute("""
-                SELECT Descripcion, Medida, Simetria, Proceso_Primario, Proceso_1, Proceso_2, Proceso_3 
+                SELECT Descripcion, Medida, Material, Simetria, Proceso_Primario, Proceso_1, Proceso_2, Proceso_3
                 FROM Tbl_Maestro_Piezas WHERE Codigo_Pieza = ?
             """, (codigo_excel,))
             row_bd = cursor.fetchone()
@@ -489,11 +498,12 @@ async def auditar_excel(file: UploadFile = File(...)):
                 vals_bd = {
                     'Descripcion': str(row_bd[0] or "").strip(),
                     'Medida': str(row_bd[1] or "").strip(),
-                    'Simetria': str(row_bd[2] or "").strip(),
-                    'Proceso_Primario': str(row_bd[3] or "").strip(),
-                    'Proceso_1': str(row_bd[4] or "").strip(),
-                    'Proceso_2': str(row_bd[5] or "").strip(),
-                    'Proceso_3': str(row_bd[6] or "").strip(),
+                    'Material': str(row_bd[2] or "").strip(),
+                    'Simetria': str(row_bd[3] or "").strip(),
+                    'Proceso_Primario': str(row_bd[4] or "").strip(),
+                    'Proceso_1': str(row_bd[5] or "").strip(),
+                    'Proceso_2': str(row_bd[6] or "").strip(),
+                    'Proceso_3': str(row_bd[7] or "").strip(),
                 }
                 
                 vals_excel = {}
@@ -554,18 +564,20 @@ async def corregir_excel(
         ws = wb.active # Asumimos hoja activa
 
         
-        # Mapeo Campo -> Columna (1-based para cell.column)
-        # D(4)=Codigo, E(5)=Desc, F(6)=Medida, H(8)=Simetria
-        # PROCESOS DISTRIBUIDOS (NO COMBINADOS):
+        # Mapeo Campo -> Columna Excel 1-based (plantilla maestra).
+        # Descripcion → columna E (texto pieza) → SQL Descripcion.
+        # Material → columna G → SQL Material.
+        # D(4)=Codigo, E(5)=Desc, F(6)=Medida, G(7)=Material, H(8)=Simetria
         # I(9)=Primario, J(10)=Proc1, K(11)=Proc2, L(12)=Proc3
         col_map = {
-            'Descripcion': 5, # E
-            'Medida': 6,      # F
-            'Simetria': 8,    # H
-            'Proceso_Primario': 9, # I
-            'Proceso_1': 10,  # J
+            'Descripcion': 5,  # E → SQL Descripcion
+            'Medida': 6,       # F
+            'Material': 7,     # G → SQL Material
+            'Simetria': 8,     # H
+            'Proceso_Primario': 9,  # I
+            'Proceso_1': 10,   # J
             'Proceso_2': 11,  # K
-            'Proceso_3': 12   # L
+            'Proceso_3': 12,  # L
         }
 
         count = 0
@@ -632,7 +644,10 @@ async def exportar_reporte(payload: List[Dict[str, Any]]):
         error_fill = PatternFill(start_color="FFCCCC", end_color="FFCCCC", fill_type="solid") # Rojo claro
         bd_row_fill = PatternFill(start_color="F0F0F0", end_color="F0F0F0", fill_type="solid") # Gris muy claro
         
-        headers = ['Fila', 'Código', 'Fuente', 'Descripción', 'Medida', 'Simetría', 'Proceso Primario', 'Proceso 1', 'Proceso 2', 'Proceso 3']
+        headers = [
+            'Fila', 'Código', 'Fuente', 'Descripción', 'Medida', 'Material',
+            'Simetría', 'Proceso Primario', 'Proceso 1', 'Proceso 2', 'Proceso 3',
+        ]
         ws.append(headers)
         
         # Aplicar estilo headers
@@ -644,7 +659,10 @@ async def exportar_reporte(payload: List[Dict[str, Any]]):
         current_row = 2
         
         # Ordenar columnas para iteración
-        col_keys = ['Descripcion', 'Medida', 'Simetria', 'Proceso_Primario', 'Proceso_1', 'Proceso_2', 'Proceso_3']
+        col_keys = [
+            'Descripcion', 'Medida', 'Material', 'Simetria',
+            'Proceso_Primario', 'Proceso_1', 'Proceso_2', 'Proceso_3',
+        ]
 
         for item in payload:
             fila_orig = item.get('fila', '-')

@@ -25,6 +25,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from database import get_db_connection, _int_from_count_row
 from models import *
 from bom_audit_log import registrar_log
+from user_context import resolve_actor_user
 
 router = APIRouter()
 
@@ -32,6 +33,307 @@ router = APIRouter()
 def _usuario_ingenieria(x_usuario: Optional[str]) -> str:
     s = (x_usuario or "").strip()
     return s if s else "Operador_Desconocido"
+
+
+def _norm_bom_group_label(value: Any) -> str:
+    """
+    Clave estable para agrupar estaciones/ensambles: colapsa espacios y compara
+    sin sensibilidad a mayúsculas (evita carpetas duplicadas por espacios o casing).
+    """
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    s = str(value).strip()
+    if not s:
+        return ""
+    return " ".join(s.split()).casefold()
+
+
+def _display_bom_group_label(value: Any) -> str:
+    """Nombre legible (sin espacios múltiples) para persistir en BD."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    s = str(value).strip()
+    if not s:
+        return ""
+    return " ".join(s.split())
+
+
+def _clear_bom_structure_for_revision(cursor, id_revision: int) -> None:
+    """
+    Borra piezas, ensambles y estaciones de la revisión (reemplazo total desde Excel).
+    No elimina la fila de Tbl_BOM_Revisiones ni unidades físicas (VINs).
+    """
+    cursor.execute(
+        """
+        DELETE E FROM Tbl_BOM_Estructura E
+        INNER JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
+        INNER JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
+        WHERE ES.ID_Revision = ?
+        """,
+        (id_revision,),
+    )
+    cursor.execute(
+        """
+        DELETE EN FROM Tbl_Ensambles EN
+        INNER JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
+        WHERE ES.ID_Revision = ?
+        """,
+        (id_revision,),
+    )
+    cursor.execute("DELETE FROM Tbl_Estaciones WHERE ID_Revision = ?", (id_revision,))
+
+
+def _auditoria_bom_import(
+    cursor,
+    id_revision: int,
+    accion: str,
+    detalle: str,
+    usuario: str,
+) -> None:
+    cursor.execute(
+        """
+        INSERT INTO Tbl_Auditoria_Cambios (Codigo_Pieza, Accion, Valor_Anterior, Valor_Nuevo, Usuario, Fecha_Hora)
+        VALUES (?, ?, ?, ?, ?, GETDATE())
+        """,
+        (
+            f"BOM-REV-{id_revision}",
+            accion,
+            "importacion_excel",
+            (detalle or "")[:3800],
+            (usuario or "Sistema")[:100],
+        ),
+    )
+
+
+def _parse_bom_import_excel(
+    df: pd.DataFrame,
+    codigos_buscar: set,
+) -> tuple:
+    """
+    Lee filas del Excel BOM → acumulados por (est_norm, ens_norm, codigo).
+    Retorna (acumulados, canonical_estacion, canonical_ensamble, errores_mapeo, total_leidos).
+    """
+    _COL_MAP = {
+        "estacion": {"ESTACION", "ESTACIÓN", "UBICACION", "UBICACIÓN", "STATION"},
+        "ensamble": {"ENSAMBLE", "GRUPO", "SUBENSAMBLE", "SUBGRUPO", "ASSEMBLY"},
+        "codigo": {
+            "CODIGO",
+            "CÓDIGO",
+            "PARTE",
+            "NO. PARTE",
+            "NO.PARTE",
+            "CODIGO PIEZA",
+            "CÓDIGO PIEZA",
+            "PART NO",
+            "PART NUMBER",
+        },
+        "cantidad": {"CANTIDAD", "CANT", "CANT.", "QTY", "QUANTITY"},
+    }
+    idx = {"estacion": 1, "ensamble": 2, "codigo": 3, "cantidad": 6}
+
+    header_row_found = None
+    for r_idx, row_scan in df.iterrows():
+        if r_idx >= 10:
+            break
+        row_vals = [str(v).strip().upper() if not pd.isna(v) else "" for v in row_scan]
+        matched = 0
+        tmp = {}
+        for campo, sinonimos in _COL_MAP.items():
+            for c_idx, val in enumerate(row_vals):
+                if val in sinonimos:
+                    tmp[campo] = c_idx
+                    matched += 1
+                    break
+        if matched >= 3:
+            idx.update(tmp)
+            header_row_found = r_idx
+            break
+
+    data_start = (header_row_found + 1) if header_row_found is not None else 0
+
+    acumulados: Dict[tuple, int] = {}
+    canonical_estacion: Dict[str, str] = {}
+    canonical_ensamble: Dict[tuple, str] = {}
+    errores_mapeo: List[str] = []
+    total_leidos = 0
+
+    last_estacion = None
+    last_ensamble = None
+
+    for index, row in df.iterrows():
+        if index < data_start:
+            continue
+
+        def _safe(col_idx):
+            try:
+                v = row[col_idx]
+                return None if pd.isna(v) else str(v).strip()
+            except (KeyError, IndexError):
+                return None
+
+        estacion_raw = _safe(idx["estacion"])
+        ensamble_raw = _safe(idx["ensamble"])
+        codigo_raw = _safe(idx["codigo"])
+        cantidad_raw = _safe(idx["cantidad"])
+
+        if estacion_raw:
+            last_estacion = estacion_raw
+        if ensamble_raw:
+            last_ensamble = ensamble_raw
+        estacion_val = last_estacion
+        ensamble_val = last_ensamble
+
+        if not codigo_raw:
+            continue
+        skip_values = {
+            "codigo",
+            "código",
+            "codigo pieza",
+            "código pieza",
+            "codigo_pieza",
+            "no. parte",
+            "part no",
+            "none",
+            "",
+        }
+        if codigo_raw.lower() in skip_values:
+            continue
+        if not estacion_val or not ensamble_val:
+            continue
+
+        total_leidos += 1
+        codigo = codigo_raw.upper()
+
+        if codigo not in codigos_buscar:
+            if codigo not in errores_mapeo:
+                errores_mapeo.append(codigo)
+            continue
+
+        try:
+            cantidad = 1 if not cantidad_raw else int(float(cantidad_raw))
+        except (ValueError, TypeError):
+            cantidad = 1
+
+        est_norm = _norm_bom_group_label(estacion_val)
+        ens_norm = _norm_bom_group_label(ensamble_val)
+        if not est_norm or not ens_norm:
+            continue
+
+        canonical_estacion.setdefault(est_norm, _display_bom_group_label(estacion_val))
+        canonical_ensamble.setdefault((est_norm, ens_norm), _display_bom_group_label(ensamble_val))
+
+        llave = (est_norm, ens_norm, codigo)
+        acumulados[llave] = acumulados.get(llave, 0) + cantidad
+
+    return acumulados, canonical_estacion, canonical_ensamble, errores_mapeo, total_leidos
+
+
+def _bom_apply_accumulated(
+    cursor,
+    id_revision: int,
+    acumulados: Dict[tuple, int],
+    canonical_estacion: Dict[str, str],
+    canonical_ensamble: Dict[tuple, str],
+    estacion_id_por_norm: Dict[str, int],
+    sumar: bool,
+) -> tuple:
+    """
+    Aplica filas acumuladas a la revisión. Si sumar=True, suma cantidad si existe la pieza
+    en el ensamble; si no, inserta. Si sumar=False, solo inserta (estructura vacía previa).
+    Retorna (insertados, actualizados).
+    """
+    insertados = 0
+    actualizados = 0
+
+    cursor.execute(
+        "SELECT MAX(Codigo_Ensamble) FROM Tbl_Ensambles WHERE Codigo_Ensamble LIKE 'E-%'"
+    )
+    max_code_row = cursor.fetchone()
+    secuencia_ensamble = 0
+    if max_code_row and max_code_row[0]:
+        try:
+            secuencia_ensamble = int(max_code_row[0].split("-")[1])
+        except (ValueError, IndexError):
+            pass
+
+    cache_ensambles: Dict[tuple, int] = {}
+
+    for (est_norm, ens_norm, codigo), cantidad in acumulados.items():
+        nombre_estacion = canonical_estacion.get(est_norm) or ""
+        nombre_ensamble = canonical_ensamble.get((est_norm, ens_norm)) or ""
+
+        id_estacion = estacion_id_por_norm.get(est_norm)
+        if id_estacion is None:
+            cursor.execute(
+                "SELECT ISNULL(MAX(Orden), 0) + 1 FROM Tbl_Estaciones WHERE ID_Revision = ?",
+                (id_revision,),
+            )
+            nuevo_orden = cursor.fetchone()[0]
+            cursor.execute(
+                "INSERT INTO Tbl_Estaciones (ID_Revision, Nombre_Estacion, Orden) OUTPUT INSERTED.ID_Estacion VALUES (?, ?, ?)",
+                (id_revision, nombre_estacion, nuevo_orden),
+            )
+            id_estacion = int(cursor.fetchone()[0])
+            estacion_id_por_norm[est_norm] = id_estacion
+
+        ens_cache_key = (id_estacion, ens_norm)
+        if ens_cache_key not in cache_ensambles:
+            cursor.execute(
+                "SELECT ID_Ensamble, Nombre_Ensamble FROM Tbl_Ensambles WHERE ID_Estacion = ?",
+                (id_estacion,),
+            )
+            for erow in cursor.fetchall():
+                eid = int(erow[0])
+                ename_norm = _norm_bom_group_label(erow[1])
+                if ename_norm:
+                    cache_ensambles.setdefault((id_estacion, ename_norm), eid)
+
+        id_ensamble = cache_ensambles.get(ens_cache_key)
+        if id_ensamble is None:
+            cursor.execute(
+                "SELECT ID_Ensamble FROM Tbl_Ensambles WHERE ID_Estacion = ? AND Nombre_Ensamble = ?",
+                (id_estacion, nombre_ensamble),
+            )
+            ens_row = cursor.fetchone()
+            if ens_row:
+                id_ensamble = int(ens_row[0])
+            else:
+                secuencia_ensamble += 1
+                codigo_ensamble_generado = f"E-{secuencia_ensamble:04d}"
+                cursor.execute(
+                    "INSERT INTO Tbl_Ensambles (ID_Estacion, Codigo_Ensamble, Nombre_Ensamble) OUTPUT INSERTED.ID_Ensamble VALUES (?, ?, ?)",
+                    (id_estacion, codigo_ensamble_generado, nombre_ensamble),
+                )
+                id_ensamble = int(cursor.fetchone()[0])
+            cache_ensambles[ens_cache_key] = id_ensamble
+
+        if sumar:
+            cursor.execute(
+                "SELECT ID_BOM, Cantidad FROM Tbl_BOM_Estructura WHERE ID_Ensamble = ? AND Codigo_Pieza = ?",
+                (id_ensamble, codigo),
+            )
+            ex = cursor.fetchone()
+            if ex:
+                prev_q = int(ex.Cantidad or 0)
+                cursor.execute(
+                    "UPDATE Tbl_BOM_Estructura SET Cantidad = ? WHERE ID_BOM = ?",
+                    (prev_q + int(cantidad), int(ex.ID_BOM)),
+                )
+                actualizados += 1
+            else:
+                cursor.execute(
+                    "INSERT INTO Tbl_BOM_Estructura (ID_Ensamble, Codigo_Pieza, Cantidad, Observaciones_Proceso) VALUES (?, ?, ?, ?)",
+                    (id_ensamble, codigo, cantidad, ""),
+                )
+                insertados += 1
+        else:
+            cursor.execute(
+                "INSERT INTO Tbl_BOM_Estructura (ID_Ensamble, Codigo_Pieza, Cantidad, Observaciones_Proceso) VALUES (?, ?, ?, ?)",
+                (id_ensamble, codigo, cantidad, ""),
+            )
+            insertados += 1
+
+    return insertados, actualizados
 
 
 # === MODULO: BOM (Gestor de Listas) ===
@@ -1424,16 +1726,43 @@ def get_bom_estructura(id_ensamble: int):
 @router.post("/api/bom/estructura")
 def add_bom_estructura(
     payload: BOMPayload,
+    authorization: Optional[str] = Header(None),
     x_usuario: Optional[str] = Header(None, alias="X-Usuario"),
 ):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # BOMPayload.observaciones → columna Observaciones_Proceso (notas de línea BOM)
+        codigo = (payload.codigo_pieza or "").strip()
+        if not codigo:
+            raise HTTPException(status_code=400, detail="Código de pieza vacío")
+
+        ulog = resolve_actor_user(authorization, x_usuario)
+        if ulog == "Sistema":
+            ulog = _usuario_ingenieria(x_usuario)
+
+        cursor.execute(
+            "SELECT Codigo_Pieza FROM Tbl_Maestro_Piezas WHERE Codigo_Pieza = ?",
+            (codigo,),
+        )
+        en_catalogo = cursor.fetchone() is not None
+
+        if not en_catalogo:
+            if payload.maestro is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "La pieza no está en el catálogo. "
+                        "Indique descripción, material y procesos o registre la pieza antes."
+                    ),
+                )
+            m = payload.maestro
+            _insert_maestro_pieza_al_vuelo(cursor, codigo, m, ulog)
+
+        # BOMPayload.observaciones → Observaciones_Proceso (línea BOM)
         cursor.execute("""
             INSERT INTO Tbl_BOM_Estructura (ID_Ensamble, Codigo_Pieza, Cantidad, Observaciones_Proceso)
             VALUES (?, ?, ?, ?)
-        """, (payload.id_ensamble, payload.codigo_pieza, payload.cantidad, payload.observaciones))
+        """, (payload.id_ensamble, codigo, payload.cantidad, payload.observaciones))
         # Recuperar ID_Revision para el log
         cursor.execute("""
             SELECT ES.ID_Revision FROM Tbl_Ensambles EN
@@ -1446,19 +1775,28 @@ def add_bom_estructura(
                 cursor,
                 rev_row.ID_Revision,
                 "AGREGAR_PIEZA",
-                f"Pieza '{payload.codigo_pieza}' x{payload.cantidad} agregada al ensamble {payload.id_ensamble}.",
-                usuario=_usuario_ingenieria(x_usuario),
+                f"Pieza '{codigo}' x{payload.cantidad} agregada al ensamble {payload.id_ensamble}.",
+                usuario=ulog,
             )
         conn.commit()
         return {"status": "success"}
+    except HTTPException:
+        conn.rollback()
+        raise
     except pyodbc.IntegrityError as e:
         conn.rollback()
+        print(f"ERROR SQL EN ALTA AL VUELO (integridad): {e!s}")
+        traceback.print_exc()
         raise HTTPException(status_code=400, detail=f"Error de integridad en BOM. Verifica Código existete: {str(e)}")
     except pyodbc.Error as e:
         conn.rollback()
-        raise HTTPException(status_code=500, detail=f"Error SQL en BOM_Estructura: {str(e)}")
+        print(f"ERROR SQL EN ALTA AL VUELO (pyodbc): {e!s}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
         conn.rollback()
+        print(f"ERROR SQL EN ALTA AL VUELO: {e!s}")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
@@ -1483,6 +1821,58 @@ def delete_bom_estructura(id_bom: int):
 # _get_maestro_cols() y se reutiliza en todas las requests siguientes.
 # Elimina la necesidad de abrir un cursor extra por cada request de árbol/plana.
 _MAESTRO_COLS_CACHE: set = set()
+
+
+def _insert_maestro_pieza_al_vuelo(cursor, codigo: str, m: "MaestroPiezaBomPayload", usuario: str) -> None:
+    """
+    INSERT en Tbl_Maestro_Piezas al agregar pieza nueva desde BOM.
+    MaestroPiezaBomPayload.descripcion → columna Descripcion; .material → Material (1:1).
+    El primer placeholder del batch es el de IF NOT EXISTS; el segundo es Codigo_Pieza en VALUES
+    (mismo patrón que excel.py).
+    """
+    mc = _get_maestro_cols()
+    opt_cols: List[str] = []
+    opt_ph: List[str] = []
+    opt_params: List[Any] = []
+    if "ESTADO" in mc:
+        opt_cols.append("Estado")
+        opt_ph.append("?")
+        opt_params.append("NUEVO")
+    if "TIENE_DXF" in mc:
+        opt_cols.append("Tiene_DXF")
+        opt_ph.append("?")
+        opt_params.append("No")
+
+    tail = ""
+    if opt_cols:
+        tail = ", " + ", ".join(opt_cols)
+
+    sql = f"""
+                IF NOT EXISTS (SELECT 1 FROM Tbl_Maestro_Piezas WHERE Codigo_Pieza = ?)
+                BEGIN
+                    INSERT INTO Tbl_Maestro_Piezas
+                    (Codigo_Pieza, Descripcion, Medida, Material, Simetria,
+                     Proceso_Primario, Proceso_1, Proceso_2, Proceso_3,
+                     Link_Drive, Ultima_Actualizacion{tail}, Modificado_Por)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, GETDATE(){", " + ", ".join(opt_ph) if opt_ph else ""}, ?)
+                END
+                """
+    params: List[Any] = [
+        codigo,
+        codigo,
+        m.descripcion.strip(),
+        "",
+        m.material.strip(),
+        "",
+        m.proceso_primario.strip(),
+        (m.proceso_1 or "").strip(),
+        (m.proceso_2 or "").strip(),
+        (m.proceso_3 or "").strip(),
+        "N/A",
+    ]
+    params.extend(opt_params)
+    params.append(usuario)
+    cursor.execute(sql, tuple(params))
 
 
 def _get_maestro_cols() -> set:
@@ -1772,7 +2162,7 @@ def get_bom_plana(id_revision: int):
                     ''  AS Proceso_Primario,
                     ''  AS Proceso_1,   ''  AS Proceso_2,   ''  AS Proceso_3,
                     ''  AS Largo_CAD,   ''  AS Ancho_CAD,   ''  AS Espesor_CAD,
-                    'No' AS Tiene_DXF,
+                    'No' AS Tiene_DXF,  ''  AS Simetria,
                     CAST(ES.Nombre_Estacion AS NVARCHAR(200)) AS Nombre_Estacion,
                     CAST(NULL AS NVARCHAR(200))               AS Nombre_Ensamble,
                     CAST(NULL AS INT)                         AS ID_BOM,
@@ -1789,7 +2179,7 @@ def get_bom_plana(id_revision: int):
                     CAST(EN.Nombre_Ensamble AS NVARCHAR(500)),
                     CAST(NULL AS FLOAT),
                     '', '', '', '', '', '',
-                    '', '', '', 'No',
+                    '', '', '', 'No', '',
                     CAST(ES.Nombre_Estacion AS NVARCHAR(200)),
                     CAST(EN.Nombre_Ensamble AS NVARCHAR(200)),
                     CAST(NULL AS INT),
@@ -1816,6 +2206,7 @@ def get_bom_plana(id_revision: int):
                     ISNULL(TRY_CAST(M.Ancho_CAD AS NVARCHAR(50)), ''),
                     ISNULL(TRY_CAST(M.Espesor_Perfil_CAD AS NVARCHAR(50)), ''),
                     ISNULL(M.Tiene_DXF, 'No'),
+                    ISNULL(M.Simetria, ''),
                     CAST(ES.Nombre_Estacion AS NVARCHAR(200)),
                     CAST(EN.Nombre_Ensamble AS NVARCHAR(200)),
                     E.ID_BOM,
@@ -1827,7 +2218,7 @@ def get_bom_plana(id_revision: int):
             )
             SELECT Nivel, Codigo_Padre, Codigo_Pieza, Descripcion, Cantidad,
                    Material, Medida, Proceso_Primario, Proceso_1, Proceso_2, Proceso_3,
-                   Largo_CAD, Ancho_CAD, Espesor_CAD, Tiene_DXF,
+                   Largo_CAD, Ancho_CAD, Espesor_CAD, Tiene_DXF, Simetria,
                    Nombre_Estacion, Nombre_Ensamble, ID_BOM
             FROM   Explosion
             ORDER BY Sort1, Sort2, Nivel, Sort3
@@ -1855,6 +2246,7 @@ def get_bom_plana(id_revision: int):
                 "ancho_cad":        _gs(r, 'Ancho_CAD'),
                 "espesor_cad":      _gs(r, 'Espesor_CAD'),
                 "tiene_dxf":        str(getattr(r, 'Tiene_DXF', 'No') or 'No'),
+                "simetria":         _gs(r, 'Simetria'),
                 "nombre_estacion":  _gs(r, 'Nombre_Estacion'),
                 "nombre_ensamble":  _gs(r, 'Nombre_Ensamble'),
                 "id_bom":           (int(r.ID_BOM) if r.ID_BOM is not None else None),
@@ -1948,182 +2340,181 @@ def get_bom_delta(id_revision: int):
 
 
 @router.post("/api/bom/importar/{id_revision}")
-async def importar_bom(id_revision: int, file: UploadFile = File(...)):
-    if not file.filename.endswith(('.xls', '.xlsx')):
+async def importar_bom(
+    id_revision: int,
+    file: UploadFile = File(...),
+    authorization: Optional[str] = Header(None),
+    x_usuario: Optional[str] = Header(None, alias="X-Usuario"),
+):
+    """
+    Reemplazo total: borra estaciones, ensambles y piezas de la revisión y vuelve a cargar desde Excel.
+    """
+    if not file.filename.endswith((".xls", ".xlsx")):
         raise HTTPException(status_code=400, detail="El archivo debe ser un Excel (.xlsx, .xls)")
 
     try:
         content = await file.read()
         df = pd.read_excel(io.BytesIO(content), header=None)
     except Exception as e:
-        if isinstance(e, HTTPException): raise e
+        if isinstance(e, HTTPException):
+            raise e
         raise HTTPException(status_code=400, detail=f"Error al analizar el Excel: {str(e)}")
 
-    # ── Motor dinámico de cabeceras ───────────────────────────────────────────
-    # Glosario de sinónimos por campo (normalizado a mayúsculas).
-    _COL_MAP = {
-        'estacion':  {'ESTACION', 'ESTACIÓN', 'UBICACION', 'UBICACIÓN', 'STATION'},
-        'ensamble':  {'ENSAMBLE', 'GRUPO', 'SUBENSAMBLE', 'SUBGRUPO', 'ASSEMBLY'},
-        'codigo':    {'CODIGO', 'CÓDIGO', 'PARTE', 'NO. PARTE', 'NO.PARTE',
-                      'CODIGO PIEZA', 'CÓDIGO PIEZA', 'PART NO', 'PART NUMBER'},
-        'cantidad':  {'CANTIDAD', 'CANT', 'CANT.', 'QTY', 'QUANTITY'},
-    }
-    # Índices por defecto (compatibilidad con plantillas sin fila de cabecera)
-    idx = {'estacion': 1, 'ensamble': 2, 'codigo': 3, 'cantidad': 6}
-
-    header_row_found = None
-    for r_idx, row_scan in df.iterrows():
-        if r_idx >= 10:            # sólo escanear las primeras 10 filas
-            break
-        row_vals = [str(v).strip().upper() if not pd.isna(v) else '' for v in row_scan]
-        matched = 0
-        tmp = {}
-        for campo, sinonimos in _COL_MAP.items():
-            for c_idx, val in enumerate(row_vals):
-                if val in sinonimos:
-                    tmp[campo] = c_idx
-                    matched += 1
-                    break
-        # Si se detectaron al menos 3 campos → fila de cabecera válida
-        if matched >= 3:
-            idx.update(tmp)
-            header_row_found = r_idx
-            break
-
-    # Si se encontró cabecera, ignorar esa fila y las anteriores en la iteración
-    data_start = (header_row_found + 1) if header_row_found is not None else 0
-
+    actor = resolve_actor_user(authorization, x_usuario)
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    total_leidos = 0
-    insertados = 0
-    errores_mapeo = []
-
     try:
-        # Pre-cargar catálogo maestro para validación rápida
+        cursor.execute(
+            "SELECT ID_Revision FROM Tbl_BOM_Revisiones WHERE ID_Revision = ?",
+            (id_revision,),
+        )
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Revisión no encontrada")
+
         cursor.execute("SELECT Codigo_Pieza FROM Tbl_Maestro_Piezas")
         codigos_buscar = {str(row[0]).strip().upper() for row in cursor.fetchall() if row[0]}
 
-        acumulados = {}
-
-        # Lógica de Secuencia Inicial (Ensambles)
-        cursor.execute(
-            "SELECT MAX(Codigo_Ensamble) FROM Tbl_Ensambles "
-            "WHERE Codigo_Ensamble LIKE 'E-%'"
+        acumulados, canonical_estacion, canonical_ensamble, errores_mapeo, total_leidos = (
+            _parse_bom_import_excel(df, codigos_buscar)
         )
-        max_code_row = cursor.fetchone()
-        secuencia_ensamble = 0
-        if max_code_row and max_code_row[0]:
-            try:
-                secuencia_ensamble = int(max_code_row[0].split('-')[1])
-            except (ValueError, IndexError):
-                pass
 
-        # Forward-fill para Estacion y Ensamble (celdas combinadas en Excel)
-        last_estacion = None
-        last_ensamble = None
+        _clear_bom_structure_for_revision(cursor, id_revision)
 
-        for index, row in df.iterrows():
-            if index < data_start:
-                continue
+        estacion_id_por_norm: Dict[str, int] = {}
 
-            def _safe(col_idx):
-                try:
-                    v = row[col_idx]
-                    return None if pd.isna(v) else str(v).strip()
-                except (KeyError, IndexError):
-                    return None
+        insertados, _ = _bom_apply_accumulated(
+            cursor,
+            id_revision,
+            acumulados,
+            canonical_estacion,
+            canonical_ensamble,
+            estacion_id_por_norm,
+            sumar=False,
+        )
 
-            estacion_raw = _safe(idx['estacion'])
-            ensamble_raw = _safe(idx['ensamble'])
-            codigo_raw   = _safe(idx['codigo'])
-            cantidad_raw = _safe(idx['cantidad'])
+        detalle = (
+            f"reemplazo_total leidos={total_leidos} insertados_estructura={insertados} "
+            f"omitidos_catalogo={len(errores_mapeo)}"
+        )
+        _auditoria_bom_import(
+            cursor,
+            id_revision,
+            "IMPORTAR_BOM_REEMPLAZO_TOTAL",
+            detalle,
+            actor,
+        )
 
-            # Forward-fill
-            if estacion_raw: last_estacion = estacion_raw
-            if ensamble_raw: last_ensamble = ensamble_raw
-            estacion_val = last_estacion
-            ensamble_val = last_ensamble
-
-            # Validar que hay código de pieza
-            if not codigo_raw:
-                continue
-            skip_values = {'codigo', 'código', 'codigo pieza', 'código pieza',
-                           'codigo_pieza', 'no. parte', 'part no', 'none', ''}
-            if codigo_raw.lower() in skip_values:
-                continue
-            if not estacion_val or not ensamble_val:
-                continue
-
-            total_leidos += 1
-            codigo = codigo_raw.upper()
-
-            # Validación de existencia en catálogo maestro
-            if codigo not in codigos_buscar:
-                if codigo not in errores_mapeo:
-                    errores_mapeo.append(codigo)
-                continue
-
-            try:
-                cantidad = 1 if not cantidad_raw else int(float(cantidad_raw))
-            except (ValueError, TypeError):
-                cantidad = 1
-
-            # Acumulación (une duplicados de la misma clave en el mismo archivo)
-            llave = (estacion_val, ensamble_val, codigo)
-            acumulados[llave] = acumulados.get(llave, 0) + cantidad
-            
-        # Inserción final con Caché para velocidad
-        cache_estaciones = {}
-        cache_ensambles = {}
-        
-        for (estacion_nombre, ensamble_nombre, codigo), cantidad in acumulados.items():
-            # 1. Buscar o Crear ESTACION
-            if estacion_nombre not in cache_estaciones:
-                cursor.execute("SELECT ID_Estacion FROM Tbl_Estaciones WHERE ID_Revision = ? AND Nombre_Estacion = ?", (id_revision, estacion_nombre))
-                est_row = cursor.fetchone()
-                if est_row:
-                    id_estacion = est_row[0]
-                else:
-                    cursor.execute("SELECT ISNULL(MAX(Orden), 0) + 1 FROM Tbl_Estaciones WHERE ID_Revision = ?", (id_revision,))
-                    nuevo_orden = cursor.fetchone()[0]
-                    cursor.execute(
-                        "INSERT INTO Tbl_Estaciones (ID_Revision, Nombre_Estacion, Orden) OUTPUT INSERTED.ID_Estacion VALUES (?, ?, ?)", 
-                        (id_revision, estacion_nombre, nuevo_orden)
-                    )
-                    id_estacion = int(cursor.fetchone()[0])
-                cache_estaciones[estacion_nombre] = id_estacion
-            else:
-                id_estacion = cache_estaciones[estacion_nombre]
-                
-            # 2. Buscar o Crear ENSAMBLE
-            ensamble_key = (id_estacion, ensamble_nombre)
-            if ensamble_key not in cache_ensambles:
-                cursor.execute("SELECT ID_Ensamble FROM Tbl_Ensambles WHERE ID_Estacion = ? AND Nombre_Ensamble = ?", (id_estacion, ensamble_nombre))
-                ens_row = cursor.fetchone()
-                if ens_row:
-                    id_ensamble = ens_row[0]
-                else:
-                    secuencia_ensamble += 1
-                    codigo_ensamble_generado = f"E-{secuencia_ensamble:04d}"
-                    cursor.execute(
-                        "INSERT INTO Tbl_Ensambles (ID_Estacion, Codigo_Ensamble, Nombre_Ensamble) OUTPUT INSERTED.ID_Ensamble VALUES (?, ?, ?)", 
-                        (id_estacion, codigo_ensamble_generado, ensamble_nombre)
-                    )
-                    id_ensamble = int(cursor.fetchone()[0])
-                cache_ensambles[ensamble_key] = id_ensamble
-            else:
-                id_ensamble = cache_ensambles[ensamble_key]
-                
-            # 3. Insertar PIEZA (BOM)
-            cursor.execute("INSERT INTO Tbl_BOM_Estructura (ID_Ensamble, Codigo_Pieza, Cantidad, Observaciones_Proceso) VALUES (?, ?, ?, ?)", (id_ensamble, codigo, cantidad, ""))
-            insertados += 1
-            
         conn.commit()
-        return {"status": "success", "total_leidos": total_leidos, "insertados": insertados, "errores": errores_mapeo}
+        return {
+            "status": "success",
+            "total_leidos": total_leidos,
+            "insertados": insertados,
+            "errores": errores_mapeo,
+        }
+    except HTTPException:
+        conn.rollback()
+        raise
     except Exception as e:
         conn.rollback()
-        raise HTTPException(status_code=500, detail=f"Error SQL durante importación, transacción revertida: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error SQL durante importación, transacción revertida: {str(e)}",
+        )
+    finally:
+        conn.close()
+
+
+@router.post("/api/bom/importar_sumar/{id_revision}")
+async def importar_bom_sumar(
+    id_revision: int,
+    file: UploadFile = File(...),
+    authorization: Optional[str] = Header(None),
+    x_usuario: Optional[str] = Header(None, alias="X-Usuario"),
+):
+    """
+    Suma / upsert: no borra nada. Por cada ruta Estación→Ensamble→Código suma cantidad
+    si la línea existe; si falta nodo o pieza, crea/inserta.
+    """
+    if not file.filename.endswith((".xls", ".xlsx")):
+        raise HTTPException(status_code=400, detail="El archivo debe ser un Excel (.xlsx, .xls)")
+
+    try:
+        content = await file.read()
+        df = pd.read_excel(io.BytesIO(content), header=None)
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=400, detail=f"Error al analizar el Excel: {str(e)}")
+
+    actor = resolve_actor_user(authorization, x_usuario)
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute(
+            "SELECT ID_Revision FROM Tbl_BOM_Revisiones WHERE ID_Revision = ?",
+            (id_revision,),
+        )
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Revisión no encontrada")
+
+        cursor.execute("SELECT Codigo_Pieza FROM Tbl_Maestro_Piezas")
+        codigos_buscar = {str(row[0]).strip().upper() for row in cursor.fetchall() if row[0]}
+
+        acumulados, canonical_estacion, canonical_ensamble, errores_mapeo, total_leidos = (
+            _parse_bom_import_excel(df, codigos_buscar)
+        )
+
+        cursor.execute(
+            "SELECT ID_Estacion, Nombre_Estacion FROM Tbl_Estaciones WHERE ID_Revision = ?",
+            (id_revision,),
+        )
+        estacion_id_por_norm: Dict[str, int] = {}
+        for row in cursor.fetchall():
+            nid = int(row[0])
+            nn = _norm_bom_group_label(row[1])
+            if nn and nn not in estacion_id_por_norm:
+                estacion_id_por_norm[nn] = nid
+
+        insertados, actualizados = _bom_apply_accumulated(
+            cursor,
+            id_revision,
+            acumulados,
+            canonical_estacion,
+            canonical_ensamble,
+            estacion_id_por_norm,
+            sumar=True,
+        )
+
+        detalle = (
+            f"sumar leidos={total_leidos} insertados={insertados} cantidades_actualizadas={actualizados} "
+            f"omitidos_catalogo={len(errores_mapeo)}"
+        )
+        _auditoria_bom_import(
+            cursor,
+            id_revision,
+            "IMPORTAR_BOM_SUMAR_EXCEL",
+            detalle,
+            actor,
+        )
+
+        conn.commit()
+        return {
+            "status": "success",
+            "total_leidos": total_leidos,
+            "insertados": insertados,
+            "actualizados": actualizados,
+            "errores": errores_mapeo,
+        }
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error SQL durante importación (sumar), transacción revertida: {str(e)}",
+        )
     finally:
         conn.close()

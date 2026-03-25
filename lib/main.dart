@@ -31,6 +31,9 @@ import 'theme/app_themes.dart';
 import 'screens/splash_screen.dart';
 import 'config/app_config.dart';
 import 'services/api_client.dart';
+import 'services/arbitration_bridge.dart';
+import 'services/main_nav.dart';
+import 'widgets/constrained_app_body.dart';
 
 const String API_URL = kApiBaseUrl;
 
@@ -53,6 +56,9 @@ class _MyAppState extends State<MyApp> {
   int topIndex = 0;
   int? targetRevisionId;
   List<AutoSuggestBoxItem<dynamic>> _searchItems = [];
+
+  /// Compacto = solo íconos; open = barra ancha. El botón hamburguesa del AppBar alterna entre ambos.
+  PaneDisplayMode _navPaneDisplayMode = PaneDisplayMode.compact;
 
   @override
   void initState() {
@@ -85,8 +91,11 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> _updateTheme(ThemeMode mode) async {
-    // Legacy method
-    appTheme.setTheme(mode == ThemeMode.dark ? AppThemeMode.dark : AppThemeMode.light);
+    appTheme.setTheme(
+      mode == ThemeMode.dark
+          ? AppThemeMode.industrialDark
+          : AppThemeMode.corporateLight,
+    );
   }
 
   void _onLoginSuccess() async {
@@ -128,26 +137,6 @@ class _MyAppState extends State<MyApp> {
                 child: const Text("Ir a la Lista"),
                 onPressed: () {
                   Navigator.pop(context);
-                  // Cambiar a la pestaña de BOM Manager (índice 9 en la lista actual)
-                  setState(() {
-                    topIndex =
-                        11; // 0-5 Ingeniería, 6 Header, 7 Proyecto, 8 BOM, pero recalculando índices...
-                    // Según PaneItem list:
-                    // 0: Header Ing.
-                    // 1: Catalogo
-                    // 2: Importar
-                    // 3: Auditor
-                    // 4: Historial
-                    // 5: Estandarizacion
-                    // 6: Materiales
-                    // 7: Header Estr.
-                    // 8: Gestión Proyectos
-                    // 9: Gestor BOM
-                  });
-                  // Para pasar parámetros dinámicos, necesitamos que BOMManagerScreen soporte navegación tipada o usar un GlobalKey/Provider.
-                  // Por ahora, como es un NavigationView simple, pasaremos los datos vía Navigator si es necesario,
-                  // pero aquí el PaneItem ya está instanciado.
-                  // Una mejor opción es usar Navigator.push si queremos pasar ID directamente.
                   Navigator.push(
                     context,
                     FluentPageRoute(
@@ -168,6 +157,7 @@ class _MyAppState extends State<MyApp> {
   void _logout(BuildContext context) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('isLoggedIn', false);
+    await prefs.remove('access_token');
     setState(() {
       _isLoggedIn = false;
     });
@@ -407,6 +397,9 @@ class _MyAppState extends State<MyApp> {
     }
     
     setState(() => topIndex = index);
+    if (_userRole != 'QA' && index == kMainPaneImportarExcel) {
+      ArbitrationBridge.notifyConsumePending();
+    }
   }
 
   @override
@@ -420,20 +413,59 @@ class _MyAppState extends State<MyApp> {
       builder: (context, child) {
         return FluentApp(
           debugShowCheckedModeBanner: false,
-          title: 'Industrial Master v60.0',
+          title: 'Industrial Master V135.0',
           theme: appTheme.currentTheme,
           initialRoute: '/',
           routes: {
             '/': (context) => const SplashScreen(),
             '/login': (context) => LoginScreen(onLoginSuccess: _onLoginSuccess),
             '/main': (context) => Builder(
-                  builder: (navContext) => NavigationView(
+                  builder: (navContext) {
+                    MainNav.registerPaneNavigator(
+                      (index) => _handleNavigation(index, navContext),
+                    );
+                    return NavigationView(
                     appBar: NavigationAppBar(
-                      title: const Text('Industrial Master v60.0'),
+                      title: Builder(
+                        builder: (appBarCtx) => Text(
+                          'Industrial Master V135.0',
+                          style: FluentTheme.of(appBarCtx).typography.caption,
+                        ),
+                      ),
                       automaticallyImplyLeading: false,
-                      leading: const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 12.0),
-                        child: Icon(FluentIcons.factory),
+                      leading: Padding(
+                        padding: const EdgeInsetsDirectional.only(start: 8.0),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Tooltip(
+                              message:
+                                  _navPaneDisplayMode == PaneDisplayMode.compact
+                                      ? 'Expandir menú lateral'
+                                      : 'Comprimir menú a íconos',
+                              child: IconButton(
+                                icon: Icon(
+                                  _navPaneDisplayMode == PaneDisplayMode.compact
+                                      ? FluentIcons.global_nav_button
+                                      : FluentIcons.chrome_close,
+                                ),
+                                onPressed: () {
+                                  setState(() {
+                                    _navPaneDisplayMode =
+                                        _navPaneDisplayMode ==
+                                                PaneDisplayMode.compact
+                                            ? PaneDisplayMode.open
+                                            : PaneDisplayMode.compact;
+                                  });
+                                },
+                              ),
+                            ),
+                            const Padding(
+                              padding: EdgeInsetsDirectional.only(start: 4),
+                              child: Icon(FluentIcons.factory),
+                            ),
+                          ],
+                        ),
                       ),
                       actions: Padding(
                         padding: const EdgeInsets.only(right: 12.0),
@@ -454,7 +486,11 @@ class _MyAppState extends State<MyApp> {
                       size: const NavigationPaneSize(openWidth: 220.0),
                       selected: topIndex,
                       onChanged: (index) => _handleNavigation(index, navContext),
-                      displayMode: PaneDisplayMode.auto,
+                      onItemPressed: (index) =>
+                          _handleNavigation(index, navContext),
+                      displayMode: _navPaneDisplayMode,
+                      // Un solo control de ancho: el IconButton del AppBar (sin segundo menú en rail compacto).
+                      toggleable: false,
                       items: _userRole == 'QA'
                           ? [
                               PaneItem(
@@ -467,104 +503,100 @@ class _MyAppState extends State<MyApp> {
                               PaneItem(
                                 icon: const Icon(FluentIcons.home),
                                 title: const Text('Lobby Principal'),
-                                body: LobbyScreen(
-                                  isAdmin: _userRole == 'ADMIN',
-                                  onNavigate: (index) {
-                                    _handleNavigation(index, navContext);
+                                body: ConstrainedAppBody(
+                                  child: LobbyScreen(
+                                    isAdmin: _userRole == 'ADMIN',
+                                    onNavigate: (index) {
+                                      _handleNavigation(index, navContext);
+                                    },
+                                  ),
+                                ),
+                              ),
+                              PaneItemHeader(
+                                header: const Text('Consultas rápidas'),
+                              ),
+                              PaneItem(
+                                icon: const Icon(FluentIcons.database),
+                                title: const Text('Catálogo Maestro'),
+                                body: const CatalogScreen(),
+                              ),
+                              PaneItem(
+                                icon: const Icon(FluentIcons.set_action),
+                                title: const Text('Materiales Oficiales'),
+                                body: const MaterialsListScreen(),
+                              ),
+                              PaneItem(
+                                icon: const Icon(FluentIcons.map_layers),
+                                title: const Text('Mapa de Ingeniería'),
+                                body: EngineeringMapScreen(
+                                  targetRevisionId: targetRevisionId,
+                                ),
+                              ),
+                              PaneItem(
+                                icon: const Icon(FluentIcons.build_issue),
+                                title: const Text('Radar de Impacto'),
+                                body: const ImpactRadarScreen(),
+                              ),
+                              PaneItemHeader(
+                                header: const Text('Procesamiento de datos'),
+                              ),
+                              PaneItem(
+                                icon: const Icon(FluentIcons.cube_shape),
+                                title: const Text('Escáner CAD 3D/2D'),
+                                body: const CADScannerScreen(),
+                              ),
+                              PaneItem(
+                                icon: const Icon(FluentIcons.cloud),
+                                title: const Text('Importar Excel'),
+                                body: const ArbitrationScreen(),
+                              ),
+                              PaneItem(
+                                icon: const Icon(FluentIcons.check_list),
+                                title: const Text('Auditor de Archivos'),
+                                body: const AuditorScreen(),
+                              ),
+                              PaneItem(
+                                icon: const Icon(FluentIcons.filter),
+                                title: const Text('Estandarización'),
+                                body: ConstrainedAppBody(
+                                  child: StandardizationScreen(),
+                                ),
+                              ),
+                              PaneItemHeader(
+                                header: const Text('Control de producción'),
+                              ),
+                              PaneItem(
+                                icon: const Icon(FluentIcons.shopping_cart),
+                                title: const Text('Requerimientos (MRP)'),
+                                body: const MRPScreen(),
+                              ),
+                              PaneItem(
+                                icon: const Icon(FluentIcons.fabric_folder),
+                                title: const Text('Gestión de Proyectos'),
+                                body: const ProjectManagementScreen(),
+                              ),
+                              PaneItem(
+                                icon: const Icon(FluentIcons.car),
+                                title: const Text('Expedientes VIN'),
+                                body: VINDossierScreen(
+                                  onNavigateToBOM: (id) {
+                                    _handleNavigation(3, navContext, id: id);
                                   },
                                 ),
                               ),
-                              PaneItemExpander(
-                                icon: const Icon(FluentIcons.search),
-                                title: const Text('Consultas Rápidas'),
-                                body: const SizedBox.shrink(),
-                                items: [
-                                  PaneItem(
-                                    icon: const Icon(FluentIcons.database),
-                                    title: const Text('Catálogo Maestro'),
-                                    body: const CatalogScreen(),
-                                  ),
-                                  PaneItem(
-                                    icon: const Icon(FluentIcons.set_action),
-                                    title: const Text('Materiales Oficiales'),
-                                    body: const MaterialsListScreen(),
-                                  ),
-                                  PaneItem(
-                                    icon: const Icon(FluentIcons.map_layers),
-                                    title: const Text('Mapa de Ingeniería'),
-                                    body: EngineeringMapScreen(
-                                      targetRevisionId: targetRevisionId,
-                                    ),
-                                  ),
-                                  PaneItem(
-                                    icon: const Icon(FluentIcons.build_issue),
-                                    title: const Text('Radar de Impacto'),
-                                    body: const ImpactRadarScreen(),
-                                  ),
-                                ],
+                              PaneItem(
+                                icon: const Icon(FluentIcons.pie_single),
+                                title: const Text('Dashboard Analytics'),
+                                body: const ConstrainedAppBody(
+                                  child: AnalyticsScreen(),
+                                ),
                               ),
-                              PaneItemExpander(
-                                icon: const Icon(FluentIcons.processing),
-                                title: const Text('Procesamiento de Datos'),
-                                body: const SizedBox.shrink(),
-                                items: [
-                                  PaneItem(
-                                    icon: const Icon(FluentIcons.cube_shape),
-                                    title: const Text('Escáner CAD 3D/2D'),
-                                    body: const CADScannerScreen(),
-                                  ),
-                                  PaneItem(
-                                    icon: const Icon(FluentIcons.cloud),
-                                    title: const Text('Importar Excel'),
-                                    body: const ArbitrationScreen(),
-                                  ),
-                                  PaneItem(
-                                    icon: const Icon(FluentIcons.check_list),
-                                    title: const Text('Auditor de Archivos'),
-                                    body: const AuditorScreen(),
-                                  ),
-                                  PaneItem(
-                                    icon: const Icon(FluentIcons.filter),
-                                    title: const Text('Estandarización'),
-                                    body: StandardizationScreen(),
-                                  ),
-                                ],
-                              ),
-                              PaneItemExpander(
-                                icon: const Icon(FluentIcons.settings),
-                                title: const Text('Control de Producción'),
-                                body: const SizedBox.shrink(),
-                                items: [
-                                  PaneItem(
-                                    icon: const Icon(FluentIcons.shopping_cart),
-                                    title: const Text('Requerimientos (MRP)'),
-                                    body: const MRPScreen(),
-                                  ),
-                                  PaneItem(
-                                    icon: const Icon(FluentIcons.fabric_folder),
-                                    title: const Text('Gestión de Proyectos'),
-                                    body: const ProjectManagementScreen(),
-                                  ),
-                                  PaneItem(
-                                    icon: const Icon(FluentIcons.car),
-                                    title: const Text('Expedientes VIN'),
-                                    body: VINDossierScreen(
-                                      onNavigateToBOM: (id) {
-                                        _handleNavigation(4, navContext, id: id); // 4 = Mapa BOM
-                                      },
-                                    ),
-                                  ),
-                                  PaneItem(
-                                    icon: const Icon(FluentIcons.pie_single),
-                                    title: const Text('Dashboard Analytics'),
-                                    body: const AnalyticsScreen(),
-                                  ),
-                                  PaneItem(
-                                    icon: const Icon(FluentIcons.tablet),
-                                    title: const Text('Centro de QA'),
-                                    body: const QADashboardScreen(),
-                                  ),
-                                ],
+                              PaneItem(
+                                icon: const Icon(FluentIcons.tablet),
+                                title: const Text('Centro de QA'),
+                                body: const ConstrainedAppBody(
+                                  child: QADashboardScreen(),
+                                ),
                               ),
                               PaneItem(
                                 icon: const Icon(FluentIcons.history),
@@ -573,28 +605,10 @@ class _MyAppState extends State<MyApp> {
                               ),
                             ],
                       footerItems: [
-                        PaneItemHeader(
-                          header: Row(
-                            children: [
-                              const Icon(FluentIcons.color, size: 16),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: ComboBox<AppThemeMode>(
-                                  isExpanded: true,
-                                  value: appTheme.currentMode,
-                                  items: AppThemeMode.values.map((mode) {
-                                    return ComboBoxItem(
-                                      value: mode,
-                                      child: Text(mode.name.toUpperCase()),
-                                    );
-                                  }).toList(),
-                                  onChanged: (v) {
-                                    if (v != null) appTheme.setTheme(v);
-                                  },
-                                ),
-                              ),
-                            ],
-                          ),
+                        PaneItemAction(
+                          icon: const Icon(FluentIcons.color),
+                          title: const Text('Tema visual'),
+                          onTap: () => showAppThemePickerDialog(navContext),
                         ),
                         PaneItemAction(
                           icon: const Icon(FluentIcons.bug),
@@ -604,17 +618,14 @@ class _MyAppState extends State<MyApp> {
                         PaneItem(
                           icon: const Icon(FluentIcons.settings),
                           title: const Text('Configuración'),
-                          body: SettingsScreen(
-                            isDarkMode: appTheme.currentMode == AppThemeMode.dark || appTheme.currentMode == AppThemeMode.cyberpunk,
-                            onThemeChanged:
-                                  (isDark) => appTheme.setTheme(
-                                    isDark ? AppThemeMode.dark : AppThemeMode.light,
-                                  ),
+                          body: const ConstrainedAppBody(
+                            child: SettingsScreen(),
                           ),
                         ),
                       ],
                     ),
-                  ),
+                  );
+                  },
                 ),
           },
         );

@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import '../theme/app_themes.dart';
 import '../services/api_client.dart';
+import '../widgets/compact_page_header.dart';
 
 class ImpactRadarScreen extends StatefulWidget {
   const ImpactRadarScreen({super.key});
@@ -352,8 +353,12 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
   @override
   Widget build(BuildContext context) {
     return ScaffoldPage(
-      header: PageHeader(
-        title: const Text('Radar de Impacto (Where-Used)'),
+      padding: const EdgeInsets.only(top: 8),
+      header: CompactPageHeader(
+        title: Text(
+          'Radar de Impacto (Where-Used)',
+          style: FluentTheme.of(context).typography.title,
+        ),
         commandBar: CommandBar(
           mainAxisAlignment: MainAxisAlignment.end,
           primaryItems: [
