@@ -205,6 +205,7 @@ End Sub''';
   void dispose() {
     _statusTimer?.cancel();
     _pathController.dispose();
+    _networkController.dispose();
     _logsScrollController.dispose();
     super.dispose();
   }
@@ -687,33 +688,6 @@ End Sub''';
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Sección de Input
-              const Text(
-                'Ruta a escanear (Búsqueda Recursiva):',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: TextBox(
-                    controller: _pathController,
-                    placeholder: r'Ej. Z:\Ingenieria\SolidWorks',
-                    enabled: !isBusy,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Tooltip(
-                  message: 'Seleccionar Carpeta',
-                  child: IconButton(
-                    icon: const Icon(FluentIcons.folder_open, size: 20),
-                    onPressed: isBusy ? null : _pickDirectory,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-            
             // Panel de Acción (Flujo Paso a Paso)
             Card(
               child: Padding(
@@ -744,21 +718,25 @@ End Sub''';
                             const SizedBox(height: 8),
                             const Text('Busca en la red piezas sin medidas en la base de datos y las copia a tu escritorio para procesarlas.'),
                             const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: TextBox(
-                                    controller: _networkController,
-                                    placeholder: 'Ruta de red no seleccionada',
-                                    readOnly: true,
+                            InfoLabel(
+                              label: 'Ruta de Origen (Red/Servidor)',
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: TextBox(
+                                      controller: _networkController,
+                                      placeholder:
+                                          'Selecciona la carpeta de red (sin cargar aún)',
+                                      readOnly: true,
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(width: 12),
-                                FilledButton(
-                                  onPressed: _isCollecting ? null : _collectMissingCAD,
-                                  child: const Text('Seleccionar Red y Recolectar'),
-                                ),
-                              ],
+                                  const SizedBox(width: 12),
+                                  FilledButton(
+                                    onPressed: _isCollecting ? null : _collectMissingCAD,
+                                    child: const Text('Seleccionar Red y Recolectar'),
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
                         ),
@@ -835,48 +813,128 @@ End Sub''';
                       ),
                     ),
                     const SizedBox(height: 16),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      alignment: WrapAlignment.start,
-                      children: [
-                        FilledButton(
-                          onPressed: isBusy ? null : _procesarDirectorio,
-                          style: ButtonStyle(
-                            backgroundColor: isBusy
-                                ? ButtonState.all(Colors.grey)
-                                : ButtonState.all(Colors.orange),
-                          ),
-                          child: const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                            child: Text('Paso 2: Convertir DWG a DXF', style: TextStyle(fontSize: 16)),
-                          ),
-                        ),
-                        FilledButton(
-                          onPressed: isBusy ? null : _startScan,
-                          style: ButtonStyle(
-                            backgroundColor: isBusy
-                                ? ButtonState.all(Colors.grey)
-                                : ButtonState.all(Colors.green),
-                          ),
-                          child: const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                            child: Text('Paso 3: Generar Reporte Excel', style: TextStyle(fontSize: 16)),
-                          ),
-                        ),
-                        if (isBusy)
-                          Button(
-                            onPressed: _cancelScan,
-                            style: ButtonStyle(
-                              backgroundColor: ButtonState.all(Colors.red.withOpacity(0.1)),
-                              foregroundColor: ButtonState.all(Colors.red),
+                    Card(
+                      borderColor: Colors.grey.withValues(alpha: 0.35),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Paso 2 y 3: Procesamiento Local',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 15,
+                              ),
                             ),
-                            child: const Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                              child: Text('Cancelar Escaneo', style: TextStyle(fontSize: 16)),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Esta ruta es la carpeta local que usa el servidor para convertir DWG (Paso 2) y para el escaneo SolidWorks / Excel (Paso 3).',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: FluentTheme.of(context)
+                                    .typography
+                                    .caption
+                                    ?.color,
+                              ),
                             ),
-                          ),
-                      ],
+                            const SizedBox(height: 12),
+                            InfoLabel(
+                              label:
+                                  'Ruta de Trabajo Local (Carpeta a escanear)',
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: TextBox(
+                                      controller: _pathController,
+                                      placeholder:
+                                          r'Ej. C:\Users\...\Desktop\CAD_PENDIENTES',
+                                      enabled: !isBusy,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Tooltip(
+                                    message: 'Seleccionar carpeta local',
+                                    child: IconButton(
+                                      icon: const Icon(
+                                        FluentIcons.folder_open,
+                                        size: 20,
+                                      ),
+                                      onPressed: isBusy ? null : _pickDirectory,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              alignment: WrapAlignment.start,
+                              children: [
+                                FilledButton(
+                                  onPressed:
+                                      isBusy ? null : _procesarDirectorio,
+                                  style: ButtonStyle(
+                                    backgroundColor: isBusy
+                                        ? ButtonState.all(Colors.grey)
+                                        : ButtonState.all(Colors.orange),
+                                  ),
+                                  child: const Padding(
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 8,
+                                    ),
+                                    child: Text(
+                                      'Paso 2: Convertir DWG a DXF',
+                                      style: TextStyle(fontSize: 16),
+                                    ),
+                                  ),
+                                ),
+                                FilledButton(
+                                  onPressed: isBusy ? null : _startScan,
+                                  style: ButtonStyle(
+                                    backgroundColor: isBusy
+                                        ? ButtonState.all(Colors.grey)
+                                        : ButtonState.all(Colors.green),
+                                  ),
+                                  child: const Padding(
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 8,
+                                    ),
+                                    child: Text(
+                                      'Paso 3: Generar Reporte Excel',
+                                      style: TextStyle(fontSize: 16),
+                                    ),
+                                  ),
+                                ),
+                                if (isBusy)
+                                  Button(
+                                    onPressed: _cancelScan,
+                                    style: ButtonStyle(
+                                      backgroundColor: ButtonState.all(
+                                        Colors.red.withOpacity(0.1),
+                                      ),
+                                      foregroundColor:
+                                          ButtonState.all(Colors.red),
+                                    ),
+                                    child: const Padding(
+                                      padding: EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 8,
+                                      ),
+                                      child: Text(
+                                        'Cancelar Escaneo',
+                                        style: TextStyle(fontSize: 16),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ],
                 ),

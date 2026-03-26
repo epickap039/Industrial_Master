@@ -106,16 +106,6 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
     });
   }
 
-  void _selectOnlyNew() {
-    setState(() {
-      _filterStatus = 'NUEVO'; // Cambiar vista para feedback visual
-      final newItems = _conflicts
-          .where((c) => c['Estado'] == 'NUEVO')
-          .map((c) => c['Codigo_Pieza'] as String);
-      _selectedUpdates.addAll(newItems);
-    });
-  }
-
   /// Procesa el Excel de catálogo (mismo endpoint que el selector manual).
   Future<void> _loadExcelFromBytes(
     Uint8List bytes,
@@ -911,7 +901,7 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
                     ),
                     if (_filterStatus != 'CONFLICTO')
                       Button(
-                        onPressed: _selectOnlyNew,
+                        onPressed: _isLoading ? null : _syncOnlyNew,
                         child: const Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -972,7 +962,9 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
                           });
                           break;
                         case 'aprobar_nuevos':
-                          if (_filterStatus != 'CONFLICTO') _selectOnlyNew();
+                          if (_filterStatus != 'CONFLICTO' && !_isLoading) {
+                            _syncOnlyNew();
+                          }
                           break;
                       }
                     },
@@ -1323,8 +1315,9 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
                                                 .resources
                                                 .textFillColorSecondary,
                                       ),
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
+                                      maxLines: 3,
+                                      softWrap: true,
+                                      overflow: TextOverflow.fade,
                                     ),
                                   ),
                                 ),
@@ -1339,7 +1332,7 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
                                   ),
                                 ),
                                 SizedBox(
-                                  width: 72,
+                                  width: 100,
                                   child: Align(
                                     alignment: Alignment.center,
                                     child: DecoratedBox(
@@ -1367,7 +1360,7 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
                                                 fontWeight: FontWeight.w600,
                                               ),
                                           maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
+                                          softWrap: false,
                                         ),
                                       ),
                                     ),

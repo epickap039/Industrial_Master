@@ -392,10 +392,11 @@ class _MyAppState extends State<MyApp> {
   }
 
   void _handleNavigation(int index, BuildContext navContext, {int? id}) async {
+    FocusManager.instance.primaryFocus?.unfocus();
     if (id != null) {
       targetRevisionId = id;
     }
-    
+
     setState(() => topIndex = index);
     if (_userRole != 'QA' && index == kMainPaneImportarExcel) {
       ArbitrationBridge.notifyConsumePending();

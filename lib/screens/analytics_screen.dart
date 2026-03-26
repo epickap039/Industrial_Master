@@ -11,6 +11,22 @@ int _analyticsInt(dynamic v) {
   return int.tryParse(v.toString()) ?? 0;
 }
 
+String _distMaterialLabel(dynamic item) {
+  if (item is! Map) return '';
+  final m = Map<String, dynamic>.from(item);
+  final v = m['material_oficial'] ?? m['Material'] ?? m['material'];
+  return v?.toString() ?? '';
+}
+
+double _distTotalM2(dynamic item) {
+  if (item is! Map) return 0;
+  final m = item as Map<String, dynamic>;
+  final v = m['Total_m2'];
+  if (v == null) return 0;
+  if (v is num) return v.toDouble();
+  return double.tryParse(v.toString()) ?? 0;
+}
+
 class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
 
@@ -706,7 +722,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 sectionsSpace: 4,
                 centerSpaceRadius: 50,
                 sections: List.generate(dist.length > 8 ? 8 : dist.length, (i) {
-                  final val = dist[i]['Total_m2'].toDouble();
+                  final val = _distTotalM2(dist[i]);
                   return PieChartSectionData(
                     value: val,
                     title: '',
@@ -724,7 +740,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               padding: const EdgeInsets.only(right: 15), // Evitar el scrollbar del Scaffold
               child: Column(
                 children: List.generate(dist.length > 6 ? 6 : dist.length, (i) {
-                  final val = dist[i]['Total_m2'].toDouble();
+                  final val = _distTotalM2(dist[i]);
                   return Padding(
                     padding: const EdgeInsets.symmetric(vertical: 6.0),
                     child: Row(
@@ -733,7 +749,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            dist[i]['Material'], 
+                            _distMaterialLabel(dist[i]),
                             overflow: TextOverflow.ellipsis, 
                             style: TextStyle(fontSize: 12, color: isDark ? Colors.white.withValues(alpha: 0.8) : Colors.black.withValues(alpha: 0.8))
                           )

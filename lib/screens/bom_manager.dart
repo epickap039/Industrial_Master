@@ -319,7 +319,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                             Expanded(
                               flex: 4,
                               child: Text(
-                                "Descripción Oficial",
+                                "Material",
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 12,
@@ -458,8 +458,19 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                     final hasLink =
                                         strLink.isNotEmpty &&
                                         strLink != 'N/A';
-                                    final descripcion =
-                                        pieza['descripcion']?.toString() ?? '';
+                                    final material = (pieza['material']
+                                                ?.toString()
+                                                .trim()
+                                                .isNotEmpty ??
+                                            false)
+                                        ? pieza['material'].toString()
+                                        : (pieza['descripcion']
+                                                  ?.toString()
+                                                  .trim()
+                                                  .isNotEmpty ??
+                                              false)
+                                        ? pieza['descripcion'].toString()
+                                        : '';
                                     final strObs =
                                         pieza['observaciones']
                                             ?.toString()
@@ -509,9 +520,9 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                           Expanded(
                                             flex: 4,
                                             child: Tooltip(
-                                              message: descripcion,
+                                              message: material,
                                               child: Text(
-                                                descripcion,
+                                                material,
                                                 style: TextStyle(
                                                   fontSize: 12,
                                                   color: bodyColor,
@@ -728,12 +739,6 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
       res.cardBackgroundFillColorDefault,
       theme.scaffoldBackgroundColor,
     );
-    final Color rowEven = baseRow;
-    final Color rowOdd = Color.alphaBlend(
-      (theme.brightness == Brightness.dark ? Colors.white : Colors.black)
-          .withValues(alpha: 0.07),
-      baseRow,
-    );
     final Color borderColor = res.dividerStrokeColorDefault;
     final Color headerFill = res.controlFillColorDefault;
 
@@ -783,6 +788,8 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
       );
     }
 
+    String rawCell(String? v) => (v?.toString() ?? '').trim();
+
     Widget flexDataText(
       String text,
       int flex, {
@@ -790,10 +797,17 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
       FontWeight fontWeight = FontWeight.normal,
       bool tooltip = false,
       TextAlign align = TextAlign.start,
+      bool dashIfEmpty = false,
     }) {
-      final Color tc = colorOverride ?? bodyColor;
+      final bool isEmpty = rawCell(text).isEmpty;
+      final String shown =
+          (dashIfEmpty && isEmpty) ? ' — ' : (isEmpty ? '' : text.trim());
+      final Color tc = colorOverride ??
+          ((dashIfEmpty && isEmpty)
+              ? res.textFillColorSecondary
+              : bodyColor);
       final child = Text(
-        text,
+        shown,
         style: TextStyle(
           color: tc,
           fontSize: 12,
@@ -815,8 +829,8 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
           alignment: align == TextAlign.center
               ? Alignment.center
               : AlignmentDirectional.centerStart,
-          child: tooltip && text.length > 36
-              ? Tooltip(message: text, child: child)
+          child: tooltip && !isEmpty && shown.length > 36
+              ? Tooltip(message: shown, child: child)
               : child,
         ),
       );
@@ -923,7 +937,8 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                             flexHeaderCell('Cantidad', flexCantidad,
                                 align: TextAlign.center),
                             flexHeaderCell('Material', flexMaterial),
-                            flexHeaderCell('Simetría', flexSimetria),
+                            flexHeaderCell('Simetría', flexSimetria,
+                                align: TextAlign.center),
                             flexHeaderCell('P. primario', flexPPrim),
                             flexHeaderCell('P. 1', flexP1),
                             flexHeaderCell('P. 2', flexP2),
@@ -942,7 +957,6 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                           itemBuilder: (context, index) {
                             final row = _bomPlana[index];
                             final int nivel = (row['nivel'] as num).toInt();
-                            final bool isOdd = index.isOdd;
 
                             final codigoTxt =
                                 row['codigo_pieza']?.toString() ?? '';
@@ -954,20 +968,10 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                   theme.typography.subtitle ??
                                       theme.typography.bodyStrong;
                               final Color accentText = theme.accentColor;
-                              final sepBg = Color.alphaBlend(
-                                res.subtleFillColorSecondary,
-                                Color.alphaBlend(
-                                  res.subtleFillColorTransparent,
-                                  baseRow,
-                                ),
-                              );
                               return Container(
-                                width: tableW,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 12,
-                                ),
+                                width: double.infinity,
                                 decoration: BoxDecoration(
-                                  color: sepBg,
+                                  color: res.subtleFillColorTransparent,
                                   border: Border(
                                     bottom: BorderSide(
                                       color: borderColor,
@@ -975,27 +979,43 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                     ),
                                   ),
                                 ),
-                                child: Center(
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 20,
+                                child: Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Color.alphaBlend(
+                                      res.subtleFillColorSecondary,
+                                      Color.alphaBlend(
+                                        res.subtleFillColorTransparent,
+                                        baseRow,
+                                      ),
                                     ),
-                                    child: Text(
-                                      '$etiqueta · $codigoTxt',
-                                      textAlign: TextAlign.center,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: baseGrp?.copyWith(
-                                            color: accentText,
-                                            fontWeight: FontWeight.w600,
-                                            fontSize: (baseGrp.fontSize ?? 13) +
-                                                0.5,
-                                          ) ??
-                                          TextStyle(
-                                            color: accentText,
-                                            fontWeight: FontWeight.w600,
-                                            fontSize: 13.5,
-                                          ),
+                                  ),
+                                  child: Center(
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 20,
+                                      ),
+                                      child: Text(
+                                        '$etiqueta · $codigoTxt',
+                                        textAlign: TextAlign.center,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: baseGrp?.copyWith(
+                                              color: accentText,
+                                              fontWeight: FontWeight.w600,
+                                              fontSize:
+                                                  (baseGrp.fontSize ?? 13) +
+                                                      0.5,
+                                            ) ??
+                                            TextStyle(
+                                              color: accentText,
+                                              fontWeight: FontWeight.w600,
+                                              fontSize: 13.5,
+                                            ),
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -1012,9 +1032,31 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                             final matTxt = row['material']?.toString() ?? '';
                             final simTxt = row['simetria']?.toString() ?? '';
 
+                            int pieceOrdinal = 0;
+                            for (var i = 0; i < index; i++) {
+                              if (((_bomPlana[i]['nivel']) as num).toInt() ==
+                                  3) {
+                                pieceOrdinal++;
+                              }
+                            }
+                            final bool zebraDark = pieceOrdinal.isOdd;
+                            final Color? pieceRowBg = zebraDark
+                                ? Color.alphaBlend(
+                                    (theme.brightness == Brightness.dark
+                                            ? Colors.white
+                                            : Colors.black)
+                                        .withValues(alpha: 0.03),
+                                    Color.alphaBlend(
+                                      res.layerOnMicaBaseAltFillColorDefault
+                                          .withValues(alpha: 0.12),
+                                      baseRow,
+                                    ),
+                                  )
+                                : null;
+
                             return Container(
                               decoration: BoxDecoration(
-                                color: isOdd ? rowOdd : rowEven,
+                                color: pieceRowBg,
                                 border: Border(
                                   bottom: BorderSide(
                                     color: borderColor,
@@ -1041,6 +1083,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                         horizontal: 4,
                                         vertical: 2,
                                       ),
+                                      alignment: Alignment.center,
                                       decoration: BoxDecoration(
                                         border: Border(
                                           right: BorderSide(
@@ -1111,36 +1154,43 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                     simTxt,
                                     flexSimetria,
                                     tooltip: true,
+                                    align: TextAlign.center,
                                   ),
                                   flexDataText(
                                     row['proceso_primario']?.toString() ?? '',
                                     flexPPrim,
                                     tooltip: true,
+                                    dashIfEmpty: true,
                                   ),
                                   flexDataText(
                                     row['proceso_1']?.toString() ?? '',
                                     flexP1,
                                     tooltip: true,
+                                    dashIfEmpty: true,
                                   ),
                                   flexDataText(
                                     row['proceso_2']?.toString() ?? '',
                                     flexP2,
                                     tooltip: true,
+                                    dashIfEmpty: true,
                                   ),
                                   flexDataText(
                                     row['largo_cad']?.toString() ?? '',
                                     flexLargo,
                                     align: TextAlign.center,
+                                    dashIfEmpty: true,
                                   ),
                                   flexDataText(
                                     row['ancho_cad']?.toString() ?? '',
                                     flexAncho,
                                     align: TextAlign.center,
+                                    dashIfEmpty: true,
                                   ),
                                   flexDataText(
                                     row['espesor_cad']?.toString() ?? '',
                                     flexEspesor,
                                     align: TextAlign.center,
+                                    dashIfEmpty: true,
                                   ),
                                 ],
                               ),
@@ -1435,7 +1485,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                               'del${_selectedRevision != null}',
                             ),
                             overflowBehavior:
-                                CommandBarOverflowBehavior.dynamicOverflow,
+                                CommandBarOverflowBehavior.scrolling,
                             primaryItems: [
                               // ── Botón ECR inteligente ──────────────────────
                               _ecrCommandBarItem,

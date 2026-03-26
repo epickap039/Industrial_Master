@@ -34,6 +34,14 @@ class _MRPScreenState extends State<MRPScreen> {
   final NumberFormat _numFormat = NumberFormat('#,##0', 'en_US');
   final NumberFormat _decFormat = NumberFormat('#,##0.00', 'en_US');
 
+  /// API MRPII: `material_oficial` (maestro); `Material` se mantiene por compatibilidad.
+  String _materialOficialMP(Map<String, dynamic> row) {
+    final v = row['material_oficial'] ?? row['Material'];
+    if (v == null) return 'N/A';
+    final s = v.toString().trim();
+    return s.isEmpty ? 'N/A' : s;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -157,7 +165,7 @@ class _MRPScreenState extends State<MRPScreen> {
       final double areaM2  = areaMm2 / 1_000_000.0;
       final int piezas = ExcelHelper.cleanToInt(row['Cantidad_Total_Piezas']);
       final cells = [
-        excel_lib.TextCellValue(row['Material']?.toString() ?? '-'),
+        excel_lib.TextCellValue(_materialOficialMP(row)),
         ExcelHelper.parseDynamicCell(row['Calibre_Espesor']),
         excel_lib.IntCellValue(piezas),
         excel_lib.TextCellValue(_formatArea(areaMm2)),
@@ -396,19 +404,6 @@ class _MRPScreenState extends State<MRPScreen> {
                       ],
                     ),
                   ),
-            FilledButton(
-              onPressed: _selectedRevisionId == null || _isCalculating
-                  ? null
-                  : _calculateMRP,
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(FluentIcons.calculator),
-                  SizedBox(width: 8),
-                  Text('Calcular Requerimiento'),
-                ],
-              ),
-            ),
             Tooltip(
               message: "Exportar a Excel",
               child: IconButton(
@@ -745,10 +740,10 @@ class _MRPScreenState extends State<MRPScreen> {
           Expanded(
             flex: 3,
             child: Text(
-              row['Material']?.toString() ?? 'N/A',
+              _materialOficialMP(row),
               style: base.copyWith(
                 fontWeight: FontWeight.w600,
-                color: row['Material'] == 'FALTA ASIGNAR EN CAD'
+                color: _materialOficialMP(row) == 'FALTA ASIGNAR EN CAD'
                     ? (isDark ? Colors.orange.lighter : Colors.orange.darkest)
                     : null,
               ),
