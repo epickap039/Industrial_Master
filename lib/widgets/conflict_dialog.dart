@@ -121,9 +121,15 @@ class ConflictResolutionDialog extends StatelessWidget {
       MediaQuery.sizeOf(context).height * 0.72,
     );
 
+    // Anchos fijos para evitar "unbounded width" dentro del ContentDialog.
+    // double.infinity colapsa el layout cuando el diálogo no impone ancho;
+    // 820 px (400+12+400+8 padding) garantiza que Flutter siempre resuelva
+    // las constraints y el contenido se pinte correctamente.
+    const double kDialogWidth = 820;
+
     return ContentDialog(
       constraints: BoxConstraints(
-        maxWidth: MediaQuery.sizeOf(context).width * 0.88,
+        maxWidth: kDialogWidth + 48, // padding interno del ContentDialog (~24 c/lado)
       ),
       title: Row(
         children: [
@@ -150,44 +156,43 @@ class ConflictResolutionDialog extends StatelessWidget {
         ],
       ),
       content: SizedBox(
-        width: double.infinity,
+        width: kDialogWidth,   // ← ancho FIJO, no infinito
         height: maxH,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Expanded(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(
-                      width: 400,
-                      child: SingleChildScrollView(
-                        child: buildMirrorSide(
-                          title: "Propuesta Excel",
-                          icon: FluentIcons.excel_logo,
-                          markerColor: Colors.blue,
-                          data: excel,
-                          isExcel: true,
-                        ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Panel EXCEL — ancho fijo, scroll vertical propio
+                  SizedBox(
+                    width: 400,
+                    child: SingleChildScrollView(
+                      child: buildMirrorSide(
+                        title: "Propuesta Excel",
+                        icon: FluentIcons.excel_logo,
+                        markerColor: Colors.blue,
+                        data: excel,
+                        isExcel: true,
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    SizedBox(
-                      width: 400,
-                      child: SingleChildScrollView(
-                        child: buildMirrorSide(
-                          title: "Base de Datos Actual",
-                          icon: FluentIcons.database,
-                          markerColor: Colors.orange,
-                          data: sqlRaw,
-                          isExcel: false,
-                        ),
+                  ),
+                  const SizedBox(width: 12),
+                  // Panel BD — ancho fijo, scroll vertical propio
+                  SizedBox(
+                    width: 400,
+                    child: SingleChildScrollView(
+                      child: buildMirrorSide(
+                        title: "Base de Datos Actual",
+                        icon: FluentIcons.database,
+                        markerColor: Colors.orange,
+                        data: sqlRaw,
+                        isExcel: false,
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
             Padding(
@@ -201,6 +206,7 @@ class ConflictResolutionDialog extends StatelessWidget {
                 ),
               ),
             ),
+            // Botones — scroll horizontal por si la ventana es muy angosta
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(

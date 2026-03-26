@@ -28,6 +28,29 @@ from audit_service import registrar_auditoria
 
 router = APIRouter()
 
+# ── HELPERS DE LIMPIEZA ──────────────────────────────────────────────────────
+
+def _clean_str(value) -> str:
+    """LTRIM/RTRIM seguro para cualquier valor (None, NaN, numeric)."""
+    import math
+    if value is None:
+        return ""
+    if isinstance(value, float) and math.isnan(value):
+        return ""
+    return str(value).strip()
+
+
+def _material_safe(value) -> str:
+    """Devuelve el material limpio o 'POR DEFINIR' si está vacío/nulo.
+
+    Regla de negocio: Material vacío, None, NaN o espacios en blanco
+    SIEMPRE se reemplaza por el literal 'POR DEFINIR' antes de persistir
+    en Tbl_Maestro_Piezas, para evitar filas huérfanas sin material.
+    """
+    cleaned = _clean_str(value)
+    return cleaned if cleaned else "POR DEFINIR"
+
+
 # 5. MOTOR DE ARBITRAJE EXCEL
 @router.post("/api/excel/procesar")
 async def procesar_excel(file: UploadFile = File(...)):
@@ -82,12 +105,13 @@ async def procesar_excel(file: UploadFile = File(...)):
             # Extracción segura con manejo de nulos.
             def get_val(idx: int) -> str:
                 if idx < len(row) and row[idx] is not None:
-                    return str(row[idx]).strip()
+                    return _clean_str(row[idx])  # LTRIM/RTRIM universal
                 return ""
 
             # El archivo no incluye columna de descripción; se fija valor estático.
             descripcion_excel = "N/A"
-            material_excel = get_val(IDX_MATERIAL)
+            # ── CANDADO ANTI-VACÍOS: Material saneado desde la lectura ────────
+            material_excel = _material_safe(get_val(IDX_MATERIAL))
 
             scan_data.append({
                 'Estacion':          last_estacion,
@@ -191,17 +215,18 @@ async def sincronizar_excel(items: List[SincronizacionItem], x_usuario: Optional
     
     try:
         for item in items:
-            # Sincronización estricta: payload.Descripcion → SQL Descripcion;
-            # payload.Material → SQL Material (sin cruce entre campos).
-            desc = item.Descripcion if item.Descripcion is not None else ""
-            medida = item.Medida if item.Medida is not None else ""
-            material = item.Material if item.Material is not None else ""
-            link = item.Link_Drive if item.Link_Drive is not None else ""
-            simetria = item.Simetria if item.Simetria is not None else ""
-            proc_prim = item.Proceso_Primario if item.Proceso_Primario is not None else ""
-            proc_1 = item.Proceso_1 if item.Proceso_1 is not None else ""
-            proc_2 = item.Proceso_2 if item.Proceso_2 is not None else ""
-            proc_3 = item.Proceso_3 if item.Proceso_3 is not None else ""
+            # ── CANDADO ANTI-VACÍOS (última línea de defensa antes de SQL) ────
+            # _clean_str aplica LTRIM/RTRIM a todos los campos; _material_safe
+            # garantiza que Material nunca llega como NULL/vacío a la BD.
+            desc      = _clean_str(item.Descripcion)
+            medida    = _clean_str(item.Medida)
+            material  = _material_safe(item.Material)  # ← "POR DEFINIR" si vacío
+            link      = _clean_str(item.Link_Drive)
+            simetria  = _clean_str(item.Simetria)
+            proc_prim = _clean_str(item.Proceso_Primario)
+            proc_1    = _clean_str(item.Proceso_1)
+            proc_2    = _clean_str(item.Proceso_2)
+            proc_3    = _clean_str(item.Proceso_3)
             
             # Auditoría
             usuario = item.Modificado_Por if item.Modificado_Por else (x_usuario if x_usuario else "Importador Excel")
