@@ -22,8 +22,10 @@ from fastapi import APIRouter, BackgroundTasks, File, Form, Header, HTTPExceptio
 from fastapi.responses import StreamingResponse
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
+from audit_service import registrar_log_global
 from database import get_db_connection, _int_from_count_row
 from models import *
+from user_context import resolve_actor_user
 
 router = APIRouter()
 
@@ -623,17 +625,55 @@ def download_cad_report():
     return FileResponse(excel_path, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", filename="Reporte_CAD.xlsx")
 
 @router.post("/api/cad/upload")
-async def upload_cad_modifications(file: UploadFile = File(...), x_usuario: Optional[str] = Header(None)):
+async def upload_cad_modifications(
+    file: UploadFile = File(...),
+    authorization: Optional[str] = Header(None),
+    x_usuario: Optional[str] = Header(None, alias="X-Usuario"),
+):
     if not file.filename.endswith('.xlsx'):
          raise HTTPException(status_code=400, detail="Formato no admitido. Debe ser un archivo .xlsx")
          
+    # ── Helper de casteo seguro ───────────────────────────────────────────────
+    def _safe_float(val) -> Optional[float]:
+        """Convierte cualquier valor de celda Pandas a float o None.
+
+        Casos cubiertos:
+          - NaN (pandas.NA, float('nan'), 'nan', 'NaN') → None
+          - cadena vacía '' / solo espacios             → None
+          - cadena numérica '125.5'                     → 125.5
+          - entero/float directo                         → float(val)
+          - cualquier otro error de conversión           → None
+        """
+        if val is None:
+            return None
+        try:
+            if isinstance(val, float) and math.isnan(val):
+                return None
+        except Exception:
+            pass
+        s = str(val).strip().lower()
+        if s in ('', 'nan', 'none', '-', 'n/a'):
+            return None
+        # Limpiar comas como separador decimal (e.g. '1.234,56' → no aplica aquí)
+        s = s.replace(',', '.')
+        # Eliminar caracteres no numéricos salvo punto y signo
+        import re as _re
+        s = _re.sub(r'[^\d.\-]', '', s)
+        if not s or s == '.':
+            return None
+        try:
+            return float(s)
+        except ValueError:
+            return None
+
     try:
         contents = await file.read()
         df = pd.read_excel(io.BytesIO(contents))
-        
-        # Validación robusta de NaN de Pandas
-        df = df.fillna('')
-        
+
+        # ── Limpieza global del DataFrame ─────────────────────────────────────
+        # Normalizar nombres de columnas (quitar espacios accidentales)
+        df.columns = [str(c).strip() for c in df.columns]
+
         # Validar que tenga las columnas requeridas
         required_cols = ["Codigo_Pieza", "Largo_CAD", "Ancho_CAD"]
         for col in required_cols:
@@ -652,56 +692,99 @@ async def upload_cad_modifications(file: UploadFile = File(...), x_usuario: Opti
         
         try:
             for index, row in df.iterrows():
-                codigo = str(row["Codigo_Pieza"]).strip()
-                if not codigo:
-                     ignoradas += 1
-                     continue
-                     
-                largo = str(row.get("Largo_CAD", "")).strip()
-                ancho = str(row.get("Ancho_CAD", "")).strip()
-                espesor = str(row.get("Espesor_Perfil_CAD", "")).strip()
-                material_str = str(row.get("Material", "")).strip()
-                ruta_str = str(row.get("Ruta_Archivo", "")).strip()
-                
-                tiene_dxf = str(row.get("Tiene_DXF", "No")).strip()
-                largo_dxf_str = str(row.get("Largo_DXF", "")).strip()
-                ancho_dxf_str = str(row.get("Ancho_DXF", "")).strip()
-                
-                # Tratar vacíos
-                if not largo or not ancho:
-                    print(f"IGNORADA (Fila {index+2}): {codigo} - Medidas vacías")
+                # ── Código de pieza ──────────────────────────────────────────
+                raw_codigo = row.get("Codigo_Pieza", "")
+                codigo = str(raw_codigo).strip() if raw_codigo not in (None, '') else ''
+                if not codigo or codigo.lower() in ('nan', 'none'):
                     ignoradas += 1
                     continue
-                    
-                try:
-                    largo_float = float(largo)
-                    ancho_float = float(ancho)
-                    espesor_float = float(espesor) if espesor else None
-                except ValueError:
-                    print(f"IGNORADA (Fila {index+2}): {codigo} - No son números (L:{largo}, A:{ancho}, E:{espesor})")
-                    ignoradas += 1
-                    continue
-                try:
-                    largo_dxf_float = float(largo_dxf_str) if largo_dxf_str else None
-                    ancho_dxf_float = float(ancho_dxf_str) if ancho_dxf_str else None
-                except ValueError:
-                    largo_dxf_float = None
-                    ancho_dxf_float = None
-                
-                # Update Catalogo de piezas
-                cursor.execute("""
-                    UPDATE Tbl_Maestro_Piezas 
-                    SET Largo_CAD = ?, Ancho_CAD = ?, Espesor_Perfil_CAD = ?, Material = ?, Ruta_Archivo = ?,
-                        Tiene_DXF = ?, Largo_DXF = ?, Ancho_DXF = ?
-                    WHERE Codigo_Pieza = ?
-                """, (largo_float, ancho_float, espesor_float, material_str, ruta_str, tiene_dxf, largo_dxf_float, ancho_dxf_float, codigo))
-                
+
+                # ── Dimensiones CAD — casteo seguro a float|None ─────────────
+                # CRÍTICO: str(NaN) → 'nan' → float('nan') pasa como valor
+                # inválido al SQL. _safe_float convierte eso a None explícito.
+                largo_float   = _safe_float(row.get("Largo_CAD"))
+                ancho_float   = _safe_float(row.get("Ancho_CAD"))
+                espesor_float = _safe_float(row.get("Espesor_Perfil_CAD"))
+
+                # ── Material — garantizar nunca vacío en BD ───────────────────
+                # El reporte CAD genera Material='' porque SW no tiene ese campo.
+                # Aplicamos la misma regla que en excel.py: "" → "POR DEFINIR".
+                raw_mat = row.get("Material", "")
+                mat_clean = str(raw_mat).strip() if raw_mat not in (None, '') else ''
+                if mat_clean.lower() in ('', 'nan', 'none', 'n/a'):
+                    mat_clean = ''  # Dejar que la BD conserve lo que ya tiene
+                    material_str: Optional[str] = None  # No sobreescribir
+                else:
+                    material_str = mat_clean
+
+                # ── Campos auxiliares ─────────────────────────────────────────
+                ruta_str       = str(row.get("Ruta_Archivo", "") or "").strip()
+                tiene_dxf      = str(row.get("Tiene_DXF", "No") or "No").strip()
+                largo_dxf_f    = _safe_float(row.get("Largo_DXF"))
+                ancho_dxf_f    = _safe_float(row.get("Ancho_DXF"))
+
+                print(
+                    f"[upload_cad] {codigo} | "
+                    f"L={largo_float} A={ancho_float} E={espesor_float} "
+                    f"Mat={material_str!r}"
+                )
+
+                # ── UPDATE con Material condicional ───────────────────────────
+                # Si el Excel no trae Material válido NO sobreescribimos la BD,
+                # para no borrar el dato que ya existe correctamente.
+                if material_str is not None:
+                    cursor.execute("""
+                        UPDATE Tbl_Maestro_Piezas
+                        SET Largo_CAD         = ?,
+                            Ancho_CAD         = ?,
+                            Espesor_Perfil_CAD = ?,
+                            Material          = ?,
+                            Ruta_Archivo      = ?,
+                            Tiene_DXF         = ?,
+                            Largo_DXF         = ?,
+                            Ancho_DXF         = ?
+                        WHERE Codigo_Pieza = ?
+                    """, (
+                        largo_float, ancho_float, espesor_float,
+                        material_str, ruta_str,
+                        tiene_dxf, largo_dxf_f, ancho_dxf_f,
+                        codigo,
+                    ))
+                else:
+                    # Material vacío en Excel → no tocar columna Material en BD
+                    cursor.execute("""
+                        UPDATE Tbl_Maestro_Piezas
+                        SET Largo_CAD          = ?,
+                            Ancho_CAD          = ?,
+                            Espesor_Perfil_CAD  = ?,
+                            Ruta_Archivo       = ?,
+                            Tiene_DXF          = ?,
+                            Largo_DXF          = ?,
+                            Ancho_DXF          = ?
+                        WHERE Codigo_Pieza = ?
+                    """, (
+                        largo_float, ancho_float, espesor_float,
+                        ruta_str, tiene_dxf, largo_dxf_f, ancho_dxf_f,
+                        codigo,
+                    ))
+
                 if cursor.rowcount > 0:
                     print(f"ACTUALIZADA: {codigo} (L:{largo_float}, A:{ancho_float})")
                     actualizadas += 1
-                    # Opcional: Registrar en auditoria global
-                    usr_log = f"SISTEMA_CAD (Operador: {x_usuario})" if x_usuario else "SISTEMA_CAD"
-                    registrar_log_global(cursor, codigo, "UPDATE_MEDIDAS_CAD", "", f"L:{largo_float}, A:{ancho_float}", usr_log)
+                    actor = resolve_actor_user(authorization, x_usuario)
+                    usr_log = (
+                        actor
+                        if actor != "Sistema"
+                        else ((x_usuario or "").strip() or "SISTEMA_CAD")
+                    )
+                    registrar_log_global(
+                        cursor,
+                        codigo,
+                        "UPDATE_MEDIDAS_CAD",
+                        "",
+                        f"L:{largo_float}, A:{ancho_float}",
+                        usr_log,
+                    )
                 else:
                     print(f"NO ENCONTRADA: {codigo} - No existe la llave en DB")
                     no_encontradas += 1
@@ -723,6 +806,7 @@ async def upload_cad_modifications(file: UploadFile = File(...), x_usuario: Opti
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
         
 class CollectRequest(BaseModel):
     source_folder: str

@@ -59,30 +59,30 @@ class ConflictResolutionDialog extends StatelessWidget {
       required Map<String, dynamic> data,
       required bool isExcel,
     }) {
+      // Fix BorderRadius crash:
+      // Flutter NO permite borderRadius + Border con colores distintos en cada lado.
+      // Solución: border uniforme (Border.all) + el acento de color queda solo
+      // en la franja de cabecera interior (sin borderRadius = sin conflicto).
       return Container(
         decoration: BoxDecoration(
           color: cardBg,
           borderRadius: BorderRadius.circular(8),
-          border: Border(
-            left: BorderSide(color: accentBorder, width: 4),
-            top: BorderSide(color: divColor),
-            right: BorderSide(color: divColor),
-            bottom: BorderSide(color: divColor),
-          ),
+          border: Border.all(color: divColor), // ← uniforme: compatible con radius
         ),
+        clipBehavior: Clip.antiAlias, // recorta cabecera coloreada respetando el radius
         child: Column(
           // ⬇ mainAxisSize.min es obligatorio dentro de SingleChildScrollView
           // (altura unbounded): con max, la Column colapsa a 0 y no se ve nada.
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Cabecera del panel
+            // Franja de cabecera: acento de color aquí, sin borderRadius propio
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
-                color: accentBorder.withOpacity(0.12),
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(7),
+                color: accentBorder.withOpacity(0.18),
+                border: Border(
+                  bottom: BorderSide(color: accentBorder, width: 3),
                 ),
               ),
               child: Row(
