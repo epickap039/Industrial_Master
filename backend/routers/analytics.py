@@ -59,14 +59,8 @@ def get_analytics_dashboard(id_revision: str, exclude_ids: Optional[str] = None)
                 # Filtro para omitir piezas incompletas en métricas a nivel proyecto
                 # Métricas de material: sólo columna SQL Material (sin fallback a Descripcion).
                 where_clause = f"""WHERE ES.ID_Revision = {id_int} 
-                    AND (
-                        NULLIF(LTRIM(RTRIM(M.Material)), '') IS NOT NULL
-                        AND (
-                            TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Area_CAD, ' mm^2', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) > 0 
-                            OR TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) > 0 
-                            OR (TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) * TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Ancho_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT)) > 0
-                        )
-                    ) {excl_clause}"""
+                    AND NULLIF(LTRIM(RTRIM(M.Material)), '') IS NOT NULL
+                    {excl_clause}"""
                 where_clause_salud = f"WHERE ES.ID_Revision = {id_int} {excl_clause}"
             except ValueError:
                 raise HTTPException(status_code=400, detail="ID de revisión inválido")
@@ -77,55 +71,99 @@ def get_analytics_dashboard(id_revision: str, exclude_ids: Optional[str] = None)
                 where_clause_salud = f"WHERE 1=1 {excl_clause}"
 
         # 1. Top 10 Piezas
+        # LEFT JOIN: incluye piezas aunque no tengan entrada en Tbl_Maestro_Piezas
+        # (piezas nuevas importadas desde Excel que aún no tienen dimensiones CAD).
         cursor.execute(f"""
             SELECT TOP 10 E.Codigo_Pieza, ISNULL(SUM(E.Cantidad), 0) AS Total_Piezas
             FROM Tbl_BOM_Estructura E
             JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
             JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
-            JOIN Tbl_Maestro_Piezas M ON E.Codigo_Pieza = M.Codigo_Pieza
+            LEFT JOIN Tbl_Maestro_Piezas M
+                ON LTRIM(RTRIM(E.Codigo_Pieza)) = LTRIM(RTRIM(M.Codigo_Pieza))
             {where_clause}
             GROUP BY E.Codigo_Pieza
             ORDER BY Total_Piezas DESC
         """)
         top_piezas = [{"Codigo_Pieza": r.Codigo_Pieza, "Total_Piezas": float(r.Total_Piezas or 0)} for r in cursor.fetchall()]
 
-        # 2. Distribución de Materiales (m2)
+        # 2. Distribución de Materiales (m²): GROUP BY estricto por Tbl_Maestro_Piezas.Material
+        # (limpio). ISNULL en Cantidad y dimensiones evita que NULL anule toda la suma.
         cursor.execute(f"""
             WITH PiezasBase AS (
                 SELECT 
                     COALESCE(NULLIF(LTRIM(RTRIM(M.Material)), ''), 'FALTA ASIGNAR EN CAD') AS MaterialLimpio,
-                    E.Cantidad,
-                    TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS LargoLimpio,
-                    TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Ancho_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS AnchoLimpio,
-                    TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Area_CAD, ' mm^2', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS AreaLimpia
+                    ISNULL(E.Cantidad, 0) AS CantidadLimpia,
+                    COALESCE(
+                        TRY_CAST(M.Largo_CAD AS FLOAT),
+                        TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT),
+                        TRY_CAST(M.Largo_DXF AS FLOAT),
+                        TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Largo_DXF, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT)
+                    ) AS LargoLimpio,
+                    COALESCE(
+                        TRY_CAST(M.Ancho_CAD AS FLOAT),
+                        TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Ancho_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT),
+                        TRY_CAST(M.Ancho_DXF AS FLOAT),
+                        TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Ancho_DXF, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT)
+                    ) AS AnchoLimpio,
+                    COALESCE(
+                        TRY_CAST(M.Area_CAD AS FLOAT),
+                        TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Area_CAD, ' mm^2', ''), ',', ''), ' ', ''), '-', '') AS FLOAT)
+                    ) AS AreaLimpia
                 FROM Tbl_BOM_Estructura E
                 JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
                 JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
-                JOIN Tbl_Maestro_Piezas M ON E.Codigo_Pieza = M.Codigo_Pieza
+                JOIN Tbl_Maestro_Piezas M ON LTRIM(RTRIM(E.Codigo_Pieza)) = LTRIM(RTRIM(M.Codigo_Pieza))
                 {where_clause_salud if id_revision != 'global' else ""}
             )
             SELECT 
                 MaterialLimpio AS Material,
-                ISNULL(SUM(Cantidad * ISNULL(NULLIF(AreaLimpia, 0), (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0)))) / 1000000.0, 0) AS Total_m2
+                MaterialLimpio AS material_oficial,
+                ISNULL(SUM(
+                    ISNULL(NULLIF(CAST(AreaLimpia AS FLOAT), 0.0), (
+                        CAST(ISNULL(LargoLimpio, 0) AS FLOAT) *
+                        CAST(ISNULL(AnchoLimpio, 0) AS FLOAT)
+                    )) *
+                    CAST(ISNULL(CantidadLimpia, 0) AS FLOAT)
+                ), 0) / 1000000.0 AS Total_m2
             FROM PiezasBase
             WHERE MaterialLimpio != 'FALTA ASIGNAR EN CAD'
             GROUP BY MaterialLimpio
             ORDER BY Total_m2 DESC
         """)
-        distribucion = [{"Material": r.Material, "Total_m2": float(r.Total_m2 or 0)} for r in cursor.fetchall()]
+        distribucion = [
+            {
+                "Material": r.Material,
+                "material_oficial": getattr(r, "material_oficial", r.Material),
+                "Total_m2": float(r.Total_m2 or 0),
+            }
+            for r in cursor.fetchall()
+        ]
 
         # 3. Salud CAD (Valid vs Orphan)
         cursor.execute(f"""
             WITH PiezasBase AS (
                 SELECT 
                     COALESCE(NULLIF(LTRIM(RTRIM(M.Material)), ''), 'FALTA ASIGNAR EN CAD') AS MaterialLimpio,
-                    TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS LargoLimpio,
-                    TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Ancho_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS AnchoLimpio,
-                    TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Area_CAD, ' mm^2', ''), ',', ''), ' ', ''), '-', '') AS FLOAT) AS AreaLimpia
+                    COALESCE(
+                        TRY_CAST(M.Largo_CAD AS FLOAT),
+                        TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Largo_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT),
+                        TRY_CAST(M.Largo_DXF AS FLOAT),
+                        TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Largo_DXF, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT)
+                    ) AS LargoLimpio,
+                    COALESCE(
+                        TRY_CAST(M.Ancho_CAD AS FLOAT),
+                        TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Ancho_CAD, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT),
+                        TRY_CAST(M.Ancho_DXF AS FLOAT),
+                        TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Ancho_DXF, ' mm', ''), ',', ''), ' ', ''), '-', '') AS FLOAT)
+                    ) AS AnchoLimpio,
+                    COALESCE(
+                        TRY_CAST(M.Area_CAD AS FLOAT),
+                        TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Area_CAD, ' mm^2', ''), ',', ''), ' ', ''), '-', '') AS FLOAT)
+                    ) AS AreaLimpia
                 FROM Tbl_BOM_Estructura E
                 JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
                 JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
-                JOIN Tbl_Maestro_Piezas M ON E.Codigo_Pieza = M.Codigo_Pieza
+                JOIN Tbl_Maestro_Piezas M ON LTRIM(RTRIM(E.Codigo_Pieza)) = LTRIM(RTRIM(M.Codigo_Pieza))
                 {where_clause_salud if id_revision != 'global' else ""}
             )
             SELECT 
@@ -140,15 +178,17 @@ def get_analytics_dashboard(id_revision: str, exclude_ids: Optional[str] = None)
         }
 
         # 4. Distribución por Ensamble (Complejidad por Concentración de Piezas)
-        # Si es global, usamos LEFT JOIN para no perder ensambles sin estación
+        # LEFT JOIN a Tbl_Maestro_Piezas para no perder ensambles cuyas piezas
+        # aún no tienen registro en el catálogo maestro.
         estaciones_join = "JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion" if id_revision != 'global' else "LEFT JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion"
-        
+
         cursor.execute(f"""
             SELECT TOP 5 EN.Nombre_Ensamble, ISNULL(SUM(E.Cantidad), 0) AS Total_Piezas
             FROM Tbl_BOM_Estructura E
             JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
             {estaciones_join}
-            JOIN Tbl_Maestro_Piezas M ON E.Codigo_Pieza = M.Codigo_Pieza
+            LEFT JOIN Tbl_Maestro_Piezas M
+                ON LTRIM(RTRIM(E.Codigo_Pieza)) = LTRIM(RTRIM(M.Codigo_Pieza))
             {where_clause}
             GROUP BY EN.Nombre_Ensamble
             ORDER BY Total_Piezas DESC
@@ -168,7 +208,8 @@ def get_analytics_dashboard(id_revision: str, exclude_ids: Optional[str] = None)
                 FROM Tbl_BOM_Estructura E
                 JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
                 {estaciones_join}
-                JOIN Tbl_Maestro_Piezas M ON E.Codigo_Pieza = M.Codigo_Pieza
+                LEFT JOIN Tbl_Maestro_Piezas M
+                    ON LTRIM(RTRIM(E.Codigo_Pieza)) = LTRIM(RTRIM(M.Codigo_Pieza))
                 {where_clause}
                 {"AND" if where_clause else "WHERE"} EN.Nombre_Ensamble NOT IN ({','.join(['?' for _ in top_ids])})
             """, top_ids)

@@ -84,57 +84,90 @@ def calculate_mrp(id_revision: int):
     cursor = conn.cursor()
     try:
         # ── CTE base compartida (reutilizada en las tres queries) ─────────────
+        # PURGA REGLA ESPEJO: se eliminó M.Descripcion completamente.
+        # Material se extrae ÚNICA y EXCLUSIVAMENTE de M.Material.
+        # JOIN es LEFT JOIN para no perder piezas que aún no tienen CAD.
         _cte_base = """
         WITH PiezasBase AS (
             SELECT
                 E.Codigo_Pieza,
-                ISNULL(LTRIM(RTRIM(M.Descripcion)), '')  AS Descripcion,
-                COALESCE(NULLIF(LTRIM(RTRIM(M.Material)), ''),
-                         NULLIF(LTRIM(RTRIM(M.Descripcion)), ''),
-                         'FALTA ASIGNAR EN CAD')          AS MaterialLimpio,
+                NULLIF(LTRIM(RTRIM(M.Material)), '')              AS MaterialOficialRaw,
+                LTRIM(RTRIM(ISNULL(M.Material, '')))              AS Material_Trace,
                 M.Espesor_Perfil_CAD,
-                E.Cantidad,
-                TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Largo_CAD,' mm',''),',',''),' ',''),'-','') AS FLOAT) AS LargoLimpio,
-                TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Ancho_CAD,' mm',''),',',''),' ',''),'-','') AS FLOAT) AS AnchoLimpio,
-                TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Area_CAD,' mm^2',''),',',''),' ',''),'-','') AS FLOAT) AS AreaLimpia
+                ISNULL(E.Cantidad, 0)                             AS Cantidad,
+                COALESCE(
+                    TRY_CAST(M.Largo_CAD AS FLOAT),
+                    TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Largo_CAD,' mm',''),',',''),' ',''),'-','') AS FLOAT),
+                    TRY_CAST(M.Largo_DXF AS FLOAT),
+                    TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Largo_DXF,' mm',''),',',''),' ',''),'-','') AS FLOAT)
+                ) AS LargoLimpio,
+                COALESCE(
+                    TRY_CAST(M.Ancho_CAD AS FLOAT),
+                    TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Ancho_CAD,' mm',''),',',''),' ',''),'-','') AS FLOAT),
+                    TRY_CAST(M.Ancho_DXF AS FLOAT),
+                    TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Ancho_DXF,' mm',''),',',''),' ',''),'-','') AS FLOAT)
+                ) AS AnchoLimpio,
+                COALESCE(
+                    TRY_CAST(M.Area_CAD AS FLOAT),
+                    TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(M.Area_CAD,' mm^2',''),',',''),' ',''),'-','') AS FLOAT)
+                ) AS AreaLimpia
             FROM Tbl_BOM_Estructura E
             JOIN Tbl_Ensambles   EN ON E.ID_Ensamble  = EN.ID_Ensamble
             JOIN Tbl_Estaciones  ES ON EN.ID_Estacion = ES.ID_Estacion
-            JOIN Tbl_Maestro_Piezas M ON E.Codigo_Pieza = M.Codigo_Pieza
+            LEFT JOIN Tbl_Maestro_Piezas M
+                ON LTRIM(RTRIM(E.Codigo_Pieza)) = LTRIM(RTRIM(M.Codigo_Pieza))
             WHERE ES.ID_Revision = ?
         )
         """
 
         # ── 1. Materia Prima / Placas (excluye COMERCIAL) ────────────────────
+        # Filtro COMERCIAL: solo por MaterialOficialRaw — sin fallback a Descripcion.
+        # Espesor: ISNULL(CAST(...AS VARCHAR), 'N/A') para mostrar N/A limpio.
         query_mrp = _cte_base + """
         SELECT
-            MaterialLimpio  AS Material,
-            ISNULL(CAST(Espesor_Perfil_CAD AS VARCHAR(50)), 'N/A') AS Calibre_Espesor,
-            SUM(Cantidad)   AS Cantidad_Total_Piezas,
-            SUM(Cantidad * ISNULL(LargoLimpio, 0.0)) AS Requerimiento_Longitud_mm,
+            LTRIM(RTRIM(MaterialOficialRaw))                            AS material_oficial,
+            ISNULL(CAST(Espesor_Perfil_CAD AS VARCHAR(50)), 'N/A')      AS Calibre_Espesor,
+            SUM(Cantidad)                                               AS Cantidad_Total_Piezas,
+            SUM(Cantidad * ISNULL(LargoLimpio, 0.0))                    AS Requerimiento_Longitud_mm,
             SUM(Cantidad * ISNULL(NULLIF(AreaLimpia, 0),
-                (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0)))) AS Requerimiento_Area_mm2
+                (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0))))     AS Requerimiento_Area_mm2
         FROM PiezasBase
-        WHERE (ISNULL(AreaLimpia, 0) > 0
-            OR ISNULL(LargoLimpio, 0) > 0
-            OR (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0)) > 0)
-          AND MaterialLimpio != 'FALTA ASIGNAR EN CAD'
-          AND UPPER(MaterialLimpio) NOT LIKE '%COMERCIAL%'
-          AND UPPER(Descripcion)    NOT LIKE '%COMERCIAL%'
-        GROUP BY MaterialLimpio, Espesor_Perfil_CAD
-        ORDER BY MaterialLimpio, Espesor_Perfil_CAD
+        WHERE MaterialOficialRaw IS NOT NULL
+          AND UPPER(LTRIM(RTRIM(MaterialOficialRaw))) NOT LIKE '%COMERCIAL%'
+        GROUP BY
+            LTRIM(RTRIM(MaterialOficialRaw)),
+            ISNULL(CAST(Espesor_Perfil_CAD AS VARCHAR(50)), 'N/A')
+        ORDER BY
+            LTRIM(RTRIM(MaterialOficialRaw)),
+            ISNULL(CAST(Espesor_Perfil_CAD AS VARCHAR(50)), 'N/A')
         """
         cursor.execute(query_mrp, (id_revision,))
         rows_mrp = cursor.fetchall()
 
         mrp_calculado = []
         for r in rows_mrp:
-            material_upper = r.Material.upper()
+            raw_mo = getattr(r, "material_oficial", None) or getattr(
+                r, "Material_Oficial", None
+            ) or ""
+            mat_of = str(raw_mo).strip()
+            material_upper = mat_of.upper()
             req_area_mm2   = float(r.Requerimiento_Area_mm2)
             req_long_mm    = float(r.Requerimiento_Longitud_mm)
 
             sugerencia   = "N/A"
             scrap_factor = 1.15
+
+            if req_area_mm2 <= 0 and req_long_mm <= 0:
+                mrp_calculado.append({
+                    "material_oficial":      mat_of,
+                    "Material":              mat_of,
+                    "Calibre_Espesor":       r.Calibre_Espesor,
+                    "Cantidad_Total_Piezas": float(r.Cantidad_Total_Piezas),
+                    "Requerimiento_Area_mm2":    req_area_mm2,
+                    "Requerimiento_Longitud_mm": req_long_mm,
+                    "Sugerencia_Compra":     "Pendiente: cargar dimensiones CAD/DXF",
+                })
+                continue
 
             if any(x in material_upper for x in ['PERFIL', 'TUBO', 'BARRA', 'SOLERA', 'ANGULO', 'CANAL', 'HSS']):
                 metros_totales = req_long_mm / 1000.0
@@ -152,7 +185,8 @@ def calculate_mrp(id_revision: int):
                 sugerencia = f"Comprar {cantidad_placas} Placas de {t_str}"
 
             mrp_calculado.append({
-                "Material":              r.Material,
+                "material_oficial":      mat_of,
+                "Material":              mat_of,
                 "Calibre_Espesor":       r.Calibre_Espesor,
                 "Cantidad_Total_Piezas": float(r.Cantidad_Total_Piezas),
                 "Requerimiento_Area_mm2":    req_area_mm2,
@@ -160,17 +194,18 @@ def calculate_mrp(id_revision: int):
                 "Sugerencia_Compra":     sugerencia,
             })
 
-        # ── 2. Componentes Comerciales (solo cantidad, sin placas) ────────────
+        # ── 2. Componentes Comerciales (solo cantidad, sin placas) ─────────────
+        # PURGA REGLA ESPEJO: filtro y agrupación SOLO por MaterialOficialRaw.
+        # El marcador 'COMERCIAL' debe estar en la columna Material, no en Descripcion.
         query_comerciales = _cte_base + """
         SELECT
             Codigo_Pieza,
-            Descripcion,
-            SUM(Cantidad) AS Cantidad_Total
+            LTRIM(RTRIM(ISNULL(Material_Trace, '')))  AS Material_Comercial,
+            SUM(Cantidad)                              AS Cantidad_Total
         FROM PiezasBase
-        WHERE UPPER(MaterialLimpio) LIKE '%COMERCIAL%'
-           OR UPPER(Descripcion)    LIKE '%COMERCIAL%'
-        GROUP BY Codigo_Pieza, Descripcion
-        ORDER BY Descripcion, Codigo_Pieza
+        WHERE UPPER(LTRIM(RTRIM(ISNULL(Material_Trace, '')))) LIKE '%COMERCIAL%'
+        GROUP BY Codigo_Pieza, LTRIM(RTRIM(ISNULL(Material_Trace, '')))
+        ORDER BY Material_Comercial, Codigo_Pieza
         """
         cursor.execute(query_comerciales, (id_revision,))
         rows_com = cursor.fetchall()
@@ -178,13 +213,14 @@ def calculate_mrp(id_revision: int):
         componentes_comerciales = [
             {
                 "Codigo_Pieza":  r.Codigo_Pieza,
-                "Descripcion":   r.Descripcion,
+                "Descripcion":   r.Material_Comercial,  # campo renombrado; UI compat
                 "Cantidad_Total": float(r.Cantidad_Total),
             }
             for r in rows_com
         ]
 
         # ── 3. Piezas sin medidas / sin material (huérfanas) ─────────────────
+        # PURGA REGLA ESPEJO: huérfano = Material vacío, NULL o 'POR DEFINIR'.
         query_orphans = _cte_base + """
         SELECT
             Codigo_Pieza,
@@ -192,21 +228,19 @@ def calculate_mrp(id_revision: int):
                     FROM Tbl_Ensambles EN2
                     JOIN Tbl_BOM_Estructura E2 ON E2.ID_Ensamble = EN2.ID_Ensamble
                     WHERE E2.Codigo_Pieza = PiezasBase.Codigo_Pieza), 'N/A') AS Nombre_Ensamble,
-            MaterialLimpio AS Material,
+            ISNULL(Material_Trace, '')  AS Material,
             Cantidad,
             CASE
-                WHEN MaterialLimpio = 'FALTA ASIGNAR EN CAD'
+                WHEN MaterialOficialRaw IS NULL
                      AND (ISNULL(AreaLimpia,0)=0 AND ISNULL(LargoLimpio,0)=0
                           AND (ISNULL(LargoLimpio,0)*ISNULL(AnchoLimpio,0))=0)
                      THEN 'Sin Material ni Dimensiones'
-                WHEN MaterialLimpio = 'FALTA ASIGNAR EN CAD' THEN 'Falta Asignar Material'
+                WHEN MaterialOficialRaw IS NULL THEN 'Falta Asignar Material'
                 ELSE 'Sin Dimensiones CAD'
             END AS Motivo_Rechazo
         FROM PiezasBase
-        WHERE (ISNULL(AreaLimpia, 0) = 0
-           AND ISNULL(LargoLimpio, 0) = 0
-           AND (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0)) = 0)
-           OR MaterialLimpio = 'FALTA ASIGNAR EN CAD'
+        WHERE MaterialOficialRaw IS NULL
+           OR ISNULL(AreaLimpia,0) + ISNULL(LargoLimpio,0) = 0
         """
         cursor.execute(query_orphans, (id_revision,))
         rows_orphans = cursor.fetchall()
