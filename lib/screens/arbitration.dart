@@ -386,6 +386,68 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
     );
   }
 
+  void _showInfo(String title, String msg) {
+    showDialog(
+      context: context,
+      builder:
+          (c) => ContentDialog(
+            title: Text(title),
+            content: Text(msg),
+            actions: [
+              FilledButton(
+                child: const Text("OK"),
+                onPressed: () => Navigator.pop(c),
+              ),
+            ],
+          ),
+    );
+  }
+
+  /// Llama al endpoint que normaliza Material vacío → 'POR DEFINIR' en toda la BD.
+  Future<void> _limpiarMaterialVacio() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder:
+          (c) => ContentDialog(
+            title: const Text('🧹 Limpiar Material vacío'),
+            content: const Text(
+              'Esto actualizará TODAS las piezas en la base de datos que tienen '
+              'Material vacío o nulo, asignándoles "POR DEFINIR".\n\n'
+              '¿Deseas continuar?',
+            ),
+            actions: [
+              Button(
+                child: const Text('Cancelar'),
+                onPressed: () => Navigator.pop(c, false),
+              ),
+              FilledButton(
+                child: const Text('Limpiar BD'),
+                onPressed: () => Navigator.pop(c, true),
+              ),
+            ],
+          ),
+    );
+    if (ok != true) return;
+
+    setState(() => _isLoading = true);
+    try {
+      final res = await ApiClient.post(
+        '/api/excel/limpiar_material',
+        body: {},
+      ) as Map<String, dynamic>;
+      if (mounted) {
+        _showInfo(
+          '✅ Limpieza completada',
+          res['mensaje'] ?? 'Operación exitosa.',
+        );
+      }
+    } catch (e) {
+      if (mounted) _showError('Error al limpiar: $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   // 3. EDICIÓN Y RESOLUCIÓN (LÓGICA "RESOLVER Y DESAPARECER")
   void _showEditDialog(dynamic item) async {
     // Si es CONFLICTO, mostrar primero el diálogo de resolución
@@ -859,6 +921,17 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
                           ],
                         ),
                       ),
+                    Button(
+                      onPressed: _isLoading ? null : _limpiarMaterialVacio,
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(FluentIcons.broom, size: 14),
+                          SizedBox(width: 6),
+                          Text('Limpiar Material'),
+                        ],
+                      ),
+                    ),
                   ];
 
                   return Center(

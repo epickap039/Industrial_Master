@@ -7,9 +7,20 @@ class ConflictResolutionDialog extends StatelessWidget {
 
   const ConflictResolutionDialog({super.key, required this.item});
 
+  // ── Helpers de extracción de datos ──────────────────────────────────────────
+
+  /// Devuelve el valor como String, nunca null.
+  static String _str(dynamic v) =>
+      (v == null || v.toString().trim().isEmpty) ? '—' : v.toString().trim();
+
+  /// true si el valor indica "sin definir" (vacío o placeholder).
+  static bool _isSinDefinir(String v) =>
+      v == '—' || v.isEmpty || v.toUpperCase() == 'POR DEFINIR';
+
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
+
     final Map<String, dynamic> excel =
         item['Excel_Data'] is Map
             ? Map<String, dynamic>.from(item['Excel_Data'])
@@ -19,125 +30,164 @@ class ConflictResolutionDialog extends StatelessWidget {
             ? Map<String, dynamic>.from(item['SQL_Data'])
             : {};
 
-    Widget buildValue(String label, String value) {
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              label,
-              style: theme.typography.caption?.copyWith(
-                color: theme.resources.textFillColorSecondary,
-              ),
-            ),
-            const SizedBox(height: 2),
-            SelectableText(
-              value.isEmpty ? "—" : value,
-              style: theme.typography.bodyStrong,
-            ),
-          ],
-        ),
-      );
-    }
+    // ── Campos a mostrar ──────────────────────────────────────────────────────
+    final fields = [
+      _FieldDef('Descripción', 'Descripcion_Excel', 'Descripcion'),
+      _FieldDef('Medida', 'Medida_Excel', 'Medida'),
+      _FieldDef('Material', 'Material_Excel', 'Material'),
+      _FieldDef('Proceso Primario', 'Proceso_Primario', 'Proceso_Primario'),
+      _FieldDef('Proceso 1', 'Proceso_1', 'Proceso_1'),
+      _FieldDef('Proceso 2', 'Proceso_2', 'Proceso_2'),
+      _FieldDef('Proceso 3', 'Proceso_3', 'Proceso_3'),
+      _FieldDef('Simetría', 'Simetria', 'Simetria'),
+      _FieldDef('Link Drive', 'Link_Drive', 'Link_Drive'),
+    ];
 
-    /// Tarjeta lado a lado: [Column] de datos (sin apilar Excel sobre BD).
-    Widget buildMirrorSide({
+    // ── Colores de tema ───────────────────────────────────────────────────────
+    final accent = theme.accentColor;
+    final cardBg = theme.cardColor;
+    final divColor = theme.resources.dividerStrokeColorDefault;
+    final labelColor = theme.resources.textFillColorSecondary;
+    final textColor = theme.resources.textFillColorPrimary;
+    final rowAlt = theme.resources.cardBackgroundFillColorSecondary;
+
+    // ── Panel de un lado (Excel o BD) ─────────────────────────────────────────
+    Widget buildPanel({
       required String title,
       required IconData icon,
-      required Color markerColor,
+      required Color accentBorder,
       required Map<String, dynamic> data,
       required bool isExcel,
     }) {
       return Container(
         decoration: BoxDecoration(
-          color: theme.cardColor,
+          color: cardBg,
           borderRadius: BorderRadius.circular(8),
           border: Border(
-            left: BorderSide(color: markerColor, width: 4),
-            top: BorderSide(color: theme.resources.dividerStrokeColorDefault),
-            right: BorderSide(color: theme.resources.dividerStrokeColorDefault),
-            bottom: BorderSide(
-              color: theme.resources.dividerStrokeColorDefault,
-            ),
+            left: BorderSide(color: accentBorder, width: 4),
+            top: BorderSide(color: divColor),
+            right: BorderSide(color: divColor),
+            bottom: BorderSide(color: divColor),
           ),
         ),
-        padding: const EdgeInsets.all(14),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          // ⬇ mainAxisSize.min es obligatorio dentro de SingleChildScrollView
+          // (altura unbounded): con max, la Column colapsa a 0 y no se ve nada.
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(
-              children: [
-                Icon(icon, size: 15, color: markerColor),
-                const SizedBox(width: 8),
-                Text(title, style: theme.typography.bodyStrong),
-              ],
+            // Cabecera del panel
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: accentBorder.withOpacity(0.12),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(7),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(icon, size: 15, color: accentBorder),
+                  const SizedBox(width: 8),
+                  // ⬇ Text en lugar de SelectableText — SelectableText necesita
+                  // un SelectionArea ancestro en Flutter desktop; sin él,
+                  // produce un render vacío dentro de scroll views.
+                  Text(
+                    title,
+                    style: theme.typography.bodyStrong?.copyWith(
+                      color: textColor,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 10),
-            buildValue(
-              "Descripcion",
-              (data[isExcel ? 'Descripcion_Excel' : 'Descripcion'] ?? "")
-                  .toString(),
-            ),
-            buildValue(
-              "Medida",
-              (data[isExcel ? 'Medida_Excel' : 'Medida'] ?? "").toString(),
-            ),
-            buildValue(
-              "Material",
-              (data[isExcel ? 'Material_Excel' : 'Material'] ?? "").toString(),
-            ),
-            buildValue(
-              "Proceso primario",
-              (data['Proceso_Primario'] ?? "").toString(),
-            ),
-            buildValue(
-              "Proceso 1",
-              (data['Proceso_1'] ?? "").toString(),
-            ),
-            buildValue(
-              "Proceso 2",
-              (data['Proceso_2'] ?? "").toString(),
-            ),
-            buildValue(
-              "Proceso 3",
-              (data['Proceso_3'] ?? "").toString(),
-            ),
-            buildValue(
-              "Simetria",
-              (data['Simetria'] ?? "").toString(),
-            ),
-            buildValue(
-              "Link Drive",
-              (data['Link_Drive'] ?? "").toString(),
-            ),
+            // Tabla de filas campo → valor
+            ...fields.asMap().entries.map((entry) {
+              final i = entry.key;
+              final f = entry.value;
+              final rawVal = data[isExcel ? f.excelKey : f.sqlKey];
+              final val = _str(rawVal);
+              final sinDef = _isSinDefinir(val) && f.excelKey == 'Material_Excel';
+              final isEven = i.isEven;
+
+              return Container(
+                color: isEven ? Colors.transparent : rowAlt,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 8,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      f.label,
+                      style: theme.typography.caption?.copyWith(
+                        color: labelColor,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            val,
+                            style: theme.typography.body?.copyWith(
+                              color: textColor,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            softWrap: true,
+                          ),
+                        ),
+                        // Badge "POR DEFINIR" solo en campo Material vacío
+                        if (sinDef) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(
+                                color: Colors.orange,
+                                width: 1,
+                              ),
+                            ),
+                            child: Text(
+                              'Sin definir',
+                              style: theme.typography.caption?.copyWith(
+                                color: Colors.orange,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+              );
+            }),
           ],
         ),
       );
     }
 
-    final maxH = min(
-      560.0,
-      MediaQuery.sizeOf(context).height * 0.72,
-    );
-
-    // Anchos fijos para evitar "unbounded width" dentro del ContentDialog.
-    // double.infinity colapsa el layout cuando el diálogo no impone ancho;
-    // 820 px (400+12+400+8 padding) garantiza que Flutter siempre resuelva
-    // las constraints y el contenido se pinte correctamente.
-    const double kDialogWidth = 820;
+    // ── Altura dinámica ───────────────────────────────────────────────────────
+    final maxH = min(560.0, MediaQuery.sizeOf(context).height * 0.72);
+    const double kPanelWidth = 400;
+    const double kGap = 12;
+    const double kDialogWidth = kPanelWidth * 2 + kGap;
 
     return ContentDialog(
-      constraints: BoxConstraints(
-        maxWidth: kDialogWidth + 48, // padding interno del ContentDialog (~24 c/lado)
-      ),
+      constraints: BoxConstraints(maxWidth: kDialogWidth + 48),
       title: Row(
         children: [
           Text(
-            "Resolver conflicto",
-            style: theme.typography.subtitle?.copyWith(
-              color: theme.typography.title?.color,
-            ),
+            'Resolver conflicto',
+            style: theme.typography.subtitle?.copyWith(color: textColor),
           ),
           const SizedBox(width: 8),
           Container(
@@ -147,46 +197,48 @@ class ConflictResolutionDialog extends StatelessWidget {
               borderRadius: BorderRadius.circular(4),
             ),
             child: Text(
-              item['Codigo_Pieza'] ?? "N/A",
+              item['Codigo_Pieza']?.toString() ?? 'N/A',
               style: theme.typography.caption?.copyWith(
                 fontWeight: FontWeight.bold,
+                color: accent,
               ),
             ),
           ),
         ],
       ),
       content: SizedBox(
-        width: kDialogWidth,   // ← ancho FIJO, no infinito
+        width: kDialogWidth,
         height: maxH,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // ── Paneles comparativos ─────────────────────────────────────────
             Expanded(
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Panel EXCEL — ancho fijo, scroll vertical propio
+                  // Panel Excel
                   SizedBox(
-                    width: 400,
+                    width: kPanelWidth,
                     child: SingleChildScrollView(
-                      child: buildMirrorSide(
-                        title: "Propuesta Excel",
+                      child: buildPanel(
+                        title: 'Propuesta Excel',
                         icon: FluentIcons.excel_logo,
-                        markerColor: Colors.blue,
+                        accentBorder: Colors.blue,
                         data: excel,
                         isExcel: true,
                       ),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  // Panel BD — ancho fijo, scroll vertical propio
+                  const SizedBox(width: kGap),
+                  // Panel BD
                   SizedBox(
-                    width: 400,
+                    width: kPanelWidth,
                     child: SingleChildScrollView(
-                      child: buildMirrorSide(
-                        title: "Base de Datos Actual",
+                      child: buildPanel(
+                        title: 'Base de Datos Actual',
                         icon: FluentIcons.database,
-                        markerColor: Colors.orange,
+                        accentBorder: Colors.orange,
                         data: sqlRaw,
                         isExcel: false,
                       ),
@@ -195,52 +247,48 @@ class ConflictResolutionDialog extends StatelessWidget {
                 ],
               ),
             ),
+            // ── Divisor ──────────────────────────────────────────────────────
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 10),
               child: Divider(
                 style: DividerThemeData(
                   thickness: 1,
-                  decoration: BoxDecoration(
-                    color: theme.resources.dividerStrokeColorDefault,
-                  ),
+                  decoration: BoxDecoration(color: divColor),
                 ),
               ),
             ),
-            // Botones — scroll horizontal por si la ventana es muy angosta
+            // ── Botones de acción ────────────────────────────────────────────
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Button(
-                    child: const Text("Cancelar"),
+                    child: const Text('Cancelar'),
                     onPressed: () => Navigator.pop(context, null),
                   ),
                   const SizedBox(width: 12),
                   HyperlinkButton(
-                    child: const Text("Editar manual"),
-                    onPressed:
-                        () => Navigator.pop(context, {
-                          'action': 'EDIT_MANUAL',
-                        }),
+                    child: const Text('Editar manual'),
+                    onPressed: () => Navigator.pop(context, {
+                      'action': 'EDIT_MANUAL',
+                    }),
                   ),
                   const SizedBox(width: 8),
                   Button(
-                    child: const Text("Mantener BD"),
-                    onPressed:
-                        () => Navigator.pop(context, {
-                          'action': 'KEEP_DB',
-                          'data': sqlRaw,
-                        }),
+                    child: const Text('Mantener BD'),
+                    onPressed: () => Navigator.pop(context, {
+                      'action': 'KEEP_DB',
+                      'data': sqlRaw,
+                    }),
                   ),
                   const SizedBox(width: 8),
                   FilledButton(
-                    child: const Text("Usar Excel"),
-                    onPressed:
-                        () => Navigator.pop(context, {
-                          'action': 'SYNC_EXCEL',
-                          'data': excel,
-                        }),
+                    child: const Text('Usar Excel'),
+                    onPressed: () => Navigator.pop(context, {
+                      'action': 'SYNC_EXCEL',
+                      'data': excel,
+                    }),
                   ),
                 ],
               ),
@@ -251,4 +299,12 @@ class ConflictResolutionDialog extends StatelessWidget {
       actions: const [],
     );
   }
+}
+
+/// Definición de un campo a comparar entre Excel y BD.
+class _FieldDef {
+  final String label;
+  final String excelKey;
+  final String sqlKey;
+  const _FieldDef(this.label, this.excelKey, this.sqlKey);
 }

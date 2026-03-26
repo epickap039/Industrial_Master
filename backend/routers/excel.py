@@ -52,6 +52,41 @@ def _material_safe(value) -> str:
 
 
 # 5. MOTOR DE ARBITRAJE EXCEL
+
+# ── ENDPOINT: Limpieza masiva de Material vacío ────────────────────────────────
+@router.post("/api/excel/limpiar_material")
+async def limpiar_material_vacio():
+    """
+    Normaliza todos los registros de Tbl_Maestro_Piezas donde Material
+    es NULL, cadena vacía o solo espacios → 'POR DEFINIR'.
+
+    Esto corrige datos históricos inyectados antes del candado anti-vacíos
+    y elimina los CONFLICTOS fantasma provocados por material faltante.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            UPDATE Tbl_Maestro_Piezas
+            SET Material = 'POR DEFINIR',
+                Ultima_Actualizacion = GETDATE(),
+                Modificado_Por = 'Limpieza_Automatica'
+            WHERE LTRIM(RTRIM(ISNULL(Material, ''))) = ''
+        """)
+        afectados = cursor.rowcount
+        conn.commit()
+        print(f"[limpiar_material] {afectados} registros normalizados a 'POR DEFINIR'")
+        return {
+            "status": "ok",
+            "normalizados": afectados,
+            "mensaje": f"{afectados} pieza(s) sin material actualizadas a 'POR DEFINIR'."
+        }
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
 @router.post("/api/excel/procesar")
 async def procesar_excel(file: UploadFile = File(...)):
     print(f"--- PROCESANDO BOM EXCEL: {file.filename} ---")
