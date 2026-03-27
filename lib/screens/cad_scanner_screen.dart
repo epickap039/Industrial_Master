@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/material.dart' as material;
 import 'package:file_picker/file_picker.dart';
 import 'dart:async';
 import 'dart:io';
@@ -187,6 +188,8 @@ End Sub''';
   final TextEditingController _pathController = TextEditingController();
   final TextEditingController _networkController = TextEditingController();
   bool _isCollecting = false;
+  /// Solo procesar .sldprt cuyo codigo esta en el maestro sin Largo_CAD valido.
+  bool _soloFaltantes = false;
 
   
   String _status = 'idle';
@@ -194,6 +197,7 @@ End Sub''';
   int _total = 0;
   String _excelPath = '';
   String _errorMessage = '';
+  String _warningMessage = '';
   String _currentFile = '';   // texto de la pieza en proceso
   int _currentItem = 0;       // índice numérico actual
   int _totalItems = 0;        // total objetivo del proceso activo
@@ -237,6 +241,7 @@ End Sub''';
             _total = data['total'] ?? 0;
             _excelPath = data['excel_path'] ?? '';
             _errorMessage = data['error'] ?? '';
+            _warningMessage = data['warning_message'] ?? '';
             _currentFile = data['current_file'] ?? '';
             _currentItem = data['current_item'] ?? 0;
             _totalItems  = data['total_items']  ?? 0;
@@ -331,13 +336,17 @@ End Sub''';
       _progress = 0;
       _excelPath = '';
       _errorMessage = '';
+      _warningMessage = '';
     });
 
     try {
       final response = await ApiClient.postUnvalidated(
         '/api/cad/scan',
         headers: {'Content-Type': 'application/json'},
-        body: {'root_path': rootPath},
+        body: {
+          'root_path': rootPath,
+          'solo_faltantes': _soloFaltantes,
+        },
       );
 
       if (response.statusCode == 200) {
@@ -444,7 +453,7 @@ End Sub''';
       final response = await ApiClient.postUnvalidated(
         '/api/cad/procesar-directorio',
         headers: {'Content-Type': 'application/json'},
-        body: {'root_path': rootPath},
+        body: {'root_path': rootPath, 'solo_faltantes': _soloFaltantes},
       );
 
       if (response.statusCode == 200) {
@@ -490,7 +499,10 @@ End Sub''';
       final response = await ApiClient.postUnvalidated(
         '/api/cad/collect-missing',
         headers: {'Content-Type': 'application/json'},
-        body: {'source_folder': selectedDirectory},
+        body: {
+          'source_folder': selectedDirectory,
+          'solo_faltantes': _soloFaltantes,
+        },
       );
 
       setState(() {
@@ -873,6 +885,35 @@ End Sub''';
                               ),
                             ),
                             const SizedBox(height: 16),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Checkbox(
+                                  checked: _soloFaltantes,
+                                  onChanged: isBusy
+                                      ? null
+                                      : (bool? v) {
+                                          setState(() {
+                                            _soloFaltantes = v ?? false;
+                                          });
+                                        },
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Escanear solo piezas sin medidas',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: FluentTheme.of(context)
+                                          .typography
+                                          .body
+                                          ?.color,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
                             Wrap(
                               spacing: 8,
                               runSpacing: 8,
@@ -1092,6 +1133,32 @@ End Sub''';
               ),
 
               const SizedBox(height: 8),
+
+              if (_warningMessage.isNotEmpty)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.orange),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(FluentIcons.warning, color: material.Colors.redAccent, size: 16),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _warningMessage,
+                          style: const TextStyle(
+                            color: material.Colors.redAccent,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
             ],
 
             // Zona de Resultados

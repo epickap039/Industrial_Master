@@ -1,7 +1,7 @@
 """Modelos Pydantic compartidos (extraídos de server.py)."""
 from typing import List, Literal, Optional
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 
 class MirrorConfig(BaseModel):
@@ -140,6 +140,32 @@ class BOMPiezaUpdate(BaseModel):
     cantidad: float
 
 
+def _coerce_dim_cad(v):
+    """Acepta str/float/int desde BD o JSON; devuelve float o None (sin truncar decimales)."""
+    if v is None or v == "":
+        return None
+    if isinstance(v, bool):
+        return None
+    try:
+        import numpy as np
+        if isinstance(v, (np.floating, np.integer)):
+            x = float(v.item()) if hasattr(v, "item") else float(v)
+            return float(x)
+    except Exception:
+        pass
+    if isinstance(v, (int, float)):
+        return float(v)
+    if isinstance(v, str):
+        s = v.strip().replace(",", ".")
+        if s.lower() in ("", "nan", "none", "-", "n/a"):
+            return None
+        try:
+            return float(s)
+        except ValueError:
+            return None
+    return None
+
+
 class PiezaArbolItem(BaseModel):
     """Pieza dentro del árbol BOM (estación → ensamble → pieza)."""
 
@@ -158,10 +184,15 @@ class PiezaArbolItem(BaseModel):
     proceso_2: Optional[str] = ""
     proceso_3: Optional[str] = ""
     link_drive: Optional[str] = ""
-    largo_cad: Optional[str] = ""
-    ancho_cad: Optional[str] = ""
-    espesor_cad: Optional[str] = ""
+    largo_cad: Optional[float] = None
+    ancho_cad: Optional[float] = None
+    espesor_cad: Optional[float] = None
     tiene_dxf: Optional[str] = "No"
+
+    @field_validator("largo_cad", "ancho_cad", "espesor_cad", mode="before")
+    @classmethod
+    def _v_dim_cad_arbol(cls, v):
+        return _coerce_dim_cad(v)
 
 
 class PiezaPlanaItem(BaseModel):
@@ -179,10 +210,15 @@ class PiezaPlanaItem(BaseModel):
     proceso_1: Optional[str] = ""
     proceso_2: Optional[str] = ""
     proceso_3: Optional[str] = ""
-    largo_cad: Optional[str] = ""
-    ancho_cad: Optional[str] = ""
-    espesor_cad: Optional[str] = ""
+    largo_cad: Optional[float] = None
+    ancho_cad: Optional[float] = None
+    espesor_cad: Optional[float] = None
     tiene_dxf: Optional[str] = "No"
+
+    @field_validator("largo_cad", "ancho_cad", "espesor_cad", mode="before")
+    @classmethod
+    def _v_dim_cad_plana(cls, v):
+        return _coerce_dim_cad(v)
     nombre_estacion: Optional[str] = ""
     nombre_ensamble: Optional[str] = ""
     id_bom: Optional[int] = None
@@ -228,7 +264,9 @@ class MasivoUpdate(BaseModel):
 
 class ScanCADPayload(BaseModel):
     root_path: str
+    solo_faltantes: bool = False
 
 
 class CollectRequest(BaseModel):
     source_folder: str
+    solo_faltantes: bool = False

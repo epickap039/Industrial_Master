@@ -9,7 +9,9 @@ import shutil
 import socket
 import subprocess
 import sys
+import threading
 import traceback
+import unicodedata
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -28,6 +30,114 @@ from models import *
 from user_context import resolve_actor_user
 
 router = APIRouter()
+
+
+def _cad_path_has_obsoleto(path: str) -> bool:
+    """Ignora rutas cuyo nombre de archivo o cualquier carpeta contenga 'OBSOLETO'."""
+    return "obsoleto" in path.replace("\\", "/").lower()
+
+
+def _dedupe_paths_by_basename_newest(paths: List[str]) -> List[str]:
+    """Por nombre base sin extensión (mismo código en distintas carpetas), conserva la ruta con mayor getmtime."""
+    best: Dict[str, tuple[float, str]] = {}
+    for p in paths:
+        try:
+            stem = os.path.splitext(os.path.basename(p))[0]
+            key = stem.lower()
+            mt = os.path.getmtime(p)
+        except OSError:
+            continue
+        prev = best.get(key)
+        if prev is None or mt > prev[0]:
+            best[key] = (mt, p)
+    return [t[1] for t in best.values()]
+
+
+def _sanitize_excel_si_no(val: Any, default: str = "NO") -> str:
+    """ASCII + mayúsculas para columnas VARCHAR cortas (Tiene_DXF, etc.).
+
+    Evita 'String or binary data would be truncated' cuando Excel trae 'SÍ'
+    o mojibake ('SÃ…') y la columna SQL es demasiado estrecha para UTF-8 multibyte.
+    """
+    if val is None:
+        return default
+    try:
+        if pd.isna(val):
+            return default
+    except Exception:
+        pass
+    try:
+        if isinstance(val, float) and math.isnan(val):
+            return default
+    except (TypeError, ValueError):
+        pass
+    raw = str(val).strip()
+    if not raw or raw.lower() in ("nan", "none", "-", "n/a"):
+        return default
+    # Mojibake típico: UTF-8 leído como Latin-1
+    if "Ã" in raw or "Â" in raw:
+        try:
+            raw = raw.encode("latin-1").decode("utf-8")
+        except (UnicodeDecodeError, UnicodeEncodeError):
+            pass
+    nfd = unicodedata.normalize("NFD", raw)
+    sin_tildes = "".join(c for c in nfd if unicodedata.category(c) != "Mn")
+    ascii_only = "".join(c for c in sin_tildes if ord(c) < 128)
+    u = ascii_only.upper().replace(" ", "")
+    if not u:
+        return default
+    if u.startswith("S") or u in ("SI", "YES", "TRUE", "1", "Y"):
+        return "SI"
+    if u.startswith("N") or u in ("NO", "FALSE", "0"):
+        return "NO"
+    return default
+
+
+def _clean_com_text(val: Any) -> str:
+    """Texto desde win32com / Windows: strip y corrección común de mojibake (Latin-1 mal leído como UTF-8)."""
+    if val is None:
+        return ""
+    try:
+        if pd.isna(val):
+            return ""
+    except Exception:
+        pass
+    try:
+        s = str(val).strip()
+    except Exception:
+        return ""
+    if not s:
+        return ""
+    if "Ã" in s or "Â" in s:
+        try:
+            s = s.encode("latin-1").decode("utf-8").strip()
+        except (UnicodeDecodeError, UnicodeEncodeError):
+            pass
+    return s
+
+
+def _ascii_report_text(val: Any) -> str:
+    """Cadenas del reporte CAD: ASCII sin acentos para Excel/BD (evita Ñ, ó, etc.)."""
+    s = _clean_com_text(val)
+    if not s:
+        return ""
+    nfd = unicodedata.normalize("NFD", s)
+    out = "".join(
+        c for c in nfd if unicodedata.category(c) != "Mn" and ord(c) < 128
+    )
+    return out if out else s
+
+
+def _export_reporte_cad(df: pd.DataFrame, report_path: str) -> None:
+    """Exporta xlsx (UTF-16 interno en XML vía openpyxl) y CSV con BOM para Excel en Windows."""
+    df.to_excel(report_path, index=False, engine="openpyxl")
+    base, _, ext = report_path.rpartition(".")
+    if ext.lower() == "xlsx":
+        csv_path = f"{base}.csv"
+    else:
+        csv_path = f"{report_path}.csv"
+    df.to_csv(csv_path, index=False, encoding="utf-8-sig")
+
 
 # RaÃ­z `backend/` (equivalente a cuando server.py monolÃ­tico vivÃ­a ahÃ­; flags y tools/ siguen igual)
 _BACKEND_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -48,11 +158,15 @@ scan_status = {
     "status": "idle",
     "excel_path": "",
     "error": "",
+    "warning_message": "",
     "current_file": "",
     "current_item": 0,
     "total_items": 0
 }
 abortar_escaneo_cad = False
+
+# Tiempo máximo por pieza SolidWorks (COM bloqueante; no se puede cancelar la llamada en curso).
+SW_PIECE_TIMEOUT_SEC = 90
 
 @router.post("/api/cad/abort")
 def abort_cad():
@@ -64,7 +178,7 @@ def abort_cad():
         f.write("abort")
     return {"status": "aborting"}
 
-def bg_scan_cad_task(root_path: str):
+def bg_scan_cad_task(root_path: str, solo_faltantes: bool = False):
     global scan_status, abortar_escaneo_cad
     import datetime
     data = []
@@ -82,6 +196,7 @@ def bg_scan_cad_task(root_path: str):
     scan_status["total"] = 0
     scan_status["excel_path"] = ""
     scan_status["error"] = ""
+    scan_status["warning_message"] = ""
     scan_status["current_file"] = ""
     scan_status["current_item"] = 0
     scan_status["total_items"] = 0
@@ -107,6 +222,7 @@ def bg_scan_cad_task(root_path: str):
                 d for d in dirs
                 if d.lower() not in _EXCLUDED_DIRS
                 and not d.startswith('.')
+                and "obsoleto" not in d.lower()
             ]
 
             if abortar_escaneo_cad or scan_status["status"] == "cancelled":
@@ -118,11 +234,15 @@ def bg_scan_cad_task(root_path: str):
                     
                 if f.startswith("~$"):
                     continue
+                if "obsoleto" in f.lower():
+                    continue
                     
                 ext = os.path.splitext(f)[1].lower()
                 if ext in extensions_to_look:
                     codigo_pieza = os.path.splitext(f)[0]
                     abspath = os.path.join(dirpath, f)
+                    if _cad_path_has_obsoleto(abspath):
+                        continue
                     
                     try:
                         mtime = os.path.getmtime(abspath)
@@ -155,6 +275,43 @@ def bg_scan_cad_task(root_path: str):
             return
             
         scan_status["status"] = "generating_excel"
+
+        if solo_faltantes:
+            try:
+                conn = get_db_connection()
+                cur = conn.cursor()
+                cur.execute(
+                    """
+                    SELECT Codigo_Pieza
+                    FROM Tbl_Maestro_Piezas
+                    WHERE Largo_CAD IS NULL
+                       OR LTRIM(RTRIM(CAST(Largo_CAD AS NVARCHAR(200)))) = ''
+                       OR LTRIM(RTRIM(CAST(Largo_CAD AS NVARCHAR(200)))) = '-'
+                       OR LTRIM(RTRIM(CAST(Largo_CAD AS NVARCHAR(200)))) = '0'
+                       OR (
+                            TRY_CAST(Largo_CAD AS FLOAT) IS NOT NULL
+                            AND TRY_CAST(Largo_CAD AS FLOAT) = 0
+                          )
+                    """
+                )
+                rows = cur.fetchall()
+                cur.close()
+                conn.close()
+                faltantes_norm = set()
+                for r in rows:
+                    if r and r[0] is not None:
+                        faltantes_norm.add(str(r[0]).strip().upper())
+                cad_files = {
+                    k: v
+                    for k, v in cad_files.items()
+                    if str(k).strip().upper() in faltantes_norm
+                }
+                print(
+                    f"[CAD] solo_faltantes: {len(faltantes_norm)} codigos en maestro sin medida, "
+                    f"{len(cad_files)} archivos .sldprt coincidentes en carpeta."
+                )
+            except Exception as ex_sf:
+                print(f"[CAD] solo_faltantes: error consultando Tbl_Maestro_Piezas: {ex_sf}")
         
         # Generar Excel y extraer metadata CAD
         import time as _time
@@ -231,8 +388,190 @@ def bg_scan_cad_task(root_path: str):
                 print(f"ADVERTENCIA: Motor AutoCAD inaccesible: {e}")
                 return None
 
+        def _resurrect_solidworks_com_after_kill():
+            """Mata SLDWORKS y reinicia apartamento COM en el hilo actual (mismo patrón que crash RPC)."""
+            try:
+                os.system("taskkill /F /IM SLDWORKS.exe /T 2>nul")
+            except Exception:
+                pass
+            _time.sleep(3)
+            try:
+                pythoncom.CoUninitialize()
+            except Exception:
+                pass
+            try:
+                pythoncom.CoInitialize()
+            except Exception:
+                pass
+            return get_sw_app()
+
+        def _sldprt_extract_one(sw_local, abspath, codigo, nombre_archivo, ruta_abs):
+            """Procesa una pieza SolidWorks en el MISMO hilo que creó sw_local (reglas COM)."""
+            largo_cad = 0.0
+            ancho_cad = 0.0
+            espesor_cad = 0.0
+            observacion = ""
+            if not ruta_abs.upper().endswith(".SLDPRT"):
+                print(f"[SW] Omitido por filtro: {ruta_abs}")
+                return {
+                    "codigo": _ascii_report_text(codigo),
+                    "largo_cad": largo_cad,
+                    "ancho_cad": ancho_cad,
+                    "espesor_cad": espesor_cad,
+                    "observacion": _ascii_report_text("Omitido (no es .SLDPRT)"),
+                    "rpc_continue": False,
+                }
+
+            swDocPART = 1
+            SW_OPEN_SILENT = 1
+            arg_errors = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+            arg_warnings = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+            swModel = None
+            try:
+                swModel = sw_local.OpenDoc6(
+                    ruta_abs,
+                    swDocPART,
+                    SW_OPEN_SILENT,
+                    "",
+                    arg_errors,
+                    arg_warnings,
+                )
+            except Exception as try_open_err:
+                err_str = repr(try_open_err)
+                err_code = getattr(try_open_err, "hresult", None)
+                _RPC_CODES = {-2147023170, -2147023174, -2147417848}
+                is_rpc_crash = (
+                    any(str(c) in err_str for c in _RPC_CODES)
+                    or (err_code is not None and err_code in _RPC_CODES)
+                )
+                if is_rpc_crash:
+                    print(f"[SW-RPC] Crash RPC detectado en '{codigo}' (hresult={err_code}). Iniciando resurrección COM...")
+                    import logging as _logging
+                    _logging.error(f"[SW-RPC] Crash en '{ruta_abs}': {err_str}")
+                    scan_status["warning_message"] = f"⚠️ Saltado por versión: {nombre_archivo}"
+                    _resurrect_solidworks_com_after_kill()
+                    return {
+                        "rpc_continue": True,
+                        "codigo": _ascii_report_text(codigo),
+                        "largo_cad": 0.0,
+                        "ancho_cad": 0.0,
+                        "espesor_cad": 0.0,
+                        "observacion": _ascii_report_text(
+                            "ERROR RPC: Archivo de version anterior o corrupto. "
+                            "Primero actualiza/guarda la pieza manualmente en esta version."
+                        ),
+                    }
+                print(f"[SW] Error abriendo '{codigo}': {err_str}")
+                observacion = f"Error apertura: {str(try_open_err)[:60]}"
+                swModel = None
+
+            if swModel is None:
+                if not observacion.startswith("Error apertura"):
+                    largo_cad = 0.0
+                    ancho_cad = 0.0
+                    observacion = (
+                        "ERROR: Archivo de version mas reciente. "
+                        "Actualiza SolidWorks en esta computadora."
+                    )
+                    scan_status["warning_message"] = f"⚠️ Saltado por versión: {nombre_archivo}"
+            else:
+                scan_status["warning_message"] = ""
+                try:
+                    prop_mgr = swModel.Extension.CustomPropertyManager("")
+
+                    def safe_get_prop(prop_val):
+                        if not prop_val:
+                            return ""
+                        if isinstance(prop_val, str):
+                            return _clean_com_text(prop_val)
+                        if isinstance(prop_val, (tuple, list)):
+                            if len(prop_val) > 1 and prop_val[1]:
+                                return _clean_com_text(str(prop_val[1]))
+                            if len(prop_val) > 0 and prop_val[0]:
+                                return _clean_com_text(str(prop_val[0]))
+                        return _clean_com_text(str(prop_val))
+
+                    get_codigo = prop_mgr.Get("CODIGO_PIEZA")
+                    codigo_val = safe_get_prop(get_codigo).strip()
+                    if codigo_val:
+                        codigo = codigo_val
+
+                    get_largo = prop_mgr.Get("Largo_CAD")
+                    get_ancho = prop_mgr.Get("Ancho_CAD")
+                    get_espesor = prop_mgr.Get("Espesor_Perfil_CAD")
+
+                    largo_val = safe_get_prop(get_largo)
+                    ancho_val = safe_get_prop(get_ancho)
+                    espesor_val = safe_get_prop(get_espesor)
+
+                    if largo_val and ancho_val:
+                        try:
+                            l_clean = str(largo_val).lower().replace("mm", "").strip().replace(",", ".")
+                            a_clean = str(ancho_val).lower().replace("mm", "").strip().replace(",", ".")
+                            l_str = re.sub(r"[^\d.]", "", l_clean)
+                            a_str = re.sub(r"[^\d.]", "", a_clean)
+
+                            largo = float(l_str) if l_str and l_str != "." else 0.0
+                            ancho = float(a_str) if a_str and a_str != "." else 0.0
+
+                            largo_cad = max(largo, ancho)
+                            ancho_cad = min(largo, ancho)
+
+                            espesor_cad = 0.0
+                            if espesor_val:
+                                e_clean = str(espesor_val).lower().replace("mm", "").strip().replace(",", ".")
+                                e_str = re.sub(r"[^\d.]", "", e_clean)
+                                espesor_cad = float(e_str) if e_str and e_str != "." else 0.0
+
+                            if largo_cad > 0 and ancho_cad > 0:
+                                observacion = "OK"
+                            else:
+                                observacion = "No detectado (valores incompletos)"
+                        except ValueError as ve:
+                            observacion = f"Error metrico: {ve}"
+                    else:
+                        observacion = "No detectado (faltan propiedades)"
+
+                except Exception as math_err:
+                    observacion = f"Error matematico: {str(math_err)[:50]}"
+                    print(f"Error matematico extrayendo {codigo}: {math_err}")
+                finally:
+                    try:
+                        doc_title = None
+                        try:
+                            if swModel is not None:
+                                doc_title = swModel.GetTitle()
+                                try:
+                                    swModel.SetSaveFlag(False)
+                                except Exception:
+                                    pass
+                        except Exception:
+                            doc_title = None
+
+                        if doc_title:
+                            try:
+                                sw_local.QuitDoc(doc_title)
+                            except Exception:
+                                sw_local.CloseDoc(doc_title)
+                        else:
+                            try:
+                                sw_local.QuitDoc(abspath)
+                            except Exception:
+                                sw_local.CloseDoc(abspath)
+                    except Exception:
+                        pass
+
+            return {
+                "rpc_continue": False,
+                "codigo": _ascii_report_text(codigo),
+                "largo_cad": largo_cad,
+                "ancho_cad": ancho_cad,
+                "espesor_cad": espesor_cad,
+                "observacion": _ascii_report_text(observacion),
+            }
+
         has_sldprt = any(info["ext"] == ".sldprt" for info in cad_files.values())
-        sw_app = get_sw_app() if has_sldprt else None
+        sw_app = None
         
         has_dwg = any(info["ext"] == ".dwg" for info in cad_files.values())
         acad_app = get_acad_app() if has_dwg else None
@@ -241,6 +580,8 @@ def bg_scan_cad_task(root_path: str):
         total_a_extraer = len(lista_archivos)
         extraidos = 0
         scan_status["total"] = total_a_extraer
+        scan_status["total_items"] = total_a_extraer
+        scan_status["current_item"] = 0
         
         print(f"=== INICIANDO EXTRACCIÃ“N CAD ({total_a_extraer} archivos Ãºnicos) ===")
 
@@ -248,6 +589,10 @@ def bg_scan_cad_task(root_path: str):
             if abortar_escaneo_cad or scan_status["status"] == "cancelled":
                 import logging
                 logging.info("Escaneo abortado por el usuario.")
+                try:
+                    os.system("taskkill /F /IM SLDWORKS.exe /T 2>nul")
+                except Exception:
+                    pass
                 if sw_app: 
                     try: sw_app.ExitApp()
                     except: pass
@@ -274,7 +619,7 @@ def bg_scan_cad_task(root_path: str):
             ancho_cad = 0.0
             espesor_cad = 0.0
             observacion = ""
-            tiene_dxf = "No"
+            tiene_dxf = "NO"
             largo_dxf = ""
             ancho_dxf = ""
             
@@ -304,7 +649,7 @@ def bg_scan_cad_task(root_path: str):
                         observacion = "OK (AutoCAD EXTENTS)"
                     except Exception as acad_err:
                         print(f"Error procesando {codigo} con AutoCAD: {acad_err}")
-                        observacion = "No extraÃ­do (Error AutoCAD COM)"
+                        observacion = "No extraido (Error AutoCAD COM)"
                     finally:
                         try:
                             doc.Close(False)
@@ -314,200 +659,72 @@ def bg_scan_cad_task(root_path: str):
                     observacion = "Requiere AutoCAD Instalado"
                     print(f"âš ï¸ DWG omitido: Sin conexiÃ³n a AutoCAD COM -> {abspath}")
 
-                elif ext == ".sldprt" and sw_app:
-                    # FIX: Inicializar flags COM fuera de ramas para evitar NameError
-                    _rpc_crash = False
-                    swModel = None
-                    # FIX: Filtro estricto â€” solo procesar archivos .SLDPRT reales
-                    ruta_abs = os.path.abspath(abspath)
-                    if not ruta_abs.upper().endswith(".SLDPRT"):
-                        observacion = "Omitido (no es .SLDPRT)"
-                        print(f"[SW] Omitido por filtro: {ruta_abs}")
+                elif ext == ".sldprt":
+                    # COM bloqueante: un hilo dedicado por pieza + join(timeout). No se puede
+                    # interrumpir la llamada COM en curso; al vencer el plazo se mata SLDWORKS.exe
+                    # y se reaplica resurrección COM (mismo patrón que crash RPC).
+                    if not has_sldprt:
+                        observacion = "Sin archivos .sldprt en el escaneo."
                     else:
-                        # ---- Apertura Silenciosa con OpenDoc6 ----
-                        # FIX SW 2023â†’2025: Con ReadOnly (opciÃ³n 2), SW 2025 crashea
-                        # (-2147417848) al intentar traducir el Ã¡rbol de operaciones
-                        # de versiones anteriores porque el modo estricto lo bloquea.
-                        # SoluciÃ³n: usar SOLO Silent (1). Se previene el popup de
-                        # guardado con SetSaveFlag(False) antes de QuitDoc.
-                        #   swDocPART              = 1  (tipo de documento: Part)
-                        #   swOpenDocOptions_Silent = 1  (sin diÃ¡logos, sin ReadOnly)
-                        swDocPART = 1
-                        SW_OPEN_SILENT = 1  # swOpenDocOptions_Silent Ãºnicamente
+                        ruta_abs = os.path.abspath(abspath)
+                        piece_box = {}
 
-                        # FIX TYPE MISMATCH: Usar VARIANTs tipados (VT_BYREF|VT_I4)
-                        # para evitar com_error(-2147352571, 'Los tipos no coinciden').
-                        # pywin32 requiere que los parÃ¡metros ByRef sean Variant explÃ­citos.
-                        arg_errors   = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
-                        arg_warnings = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
-
-                        _rpc_crash = False
-                        swModel = None
-                        try:
-                            # OpenDoc6(FileName, Type, Options, Configuration, Errors, Warnings)
-                            swModel = sw_app.OpenDoc6(
-                                ruta_abs,
-                                swDocPART,
-                                SW_OPEN_SILENT,    # 1 = solo silencioso (permite conversiÃ³n de versiÃ³n)
-                                "",               # Configuration (vacÃ­o = default)
-                                arg_errors,        # Errors  (ByRef VARIANT I4)
-                                arg_warnings       # Warnings (ByRef VARIANT I4)
-                            )
-                        except Exception as try_open_err:
-                            err_str = repr(try_open_err)
-                            err_code = getattr(try_open_err, 'hresult', None)
-
-                            # ---- Auto-ResurrecciÃ³n COM (errores RPC conocidos) ----
-                            # -2147023170 â†’ 'Error en la llamada a procedimiento remoto'
-                            # -2147023174 â†’ 'El servidor RPC no estÃ¡ disponible'
-                            # -2147417848 â†’ 'The object invoked has disconnected from its clients'
-                            _RPC_CODES = {-2147023170, -2147023174, -2147417848}
-                            is_rpc_crash = (
-                                any(str(c) in err_str for c in _RPC_CODES)
-                                or (err_code is not None and err_code in _RPC_CODES)
-                            )
-
-                            if is_rpc_crash:
-                                print(f"[SW-RPC] âš¡ Crash RPC detectado en '{codigo}' (hresult={err_code}). Iniciando resurrecciÃ³n COM...")
-                                import logging as _logging
-                                _logging.error(f"[SW-RPC] Crash en '{ruta_abs}': {err_str}")
-
-                                # 1. Limpiar referencias COM muertas
-                                swModel = None
-                                sw_app = None
-
-                                # 2. Matar proceso SLDWORKS colgado (incluye procesos hijo /T)
-                                try:
-                                    os.system("taskkill /F /IM SLDWORKS.exe /T 2>nul")
-                                except Exception:
-                                    pass
-
-                                # 3. Pausa para que el SO libere puertos RPC y handles
-                                _time.sleep(3)
-
-                                # 4. Re-inicializar apartamento COM y reconectar
+                        def _sldprt_worker():
+                            try:
+                                pythoncom.CoInitialize()
+                            except Exception:
+                                pass
+                            try:
+                                sw_local = get_sw_app()
+                                if not sw_local:
+                                    piece_box["out"] = {
+                                        "codigo": codigo,
+                                        "largo_cad": 0.0,
+                                        "ancho_cad": 0.0,
+                                        "espesor_cad": 0.0,
+                                        "observacion": _ascii_report_text(
+                                            "Motor SolidWorks inaccesible"
+                                        ),
+                                        "rpc_continue": False,
+                                    }
+                                    return
+                                piece_box["out"] = _sldprt_extract_one(
+                                    sw_local, abspath, codigo, nombre_archivo, ruta_abs
+                                )
+                            except Exception as e:
+                                piece_box["exc"] = e
+                            finally:
                                 try:
                                     pythoncom.CoUninitialize()
                                 except Exception:
                                     pass
-                                try:
-                                    pythoncom.CoInitialize()
-                                except Exception:
-                                    pass
-                                sw_app = get_sw_app()  # DispatchEx â†’ proceso nuevo
 
-                                if sw_app:
-                                    print("[SW-RPC] âœ… ResurrecciÃ³n COM exitosa. Continuando con la siguiente pieza.")
-                                else:
-                                    print("[SW-RPC] âŒ No se pudo reconectar a SolidWorks. El escÃ¡ner continuarÃ¡ sin motor SW.")
-
-                                observacion = "Error/Saltado (RPC Crash - COM Reiniciado)"
-                                _rpc_crash = True
-                                # Saltar al siguiente archivo INMEDIATAMENTE para no
-                                # procesar con un COM reciÃ©n recuperado aÃºn caliente.
-                                continue
-                            else:
-                                # Error de apertura no-RPC (archivo corrupto, falta de permiso, etc.)
-                                print(f"[SW] Error abriendo '{codigo}': {err_str}")
-                                observacion = f"Error apertura: {str(try_open_err)[:60]}"
-                                swModel = None
-
-                    if not _rpc_crash:
-                        # Solo procesamos si NO hubo crash RPC
-                        if swModel is None:
-                            observacion = "No se pudo abrir el archivo"
-                            # No lanzamos excepciÃ³n para que permita llenar el DataFrame en blanco
+                        th = threading.Thread(target=_sldprt_worker, daemon=True)
+                        th.start()
+                        th.join(SW_PIECE_TIMEOUT_SEC)
+                        if th.is_alive():
+                            scan_status["warning_message"] = (
+                                "⚠️ Tiempo de espera excedido. Saltando pieza..."
+                            )
+                            sw_app = _resurrect_solidworks_com_after_kill()
+                            largo_cad = 0.0
+                            ancho_cad = 0.0
+                            espesor_cad = 0.0
+                            observacion = (
+                                "ERROR TIMEOUT: La pieza tardo demasiado o se atasco en SolidWorks."
+                            )
                         else:
-                            try:
-                                prop_mgr = swModel.Extension.CustomPropertyManager("")
-                                
-                                def safe_get_prop(prop_val):
-                                    if not prop_val: return ""
-                                    if isinstance(prop_val, str): return prop_val
-                                    if isinstance(prop_val, (tuple, list)):
-                                        if len(prop_val) > 1 and prop_val[1]: return str(prop_val[1])
-                                        if len(prop_val) > 0 and prop_val[0]: return str(prop_val[0])
-                                    return str(prop_val)
-
-                                # Intentar sobrescribir codigo pieza si estÃ¡ en custom properties
-                                get_codigo = prop_mgr.Get("CODIGO_PIEZA")
-                                codigo_val = safe_get_prop(get_codigo).strip()
-                                if codigo_val:
-                                    codigo = codigo_val
-
-                                get_largo = prop_mgr.Get("Largo_CAD")
-                                get_ancho = prop_mgr.Get("Ancho_CAD")
-                                get_espesor = prop_mgr.Get("Espesor_Perfil_CAD")
-                                
-                                largo_val = safe_get_prop(get_largo)
-                                ancho_val = safe_get_prop(get_ancho)
-                                espesor_val = safe_get_prop(get_espesor)
-
-                                if largo_val and ancho_val:
-                                    import re
-                                    try:
-                                        l_clean = str(largo_val).lower().replace("mm", "").strip().replace(',', '.')
-                                        a_clean = str(ancho_val).lower().replace("mm", "").strip().replace(',', '.')
-                                        l_str = re.sub(r'[^\d.]', '', l_clean)
-                                        a_str = re.sub(r'[^\d.]', '', a_clean)
-                                        
-                                        largo = float(l_str) if l_str and l_str != '.' else 0.0
-                                        ancho = float(a_str) if a_str and a_str != '.' else 0.0
-                                        
-                                        largo_cad = max(largo, ancho)
-                                        ancho_cad = min(largo, ancho)
-                                        
-                                        espesor_cad = 0.0
-                                        if espesor_val:
-                                            e_clean = str(espesor_val).lower().replace("mm", "").strip().replace(',', '.')
-                                            e_str = re.sub(r'[^\d.]', '', e_clean)
-                                            espesor_cad = float(e_str) if e_str and e_str != '.' else 0.0
-                                        
-                                        if largo_cad > 0 and ancho_cad > 0:
-                                            observacion = "OK"
-                                        else:
-                                            observacion = "No detectado (valores incompletos)"
-                                    except ValueError as ve:
-                                        observacion = f"Error mÃ©trico: {ve}"
-                                else:
-                                    observacion = "No detectado (faltan propiedades)"
-                                    
-                            except Exception as math_err:
-                                observacion = f"Error matemÃ¡tico: {str(math_err)[:50]}"
-                                print(f"Error matemÃ¡tico extrayendo {codigo}: {math_err}")
-                            finally:
-                                try:
-                                    # Cierre forzado SIN popup de guardado.
-                                    # SetSaveFlag(False) descarta la conversiÃ³n de versiÃ³n
-                                    # que SW 2025 marcarÃ­a como 'modificado' al abrir
-                                    # un archivo SW 2023 en modo no-ReadOnly.
-                                    doc_title = None
-                                    try:
-                                        if swModel is not None:
-                                            doc_title = swModel.GetTitle()
-                                            # Anti-popup de guardado (FIX SW 2023â†’2025)
-                                            try:
-                                                swModel.SetSaveFlag(False)
-                                            except Exception:
-                                                pass
-                                    except Exception:
-                                        doc_title = None
-
-                                    if doc_title:
-                                        # Preferimos QuitDoc (descarta cambios).
-                                        try:
-                                            sw_app.QuitDoc(doc_title)
-                                        except Exception:
-                                            # Fallback: CloseDoc si QuitDoc no existe en esta versiÃ³n.
-                                            sw_app.CloseDoc(doc_title)
-                                    else:
-                                        # Fallback final con la ruta.
-                                        try:
-                                            sw_app.QuitDoc(abspath)
-                                        except Exception:
-                                            sw_app.CloseDoc(abspath)
-                                except:
-                                    pass
+                            if piece_box.get("exc"):
+                                raise piece_box["exc"]
+                            out = piece_box.get("out") or {}
+                            if out.get("rpc_continue"):
+                                codigo = out.get("codigo", codigo)
+                                continue
+                            codigo = out.get("codigo", codigo)
+                            largo_cad = out.get("largo_cad", 0.0)
+                            ancho_cad = out.get("ancho_cad", 0.0)
+                            espesor_cad = out.get("espesor_cad", 0.0)
+                            observacion = out.get("observacion", "")
                         
             except Exception as extract_err:
                 import traceback
@@ -524,7 +741,7 @@ def bg_scan_cad_task(root_path: str):
                     dxf_path = dxf_path_alt
 
             if os.path.exists(dxf_path):
-                tiene_dxf = "SÃ­"
+                tiene_dxf = "SI"
                 try:
                     import ezdxf
                     from ezdxf import bbox
@@ -536,23 +753,23 @@ def bg_scan_cad_task(root_path: str):
                         dy = extents.extmax.y - extents.extmin.y
                         lx = max(dx, dy)
                         ax = min(dx, dy)
-                        largo_dxf = round(lx, 2)
-                        ancho_dxf = round(ax, 2)
+                        largo_dxf = float(lx)
+                        ancho_dxf = float(ax)
                 except Exception as dxf_err:
                     print(f"Error parseando DXF {dxf_path}: {dxf_err}")
 
             data.append({
-                "Codigo_Pieza": codigo,
-                "Extension": ext,
-                "Largo_CAD": round(largo_cad, 2) if largo_cad > 0 else "",
-                "Ancho_CAD": round(ancho_cad, 2) if ancho_cad > 0 else "",
-                "Espesor_Perfil_CAD": round(espesor_cad, 2) if espesor_cad > 0 else "",
+                "Codigo_Pieza": _ascii_report_text(codigo),
+                "Extension": _ascii_report_text(ext),
+                "Largo_CAD": 0 if (observacion or "").startswith("ERROR") else (float(largo_cad) if largo_cad > 0 else ""),
+                "Ancho_CAD": 0 if (observacion or "").startswith("ERROR") else (float(ancho_cad) if ancho_cad > 0 else ""),
+                "Espesor_Perfil_CAD": float(espesor_cad) if espesor_cad > 0 else "",
                 "Material": "",
-                "Observaciones": observacion if observacion else "No detectado",
-                "Tiene_DXF": tiene_dxf,
+                "Observaciones": _ascii_report_text(observacion) if observacion else _ascii_report_text("No detectado"),
+                "Tiene_DXF": _sanitize_excel_si_no(tiene_dxf, default="NO"),
                 "Largo_DXF": largo_dxf,
                 "Ancho_DXF": ancho_dxf,
-                "Ruta_Archivo": abspath
+                "Ruta_Archivo": _ascii_report_text(abspath),
             })
             extraidos += 1
             scan_status["progress"] = extraidos
@@ -570,7 +787,7 @@ def bg_scan_cad_task(root_path: str):
             report_filename = f"Reporte_CAD.xlsx"
             report_path = os.path.join(reports_dir, report_filename)
 
-            df.to_excel(report_path, index=False)
+            _export_reporte_cad(df, report_path)
             scan_status["excel_path"] = report_path
 
         if scan_status["status"] != "cancelled":
@@ -611,7 +828,7 @@ def bg_scan_cad_task(root_path: str):
                 os.makedirs(reports_dir, exist_ok=True)
                 report_filename = "Reporte_CAD.xlsx"
                 report_path = os.path.join(reports_dir, report_filename)
-                df.to_excel(report_path, index=False)
+                _export_reporte_cad(df, report_path)
                 scan_status["excel_path"] = report_path
             except Exception as export_err:
                 if scan_status.get("status") != "error":
@@ -637,7 +854,9 @@ def start_cad_scan(payload: ScanCADPayload, background_tasks: BackgroundTasks):
     if scan_status["status"] == "scanning":
          return {"message": "Ya hay un escaneo en curso"}
          
-    background_tasks.add_task(bg_scan_cad_task, payload.root_path)
+    background_tasks.add_task(
+        bg_scan_cad_task, payload.root_path, payload.solo_faltantes
+    )
     return {"message": "Escaneo iniciado en segundo plano"}
 
 import subprocess
@@ -648,7 +867,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 cad_execution_logs = []
 cad_procesar_status = "idle"
 
-def bg_procesar_cad_task(ruta_raiz: str):
+def bg_procesar_cad_task(ruta_raiz: str, solo_faltantes: bool = False):
     global cad_execution_logs, cad_procesar_status
     cad_execution_logs.clear()
     cad_procesar_status = "processing"
@@ -667,8 +886,11 @@ def bg_procesar_cad_task(ruta_raiz: str):
     else:
         try:
             log_and_append("Ejecutando convertir_dwg.py...")
+            cmd_dwg = [sys.executable, script_dwg, ruta_raiz]
+            if solo_faltantes:
+                cmd_dwg.append("--solo-faltantes")
             process = subprocess.Popen(
-                [sys.executable, script_dwg, ruta_raiz],
+                cmd_dwg,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -718,7 +940,7 @@ def procesar_directorio_cad(payload: ScanCADPayload, background_tasks: Backgroun
         try: os.remove(flag_path)
         except: pass
     
-    background_tasks.add_task(bg_procesar_cad_task, payload.root_path)
+    background_tasks.add_task(bg_procesar_cad_task, payload.root_path, payload.solo_faltantes)
     return {
         "success": True, 
         "message": f"Procesamiento CAD iniciado en segundo plano para: {payload.root_path}"
@@ -756,28 +978,42 @@ async def upload_cad_modifications(
          
     # â”€â”€ Helper de casteo seguro â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def _safe_float(val) -> Optional[float]:
-        """Convierte cualquier valor de celda Pandas a float o None.
+        """Celda Excel/Pandas → float nativo de Python o None (sin numpy.float64 para pyodbc).
 
-        Casos cubiertos:
-          - NaN (pandas.NA, float('nan'), 'nan', 'NaN') â†’ None
-          - cadena vacÃ­a '' / solo espacios             â†’ None
-          - cadena numÃ©rica '125.5'                     â†’ 125.5
-          - entero/float directo                         â†’ float(val)
-          - cualquier otro error de conversiÃ³n           â†’ None
+        NaN / pd.NA / nulos → None. No redondea (precisión MRPII).
         """
         if val is None:
             return None
         try:
-            if isinstance(val, float) and math.isnan(val):
+            import pandas as pd
+            if pd.isna(val):
                 return None
         except Exception:
             pass
+        try:
+            from decimal import Decimal
+            if isinstance(val, Decimal):
+                return float(val)
+        except Exception:
+            pass
+        try:
+            import numpy as np
+            if isinstance(val, (np.floating, np.integer)):
+                x = float(val.item()) if hasattr(val, "item") else float(val)
+                if math.isnan(x):
+                    return None
+                return float(x)
+        except Exception:
+            pass
+        try:
+            if isinstance(val, float) and math.isnan(val):
+                return None
+        except (TypeError, ValueError):
+            pass
         s = str(val).strip().lower()
-        if s in ('', 'nan', 'none', '-', 'n/a'):
+        if s in ('', 'nan', 'none', '-', 'n/a', '<na>'):
             return None
-        # Limpiar comas como separador decimal (e.g. '1.234,56' â†’ no aplica aquÃ­)
-        s = s.replace(',', '.')
-        # Eliminar caracteres no numÃ©ricos salvo punto y signo
+        s = str(val).strip().replace(',', '.')
         import re as _re
         s = _re.sub(r'[^\d.\-]', '', s)
         if not s or s == '.':
@@ -786,6 +1022,12 @@ async def upload_cad_modifications(
             return float(s)
         except ValueError:
             return None
+
+    def _sql_param_float(v: Optional[float]) -> Optional[float]:
+        """pyodbc + SQL Server: asegura float nativo (evita numpy.float64 en parámetros)."""
+        if v is None:
+            return None
+        return float(v)
 
     try:
         contents = await file.read()
@@ -823,9 +1065,9 @@ async def upload_cad_modifications(
                 # â”€â”€ Dimensiones CAD â€” casteo seguro a float|None â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                 # CRÃTICO: str(NaN) â†’ 'nan' â†’ float('nan') pasa como valor
                 # invÃ¡lido al SQL. _safe_float convierte eso a None explÃ­cito.
-                largo_float   = _safe_float(row.get("Largo_CAD"))
-                ancho_float   = _safe_float(row.get("Ancho_CAD"))
-                espesor_float = _safe_float(row.get("Espesor_Perfil_CAD"))
+                largo_float   = _sql_param_float(_safe_float(row.get("Largo_CAD")))
+                ancho_float   = _sql_param_float(_safe_float(row.get("Ancho_CAD")))
+                espesor_float = _sql_param_float(_safe_float(row.get("Espesor_Perfil_CAD")))
 
                 # â”€â”€ Material â€” garantizar nunca vacÃ­o en BD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                 # El reporte CAD genera Material='' porque SW no tiene ese campo.
@@ -840,9 +1082,9 @@ async def upload_cad_modifications(
 
                 # â”€â”€ Campos auxiliares â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                 ruta_str       = str(row.get("Ruta_Archivo", "") or "").strip()
-                tiene_dxf      = str(row.get("Tiene_DXF", "No") or "No").strip()
-                largo_dxf_f    = _safe_float(row.get("Largo_DXF"))
-                ancho_dxf_f    = _safe_float(row.get("Ancho_DXF"))
+                tiene_dxf      = _sanitize_excel_si_no(row.get("Tiene_DXF"), default="NO")
+                largo_dxf_f    = _sql_param_float(_safe_float(row.get("Largo_DXF")))
+                ancho_dxf_f    = _sql_param_float(_safe_float(row.get("Ancho_DXF")))
 
                 print(
                     f"[upload_cad] {codigo} | "
@@ -928,34 +1170,61 @@ async def upload_cad_modifications(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-        
-class CollectRequest(BaseModel):
-    source_folder: str
-
 @router.post("/api/cad/collect-missing")
 def collect_missing_cad(request: CollectRequest):
     try:
-        # 1. Consulta SQL Blindada (Todo convertido a texto para evitar Crash 8114)
-        query = """
-            SELECT Codigo_Pieza 
-            FROM Tbl_Maestro_Piezas 
-            WHERE Largo_CAD IS NULL 
-               OR CAST(Largo_CAD AS VARCHAR) = '' 
-               OR CAST(Largo_CAD AS VARCHAR) = '-'
-               OR CAST(Largo_CAD AS VARCHAR) = '0'
-        """
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute(query)
-        rows = cursor.fetchall()
-        
-        piezas_faltantes = set()
-        for row in rows:
-            if row[0]:
-                piezas_faltantes.add(str(row[0]).strip().upper())
-        
+
+        if request.solo_faltantes:
+            cursor.execute(
+                """
+                SELECT Codigo_Pieza
+                FROM Tbl_Maestro_Piezas
+                WHERE Ruta_Archivo IS NULL
+                   OR LTRIM(RTRIM(CAST(Ruta_Archivo AS NVARCHAR(400)))) = ''
+                   OR LTRIM(RTRIM(CAST(Ruta_Archivo AS NVARCHAR(400)))) = '-'
+                """
+            )
+            rows_sin_ruta = cursor.fetchall()
+            piezas_sin_ruta = set()
+            for row in rows_sin_ruta:
+                if row[0]:
+                    piezas_sin_ruta.add(str(row[0]).strip().upper())
+
+            cursor.execute("SELECT Codigo_Pieza FROM Tbl_Maestro_Piezas")
+            rows_cat = cursor.fetchall()
+            catalogo_codigos = set()
+            for row in rows_cat:
+                if row[0]:
+                    catalogo_codigos.add(str(row[0]).strip().upper())
+
+            piezas_faltantes: set = set()
+        else:
+            query = """
+                SELECT Codigo_Pieza 
+                FROM Tbl_Maestro_Piezas 
+                WHERE Largo_CAD IS NULL 
+                   OR CAST(Largo_CAD AS VARCHAR) = '' 
+                   OR CAST(Largo_CAD AS VARCHAR) = '-'
+                   OR CAST(Largo_CAD AS VARCHAR) = '0'
+            """
+            cursor.execute(query)
+            rows = cursor.fetchall()
+            piezas_faltantes = set()
+            for row in rows:
+                if row[0]:
+                    piezas_faltantes.add(str(row[0]).strip().upper())
+            piezas_sin_ruta = set()
+            catalogo_codigos = set()
+
         cursor.close()
         conn.close()
+
+        def _should_copy_collect(base_name: str) -> bool:
+            if request.solo_faltantes:
+                return base_name in piezas_sin_ruta or base_name not in catalogo_codigos
+            return base_name in piezas_faltantes
 
         # 2. Preparar carpeta en el Escritorio
         desktop = os.path.join(os.environ['USERPROFILE'], 'Desktop')
@@ -970,18 +1239,26 @@ def collect_missing_cad(request: CollectRequest):
             "node_modules", "venv", ".venv"
         }
 
-        # Pre-escaneo para saber el total (necesario para el indicador de progreso)
-        todos_los_cad = []
+        # Pre-escaneo: rutas candidatas (sin OBSOLETO), luego dedupe por nombre base = mÃ¡s reciente
+        todos_los_cad: List[str] = []
         for root_dir, dirs, files in os.walk(request.source_folder):
             dirs[:] = [
                 d for d in dirs
                 if d.lower() not in _EXCLUDED_DIRS
                 and not d.startswith('.')
+                and "obsoleto" not in d.lower()
             ]
             for file in files:
+                if file.startswith("~$") or "obsoleto" in file.lower():
+                    continue
                 ext = file.split('.')[-1].upper()
                 if ext in ['SLDPRT', 'DWG', 'DXF']:
-                    todos_los_cad.append(os.path.join(root_dir, file))
+                    full = os.path.join(root_dir, file)
+                    if _cad_path_has_obsoleto(full):
+                        continue
+                    todos_los_cad.append(full)
+
+        todos_los_cad = _dedupe_paths_by_basename_newest(todos_los_cad)
 
         total_red = len(todos_los_cad)
 
@@ -1006,7 +1283,7 @@ def collect_missing_cad(request: CollectRequest):
             scan_status["current_item"] = idx
             scan_status["progress"] = idx
 
-            if base_name in piezas_faltantes:
+            if _should_copy_collect(base_name):
                 target_path = os.path.join(target_folder, file)
                 if not os.path.exists(target_path):
                     shutil.copy2(full_path, target_path)
@@ -1015,8 +1292,9 @@ def collect_missing_cad(request: CollectRequest):
         scan_status["status"] = "idle"
         scan_status["current_file"] = ""
 
+        piezas_reporte = len(piezas_sin_ruta) if request.solo_faltantes else len(piezas_faltantes)
         return {
-            "piezas_faltantes_en_db": len(piezas_faltantes),
+            "piezas_faltantes_en_db": piezas_reporte,
             "archivos_encontrados": archivos_copiados,
             "destino": target_folder
         }
