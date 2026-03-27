@@ -194,7 +194,10 @@ End Sub''';
   int _total = 0;
   String _excelPath = '';
   String _errorMessage = '';
-  
+  String _currentFile = '';   // texto de la pieza en proceso
+  int _currentItem = 0;       // índice numérico actual
+  int _totalItems = 0;        // total objetivo del proceso activo
+
   String _procesarStatus = 'idle';
   List<String> _cadLogs = [];
   final ScrollController _logsScrollController = ScrollController();
@@ -234,6 +237,9 @@ End Sub''';
             _total = data['total'] ?? 0;
             _excelPath = data['excel_path'] ?? '';
             _errorMessage = data['error'] ?? '';
+            _currentFile = data['current_file'] ?? '';
+            _currentItem = data['current_item'] ?? 0;
+            _totalItems  = data['total_items']  ?? 0;
             
             _procesarStatus = data['procesar_status'] ?? 'idle';
             if (data['logs'] != null) {
@@ -995,25 +1001,97 @@ End Sub''';
 
             const SizedBox(height: 24),
 
-            // Zona de Progreso
-            if (isScanning) ...[
-              const Text('Progreso del escaneo:'),
-              const SizedBox(height: 8),
-              if (_status == 'generating_excel') ...[
-                const ProgressBar(),
-                const SizedBox(height: 8),
-                const Text('Generando reporte Excel...', style: TextStyle(fontStyle: FontStyle.italic)),
-              ] else ...[
-                if (_total > 0)
-                  ProgressBar(value: (_progress / _total) * 100)
-                else
-                  const ProgressBar(), // Indeterminada
-                const SizedBox(height: 8),
-                Text(
-                  'Escaneando... $_progress archivos encontrados',
-                  style: const TextStyle(fontWeight: FontWeight.w600),
+            // ── Zona de Progreso (visible en scanning, generating_excel y collecting) ──
+            if (isScanning || _status == 'collecting') ...[
+              const Text(
+                'Progreso del escaneo:',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 10),
+
+              // ── Barra de progreso con porcentaje real ───────────────────────────
+              Builder(builder: (context) {
+                final double pct = (_totalItems > 0)
+                    ? (_currentItem / _totalItems).clamp(0.0, 1.0)
+                    : 0.0;
+                final int pctInt = (pct * 100).round();
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          _status == 'generating_excel'
+                              ? 'Generando reporte Excel...'
+                              : _status == 'collecting'
+                                  ? 'Recolectando archivos de red'
+                                  : '$_currentItem / $_totalItems piezas',
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        Text(
+                          '$pctInt%',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    if (_status == 'generating_excel')
+                      const ProgressBar()
+                    else if (_totalItems > 0)
+                      ProgressBar(value: pct * 100)
+                    else
+                      const ProgressBar(),
+                  ],
+                );
+              }),
+
+              const SizedBox(height: 12),
+
+              // ── Mini-Consola Terminal ─────────────────────────────────────
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0D0D0D),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: const Color(0xFF39FF14).withOpacity(0.35),
+                    width: 1,
+                  ),
                 ),
-              ],
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    const Text(
+                      '▶ ',
+                      style: TextStyle(
+                        color: Color(0xFF39FF14),
+                        fontFamily: 'Courier',
+                        fontSize: 13,
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        _currentFile.isEmpty ? 'Iniciando...' : _currentFile,
+                        style: const TextStyle(
+                          color: Color(0xFF39FF14),
+                          fontFamily: 'Courier',
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 8),
             ],
 
             // Zona de Resultados

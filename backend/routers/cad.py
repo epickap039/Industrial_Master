@@ -1,4 +1,4 @@
-"""API router: escáner CAD."""
+"""API router: escÃ¡ner CAD."""
 import ast
 import io
 import json
@@ -29,25 +29,28 @@ from user_context import resolve_actor_user
 
 router = APIRouter()
 
-# Raíz `backend/` (equivalente a cuando server.py monolítico vivía ahí; flags y tools/ siguen igual)
+# RaÃ­z `backend/` (equivalente a cuando server.py monolÃ­tico vivÃ­a ahÃ­; flags y tools/ siguen igual)
 _BACKEND_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
-# === MÓDULO: ESCÁNER CAD (Fase 1) ===
+# === MÃ“DULO: ESCÃNER CAD (Fase 1) ===
 
 try:
     import ezdxf
     import win32com.client
     import pythoncom
-    print("Módulos CAD asíncronos (ezdxf, win32com, pythoncom) importados exitosamente.")
+    print("MÃ³dulos CAD asÃ­ncronos (ezdxf, win32com, pythoncom) importados exitosamente.")
 except ImportError as e:
-    raise RuntimeError(f"LIBRERÍA FALTANTE: Asegúrate de correr 'pip install ezdxf pywin32'. Error: {e}")
+    raise RuntimeError(f"LIBRERÃA FALTANTE: AsegÃºrate de correr 'pip install ezdxf pywin32'. Error: {e}")
 
 scan_status = {
     "progress": 0,
     "total": 0,
     "status": "idle",
     "excel_path": "",
-    "error": ""
+    "error": "",
+    "current_file": "",
+    "current_item": 0,
+    "total_items": 0
 }
 abortar_escaneo_cad = False
 
@@ -64,6 +67,9 @@ def abort_cad():
 def bg_scan_cad_task(root_path: str):
     global scan_status, abortar_escaneo_cad
     import datetime
+    data = []
+    sw_app = None
+    acad_app = None
     try:
         import pythoncom
         import logging
@@ -76,15 +82,33 @@ def bg_scan_cad_task(root_path: str):
     scan_status["total"] = 0
     scan_status["excel_path"] = ""
     scan_status["error"] = ""
+    scan_status["current_file"] = ""
+    scan_status["current_item"] = 0
+    scan_status["total_items"] = 0
     
-    # Búsqueda de archivos
+    # Carpetas del sistema a excluir para evitar duplicados y bucles
+    _EXCLUDED_DIRS = {
+        "dxf_convertidos", "exportados", "biblioteca_dxf",
+        "cad_pendientes", "reportes", "__pycache__", ".git",
+        "node_modules", "venv", ".venv", "dist", "build"
+    }
+    
+    # BÃºsqueda de archivos
     cad_files = {} # Key: filename without extension, Value: dict of details
     
     extensions_to_look = {".sldprt"}
     
     try:
         processed_count = 0
-        for dirpath, _, filenames in os.walk(root_path):
+        for dirpath, dirs, filenames in os.walk(root_path):
+            # ExclusiÃ³n de carpetas del sistema â€” modifica dirs in-place
+            # para que os.walk NO descienda a esas subcarpetas.
+            dirs[:] = [
+                d for d in dirs
+                if d.lower() not in _EXCLUDED_DIRS
+                and not d.startswith('.')
+            ]
+
             if abortar_escaneo_cad or scan_status["status"] == "cancelled":
                 break
             
@@ -133,7 +157,7 @@ def bg_scan_cad_task(root_path: str):
         scan_status["status"] = "generating_excel"
         
         # Generar Excel y extraer metadata CAD
-        data = []
+        import time as _time
         try:
             import ezdxf
             from ezdxf import bbox
@@ -145,16 +169,24 @@ def bg_scan_cad_task(root_path: str):
             import pythoncom
         except ImportError:
             pass
+
+        # â”€â”€ ProtecciÃ³n de Hilos COM â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # FastAPI usa hilos; cada hilo necesita su propio apartamento COM.
+        # CoInitialize DEBE llamarse antes de crear cualquier objeto COM.
+        try:
+            pythoncom.CoInitialize()
+        except Exception:
+            pass
             
         def _apply_silent_mode(app):
             """Fuerza el modo silencioso completo en la instancia SW para evitar
-            que el proceso intente renderizar diálogos UI en segundo plano."""
+            que el proceso intente renderizar diÃ¡logos UI en segundo plano."""
             try:
                 app.Visible = False
             except Exception:
                 pass
             try:
-                # Desconecta la instancia del control de usuario (evita diálogos interactivos)
+                # Desconecta la instancia del control de usuario (evita diÃ¡logos interactivos)
                 app.UserControl = False
             except Exception:
                 pass
@@ -166,16 +198,25 @@ def bg_scan_cad_task(root_path: str):
                 pass
             try:
                 # swUserPreferenceToggle_e.swSuppressWarnings = 262
-                # Suprime advertencias de reconstrucción y referencias rotas
+                # Suprime advertencias de reconstrucciÃ³n y referencias rotas
                 app.SetUserPreferenceToggle(262, True)
             except Exception:
                 pass
 
         def get_sw_app():
             try:
-                app = win32com.client.Dispatch("SldWorks.Application")
+                # DispatchEx fuerza un proceso SLDWORKS.EXE nuevo e independiente,
+                # evitando secuestrar la sesiÃ³n manual del usuario.
+                app = win32com.client.DispatchEx("SldWorks.Application")
+                # Background extremo: evitar UI y pop-ups.
+                try:
+                    app.Visible = False
+                except Exception:
+                    pass
+                # Modo silencioso: desconecta UI para evitar pop-ups al cerrar documentos.
+                app.UserControl = False
                 _apply_silent_mode(app)
-                print("[SW] Instancia COM inicializada en modo silencioso.")
+                print("[SW] Instancia COM aislada (DispatchEx) inicializada en modo silencioso.")
                 return app
             except Exception as e:
                 print(f"ADVERTENCIA: Motor SolidWorks inaccesible: {e}")
@@ -196,13 +237,14 @@ def bg_scan_cad_task(root_path: str):
         has_dwg = any(info["ext"] == ".dwg" for info in cad_files.values())
         acad_app = get_acad_app() if has_dwg else None
                 
-        total_a_extraer = len(cad_files)
+        lista_archivos = list(cad_files.values())
+        total_a_extraer = len(lista_archivos)
         extraidos = 0
         scan_status["total"] = total_a_extraer
         
-        print(f"=== INICIANDO EXTRACCIÓN CAD ({total_a_extraer} archivos únicos) ===")
+        print(f"=== INICIANDO EXTRACCIÃ“N CAD ({total_a_extraer} archivos Ãºnicos) ===")
 
-        for info in cad_files.values():
+        for i, info in enumerate(lista_archivos):
             if abortar_escaneo_cad or scan_status["status"] == "cancelled":
                 import logging
                 logging.info("Escaneo abortado por el usuario.")
@@ -214,6 +256,13 @@ def bg_scan_cad_task(root_path: str):
                     except: pass
                 scan_status["status"] = "cancelled"
                 break
+
+            nombre_archivo = os.path.basename(info["abspath"])
+            _current_file_msg = f"Procesando pieza {i + 1} de {total_a_extraer}: {nombre_archivo}"
+            scan_status["current_file"] = _current_file_msg
+            scan_status["current_item"] = i + 1
+            scan_status["total_items"] = total_a_extraer
+            print(f"â³ {_current_file_msg}")
 
             dt = datetime.datetime.fromtimestamp(info["mtime"]).strftime("%Y-%m-%d %H:%M:%S")
             ext = info["ext"]
@@ -255,7 +304,7 @@ def bg_scan_cad_task(root_path: str):
                         observacion = "OK (AutoCAD EXTENTS)"
                     except Exception as acad_err:
                         print(f"Error procesando {codigo} con AutoCAD: {acad_err}")
-                        observacion = "No extraído (Error AutoCAD COM)"
+                        observacion = "No extraÃ­do (Error AutoCAD COM)"
                     finally:
                         try:
                             doc.Close(False)
@@ -263,30 +312,32 @@ def bg_scan_cad_task(root_path: str):
                         
                 elif ext == ".dwg" and not acad_app:
                     observacion = "Requiere AutoCAD Instalado"
-                    print(f"⚠️ DWG omitido: Sin conexión a AutoCAD COM -> {abspath}")
+                    print(f"âš ï¸ DWG omitido: Sin conexiÃ³n a AutoCAD COM -> {abspath}")
 
                 elif ext == ".sldprt" and sw_app:
                     # FIX: Inicializar flags COM fuera de ramas para evitar NameError
                     _rpc_crash = False
                     swModel = None
-                    # FIX: Filtro estricto — solo procesar archivos .SLDPRT reales
+                    # FIX: Filtro estricto â€” solo procesar archivos .SLDPRT reales
                     ruta_abs = os.path.abspath(abspath)
                     if not ruta_abs.upper().endswith(".SLDPRT"):
                         observacion = "Omitido (no es .SLDPRT)"
                         print(f"[SW] Omitido por filtro: {ruta_abs}")
                     else:
-                        # ---- Apertura Silenciosa y Segura con OpenDoc6 ----
-                        # Flags de la API de SolidWorks:
-                        #   swDocPART               = 1  (tipo de documento: Part)
-                        #   swOpenDocOptions_Silent  = 1  (sin diálogos)
-                        #   swOpenDocOptions_ReadOnly= 2  (solo lectura)
-                        #   silentMode = 1 | 2 = 3
+                        # ---- Apertura Silenciosa con OpenDoc6 ----
+                        # FIX SW 2023â†’2025: Con ReadOnly (opciÃ³n 2), SW 2025 crashea
+                        # (-2147417848) al intentar traducir el Ã¡rbol de operaciones
+                        # de versiones anteriores porque el modo estricto lo bloquea.
+                        # SoluciÃ³n: usar SOLO Silent (1). Se previene el popup de
+                        # guardado con SetSaveFlag(False) antes de QuitDoc.
+                        #   swDocPART              = 1  (tipo de documento: Part)
+                        #   swOpenDocOptions_Silent = 1  (sin diÃ¡logos, sin ReadOnly)
                         swDocPART = 1
-                        swSilentReadOnly = 1 | 2
+                        SW_OPEN_SILENT = 1  # swOpenDocOptions_Silent Ãºnicamente
 
                         # FIX TYPE MISMATCH: Usar VARIANTs tipados (VT_BYREF|VT_I4)
                         # para evitar com_error(-2147352571, 'Los tipos no coinciden').
-                        # pywin32 requiere que los parámetros ByRef sean Variant explícitos.
+                        # pywin32 requiere que los parÃ¡metros ByRef sean Variant explÃ­citos.
                         arg_errors   = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
                         arg_warnings = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
 
@@ -297,8 +348,8 @@ def bg_scan_cad_task(root_path: str):
                             swModel = sw_app.OpenDoc6(
                                 ruta_abs,
                                 swDocPART,
-                                swSilentReadOnly,  # Options: Silent + ReadOnly
-                                "",               # Configuration (vacío = default)
+                                SW_OPEN_SILENT,    # 1 = solo silencioso (permite conversiÃ³n de versiÃ³n)
+                                "",               # Configuration (vacÃ­o = default)
                                 arg_errors,        # Errors  (ByRef VARIANT I4)
                                 arg_warnings       # Warnings (ByRef VARIANT I4)
                             )
@@ -306,31 +357,35 @@ def bg_scan_cad_task(root_path: str):
                             err_str = repr(try_open_err)
                             err_code = getattr(try_open_err, 'hresult', None)
 
-                            # ---- Auto-Resurrección COM (RPC Crash -2147023170) ----
+                            # ---- Auto-ResurrecciÃ³n COM (errores RPC conocidos) ----
+                            # -2147023170 â†’ 'Error en la llamada a procedimiento remoto'
+                            # -2147023174 â†’ 'El servidor RPC no estÃ¡ disponible'
+                            # -2147417848 â†’ 'The object invoked has disconnected from its clients'
+                            _RPC_CODES = {-2147023170, -2147023174, -2147417848}
                             is_rpc_crash = (
-                                "-2147023170" in err_str
-                                or (err_code is not None and err_code == -2147023170)
+                                any(str(c) in err_str for c in _RPC_CODES)
+                                or (err_code is not None and err_code in _RPC_CODES)
                             )
 
                             if is_rpc_crash:
-                                print(f"[SW-RPC] ⚡ Crash RPC detectado en '{codigo}'. Iniciando resurrección COM...")
+                                print(f"[SW-RPC] âš¡ Crash RPC detectado en '{codigo}' (hresult={err_code}). Iniciando resurrecciÃ³n COM...")
                                 import logging as _logging
                                 _logging.error(f"[SW-RPC] Crash en '{ruta_abs}': {err_str}")
 
-                                # 1. Asesinar el proceso SW muerto
+                                # 1. Limpiar referencias COM muertas
+                                swModel = None
+                                sw_app = None
+
+                                # 2. Matar proceso SLDWORKS colgado (incluye procesos hijo /T)
                                 try:
-                                    os.system("taskkill /F /IM SLDWORKS.exe 2>nul")
+                                    os.system("taskkill /F /IM SLDWORKS.exe /T 2>nul")
                                 except Exception:
                                     pass
 
-                                # 2. Liberar referencia COM muerta
-                                sw_app = None
-
-                                # 3. Pequeña pausa para que el SO libere el puerto RPC
-                                import time as _time
+                                # 3. Pausa para que el SO libere puertos RPC y handles
                                 _time.sleep(3)
 
-                                # 4. Re-inicializar COM y reconectar a SolidWorks
+                                # 4. Re-inicializar apartamento COM y reconectar
                                 try:
                                     pythoncom.CoUninitialize()
                                 except Exception:
@@ -339,15 +394,18 @@ def bg_scan_cad_task(root_path: str):
                                     pythoncom.CoInitialize()
                                 except Exception:
                                     pass
-                                sw_app = get_sw_app()  # get_sw_app ya aplica _apply_silent_mode
+                                sw_app = get_sw_app()  # DispatchEx â†’ proceso nuevo
 
                                 if sw_app:
-                                    print("[SW-RPC] ✅ Resurrección COM exitosa. Continuando con el siguiente archivo.")
+                                    print("[SW-RPC] âœ… ResurrecciÃ³n COM exitosa. Continuando con la siguiente pieza.")
                                 else:
-                                    print("[SW-RPC] ❌ No se pudo reconectar a SolidWorks. El escáner continuará sin motor SW.")
+                                    print("[SW-RPC] âŒ No se pudo reconectar a SolidWorks. El escÃ¡ner continuarÃ¡ sin motor SW.")
 
                                 observacion = "Error/Saltado (RPC Crash - COM Reiniciado)"
                                 _rpc_crash = True
+                                # Saltar al siguiente archivo INMEDIATAMENTE para no
+                                # procesar con un COM reciÃ©n recuperado aÃºn caliente.
+                                continue
                             else:
                                 # Error de apertura no-RPC (archivo corrupto, falta de permiso, etc.)
                                 print(f"[SW] Error abriendo '{codigo}': {err_str}")
@@ -358,7 +416,7 @@ def bg_scan_cad_task(root_path: str):
                         # Solo procesamos si NO hubo crash RPC
                         if swModel is None:
                             observacion = "No se pudo abrir el archivo"
-                            # No lanzamos excepción para que permita llenar el DataFrame en blanco
+                            # No lanzamos excepciÃ³n para que permita llenar el DataFrame en blanco
                         else:
                             try:
                                 prop_mgr = swModel.Extension.CustomPropertyManager("")
@@ -371,7 +429,7 @@ def bg_scan_cad_task(root_path: str):
                                         if len(prop_val) > 0 and prop_val[0]: return str(prop_val[0])
                                     return str(prop_val)
 
-                                # Intentar sobrescribir codigo pieza si está en custom properties
+                                # Intentar sobrescribir codigo pieza si estÃ¡ en custom properties
                                 get_codigo = prop_mgr.Get("CODIGO_PIEZA")
                                 codigo_val = safe_get_prop(get_codigo).strip()
                                 if codigo_val:
@@ -410,26 +468,55 @@ def bg_scan_cad_task(root_path: str):
                                         else:
                                             observacion = "No detectado (valores incompletos)"
                                     except ValueError as ve:
-                                        observacion = f"Error métrico: {ve}"
+                                        observacion = f"Error mÃ©trico: {ve}"
                                 else:
                                     observacion = "No detectado (faltan propiedades)"
                                     
                             except Exception as math_err:
-                                observacion = f"Error matemático: {str(math_err)[:50]}"
-                                print(f"Error matemático extrayendo {codigo}: {math_err}")
+                                observacion = f"Error matemÃ¡tico: {str(math_err)[:50]}"
+                                print(f"Error matemÃ¡tico extrayendo {codigo}: {math_err}")
                             finally:
                                 try:
-                                    sw_app.CloseDoc(abspath)
-                                except: pass
+                                    # Cierre forzado SIN popup de guardado.
+                                    # SetSaveFlag(False) descarta la conversiÃ³n de versiÃ³n
+                                    # que SW 2025 marcarÃ­a como 'modificado' al abrir
+                                    # un archivo SW 2023 en modo no-ReadOnly.
+                                    doc_title = None
+                                    try:
+                                        if swModel is not None:
+                                            doc_title = swModel.GetTitle()
+                                            # Anti-popup de guardado (FIX SW 2023â†’2025)
+                                            try:
+                                                swModel.SetSaveFlag(False)
+                                            except Exception:
+                                                pass
+                                    except Exception:
+                                        doc_title = None
+
+                                    if doc_title:
+                                        # Preferimos QuitDoc (descarta cambios).
+                                        try:
+                                            sw_app.QuitDoc(doc_title)
+                                        except Exception:
+                                            # Fallback: CloseDoc si QuitDoc no existe en esta versiÃ³n.
+                                            sw_app.CloseDoc(doc_title)
+                                    else:
+                                        # Fallback final con la ruta.
+                                        try:
+                                            sw_app.QuitDoc(abspath)
+                                        except Exception:
+                                            sw_app.CloseDoc(abspath)
+                                except:
+                                    pass
                         
             except Exception as extract_err:
                 import traceback
                 if not observacion:
                     observacion = f"Error: {str(extract_err)[:50]}"
-                print(f"❌ Error leyendo {abspath}: {str(extract_err)}")
+                print(f"âŒ Error leyendo {abspath}: {str(extract_err)}")
                 traceback.print_exc()
 
-            # Lógica de DXF (Auditoría Cruzada 2D)
+            # LÃ³gica de DXF (AuditorÃ­a Cruzada 2D)
             dxf_path = os.path.join(root_path, "BIBLIOTECA_DXF", f'{info["codigo"]}.dxf')
             if not os.path.exists(dxf_path) and codigo != info["codigo"]:
                 dxf_path_alt = os.path.join(root_path, "BIBLIOTECA_DXF", f'{codigo}.dxf')
@@ -437,7 +524,7 @@ def bg_scan_cad_task(root_path: str):
                     dxf_path = dxf_path_alt
 
             if os.path.exists(dxf_path):
-                tiene_dxf = "Sí"
+                tiene_dxf = "SÃ­"
                 try:
                     import ezdxf
                     from ezdxf import bbox
@@ -469,34 +556,67 @@ def bg_scan_cad_task(root_path: str):
             })
             extraidos += 1
             scan_status["progress"] = extraidos
+            # â”€â”€ Throttle COM â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # Evita saturar la interfaz COM de SolidWorks entre iteraciones.
+            _time.sleep(0.2)
             
-        print("=== EXTRACCIÓN CAD FINALIZADA ===")
-        if sw_app:
-            try: sw_app.ExitApp()
-            except: pass
-        if acad_app:
-            try: acad_app.Quit()
-            except: pass
-            
-        df = pd.DataFrame(data)
-        if df.empty:
-            df = pd.DataFrame(columns=["Codigo_Pieza", "Extension", "Largo_CAD", "Ancho_CAD", "Espesor_Perfil_CAD", "Material", "Observaciones", "Tiene_DXF", "Largo_DXF", "Ancho_DXF", "Ruta_Archivo"])
-        else:
-             df = df[["Codigo_Pieza", "Extension", "Largo_CAD", "Ancho_CAD", "Espesor_Perfil_CAD", "Material", "Observaciones", "Tiene_DXF", "Largo_DXF", "Ancho_DXF", "Ruta_Archivo"]]
-            
-        reports_dir = os.path.join(os.getcwd(), "reportes")
-        os.makedirs(reports_dir, exist_ok=True)
-        report_filename = f"Reporte_CAD.xlsx"
-        report_path = os.path.join(reports_dir, report_filename)
-        
-        df.to_excel(report_path, index=False)
-        
-        scan_status["status"] = "completed"
-        scan_status["excel_path"] = report_path
+        print("=== EXTRACCIÃ“N CAD FINALIZADA ===")
+        if len(data) > 0:
+            df = pd.DataFrame(data)
+            df = df[["Codigo_Pieza", "Extension", "Largo_CAD", "Ancho_CAD", "Espesor_Perfil_CAD", "Material", "Observaciones", "Tiene_DXF", "Largo_DXF", "Ancho_DXF", "Ruta_Archivo"]]
+
+            reports_dir = os.path.join(os.getcwd(), "reportes")
+            os.makedirs(reports_dir, exist_ok=True)
+            report_filename = f"Reporte_CAD.xlsx"
+            report_path = os.path.join(reports_dir, report_filename)
+
+            df.to_excel(report_path, index=False)
+            scan_status["excel_path"] = report_path
+
+        if scan_status["status"] != "cancelled":
+            scan_status["status"] = "completed"
         
     except Exception as e:
         scan_status["status"] = "error"
         scan_status["error"] = str(e)
+    finally:
+        try:
+            if sw_app:
+                try:
+                    sw_app.ExitApp()
+                except Exception:
+                    pass
+            if acad_app:
+                try:
+                    acad_app.Quit()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # â”€â”€ Liberar apartamento COM del hilo â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        try:
+            import pythoncom
+            pythoncom.CoUninitialize()
+        except Exception:
+            pass
+
+        # Blindaje: exportar SIEMPRE al salir, incluso por cancelaciÃ³n dentro del bucle.
+        # Solo crear Excel si hay al menos una pieza procesada.
+        if len(data) > 0 and not scan_status.get("excel_path"):
+            try:
+                df = pd.DataFrame(data)
+                df = df[["Codigo_Pieza", "Extension", "Largo_CAD", "Ancho_CAD", "Espesor_Perfil_CAD", "Material", "Observaciones", "Tiene_DXF", "Largo_DXF", "Ancho_DXF", "Ruta_Archivo"]]
+                reports_dir = os.path.join(os.getcwd(), "reportes")
+                os.makedirs(reports_dir, exist_ok=True)
+                report_filename = "Reporte_CAD.xlsx"
+                report_path = os.path.join(reports_dir, report_filename)
+                df.to_excel(report_path, index=False)
+                scan_status["excel_path"] = report_path
+            except Exception as export_err:
+                if scan_status.get("status") != "error":
+                    scan_status["status"] = "error"
+                    scan_status["error"] = f"Error exportando Excel parcial: {export_err}"
 
 
 @router.post("/api/cad/scan")
@@ -543,7 +663,7 @@ def bg_procesar_cad_task(ruta_raiz: str):
     script_sw = os.path.join(base_dir, "tools", "preparar_solidworks.py")
     
     if not os.path.exists(script_dwg):
-        log_and_append(f"Error: No se encontró el script DWG en la ruta absoluta: {script_dwg}")
+        log_and_append(f"Error: No se encontrÃ³ el script DWG en la ruta absoluta: {script_dwg}")
     else:
         try:
             log_and_append("Ejecutando convertir_dwg.py...")
@@ -560,12 +680,12 @@ def bg_procesar_cad_task(ruta_raiz: str):
                     log_and_append(line.strip())
             process.stdout.close()
             process.wait()
-            log_and_append(f"convertir_dwg.py terminó (código {process.returncode})")
+            log_and_append(f"convertir_dwg.py terminÃ³ (cÃ³digo {process.returncode})")
         except Exception as e:
             log_and_append(f"Error al ejecutar convertir_dwg.py: {e}")
             
     if not os.path.exists(script_sw):
-        log_and_append(f"Error: No se encontró el script SolidWorks en la ruta absoluta: {script_sw}")
+        log_and_append(f"Error: No se encontrÃ³ el script SolidWorks en la ruta absoluta: {script_sw}")
     else:
         try:
             log_and_append("Ejecutando preparar_solidworks.py...")
@@ -582,7 +702,7 @@ def bg_procesar_cad_task(ruta_raiz: str):
                     log_and_append(line.strip())
             process.stdout.close()
             process.wait()
-            log_and_append(f"preparar_solidworks.py terminó (código {process.returncode})")
+            log_and_append(f"preparar_solidworks.py terminÃ³ (cÃ³digo {process.returncode})")
         except Exception as e:
             log_and_append(f"Error al ejecutar preparar_solidworks.py: {e}")
             
@@ -611,6 +731,7 @@ def get_cad_status():
     status_response = scan_status.copy() if scan_status else {}
     status_response["procesar_status"] = cad_procesar_status
     status_response["logs"] = cad_execution_logs
+    # current_file ya viaja dentro de scan_status.copy() como campo nativo
     return status_response
 
 from fastapi.responses import FileResponse
@@ -633,16 +754,16 @@ async def upload_cad_modifications(
     if not file.filename.endswith('.xlsx'):
          raise HTTPException(status_code=400, detail="Formato no admitido. Debe ser un archivo .xlsx")
          
-    # ── Helper de casteo seguro ───────────────────────────────────────────────
+    # â”€â”€ Helper de casteo seguro â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def _safe_float(val) -> Optional[float]:
         """Convierte cualquier valor de celda Pandas a float o None.
 
         Casos cubiertos:
-          - NaN (pandas.NA, float('nan'), 'nan', 'NaN') → None
-          - cadena vacía '' / solo espacios             → None
-          - cadena numérica '125.5'                     → 125.5
-          - entero/float directo                         → float(val)
-          - cualquier otro error de conversión           → None
+          - NaN (pandas.NA, float('nan'), 'nan', 'NaN') â†’ None
+          - cadena vacÃ­a '' / solo espacios             â†’ None
+          - cadena numÃ©rica '125.5'                     â†’ 125.5
+          - entero/float directo                         â†’ float(val)
+          - cualquier otro error de conversiÃ³n           â†’ None
         """
         if val is None:
             return None
@@ -654,9 +775,9 @@ async def upload_cad_modifications(
         s = str(val).strip().lower()
         if s in ('', 'nan', 'none', '-', 'n/a'):
             return None
-        # Limpiar comas como separador decimal (e.g. '1.234,56' → no aplica aquí)
+        # Limpiar comas como separador decimal (e.g. '1.234,56' â†’ no aplica aquÃ­)
         s = s.replace(',', '.')
-        # Eliminar caracteres no numéricos salvo punto y signo
+        # Eliminar caracteres no numÃ©ricos salvo punto y signo
         import re as _re
         s = _re.sub(r'[^\d.\-]', '', s)
         if not s or s == '.':
@@ -670,7 +791,7 @@ async def upload_cad_modifications(
         contents = await file.read()
         df = pd.read_excel(io.BytesIO(contents))
 
-        # ── Limpieza global del DataFrame ─────────────────────────────────────
+        # â”€â”€ Limpieza global del DataFrame â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         # Normalizar nombres de columnas (quitar espacios accidentales)
         df.columns = [str(c).strip() for c in df.columns]
 
@@ -692,23 +813,23 @@ async def upload_cad_modifications(
         
         try:
             for index, row in df.iterrows():
-                # ── Código de pieza ──────────────────────────────────────────
+                # â”€â”€ CÃ³digo de pieza â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                 raw_codigo = row.get("Codigo_Pieza", "")
                 codigo = str(raw_codigo).strip() if raw_codigo not in (None, '') else ''
                 if not codigo or codigo.lower() in ('nan', 'none'):
                     ignoradas += 1
                     continue
 
-                # ── Dimensiones CAD — casteo seguro a float|None ─────────────
-                # CRÍTICO: str(NaN) → 'nan' → float('nan') pasa como valor
-                # inválido al SQL. _safe_float convierte eso a None explícito.
+                # â”€â”€ Dimensiones CAD â€” casteo seguro a float|None â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                # CRÃTICO: str(NaN) â†’ 'nan' â†’ float('nan') pasa como valor
+                # invÃ¡lido al SQL. _safe_float convierte eso a None explÃ­cito.
                 largo_float   = _safe_float(row.get("Largo_CAD"))
                 ancho_float   = _safe_float(row.get("Ancho_CAD"))
                 espesor_float = _safe_float(row.get("Espesor_Perfil_CAD"))
 
-                # ── Material — garantizar nunca vacío en BD ───────────────────
+                # â”€â”€ Material â€” garantizar nunca vacÃ­o en BD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                 # El reporte CAD genera Material='' porque SW no tiene ese campo.
-                # Aplicamos la misma regla que en excel.py: "" → "POR DEFINIR".
+                # Aplicamos la misma regla que en excel.py: "" â†’ "POR DEFINIR".
                 raw_mat = row.get("Material", "")
                 mat_clean = str(raw_mat).strip() if raw_mat not in (None, '') else ''
                 if mat_clean.lower() in ('', 'nan', 'none', 'n/a'):
@@ -717,7 +838,7 @@ async def upload_cad_modifications(
                 else:
                     material_str = mat_clean
 
-                # ── Campos auxiliares ─────────────────────────────────────────
+                # â”€â”€ Campos auxiliares â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                 ruta_str       = str(row.get("Ruta_Archivo", "") or "").strip()
                 tiene_dxf      = str(row.get("Tiene_DXF", "No") or "No").strip()
                 largo_dxf_f    = _safe_float(row.get("Largo_DXF"))
@@ -729,8 +850,8 @@ async def upload_cad_modifications(
                     f"Mat={material_str!r}"
                 )
 
-                # ── UPDATE con Material condicional ───────────────────────────
-                # Si el Excel no trae Material válido NO sobreescribimos la BD,
+                # â”€â”€ UPDATE con Material condicional â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                # Si el Excel no trae Material vÃ¡lido NO sobreescribimos la BD,
                 # para no borrar el dato que ya existe correctamente.
                 if material_str is not None:
                     cursor.execute("""
@@ -751,7 +872,7 @@ async def upload_cad_modifications(
                         codigo,
                     ))
                 else:
-                    # Material vacío en Excel → no tocar columna Material en BD
+                    # Material vacÃ­o en Excel â†’ no tocar columna Material en BD
                     cursor.execute("""
                         UPDATE Tbl_Maestro_Piezas
                         SET Largo_CAD          = ?,
@@ -790,7 +911,7 @@ async def upload_cad_modifications(
                     no_encontradas += 1
                     
             conn.commit()
-            print("=== ESCRITURA FINALIZADA CON ÉXITO ===")
+            print("=== ESCRITURA FINALIZADA CON EXITO ===")
             
         except Exception as inner_e:
             conn.rollback()
@@ -842,25 +963,57 @@ def collect_missing_cad(request: CollectRequest):
         if not os.path.exists(target_folder):
             os.makedirs(target_folder)
 
-        # 3. Recorrer la red y copiar
-        archivos_copiados = 0
+        # Carpetas generadas por el sistema â€” excluir para no copiar duplicados
+        _EXCLUDED_DIRS = {
+            "dxf_convertidos", "exportados", "biblioteca_dxf",
+            "cad_pendientes", "reportes", "__pycache__", ".git",
+            "node_modules", "venv", ".venv"
+        }
+
+        # Pre-escaneo para saber el total (necesario para el indicador de progreso)
+        todos_los_cad = []
         for root_dir, dirs, files in os.walk(request.source_folder):
+            dirs[:] = [
+                d for d in dirs
+                if d.lower() not in _EXCLUDED_DIRS
+                and not d.startswith('.')
+            ]
             for file in files:
                 ext = file.split('.')[-1].upper()
                 if ext in ['SLDPRT', 'DWG', 'DXF']:
-                    # Extraer el nombre base (sin extensión)
-                    base_name = file[:-(len(ext)+1)].strip().upper()
-                    # Limpiar prefijo de chapa por si acaso
-                    base_name = base_name.replace("CHAPA DESPLEGADA - ", "").strip()
-                    
-                    if base_name in piezas_faltantes:
-                        source_path = os.path.join(root_dir, file)
-                        target_path = os.path.join(target_folder, file)
-                        
-                        # Copiar solo si no existe ya en el destino
-                        if not os.path.exists(target_path):
-                            shutil.copy2(source_path, target_path)
-                            archivos_copiados += 1
+                    todos_los_cad.append(os.path.join(root_dir, file))
+
+        total_red = len(todos_los_cad)
+
+        # Inicializar estado de progreso del colector
+        scan_status["status"] = "collecting"
+        scan_status["current_file"] = "Iniciando recolector..."
+        scan_status["current_item"] = 0
+        scan_status["total_items"] = total_red
+        scan_status["progress"] = 0
+        scan_status["total"] = total_red
+
+        # 3. Recorrer la red y copiar
+        archivos_copiados = 0
+        for idx, full_path in enumerate(todos_los_cad, start=1):
+            file = os.path.basename(full_path)
+            ext = file.split('.')[-1].upper()
+            base_name = file[:-(len(ext)+1)].strip().upper()
+            base_name = base_name.replace("CHAPA DESPLEGADA - ", "").strip()
+
+            # Actualizar progreso en tiempo real
+            scan_status["current_file"] = f"Copiando {idx} de {total_red}: {file}"
+            scan_status["current_item"] = idx
+            scan_status["progress"] = idx
+
+            if base_name in piezas_faltantes:
+                target_path = os.path.join(target_folder, file)
+                if not os.path.exists(target_path):
+                    shutil.copy2(full_path, target_path)
+                    archivos_copiados += 1
+
+        scan_status["status"] = "idle"
+        scan_status["current_file"] = ""
 
         return {
             "piezas_faltantes_en_db": len(piezas_faltantes),
@@ -869,5 +1022,5 @@ def collect_missing_cad(request: CollectRequest):
         }
 
     except Exception as e:
+        scan_status["status"] = "idle"
         raise HTTPException(status_code=500, detail=f"Error durante la recolección: {str(e)}")
-
