@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import win32com.client
 
@@ -6,6 +7,7 @@ _EXCLUDED_DIRS = {
     "dxf_convertidos",
     "exportados",
     "biblioteca_dxf",
+    "dxf",
     "cad_pendientes",
     "reportes",
     "__pycache__",
@@ -23,8 +25,8 @@ def _path_has_obsoleto(path: str) -> bool:
 
 
 def limpiar_nombre(nombre_archivo):
-    nombre = nombre_archivo.replace("Chapa desplegada -", "").strip()
-    return os.path.splitext(nombre)[0]
+    base = os.path.splitext(nombre_archivo)[0]
+    return re.sub(r"(?i)chapa desplegada - ", "", base).strip()
 
 
 def _fetch_codigos_solo_faltantes_dxf():
@@ -90,7 +92,7 @@ def _collect_dwg_rutas_mas_recientes(ruta_raiz):
 
 def procesar_biblioteca_dwg(ruta_raiz, solo_faltantes: bool = False):
     ruta_raiz = ruta_raiz.strip('"').strip("'")
-    ruta_destino = os.path.join(ruta_raiz, "BIBLIOTECA_DXF")
+    ruta_destino = os.path.join(ruta_raiz, "dxf")
 
     allowed = None
     if solo_faltantes:

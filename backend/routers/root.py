@@ -65,6 +65,8 @@ def get_dashboard_kpis():
                     JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
                     JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
                     JOIN Tbl_Maestro_Piezas M ON E.Codigo_Pieza = M.Codigo_Pieza
+                    -- Excluir piezas comerciales del calculo de salud CAD
+                    WHERE (LOWER(ISNULL(CAST(M.Material AS NVARCHAR(200)), '')) NOT LIKE '%comercial%')
                 )
                 SELECT 
                     SUM(CASE WHEN MaterialLimpio != 'FALTA ASIGNAR EN CAD' AND (ISNULL(AreaLimpia, 0) > 0 OR ISNULL(LargoLimpio, 0) > 0 OR (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0)) > 0) THEN 1 ELSE 0 END) AS Piezas_Validas,
@@ -93,10 +95,13 @@ def get_dashboard_kpis():
             print(f"[KPI] salud_cad omitida (fallback 0%): {ex_salud}")
             salud_cad = 0.0
 
-        # 2. total_piezas — catálogo maestro único: Tbl_Maestro_Piezas
+        # 2. total_piezas — catálogo maestro único: Tbl_Maestro_Piezas (excluye comerciales)
         total_piezas_maestro = 0
         try:
-            cursor.execute("SELECT COUNT(*) FROM Tbl_Maestro_Piezas")
+            cursor.execute("""
+                SELECT COUNT(*) FROM Tbl_Maestro_Piezas
+                WHERE (LOWER(ISNULL(CAST(Material AS NVARCHAR(200)), '')) NOT LIKE '%comercial%')
+            """)
             total_piezas_maestro = _int_from_count_row(cursor.fetchone())
         except Exception as ex_m:
             print(f"[KPI] Tbl_Maestro_Piezas: {ex_m} → total_piezas=0.")

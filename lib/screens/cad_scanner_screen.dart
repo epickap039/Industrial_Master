@@ -4,6 +4,8 @@ import 'package:file_picker/file_picker.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
+import '../config/app_config.dart';
 import '../services/api_client.dart';
 import '../widgets/compact_page_header.dart';
 
@@ -190,6 +192,10 @@ End Sub''';
   bool _isCollecting = false;
   /// Solo procesar .sldprt cuyo codigo esta en el maestro sin Largo_CAD valido.
   bool _soloFaltantes = false;
+  // Maestro Mode: true = solo faltantes, false = todo el catálogo
+  bool _maestroSoloFaltantes = true;
+  /// Escribir medidas en el .sldprt y copiar el archivo de vuelta a la ruta de red.
+  bool _inyectarPropiedadesMaestro = false;
 
   
   String _status = 'idle';
@@ -401,6 +407,100 @@ End Sub''';
       displayInfoBar(context, builder: (context, close) {
         return InfoBar(
           title: const Text('Error al cancelar'),
+          content: Text(e.toString()),
+          severity: InfoBarSeverity.error,
+          onClose: close,
+        );
+      });
+    }
+  }
+
+  Future<void> _startMaestro() async {
+    String? selectedDirectory = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: 'Selecciona la carpeta ORIGEN de la red para el Pipeline Maestro',
+    );
+    if (selectedDirectory == null) return;
+
+    final bool? confirmar = await showDialog<bool>(
+      context: context,
+      builder: (context) => ContentDialog(
+        title: Text('⚠️ Pipeline Maestro: Todo en Uno',
+            style: TextStyle(color: Colors.warningPrimaryColor)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Este proceso ejecutará los 3 pasos de forma automática:\n'
+              '  Paso 0: Copia archivos desde la red hacia Escritorio/Piezas_A_Procesar/\n'
+              '  Paso 2: Convierte DWG → DXF\n'
+              '  Paso 3: Extrae metadata CAD y genera Excel\n\n'
+              'Esto puede tardar VARIAS HORAS. ¿Deseas continuar?',
+            ),
+          ],
+        ),
+        actions: [
+          Button(
+            child: Text('Cancelar'),
+            onPressed: () => Navigator.pop(context, false),
+          ),
+          FilledButton(
+            child: Text('Iniciar Pipeline'),
+            onPressed: () => Navigator.pop(context, true),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmar != true) return;
+
+    setState(() {
+      _status = 'scanning';
+      _procesarStatus = 'processing';
+      _cadLogs = [];
+      _progress = 0;
+      _excelPath = '';
+      _errorMessage = '';
+      _warningMessage = '';
+    });
+
+    try {
+      final response = await ApiClient.postUnvalidated(
+        '/api/cad/maestro',
+        headers: {'Content-Type': 'application/json'},
+        body: {
+          'source_folder': selectedDirectory,
+          'solo_faltantes': _maestroSoloFaltantes,
+          'inyectar_propiedades': _inyectarPropiedadesMaestro,
+        },
+      );
+
+      if (response.statusCode == 200) {
+        _startPolling();
+        displayInfoBar(context, builder: (context, close) {
+          return InfoBar(
+            title: const Text('Pipeline Maestro Iniciado'),
+            content: Text(
+                'Procesando desde: $selectedDirectory\nMonitorea el progreso en la consola.'),
+            severity: InfoBarSeverity.info,
+            onClose: close,
+          );
+        });
+      } else {
+        setState(() {
+          _status = 'error';
+          _procesarStatus = 'idle';
+        });
+        throw Exception('Error del servidor: ${response.statusCode}');
+      }
+    } catch (e) {
+      setState(() {
+        _status = 'idle';
+        _procesarStatus = 'idle';
+      });
+      displayInfoBar(context, builder: (context, close) {
+        return InfoBar(
+          title: const Text('Error al iniciar Maestro'),
           content: Text(e.toString()),
           severity: InfoBarSeverity.error,
           onClose: close,
@@ -715,6 +815,185 @@ End Sub''';
                   children: [
                     const Text('Flujo de Trabajo:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                     const SizedBox(height: 12),
+
+                    // ════════════════════════════════════════════════════════
+                    // TARJETA MAESTRO "TODO EN UNO"
+                    // ════════════════════════════════════════════════════════
+                    Card(
+                      borderColor: material.Colors.deepPurple.withOpacity(0.5),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(FluentIcons.lightning_bolt, color: material.Colors.deepPurple, size: 24),
+                                const SizedBox(width: 10),
+                                const Expanded(
+                                  child: Text(
+                                    'Procesamiento Maestro (Todo en Uno)',
+                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+
+                            // ── Advertencia UX ──────────────────────────────
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: material.Colors.red.withOpacity(0.08),
+                                border: Border.all(color: material.Colors.red.shade700, width: 1.5),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(FluentIcons.error_badge, color: material.Colors.red, size: 18),
+                                      const SizedBox(width: 8),
+                                      const Text(
+                                        '⚠️ ADVERTENCIA: PROCESO DE LARGA DURACIÓN',
+                                        style: TextStyle(
+                                          color: material.Colors.red,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  const Text(
+                                    'Este proceso trabajará sobre una COPIA LOCAL de los archivos CAD. — '
+                                    'Puede tardar varias horas según el tamaño del catálogo. — '
+                                    'NO ABRAS SolidWorks ni AutoCAD manualmente mientras el escáner esté en ejecución, '
+                                    'ya que el proceso los controla automáticamente en modo silencioso.',
+                                    style: TextStyle(fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+
+                            // ── Selector de modo ────────────────────────────
+                            const Text('Alcance del proceso:',
+                                style: TextStyle(fontWeight: FontWeight.w600)),
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                RadioButton(
+                                  checked: _maestroSoloFaltantes,
+                                  onChanged: isBusy
+                                      ? null
+                                      : (v) => setState(() => _maestroSoloFaltantes = true),
+                                  content: const Text('Solo Faltantes (sin medidas en BD)'),
+                                ),
+                                const SizedBox(width: 24),
+                                RadioButton(
+                                  checked: !_maestroSoloFaltantes,
+                                  onChanged: isBusy
+                                      ? null
+                                      : (v) => setState(() => _maestroSoloFaltantes = false),
+                                  content: const Text('Analizar Todo el Catálogo'),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Checkbox(
+                                  checked: _inyectarPropiedadesMaestro,
+                                  onChanged: isBusy
+                                      ? null
+                                      : (bool? v) {
+                                          setState(() {
+                                            _inyectarPropiedadesMaestro = v ?? false;
+                                          });
+                                        },
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Inyectar medidas en propiedades del archivo CAD original',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: FluentTheme.of(context)
+                                          .typography
+                                          .body
+                                          ?.color,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 14),
+
+                            // ── Botones Maestro + Cancelar ───────────────────
+                            Wrap(
+                              spacing: 10,
+                              runSpacing: 8,
+                              children: [
+                                FilledButton(
+                                  onPressed: isBusy ? null : _startMaestro,
+                                  style: ButtonStyle(
+                                    backgroundColor: isBusy
+                                        ? ButtonState.all(Colors.grey)
+                                        : ButtonState.all(material.Colors.deepPurple),
+                                  ),
+                                  child: const Padding(
+                                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(FluentIcons.lightning_bolt, size: 18),
+                                        SizedBox(width: 8),
+                                        Text('Iniciar Pipeline Maestro',
+                                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                // Botón Cancelar: SIEMPRE visible cuando hay una tarea activa
+                                Button(
+                                  onPressed: isBusy ? _cancelScan : null,
+                                  style: ButtonStyle(
+                                    backgroundColor: isBusy
+                                        ? ButtonState.all(material.Colors.red.withOpacity(0.12))
+                                        : ButtonState.all(Colors.grey.withOpacity(0.05)),
+                                    foregroundColor: isBusy
+                                        ? ButtonState.all(material.Colors.red)
+                                        : ButtonState.all(Colors.grey),
+                                  ),
+                                  child: const Padding(
+                                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(FluentIcons.status_circle_error_x, size: 16),
+                                        SizedBox(width: 6),
+                                        Text('Cancelar Escaneo', style: TextStyle(fontSize: 14)),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    const Divider(),
+                    const SizedBox(height: 8),
+                    const Text('O usa el flujo manual paso a paso:',
+                        style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
+                    const SizedBox(height: 12),
+
                     // NUEVO Paso 0: Recolector Inteligente
                     Card(
                       borderColor: Colors.blue.withOpacity(0.3),
@@ -1181,18 +1460,78 @@ End Sub''';
                     const SizedBox(height: 8),
                     Text('Se encontraron y procesaron $_progress archivos CAD únicos.'),
                     const SizedBox(height: 24),
-                    FilledButton(
-                      onPressed: _downloadExcel,
-                      style: ButtonStyle(
-                        backgroundColor: ButtonState.all(Colors.blue),
-                      ),
-                      child: const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                        child: Text(
-                          'Descargar Reporte Excel',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    Wrap(
+                      spacing: 16,
+                      runSpacing: 16,
+                      alignment: WrapAlignment.center,
+                      children: [
+                        FilledButton(
+                          onPressed: _downloadExcel,
+                          style: ButtonStyle(
+                            backgroundColor: ButtonState.all(Colors.blue),
+                          ),
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                            child: Text(
+                              'Descargar Reporte Excel',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                            ),
+                          ),
                         ),
-                      ),
+                        Button(
+                          onPressed: () async {
+                            final base = kApiBaseUrl.endsWith('/')
+                                ? kApiBaseUrl.substring(0, kApiBaseUrl.length - 1)
+                                : kApiBaseUrl;
+                            material.ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                              const material.SnackBar(
+                                content: Text('Abriendo carpeta local...'),
+                              ),
+                            );
+                            try {
+                              final res = await http.get(
+                                Uri.parse('$base/api/cad/open-folder'),
+                              );
+                              if (!mounted) return;
+                              if (res.statusCode != 200) {
+                                displayInfoBar(context, builder: (ctx, close) {
+                                  return InfoBar(
+                                    title: const Text('No se pudo abrir la carpeta'),
+                                    content: Text(
+                                      res.body.isNotEmpty
+                                          ? res.body
+                                          : 'HTTP ${res.statusCode}',
+                                    ),
+                                    severity: InfoBarSeverity.error,
+                                    onClose: close,
+                                  );
+                                });
+                              }
+                            } catch (e) {
+                              if (!mounted) return;
+                              displayInfoBar(context, builder: (ctx, close) {
+                                return InfoBar(
+                                  title: const Text('Error de red'),
+                                  content: Text(e.toString()),
+                                  severity: InfoBarSeverity.error,
+                                  onClose: close,
+                                );
+                              });
+                            }
+                          },
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(FluentIcons.folder_open),
+                                SizedBox(width: 8),
+                                Text('Abrir Carpeta de Trabajo (Desktop)'),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
