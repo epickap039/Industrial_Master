@@ -846,194 +846,6 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final bool canMantenerSel = !_isLoading && _hasSelectedConflicts;
-                final bool canSincronizar = canSyncSelection && !_isLoading;
-
-                if (constraints.maxWidth > 800) {
-                  final actionButtons = <Widget>[
-                    if (hasConflictRows) ...[
-                      Button(
-                        onPressed: canMantenerSel
-                            ? _keepDbForSelectedConflicts
-                            : null,
-                        child: const Text('Mantener BD Sel.'),
-                      ),
-                      Button(
-                        onPressed: _isLoading ? null : _keepDbForAllConflicts,
-                        child: const Text('Mantener Todos'),
-                      ),
-                    ],
-                    Button(
-                      onPressed: _isLoading ? null : _syncOnlyNew,
-                      child: const Text('Solo Nuevos'),
-                    ),
-                    Button(
-                      onPressed: canSincronizar ? _syncSelected : null,
-                      child: _isLoading
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: ProgressRing(strokeWidth: 2),
-                            )
-                          : Text('Sincronizar (${_selectedUpdates.length})'),
-                    ),
-                    Button(
-                      onPressed: () {
-                        setState(() {
-                          _conflicts.clear();
-                          _totalProcessed = 0;
-                          _selectedUpdates.clear();
-                          _searchQuery = '';
-                          _searchController.clear();
-                        });
-                      },
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: const [
-                          Icon(FluentIcons.back, size: 14),
-                          SizedBox(width: 6),
-                          Text('Limpiar'),
-                        ],
-                      ),
-                    ),
-                    if (_filterStatus != 'CONFLICTO')
-                      Button(
-                        onPressed: _isLoading ? null : _syncOnlyNew,
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(FluentIcons.add, size: 14),
-                            SizedBox(width: 6),
-                            Text('Aprobar nuevos'),
-                          ],
-                        ),
-                      ),
-                    Button(
-                      onPressed: _isLoading ? null : _limpiarMaterialVacio,
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(FluentIcons.broom, size: 14),
-                          SizedBox(width: 6),
-                          Text('Limpiar Material'),
-                        ],
-                      ),
-                    ),
-                  ];
-
-                  return Center(
-                    child: Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      alignment: WrapAlignment.center,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: actionButtons,
-                    ),
-                  );
-                }
-
-                return Center(
-                  child: material.PopupMenuButton<String>(
-                    tooltip: 'Acciones',
-                    onSelected: (value) {
-                      switch (value) {
-                        case 'mantener_sel':
-                          if (canMantenerSel) _keepDbForSelectedConflicts();
-                          break;
-                        case 'mantener_todos':
-                          if (!_isLoading) _keepDbForAllConflicts();
-                          break;
-                        case 'solo_nuevos':
-                          if (!_isLoading) _syncOnlyNew();
-                          break;
-                        case 'sincronizar':
-                          if (canSincronizar) _syncSelected();
-                          break;
-                        case 'limpiar':
-                          setState(() {
-                            _conflicts.clear();
-                            _totalProcessed = 0;
-                            _selectedUpdates.clear();
-                            _searchQuery = '';
-                            _searchController.clear();
-                          });
-                          break;
-                        case 'aprobar_nuevos':
-                          if (_filterStatus != 'CONFLICTO' && !_isLoading) {
-                            _syncOnlyNew();
-                          }
-                          break;
-                      }
-                    },
-                    itemBuilder: (context) {
-                      final items = <material.PopupMenuEntry<String>>[];
-
-                      if (hasConflictRows) {
-                        items.add(
-                          const material.PopupMenuItem<String>(
-                            value: 'mantener_sel',
-                            child: Text('Mantener BD Sel.'),
-                          ),
-                        );
-                        items.add(
-                          const material.PopupMenuItem<String>(
-                            value: 'mantener_todos',
-                            child: Text('Mantener Todos'),
-                          ),
-                        );
-                      }
-
-                      items.add(
-                        const material.PopupMenuItem<String>(
-                          value: 'solo_nuevos',
-                          child: Text('Solo Nuevos'),
-                        ),
-                      );
-                      items.add(
-                        material.PopupMenuItem<String>(
-                          value: 'sincronizar',
-                          child:
-                              Text('Sincronizar (${_selectedUpdates.length})'),
-                        ),
-                      );
-                      items.add(
-                        const material.PopupMenuItem<String>(
-                          value: 'limpiar',
-                          child: Text('Limpiar'),
-                        ),
-                      );
-
-                      if (_filterStatus != 'CONFLICTO') {
-                        items.add(
-                          const material.PopupMenuItem<String>(
-                            value: 'aprobar_nuevos',
-                            child: Text('Aprobar nuevos'),
-                          ),
-                        );
-                      }
-
-                      return items;
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: theme.resources.dividerStrokeColorDefault,
-                        ),
-                      ),
-                      child: const Text('Acciones'),
-                    ),
-                  ),
-                );
-              },
-            ),
           ],
         ),
       ),
@@ -1370,6 +1182,234 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
                             ),
                           );
                         },
+                  ),
+                ),
+              ),
+              // Botones de acción al pie: la lista usa solo el espacio restante (Expanded arriba).
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: theme.scaffoldBackgroundColor,
+                  border: Border(
+                    top: BorderSide(
+                      color: theme.resources.dividerStrokeColorDefault,
+                    ),
+                  ),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final bool canMantenerSel =
+                          !_isLoading && _hasSelectedConflicts;
+                      final bool canSincronizar =
+                          canSyncSelection && !_isLoading;
+
+                      if (constraints.maxWidth > 800) {
+                        final actionButtons = <Widget>[
+                          if (hasConflictRows) ...[
+                            Button(
+                              onPressed: canMantenerSel
+                                  ? _keepDbForSelectedConflicts
+                                  : null,
+                              child: const Text('Mantener BD Sel.'),
+                            ),
+                            Button(
+                              onPressed:
+                                  _isLoading ? null : _keepDbForAllConflicts,
+                              child: const Text('Mantener Todos'),
+                            ),
+                          ],
+                          Button(
+                            onPressed: _isLoading ? null : _syncOnlyNew,
+                            child: const Text('Solo Nuevos'),
+                          ),
+                          Button(
+                            onPressed: canSincronizar ? _syncSelected : null,
+                            child: _isLoading
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: ProgressRing(strokeWidth: 2),
+                                  )
+                                : Text(
+                                    'Sincronizar (${_selectedUpdates.length})',
+                                  ),
+                          ),
+                          Button(
+                            onPressed: () {
+                              setState(() {
+                                _conflicts.clear();
+                                _totalProcessed = 0;
+                                _selectedUpdates.clear();
+                                _searchQuery = '';
+                                _searchController.clear();
+                              });
+                            },
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: const [
+                                Icon(FluentIcons.back, size: 14),
+                                SizedBox(width: 6),
+                                Text('Limpiar'),
+                              ],
+                            ),
+                          ),
+                          if (_filterStatus != 'CONFLICTO')
+                            Button(
+                              onPressed: _isLoading ? null : _syncOnlyNew,
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(FluentIcons.add, size: 14),
+                                  SizedBox(width: 6),
+                                  Text('Aprobar nuevos'),
+                                ],
+                              ),
+                            ),
+                          Button(
+                            onPressed:
+                                _isLoading ? null : _limpiarMaterialVacio,
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(FluentIcons.broom, size: 14),
+                                SizedBox(width: 6),
+                                Text('Limpiar Material'),
+                              ],
+                            ),
+                          ),
+                        ];
+
+                        return SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(
+                              minWidth: constraints.maxWidth,
+                            ),
+                            child: Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              alignment: WrapAlignment.center,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: actionButtons,
+                            ),
+                          ),
+                        );
+                      }
+
+                      return Center(
+                        child: material.PopupMenuButton<String>(
+                          tooltip: 'Acciones',
+                          onSelected: (value) {
+                            switch (value) {
+                              case 'mantener_sel':
+                                if (canMantenerSel) {
+                                  _keepDbForSelectedConflicts();
+                                }
+                                break;
+                              case 'mantener_todos':
+                                if (!_isLoading) _keepDbForAllConflicts();
+                                break;
+                              case 'solo_nuevos':
+                                if (!_isLoading) _syncOnlyNew();
+                                break;
+                              case 'sincronizar':
+                                if (canSincronizar) _syncSelected();
+                                break;
+                              case 'limpiar':
+                                setState(() {
+                                  _conflicts.clear();
+                                  _totalProcessed = 0;
+                                  _selectedUpdates.clear();
+                                  _searchQuery = '';
+                                  _searchController.clear();
+                                });
+                                break;
+                              case 'aprobar_nuevos':
+                                if (_filterStatus != 'CONFLICTO' &&
+                                    !_isLoading) {
+                                  _syncOnlyNew();
+                                }
+                                break;
+                              case 'limpiar_material':
+                                if (!_isLoading) _limpiarMaterialVacio();
+                                break;
+                            }
+                          },
+                          itemBuilder: (context) {
+                            final items = <material.PopupMenuEntry<String>>[];
+
+                            if (hasConflictRows) {
+                              items.add(
+                                const material.PopupMenuItem<String>(
+                                  value: 'mantener_sel',
+                                  child: Text('Mantener BD Sel.'),
+                                ),
+                              );
+                              items.add(
+                                const material.PopupMenuItem<String>(
+                                  value: 'mantener_todos',
+                                  child: Text('Mantener Todos'),
+                                ),
+                              );
+                            }
+
+                            items.add(
+                              const material.PopupMenuItem<String>(
+                                value: 'solo_nuevos',
+                                child: Text('Solo Nuevos'),
+                              ),
+                            );
+                            items.add(
+                              material.PopupMenuItem<String>(
+                                value: 'sincronizar',
+                                child: Text(
+                                  'Sincronizar (${_selectedUpdates.length})',
+                                ),
+                              ),
+                            );
+                            items.add(
+                              const material.PopupMenuItem<String>(
+                                value: 'limpiar',
+                                child: Text('Limpiar'),
+                              ),
+                            );
+
+                            if (_filterStatus != 'CONFLICTO') {
+                              items.add(
+                                const material.PopupMenuItem<String>(
+                                  value: 'aprobar_nuevos',
+                                  child: Text('Aprobar nuevos'),
+                                ),
+                              );
+                            }
+
+                            items.add(
+                              const material.PopupMenuItem<String>(
+                                value: 'limpiar_material',
+                                child: Text('Limpiar Material'),
+                              ),
+                            );
+
+                            return items;
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color:
+                                    theme.resources.dividerStrokeColorDefault,
+                              ),
+                            ),
+                            child: const Text('Acciones'),
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 ),
               ),

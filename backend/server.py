@@ -2,6 +2,7 @@
 Arranque FastAPI — Industrial Manager API v60.0.
 Las rutas viven en `routers/` (APIRouter). Lógica SQL sin cambios respecto al monolito previo.
 """
+import ctypes
 import socket
 import uvicorn
 from contextlib import asynccontextmanager
@@ -76,4 +77,16 @@ for _router in (
 
 
 if __name__ == "__main__":
+    # Banderas de la API de Windows: evitar suspensión y apagado de pantalla en el equipo servidor.
+    ES_CONTINUOUS = 0x80000000
+    ES_SYSTEM_REQUIRED = 0x00000001
+    ES_DISPLAY_REQUIRED = 0x00000002
+    try:
+        ctypes.windll.kernel32.SetThreadExecutionState(
+            ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED
+        )
+        print("🛡️ Prevención de suspensión de Windows: ACTIVADA.")
+    except Exception as e:
+        print(f"⚠️ No se pudo activar la prevención de suspensión: {e}")
+
     uvicorn.run(app, host="0.0.0.0", port=8001)

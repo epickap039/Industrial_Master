@@ -224,6 +224,45 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 13, color: base),
               ),
+              if (_selectedRevision != null && _esEditable) ...[
+                const SizedBox(height: 24),
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    FilledButton(
+                      onPressed: _importarExcel,
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(FluentIcons.download, size: 14),
+                          SizedBox(width: 8),
+                          Text('Importar Excel'),
+                        ],
+                      ),
+                    ),
+                    Button(
+                      onPressed: _sumarExcel,
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(FluentIcons.add_to, size: 14),
+                          SizedBox(width: 8),
+                          Text('Sumar Excel'),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ] else if (_selectedRevision != null && !_esEditable) ...[
+                const SizedBox(height: 16),
+                Text(
+                  'Revisión en solo lectura: importación desactivada.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12, color: base),
+                ),
+              ],
             ],
           ),
         ),
@@ -1400,7 +1439,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                       ),
                     );
                   }),
-                  // ─── Barra superior: Stepper + CommandBar ───────────────
+                  // ─── Barra superior: stepper + acciones (sin flex 4:1 que aplasta el CommandBar)
                   Container(
                     decoration: BoxDecoration(
                       color: _accentColor.withOpacity(0.06),
@@ -1411,81 +1450,90 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                         ),
                       ),
                     ),
-                    child: Row(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Expanded(
-                          flex: 4,
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12.0,
-                              vertical: 6.0,
-                            ),
+                        // Fila 1: stepper con scroll si crece (listas largas / muchas revs)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8.0,
+                            vertical: 4.0,
+                          ),
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
                             child: _buildRevisionStepper(),
                           ),
                         ),
-                        Container(
-                          width: 1,
-                          height: 24,
-                          color: Colors.grey.withOpacity(0.2),
-                        ),
-                        // ── Semáforo de Estado ──
+                        const Divider(),
+                        // Fila 2: iconos + CommandBar (ancho acotado vía Expanded; overflow interno fluent_ui)
                         Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 14),
-                          child: Tooltip(
-                            message: _esAprobada 
-                                ? 'Revisión Aprobada - Sólo Lectura' 
-                                : _esObsoleta 
-                                    ? 'Archivo Histórico - Sólo Lectura' 
-                                    : 'Borrador - Edición Activa',
-                            child: Icon(
-                              FluentIcons.circle_fill, 
-                              size: 14, 
-                              color: _esAprobada 
-                                  ? const Color(0xFF2E7D32) 
-                                  : _esObsoleta 
-                                      ? const Color(0xFF9E9E9E) 
-                                      : const Color(0xFFF9A825)
-                            ),
-                          ),
-                        ),
-                        Tooltip(
-                          message: 'Cambiar tema visual',
-                          child: IconButton(
-                            icon: Icon(
-                              FluentIcons.color,
-                              color: _accentColor,
-                              size: 18,
-                            ),
-                            onPressed: () => showAppThemePickerDialog(context),
-                          ),
-                        ),
-                        Tooltip(
-                          message: 'Guía de importación Excel',
-                          child: IconButton(
-                            icon: Icon(
-                              FluentIcons.info,
-                              size: 18,
-                              color: FluentTheme.of(context)
-                                  .typography
-                                  .body
-                                  ?.color,
-                            ),
-                            onPressed: _showGuiaImportacionDialog,
-                          ),
-                        ),
-                        Expanded(
-                          child: CommandBar(
-                            // Incluir _esEditable y si hay revisión: el número de primaryItems
-                            // cambia al aprobar/pasar a solo lectura. Sin esto, fluent_ui 4.11.x
-                            // conserva _dynamicallyHiddenPrimaryItems con índices viejos y lanza
-                            // RangeError en allSecondaryItems (índice fuera de rango).
+                          padding: const EdgeInsets.symmetric(vertical: 4.0),
+                          child: SizedBox(
+                            height: 44,
+                            child: Row(
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                  ),
+                                  child: Tooltip(
+                                    message: _esAprobada
+                                        ? 'Revisión Aprobada - Sólo Lectura'
+                                        : _esObsoleta
+                                            ? 'Archivo Histórico - Sólo Lectura'
+                                            : 'Borrador - Edición Activa',
+                                    child: Icon(
+                                      FluentIcons.circle_fill,
+                                      size: 14,
+                                      color: _esAprobada
+                                          ? const Color(0xFF2E7D32)
+                                          : _esObsoleta
+                                              ? const Color(0xFF9E9E9E)
+                                              : const Color(0xFFF9A825),
+                                    ),
+                                  ),
+                                ),
+                                Tooltip(
+                                  message: 'Cambiar tema visual',
+                                  child: IconButton(
+                                    icon: Icon(
+                                      FluentIcons.color,
+                                      color: _accentColor,
+                                      size: 18,
+                                    ),
+                                    onPressed: () =>
+                                        showAppThemePickerDialog(context),
+                                  ),
+                                ),
+                                Tooltip(
+                                  message: 'Guía de importación Excel',
+                                  child: IconButton(
+                                    icon: Icon(
+                                      FluentIcons.info,
+                                      size: 18,
+                                      color: FluentTheme.of(context)
+                                          .typography
+                                          .body
+                                          ?.color,
+                                    ),
+                                    onPressed: _showGuiaImportacionDialog,
+                                  ),
+                                ),
+                                // CommandBar ya usa Row+Expanded internamente; no envolver en
+                                // SingleChildScrollView horizontal (ancho ilimitado → assert).
+                                Expanded(
+                                  child: CommandBar(
+                            // Incluye tamaño de árbol y pending: al cargar lista nueva, fluent_ui
+                            // puede dejar índices de overflow obsoletos y ocultar botones mal.
                             key: ValueKey(
                               'cmd_${_selectedRevision?['id_revision']}_'
                               'e${_esEditable}_'
-                              'del${_selectedRevision != null}',
+                              'n${_arbol.length}_'
+                              'p${_hasPendingChanges}_'
+                              'vp$_vistaPlana',
                             ),
                             overflowBehavior:
-                                CommandBarOverflowBehavior.scrolling,
+                                CommandBarOverflowBehavior.dynamicOverflow,
                             primaryItems: [
                               // ── Botón ECR inteligente ──────────────────────
                               _ecrCommandBarItem,
@@ -1576,6 +1624,24 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                           if (entering) _fetchBomPlana();
                                         },
                               ),
+                              // Importar / Sumar en primary: si van solo a secondary, el overflow
+                              // del CommandBar suele ocultarlos (no visibles en barra ni obvios).
+                              if (_selectedRevision != null && _esEditable)
+                                CommandBarButton(
+                                  icon: const Icon(FluentIcons.download),
+                                  label: const Text('Importar Excel'),
+                                  onPressed: _importarExcel,
+                                ),
+                              if (_selectedRevision != null && _esEditable)
+                                CommandBarButton(
+                                  icon: const Icon(FluentIcons.add_to),
+                                  label: Tooltip(
+                                    message:
+                                        'Añade o suma cantidades por ruta Estación → Ensamble → Código',
+                                    child: const Text('Sumar Excel'),
+                                  ),
+                                  onPressed: _sumarExcel,
+                                ),
                             ],
                             secondaryItems: [
                               CommandBarButton(
@@ -1600,28 +1666,11 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                         ? null
                                         : _showVINManagementDialog,
                               ),
-                              const CommandBarSeparator(),
-                              CommandBarButton(
-                                icon: const Icon(FluentIcons.download),
-                                label: const Text("Importar Excel"),
-                                onPressed: (_selectedRevision == null ||
-                                        !_esEditable)
-                                    ? null
-                                    : _importarExcel,
-                              ),
-                              CommandBarButton(
-                                icon: const Icon(FluentIcons.add_to),
-                                label: Tooltip(
-                                  message:
-                                      'Añade o suma cantidades por ruta Estación → Ensamble → Código sin borrar la BOM actual',
-                                  child: const Text("Sumar Excel"),
-                                ),
-                                onPressed: (_selectedRevision == null ||
-                                        !_esEditable)
-                                    ? null
-                                    : _sumarExcel,
-                              ),
                             ],
+                          ),
+                                  ),
+                              ],
+                            ),
                           ),
                         ),
                       ],

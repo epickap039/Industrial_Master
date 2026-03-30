@@ -955,11 +955,25 @@ def add_vin(id_revision: int, payload: VINPayload, x_usuario: Optional[str] = He
     usuario_real = _usuario_ingenieria(x_usuario)
     try:
         val = payload.observaciones if payload.observaciones is not None else payload.notas
+        vin_upper = payload.vin.upper()
+
+        # Prevención de duplicados por revisión para evitar excepción SQL.
         cursor.execute(
-            "INSERT INTO Tbl_Unidades_Fisicas (ID_Revision, Serie, Observaciones) OUTPUT INSERTED.ID_Unidad VALUES (?, ?, ?)", 
-            (id_revision, payload.vin.upper(), val or "")
+            "SELECT 1 FROM Tbl_Unidades_Fisicas WHERE ID_Revision = ? AND Serie = ?",
+            (id_revision, vin_upper),
         )
-        id_gen = cursor.fetchone()[0]
+        if cursor.fetchone():
+            raise HTTPException(status_code=400, detail="El VIN ya está asignado a esta revisión")
+
+        try:
+            cursor.execute(
+                "INSERT INTO Tbl_Unidades_Fisicas (ID_Revision, Serie, Observaciones) OUTPUT INSERTED.ID_Unidad VALUES (?, ?, ?)",
+                (id_revision, vin_upper, val or ""),
+            )
+            id_gen = cursor.fetchone()[0]
+        except Exception as e:
+            print(f"Error SQL al insertar VIN: {e}")
+            raise HTTPException(status_code=400, detail=f"Error al guardar VIN: {str(e)}")
 
         # Log assignment
         cursor.execute("""
@@ -977,10 +991,10 @@ def add_vin(id_revision: int, payload: VINPayload, x_usuario: Optional[str] = He
             INSERT INTO Tbl_Auditoria_Cambios (Codigo_Pieza, Accion, Valor_Anterior, Valor_Nuevo, Usuario, Fecha_Hora)
             VALUES (?, ?, ?, ?, ?, GETDATE())
         """, (
-            f"VIN-{payload.vin.upper()}",
+            f"VIN-{vin_upper}",
             "VIN ASIGNADO",
             "N/A",
-            f"Serie {payload.vin.upper()} vinculada a {proyecto}",
+            f"Serie {vin_upper} vinculada a {proyecto}",
             usuario_real  # === TAREA 2: usuario real en lugar de string quemado ===
         ))
 
@@ -989,12 +1003,15 @@ def add_vin(id_revision: int, payload: VINPayload, x_usuario: Optional[str] = He
             cursor,
             id_revision,
             "VIN_CREADO",
-            f"VIN {payload.vin.upper()} registrado a la revisión.",
+            f"VIN {vin_upper} registrado a la revisión.",
             usuario=usuario_real,
         )
         
         conn.commit()
         return {"status": "success", "id_unidad": id_gen}
+    except HTTPException:
+        conn.rollback()
+        raise
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=f"Error al agregar VIN: {str(e)}")

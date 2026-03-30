@@ -5,6 +5,8 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../config/app_config.dart';
 import '../services/api_client.dart';
 import '../widgets/compact_page_header.dart';
@@ -19,6 +21,13 @@ class CADScannerScreen extends StatefulWidget {
 class _CADScannerScreenState extends State<CADScannerScreen> with AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true;
+
+  /// Usuario de sesión para `X-Usuario` (auditoría CAD / historial).
+  Future<String> _prefsUsername() async {
+    final prefs = await SharedPreferences.getInstance();
+    final u = prefs.getString('username')?.trim();
+    return (u != null && u.isNotEmpty) ? u : 'Operador';
+  }
 
   String get _macroVbaText {
     return '''Option Explicit
@@ -187,21 +196,28 @@ Sub ProcessPart(filePath As String)
 End Sub''';
   }
 
-  final TextEditingController _pathController = TextEditingController();
-  final TextEditingController _networkController = TextEditingController();
-  bool _isCollecting = false;
-  /// Solo procesar .sldprt cuyo codigo esta en el maestro sin Largo_CAD valido.
-  bool _soloFaltantes = false;
   // Maestro Mode: true = solo faltantes, false = todo el catálogo
   bool _maestroSoloFaltantes = true;
   /// Escribir medidas en el .sldprt y copiar el archivo de vuelta a la ruta de red.
   bool _inyectarPropiedadesMaestro = false;
 
-  
+  static const String _kDefaultSourceRed =
+      r'Z:\INGENIERIA\Alejandro de Jesus Gonzalez Hdez\BASE DE DATOS INGENIERIA\EXPERIMENTO';
+
+  final TextEditingController _sourceFolderController = TextEditingController();
+  final TextEditingController _localFolderController = TextEditingController();
+
   String _status = 'idle';
   int _progress = 0;
   int _total = 0;
   String _excelPath = '';
+  /// Solo true cuando el polling confirma fin exitoso de Fase 2 (auditar).
+  bool _mostrarBotonExcel = false;
+  /// Tras POST Fase 1 OK: mostrar diálogo macro cuando el status indique fin del trabajo.
+  bool _pendingPhase1MacroDialog = false;
+  /// Tras POST Fase 2 OK: al completar, habilitar botón Excel.
+  bool _phase2TrackExcel = false;
+
   String _errorMessage = '';
   String _warningMessage = '';
   String _currentFile = '';   // texto de la pieza en proceso
@@ -214,11 +230,28 @@ End Sub''';
   
   Timer? _statusTimer;
 
+  String _defaultDesktopLocalPath() {
+    if (!Platform.isWindows) {
+      final h = Platform.environment['HOME'];
+      return h != null && h.isNotEmpty ? '$h/Desktop/Piezas_A_Procesar' : '~/Desktop/Piezas_A_Procesar';
+    }
+    final up = Platform.environment['USERPROFILE'];
+    if (up == null || up.isEmpty) return r'C:\Users\Public\Desktop\Piezas_A_Procesar';
+    return '$up\\Desktop\\Piezas_A_Procesar';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _sourceFolderController.text = _kDefaultSourceRed;
+    _localFolderController.text = _defaultDesktopLocalPath();
+  }
+
   @override
   void dispose() {
     _statusTimer?.cancel();
-    _pathController.dispose();
-    _networkController.dispose();
+    _sourceFolderController.dispose();
+    _localFolderController.dispose();
     _logsScrollController.dispose();
     super.dispose();
   }
@@ -271,8 +304,10 @@ End Sub''';
 
           if (!isScanning && !isProcessing) {
             _stopPolling();
-            
+
             if (_status == 'error') {
+              _pendingPhase1MacroDialog = false;
+              _phase2TrackExcel = false;
               displayInfoBar(context, builder: (context, close) {
                 return InfoBar(
                   title: const Text('Error en escaneo'),
@@ -282,8 +317,10 @@ End Sub''';
                 );
               });
               // avoid showing it repeatedly, set to idle
-              _status = 'idle'; 
+              _status = 'idle';
             } else if (_status == 'cancelled') {
+              _pendingPhase1MacroDialog = false;
+              _phase2TrackExcel = false;
               displayInfoBar(context, builder: (context, close) {
                 return InfoBar(
                   title: const Text('Cancelado'),
@@ -294,90 +331,66 @@ End Sub''';
               });
               _status = 'idle';
               _procesarStatus = 'idle';
+            } else if (_pendingPhase1MacroDialog &&
+                _status == 'completed' &&
+                _procesarStatus == 'completed') {
+              _pendingPhase1MacroDialog = false;
+              WidgetsBinding.instance.addPostFrameCallback((_) async {
+                if (!mounted) return;
+                await showDialog<void>(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (ctx) => ContentDialog(
+                    title: Text(
+                      '⚠️ PAUSA OBLIGATORIA',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: material.Colors.deepOrange.shade800,
+                      ),
+                    ),
+                    content: SingleChildScrollView(
+                      child: Text(
+                        'El Paso 0 ha terminado y los archivos están listos.\n\n'
+                        '1. Abre SolidWorks.\n'
+                        '2. Ejecuta tu Macro VBA sobre la Carpeta Destino.\n'
+                        '3. Cuando la macro termine de guardar las medidas, cierra SolidWorks y presiona '
+                        "'Entendido' aquí para continuar con el Paso 1.",
+                        style: const TextStyle(fontSize: 16, height: 1.35),
+                      ),
+                    ),
+                    actions: [
+                      FilledButton(
+                        child: const Text('Entendido'),
+                        onPressed: () => Navigator.of(ctx).pop(),
+                      ),
+                    ],
+                  ),
+                );
+                if (!mounted) return;
+                displayInfoBar(context, builder: (context, close) {
+                  return InfoBar(
+                    title: const Text('Fase 1 en segundo plano'),
+                    content: const Text(
+                        'Sigue el progreso en la consola. Ejecuta la macro cuando el servidor termine de copiar.'),
+                    severity: InfoBarSeverity.info,
+                    onClose: close,
+                  );
+                });
+              });
+            } else if (_phase2TrackExcel &&
+                _status == 'completed' &&
+                _procesarStatus == 'completed') {
+              _phase2TrackExcel = false;
+              setState(() {
+                _mostrarBotonExcel = true;
+              });
             }
           }
         }
       }
     } catch (e) {
       // Ignoramos errores de red durante el polling
-    }
-  }
-
-  Future<void> _startScan() async {
-    final rootPath = _pathController.text.trim();
-    if (rootPath.isEmpty) {
-      displayInfoBar(context, builder: (context, close) {
-        return InfoBar(
-          title: const Text('Ruta vacía'),
-          content: const Text('Por favor, ingresa una ruta válida para escanear.'),
-          severity: InfoBarSeverity.error,
-          onClose: close,
-        );
-      });
-      return;
-    }
-
-    final bool? confirmar = await showDialog<bool>(
-      context: context,
-      builder: (context) => ContentDialog(
-        title: Text('⚠️ Atención: Extracción SolidWorks', style: TextStyle(color: Colors.warningPrimaryColor)),
-        content: Text('El servidor utilizará SolidWorks de forma silenciosa para leer las propiedades de las piezas y generará el reporte Excel. Asegúrate de haber ejecutado la Macro (Paso 1) previamente. ¿Deseas continuar?'),
-        actions: [
-          Button(
-            child: Text('Cancelar'),
-            onPressed: () => Navigator.pop(context, false),
-          ),
-          FilledButton(
-            child: Text('Proceder'),
-            onPressed: () => Navigator.pop(context, true),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmar != true) return;
-
-    setState(() {
-      _status = 'scanning';
-      _progress = 0;
-      _excelPath = '';
-      _errorMessage = '';
-      _warningMessage = '';
-    });
-
-    try {
-      final response = await ApiClient.postUnvalidated(
-        '/api/cad/scan',
-        headers: {'Content-Type': 'application/json'},
-        body: {
-          'root_path': rootPath,
-          'solo_faltantes': _soloFaltantes,
-        },
-      );
-
-      if (response.statusCode == 200) {
-        _startPolling();
-      } else {
-        setState(() => _status = 'error');
-        displayInfoBar(context, builder: (context, close) {
-          return InfoBar(
-            title: const Text('Error al iniciar'),
-            content: Text('Código: ${response.statusCode}'),
-            severity: InfoBarSeverity.error,
-            onClose: close,
-          );
-        });
-      }
-    } catch (e) {
-      setState(() => _status = 'error');
-      displayInfoBar(context, builder: (context, close) {
-        return InfoBar(
-          title: const Text('Error de conexión'),
-          content: Text(e.toString()),
-          severity: InfoBarSeverity.error,
-          onClose: close,
-        );
-      });
     }
   }
 
@@ -415,29 +428,33 @@ End Sub''';
     }
   }
 
-  Future<void> _startMaestro() async {
-    String? selectedDirectory = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: 'Selecciona la carpeta ORIGEN de la red para el Pipeline Maestro',
+  Future<void> _pickSourceFolder() async {
+    final String? d = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: 'Carpeta origen en red',
     );
-    if (selectedDirectory == null) return;
+    if (d != null && mounted) {
+      setState(() => _sourceFolderController.text = d);
+    }
+  }
 
+  Future<void> _pickDestFolder() async {
+    final String? d = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: 'Carpeta destino local (CAD)',
+    );
+    if (d != null && mounted) {
+      setState(() => _localFolderController.text = d);
+    }
+  }
+
+  Future<void> _startPreparar() async {
     final bool? confirmar = await showDialog<bool>(
       context: context,
       builder: (context) => ContentDialog(
-        title: Text('⚠️ Pipeline Maestro: Todo en Uno',
+        title: Text('Fase 1: Preparar',
             style: TextStyle(color: Colors.warningPrimaryColor)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Este proceso ejecutará los 3 pasos de forma automática:\n'
-              '  Paso 0: Copia archivos desde la red hacia Escritorio/Piezas_A_Procesar/\n'
-              '  Paso 2: Convierte DWG → DXF\n'
-              '  Paso 3: Extrae metadata CAD y genera Excel\n\n'
-              'Esto puede tardar VARIAS HORAS. ¿Deseas continuar?',
-            ),
-          ],
+        content: const Text(
+          'Se consultará el catálogo, se copiarán archivos desde la red a la carpeta local '
+          'y se ejecutará la conversión DWG → DXF.\n\n¿Continuar?',
         ),
         actions: [
           Button(
@@ -445,7 +462,7 @@ End Sub''';
             onPressed: () => Navigator.pop(context, false),
           ),
           FilledButton(
-            child: Text('Iniciar Pipeline'),
+            child: Text('Iniciar Fase 1'),
             onPressed: () => Navigator.pop(context, true),
           ),
         ],
@@ -453,6 +470,110 @@ End Sub''';
     );
 
     if (confirmar != true) return;
+
+    if (_sourceFolderController.text.trim().isEmpty ||
+        _localFolderController.text.trim().isEmpty) {
+      displayInfoBar(context, builder: (context, close) {
+        return InfoBar(
+          title: const Text('Rutas obligatorias'),
+          content: const Text(
+              'Indica Carpeta Origen (Red) y Carpeta Destino (Local).'),
+          severity: InfoBarSeverity.warning,
+          onClose: close,
+        );
+      });
+      return;
+    }
+
+    setState(() {
+      _status = 'collecting';
+      _procesarStatus = 'processing';
+      _cadLogs = [];
+      _progress = 0;
+      _excelPath = '';
+      _errorMessage = '';
+      _warningMessage = '';
+      _mostrarBotonExcel = false;
+      _pendingPhase1MacroDialog = false;
+      _phase2TrackExcel = false;
+    });
+
+    try {
+      final response = await ApiClient.postUnvalidated(
+        '/api/cad/preparar',
+        headers: {'Content-Type': 'application/json'},
+        body: {
+          'source_folder': _sourceFolderController.text.trim(),
+          'local_folder': _localFolderController.text.trim(),
+          'solo_faltantes': _maestroSoloFaltantes,
+        },
+      );
+
+      if (response.statusCode == 200) {
+        _pendingPhase1MacroDialog = true;
+        _startPolling();
+      } else {
+        setState(() {
+          _status = 'error';
+          _procesarStatus = 'idle';
+        });
+        throw Exception('Error del servidor: ${response.statusCode}');
+      }
+    } catch (e) {
+      setState(() {
+        _status = 'idle';
+        _procesarStatus = 'idle';
+      });
+      displayInfoBar(context, builder: (context, close) {
+        return InfoBar(
+          title: const Text('Error al iniciar Fase 1'),
+          content: Text(e.toString()),
+          severity: InfoBarSeverity.error,
+          onClose: close,
+        );
+      });
+    }
+  }
+
+  Future<void> _startAuditar() async {
+    final bool? confirmar = await showDialog<bool>(
+      context: context,
+      builder: (context) => ContentDialog(
+        title: const Text(
+          "Fase 2: Auditar piezas en 'Carpeta Destino (Local)'",
+          style: TextStyle(color: Colors.warningPrimaryColor),
+        ),
+        content: const Text(
+          'Se leerán los .sldprt de la Carpeta Destino (Local) indicada arriba; se cruzarán con los DXF de esa carpeta (subcarpeta dxf), se generará el Excel y se actualizará la base de datos.\n\n'
+          '¿Ya ejecutaste la macro VBA en esa carpeta local?\n\n'
+          'Puede tardar mucho tiempo. ¿Continuar?',
+        ),
+        actions: [
+          Button(
+            child: Text('Cancelar'),
+            onPressed: () => Navigator.pop(context, false),
+          ),
+          FilledButton(
+            child: Text('Iniciar Fase 2'),
+            onPressed: () => Navigator.pop(context, true),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmar != true) return;
+
+    if (_localFolderController.text.trim().isEmpty) {
+      displayInfoBar(context, builder: (context, close) {
+        return InfoBar(
+          title: const Text('Carpeta destino'),
+          content: const Text('Indica la Carpeta Destino (Local) para la auditoría.'),
+          severity: InfoBarSeverity.warning,
+          onClose: close,
+        );
+      });
+      return;
+    }
 
     setState(() {
       _status = 'scanning';
@@ -462,26 +583,34 @@ End Sub''';
       _excelPath = '';
       _errorMessage = '';
       _warningMessage = '';
+      _mostrarBotonExcel = false;
+      _pendingPhase1MacroDialog = false;
+      _phase2TrackExcel = false;
     });
 
     try {
+      final username = await _prefsUsername();
       final response = await ApiClient.postUnvalidated(
-        '/api/cad/maestro',
-        headers: {'Content-Type': 'application/json'},
+        '/api/cad/auditar',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Usuario': username,
+        },
         body: {
-          'source_folder': selectedDirectory,
+          'local_folder': _localFolderController.text.trim(),
           'solo_faltantes': _maestroSoloFaltantes,
           'inyectar_propiedades': _inyectarPropiedadesMaestro,
         },
       );
 
       if (response.statusCode == 200) {
+        _phase2TrackExcel = true;
         _startPolling();
         displayInfoBar(context, builder: (context, close) {
           return InfoBar(
-            title: const Text('Pipeline Maestro Iniciado'),
-            content: Text(
-                'Procesando desde: $selectedDirectory\nMonitorea el progreso en la consola.'),
+            title: const Text('Fase 2 iniciada'),
+            content: const Text(
+                'Auditoría CAD, Excel y SQL. Monitorea la consola.'),
             severity: InfoBarSeverity.info,
             onClose: close,
           );
@@ -500,160 +629,11 @@ End Sub''';
       });
       displayInfoBar(context, builder: (context, close) {
         return InfoBar(
-          title: const Text('Error al iniciar Maestro'),
+          title: const Text('Error al iniciar Fase 2'),
           content: Text(e.toString()),
           severity: InfoBarSeverity.error,
           onClose: close,
         );
-      });
-    }
-  }
-
-  Future<void> _procesarDirectorio() async {
-    final rootPath = _pathController.text.trim();
-    if (rootPath.isEmpty) {
-      displayInfoBar(context, builder: (context, close) {
-        return InfoBar(
-          title: const Text('Ruta vacía'),
-          content: const Text('Por favor, ingresa una ruta válida para procesar.'),
-          severity: InfoBarSeverity.error,
-          onClose: close,
-        );
-      });
-      return;
-    }
-
-    // Diálogo de Advertencia (REGLA ANTI-CONST: No usar const en el diálogo)
-    final bool? confirmar = await showDialog<bool>(
-      context: context,
-      builder: (context) => ContentDialog(
-        title: Text('⚠️ Atención: Conversión AutoCAD', style: TextStyle(color: Colors.warningPrimaryColor)),
-        content: Text('Esta herramienta abrirá AutoCAD en segundo plano para convertir masivamente los archivos DWG a DXF. ¿Deseas continuar?'),
-        actions: [
-          Button(
-            child: Text('Cancelar'),
-            onPressed: () => Navigator.pop(context, false),
-          ),
-          FilledButton(
-            child: Text('Proceder'),
-            onPressed: () => Navigator.pop(context, true),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmar != true) return;
-
-    setState(() {
-      _procesarStatus = 'processing';
-      _cadLogs = [];
-    });
-
-    try {
-      final response = await ApiClient.postUnvalidated(
-        '/api/cad/procesar-directorio',
-        headers: {'Content-Type': 'application/json'},
-        body: {'root_path': rootPath, 'solo_faltantes': _soloFaltantes},
-      );
-
-      if (response.statusCode == 200) {
-        _startPolling();
-        displayInfoBar(context, builder: (context, close) {
-          return InfoBar(
-            title: const Text('Procesamiento Iniciado'),
-            content: const Text('El procesamiento CAD ha iniciado. Monitorea el progreso en la consola.'),
-            severity: InfoBarSeverity.success,
-            onClose: close,
-          );
-        });
-      } else {
-        setState(() => _procesarStatus = 'error');
-        throw Exception('El servidor devolvió Error ${response.statusCode}');
-      }
-    } catch (e) {
-      setState(() => _procesarStatus = 'error');
-      displayInfoBar(context, builder: (context, close) {
-        return InfoBar(
-          title: const Text('Error de procesamiento'),
-          content: Text(e.toString()),
-          severity: InfoBarSeverity.error,
-          onClose: close,
-        );
-      });
-    }
-  }
-
-  Future<void> _collectMissingCAD() async {
-    String? selectedDirectory = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: 'Selecciona la carpeta raíz de la red para recolectar CADs',
-    );
-
-    if (selectedDirectory == null) return;
-
-    setState(() {
-      _networkController.text = selectedDirectory;
-      _isCollecting = true;
-    });
-
-    try {
-      final response = await ApiClient.postUnvalidated(
-        '/api/cad/collect-missing',
-        headers: {'Content-Type': 'application/json'},
-        body: {
-          'source_folder': selectedDirectory,
-          'solo_faltantes': _soloFaltantes,
-        },
-      );
-
-      setState(() {
-        _isCollecting = false;
-      });
-
-      if (response.statusCode == 200) {
-        final data = response.decodeJson() as Map<String, dynamic>;
-        showDialog(
-          context: context,
-          builder: (context) => ContentDialog(
-            title: const Text('Recolección Completada'),
-            content: Text(
-              'Se encontraron ${data['archivos_encontrados']} archivos de '
-              '${data['piezas_faltantes_en_db']} piezas pendientes.\n\n'
-              'Fueron copiados a tu escritorio en la carpeta CAD_PENDIENTES.'
-            ),
-            actions: [
-              Button(
-                child: const Text('Cerrar'),
-                onPressed: () => Navigator.pop(context),
-              ),
-            ],
-          ),
-        );
-      } else {
-        throw Exception('Error del servidor: ${response.rawBody}');
-      }
-    } catch (e) {
-      setState(() {
-        _isCollecting = false;
-      });
-      displayInfoBar(context, builder: (context, close) {
-        return InfoBar(
-          title: const Text('Error en Recolector'),
-          content: Text(e.toString()),
-          severity: InfoBarSeverity.error,
-          onClose: close,
-        );
-      });
-    }
-  }
-
-  Future<void> _pickDirectory() async {
-    String? selectedDirectory = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: 'Selecciona el directorio raíz de CAD',
-    );
-
-    if (selectedDirectory != null) {
-      setState(() {
-        _pathController.text = selectedDirectory;
       });
     }
   }
@@ -716,9 +696,10 @@ End Sub''';
     );
 
     try {
+      final username = await _prefsUsername();
       final data = await ApiClient.postMultipart(
         '/api/cad/upload',
-        headers: {'X-Usuario': 'Alejandro'},
+        headers: {'X-Usuario': username},
         files: {'file': await ApiClient.fileField('file', filePath)},
       ) as Map<String, dynamic>;
 
@@ -793,7 +774,7 @@ End Sub''';
       padding: EdgeInsets.fromLTRB(pageHPad, 8, pageHPad, 24),
       header: CompactPageHeader(
         title: Text(
-          'Escáner de Directorios CAD',
+          'CAD — Flujo híbrido (preparar → macro manual → auditar)',
           style: FluentTheme.of(context).typography.title,
         ),
       ),
@@ -816,9 +797,6 @@ End Sub''';
                     const Text('Flujo de Trabajo:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                     const SizedBox(height: 12),
 
-                    // ════════════════════════════════════════════════════════
-                    // TARJETA MAESTRO "TODO EN UNO"
-                    // ════════════════════════════════════════════════════════
                     Card(
                       borderColor: material.Colors.deepPurple.withOpacity(0.5),
                       child: Padding(
@@ -828,11 +806,11 @@ End Sub''';
                           children: [
                             Row(
                               children: [
-                                Icon(FluentIcons.lightning_bolt, color: material.Colors.deepPurple, size: 24),
+                                Icon(FluentIcons.refresh, color: material.Colors.deepPurple, size: 24),
                                 const SizedBox(width: 10),
                                 const Expanded(
                                   child: Text(
-                                    'Procesamiento Maestro (Todo en Uno)',
+                                    'Carpeta local y fases',
                                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                                   ),
                                 ),
@@ -840,42 +818,66 @@ End Sub''';
                             ),
                             const SizedBox(height: 12),
 
-                            // ── Advertencia UX ──────────────────────────────
                             Container(
                               width: double.infinity,
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                color: material.Colors.red.withOpacity(0.08),
-                                border: Border.all(color: material.Colors.red.shade700, width: 1.5),
+                                color: material.Colors.orange.withOpacity(0.08),
+                                border: Border.all(color: material.Colors.orange.shade700, width: 1.2),
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Row(
-                                    children: [
-                                      Icon(FluentIcons.error_badge, color: material.Colors.red, size: 18),
-                                      const SizedBox(width: 8),
-                                      const Text(
-                                        '⚠️ ADVERTENCIA: PROCESO DE LARGA DURACIÓN',
-                                        style: TextStyle(
-                                          color: material.Colors.red,
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 13,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 6),
                                   const Text(
-                                    'Este proceso trabajará sobre una COPIA LOCAL de los archivos CAD. — '
-                                    'Puede tardar varias horas según el tamaño del catálogo. — '
-                                    'NO ABRAS SolidWorks ni AutoCAD manualmente mientras el escáner esté en ejecución, '
-                                    'ya que el proceso los controla automáticamente en modo silencioso.',
-                                    style: TextStyle(fontSize: 12),
+                                    '⚠️ PROCESO LARGO — Fase 1 trae archivos y convierte DWG; entre fases ejecutas tú la macro en SolidWorks; Fase 2 audita y sube a SQL.',
+                                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                                   ),
                                 ],
                               ),
+                            ),
+                            const SizedBox(height: 14),
+
+                            const Text('Carpeta Origen (Red):',
+                                style: TextStyle(fontWeight: FontWeight.w600)),
+                            const SizedBox(height: 6),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: TextBox(
+                                    controller: _sourceFolderController,
+                                    placeholder: _kDefaultSourceRed,
+                                    maxLines: 2,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Button(
+                                  onPressed: isBusy ? null : _pickSourceFolder,
+                                  child: const Text('Examinar…'),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            const Text('Carpeta Destino (Local):',
+                                style: TextStyle(fontWeight: FontWeight.w600)),
+                            const SizedBox(height: 6),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: TextBox(
+                                    controller: _localFolderController,
+                                    placeholder: _defaultDesktopLocalPath(),
+                                    maxLines: 2,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Button(
+                                  onPressed: isBusy ? null : _pickDestFolder,
+                                  child: const Text('Examinar…'),
+                                ),
+                              ],
                             ),
                             const SizedBox(height: 14),
 
@@ -933,31 +935,78 @@ End Sub''';
                             ),
                             const SizedBox(height: 14),
 
-                            // ── Botones Maestro + Cancelar ───────────────────
+                            FilledButton(
+                              onPressed: isBusy ? null : _startPreparar,
+                              style: ButtonStyle(
+                                backgroundColor: isBusy
+                                    ? ButtonState.all(Colors.grey)
+                                    : ButtonState.all(material.Colors.teal),
+                              ),
+                              child: const Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(FluentIcons.cloud_download, size: 18),
+                                    SizedBox(width: 8),
+                                    Text(
+                                      'Fase 1: Traer de Red y Convertir 2D (DWG a DXF)',
+                                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(height: 16),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+                              decoration: BoxDecoration(
+                                color: material.Colors.amber.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: material.Colors.amber.shade700),
+                              ),
+                              child: const Text(
+                                '⚠️ PAUSA: Ejecuta tu macro de SolidWorks en la carpeta local antes de continuar.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  height: 1.25,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+
+                            FilledButton(
+                              onPressed: isBusy ? null : _startAuditar,
+                              style: ButtonStyle(
+                                backgroundColor: isBusy
+                                    ? ButtonState.all(Colors.grey)
+                                    : ButtonState.all(material.Colors.deepPurple),
+                              ),
+                              child: const Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(FluentIcons.table, size: 18),
+                                    SizedBox(width: 8),
+                                    Text(
+                                      "Fase 2: Auditar piezas ubicadas en la 'Carpeta Destino (Local)' seleccionada arriba",
+                                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(height: 10),
                             Wrap(
                               spacing: 10,
                               runSpacing: 8,
                               children: [
-                                FilledButton(
-                                  onPressed: isBusy ? null : _startMaestro,
-                                  style: ButtonStyle(
-                                    backgroundColor: isBusy
-                                        ? ButtonState.all(Colors.grey)
-                                        : ButtonState.all(material.Colors.deepPurple),
-                                  ),
-                                  child: const Padding(
-                                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(FluentIcons.lightning_bolt, size: 18),
-                                        SizedBox(width: 8),
-                                        Text('Iniciar Pipeline Maestro',
-                                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-                                      ],
-                                    ),
-                                  ),
-                                ),
                                 // Botón Cancelar: SIEMPRE visible cuando hay una tarea activa
                                 Button(
                                   onPressed: isBusy ? _cancelScan : null,
@@ -987,280 +1036,34 @@ End Sub''';
                         ),
                       ),
                     ),
-                    const SizedBox(height: 16),
-                    const Divider(),
-                    const SizedBox(height: 8),
-                    const Text('O usa el flujo manual paso a paso:',
-                        style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
-                    const SizedBox(height: 12),
-
-                    // NUEVO Paso 0: Recolector Inteligente
-                    Card(
-                      borderColor: Colors.blue.withOpacity(0.3),
-                      child: Padding(
-                        padding: const EdgeInsets.all(12.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Icon(FluentIcons.search, color: Colors.blue, size: 24),
-                                const SizedBox(width: 12),
-                                const Text('Paso 0: Recolector Inteligente',
-                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                                const Spacer(),
-                                if (_isCollecting) const ProgressRing(),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            const Text('Busca en la red piezas sin medidas en la base de datos y las copia a tu escritorio para procesarlas.'),
-                            const SizedBox(height: 12),
-                            InfoLabel(
-                              label: 'Ruta de Origen (Red/Servidor)',
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: TextBox(
-                                      controller: _networkController,
-                                      placeholder:
-                                          'Selecciona la carpeta de red (sin cargar aún)',
-                                      readOnly: true,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  FilledButton(
-                                    onPressed: _isCollecting ? null : _collectMissingCAD,
-                                    child: const Text('Seleccionar Red y Recolectar'),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
+                    const SizedBox(height: 14),
+                    Text(
+                      'Macro de ejemplo (VBA): cópiala y ejecútala en SolidWorks sobre la carpeta local entre Fase 1 y Fase 2.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: FluentTheme.of(context).typography.caption?.color,
                       ),
                     ),
-                    const SizedBox(height: 16),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.withOpacity(0.1),
-                        border: Border.all(color: Colors.orange, width: 1),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(FluentIcons.warning, color: Colors.orange),
-                              SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  '⚠️ ATENCIÓN: SolidWorks debe estar ABIERTO (puede estar minimizado) antes de generar el reporte.',
-                                  style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            'Paso 1 (Manual): Asegúrate de ejecutar la Macro en SolidWorks sobre la carpeta del proyecto. Esta Macro sirve para escribir en masa las propiedades necesarias en todos los archivos antes del escaneo.',
-                            style: TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                          const SizedBox(height: 12),
-                          OutlinedButton(
-                            child: const Text('📋 Copiar Macro al Portapapeles'),
-                            onPressed: () {
+                    const SizedBox(height: 8),
+                    OutlinedButton(
+                      child: const Text('Copiar Macro a Portapapeles'),
+                      onPressed: isBusy
+                          ? null
+                          : () {
                               Clipboard.setData(ClipboardData(text: _macroVbaText));
                               displayInfoBar(
                                 context,
                                 builder: (context, close) {
                                   return InfoBar(
-                                    title: const Text('Macro Copiada'),
-                                    content: const Text('Pégala en SolidWorks VBA para extraer las medidas'),
+                                    title: const Text('Macro copiada'),
+                                    content: const Text(
+                                        'Pégala en el editor VBA de SolidWorks'),
                                     severity: InfoBarSeverity.success,
                                     onClose: close,
                                   );
                                 },
                               );
                             },
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.withOpacity(0.1),
-                        border: Border.all(color: Colors.blue, width: 1),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(FluentIcons.info, color: Colors.blue),
-                          SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'NOTA: El Paso 2 (Convertir DWG a DXF) requiere AutoCAD instalado. El Paso 3 (Generar Reporte Excel) requiere SolidWorks instalado.',
-                              style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Card(
-                      borderColor: Colors.grey.withValues(alpha: 0.35),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Paso 2 y 3: Procesamiento Local',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 15,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              'Esta ruta es la carpeta local que usa el servidor para convertir DWG (Paso 2) y para el escaneo SolidWorks / Excel (Paso 3).',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: FluentTheme.of(context)
-                                    .typography
-                                    .caption
-                                    ?.color,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            InfoLabel(
-                              label:
-                                  'Ruta de Trabajo Local (Carpeta a escanear)',
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: TextBox(
-                                      controller: _pathController,
-                                      placeholder:
-                                          r'Ej. C:\Users\...\Desktop\CAD_PENDIENTES',
-                                      enabled: !isBusy,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Tooltip(
-                                    message: 'Seleccionar carpeta local',
-                                    child: IconButton(
-                                      icon: const Icon(
-                                        FluentIcons.folder_open,
-                                        size: 20,
-                                      ),
-                                      onPressed: isBusy ? null : _pickDirectory,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                Checkbox(
-                                  checked: _soloFaltantes,
-                                  onChanged: isBusy
-                                      ? null
-                                      : (bool? v) {
-                                          setState(() {
-                                            _soloFaltantes = v ?? false;
-                                          });
-                                        },
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    'Escanear solo piezas sin medidas',
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      color: FluentTheme.of(context)
-                                          .typography
-                                          .body
-                                          ?.color,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              alignment: WrapAlignment.start,
-                              children: [
-                                FilledButton(
-                                  onPressed:
-                                      isBusy ? null : _procesarDirectorio,
-                                  style: ButtonStyle(
-                                    backgroundColor: isBusy
-                                        ? ButtonState.all(Colors.grey)
-                                        : ButtonState.all(Colors.orange),
-                                  ),
-                                  child: const Padding(
-                                    padding: EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 8,
-                                    ),
-                                    child: Text(
-                                      'Paso 2: Convertir DWG a DXF',
-                                      style: TextStyle(fontSize: 16),
-                                    ),
-                                  ),
-                                ),
-                                FilledButton(
-                                  onPressed: isBusy ? null : _startScan,
-                                  style: ButtonStyle(
-                                    backgroundColor: isBusy
-                                        ? ButtonState.all(Colors.grey)
-                                        : ButtonState.all(Colors.green),
-                                  ),
-                                  child: const Padding(
-                                    padding: EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 8,
-                                    ),
-                                    child: Text(
-                                      'Paso 3: Generar Reporte Excel',
-                                      style: TextStyle(fontSize: 16),
-                                    ),
-                                  ),
-                                ),
-                                if (isBusy)
-                                  Button(
-                                    onPressed: _cancelScan,
-                                    style: ButtonStyle(
-                                      backgroundColor: ButtonState.all(
-                                        Colors.red.withOpacity(0.1),
-                                      ),
-                                      foregroundColor:
-                                          ButtonState.all(Colors.red),
-                                    ),
-                                    child: const Padding(
-                                      padding: EdgeInsets.symmetric(
-                                        horizontal: 16,
-                                        vertical: 8,
-                                      ),
-                                      child: Text(
-                                        'Cancelar Escaneo',
-                                        style: TextStyle(fontSize: 16),
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
                     ),
                   ],
                 ),
@@ -1270,7 +1073,7 @@ End Sub''';
             const SizedBox(height: 24),
 
             // Consola de Logs (Procesamiento CAD)
-            if (_procesarStatus != 'idle') ...[
+            if (_cadLogs.isNotEmpty || isScanning || isProcessing) ...[
               const Text(
                 'Consola de Procesamiento:',
                 style: TextStyle(fontWeight: FontWeight.bold),
@@ -1465,19 +1268,20 @@ End Sub''';
                       runSpacing: 16,
                       alignment: WrapAlignment.center,
                       children: [
-                        FilledButton(
-                          onPressed: _downloadExcel,
-                          style: ButtonStyle(
-                            backgroundColor: ButtonState.all(Colors.blue),
-                          ),
-                          child: const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                            child: Text(
-                              'Descargar Reporte Excel',
-                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        if (_mostrarBotonExcel)
+                          FilledButton(
+                            onPressed: _downloadExcel,
+                            style: ButtonStyle(
+                              backgroundColor: ButtonState.all(Colors.blue),
+                            ),
+                            child: const Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                              child: Text(
+                                'Descargar Reporte Excel',
+                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                              ),
                             ),
                           ),
-                        ),
                         Button(
                           onPressed: () async {
                             final base = kApiBaseUrl.endsWith('/')

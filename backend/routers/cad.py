@@ -261,10 +261,36 @@ _SQL_EXCLUIR_COMERCIALES = """
 
 # SolidWorks swCustomInfoText — propiedades personalizadas de tipo texto
 _SW_CUSTOM_INFO_TEXT = 30
+# Add3(..., configOrDocumentOption): 1 = crear en documento (alineado a macro VBA típica)
+_SW_CUSTOM_PROP_ADD_OPTION = 1
 
 # Carpeta local del pipeline maestro (escritorio) y subcarpeta DXF (solo local, no red)
 def _piezas_a_procesar_desktop_dir() -> str:
     return os.path.join(os.path.expanduser("~"), "Desktop", "Piezas_A_Procesar")
+
+
+def _cad_network_map_path() -> str:
+    """Compat: mapa en carpeta por defecto del escritorio."""
+    return _cad_network_map_path_for(_piezas_a_procesar_desktop_dir())
+
+
+# Origen de red por defecto para POST /api/cad/preparar (Fase 1). Opcionalmente se sobrescribe vía payload.
+_CAD_RED_IMPORT_SOURCE_DEFAULT = (
+    r"Z:\INGENIERIA\Alejandro de Jesus Gonzalez Hdez\BASE DE DATOS INGENIERIA\EXPERIMENTO"
+)
+
+
+def _resolve_local_folder_cad(local_folder: Optional[str]) -> str:
+    """Carpeta de trabajo absoluta; vacío → ~/Desktop/Piezas_A_Procesar."""
+    s = (local_folder or "").strip()
+    if not s:
+        return _piezas_a_procesar_desktop_dir()
+    return os.path.abspath(os.path.expanduser(s))
+
+
+def _cad_network_map_path_for(work_dir: str) -> str:
+    """Mapa basename→ruta red dentro de la carpeta de trabajo elegida."""
+    return os.path.join(os.path.abspath(work_dir), ".cad_network_map.json")
 
 
 cad_deep_telemetry_lock = threading.Lock()
@@ -673,7 +699,199 @@ def _dxf_bbox_largo_ancho_mm(dxf_path: str) -> Optional[tuple]:
         return None
 
 
-def _resolve_dxf_path_for_codigo(root_path: str, codigo: str, info_codigo: str = "") -> Optional[str]:
+def _read_2d_file_bbox_largo_ancho_mm(path_2d: str) -> Optional[tuple]:
+    """Intenta medir Largo/Ancho (mm) desde .dxf o .dwg con ezdxf (DWG binario puede fallar)."""
+    low = path_2d.lower()
+    if not low.endswith((".dxf", ".dwg")):
+        return None
+    return _dxf_bbox_largo_ancho_mm(path_2d)
+
+
+def _resolve_2d_path_in_directory(folder: str, codigo: str) -> Optional[str]:
+    """Una carpeta: JA-002.DXF / Chapa desplegada - JA-002.DXF / .dwg / .DWG y listado *.dxf/*.dwg."""
+    folder = os.path.abspath(folder)
+    if not os.path.isdir(folder):
+        return None
+    stem_norm = _normalize_chapa_stem(str(codigo))
+    if not stem_norm:
+        return None
+    pref = f"Chapa desplegada - {stem_norm}"
+    for fn in (
+        f"{stem_norm}.dxf",
+        f"{stem_norm}.DXF",
+        f"{pref}.dxf",
+        f"{pref}.DXF",
+        f"{stem_norm}.dwg",
+        f"{stem_norm}.DWG",
+        f"{pref}.dwg",
+        f"{pref}.DWG",
+    ):
+        p = os.path.join(folder, fn)
+        if os.path.isfile(p):
+            return p
+    key = stem_norm.lower()
+    try:
+        for fn in os.listdir(folder):
+            low = fn.lower()
+            if not (low.endswith(".dxf") or low.endswith(".dwg")):
+                continue
+            base = os.path.splitext(fn)[0]
+            if _normalize_chapa_stem(base).lower() == key:
+                return os.path.join(folder, fn)
+    except OSError:
+        pass
+    return None
+
+
+def _resolve_dxf_path_for_codigo(dxf_folder: str, codigo: str) -> Optional[str]:
+    """Compat: solo ``dxf_folder`` (Fase 2). Preferir ``_resolve_2d_reference_for_codigo`` con carpeta local."""
+    return _resolve_2d_path_in_directory(dxf_folder, codigo)
+
+
+def _resolve_2d_reference_for_codigo(
+    dxf_folder: str, local_folder: str, codigo: str
+) -> Optional[str]:
+    """Referencia 2D para cruce: primero ``local_folder/dxf``, luego raíz ``local_folder``."""
+    for d in (os.path.abspath(dxf_folder), os.path.abspath(local_folder)):
+        hit = _resolve_2d_path_in_directory(d, codigo)
+        if hit:
+            return hit
+    return None
+
+
+def _find_sw_exported_corregido_dxf(dxf_export_dir: str, codigo: str) -> Optional[str]:
+    """SolidWorks a veces varía mayúsculas o nombre; localiza ``{codigo}_SW_CORREGIDO*.dxf``."""
+    dxf_export_dir = os.path.abspath(dxf_export_dir)
+    stem = f"{_normalize_chapa_stem(str(codigo))}_SW_CORREGIDO"
+    p = os.path.join(dxf_export_dir, f"{stem}.dxf")
+    if os.path.isfile(p):
+        return p
+    try:
+        for fn in os.listdir(dxf_export_dir):
+            low = fn.lower()
+            if not low.endswith(".dxf"):
+                continue
+            base, _ = os.path.splitext(fn)
+            if base.upper().startswith(stem.upper()):
+                return os.path.join(dxf_export_dir, fn)
+    except OSError:
+        pass
+    return None
+
+
+# #region agent log
+def _debug_sw_export_log(hypothesis_id: str, message: str, data: dict) -> None:
+    try:
+        import time
+
+        root = Path(__file__).resolve().parents[2]
+        log_path = root / "debug-e58d72.log"
+        payload = {
+            "sessionId": "e58d72",
+            "timestamp": int(time.time() * 1000),
+            "hypothesisId": hypothesis_id,
+            "location": "cad.py:_sw_part_try_export_to_dwg2",
+            "message": message,
+            "data": data,
+        }
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+# #endregion
+
+
+def _sw_part_try_export_to_dwg2(sw_model, out_path: str, part_path: str, codigo: str) -> bool:
+    """IModelDoc2.ExportToDWG2: args 5/8/9 son VARIANT; ``None``/``[]`` provocan DISP_E_TYPEMISMATCH (índ. 8)."""
+    import pythoncom
+    from win32com.client import VARIANT as COMVARIANT
+
+    out_s, in_s = str(out_path), str(part_path)
+
+    def _run(hid: str, fn) -> bool:
+        try:
+            fn()
+            _debug_sw_export_log(hid, "export_ok", {"codigo": codigo})
+            return True
+        except Exception as e:
+            _debug_sw_export_log(
+                hid, "export_fail", {"codigo": codigo, "error": str(e)[:220]}
+            )
+            return False
+
+    if _run(
+        "H1_VT_EMPTY",
+        lambda: sw_model.ExportToDWG2(
+            out_s,
+            in_s,
+            1,
+            True,
+            COMVARIANT(pythoncom.VT_EMPTY, None),
+            False,
+            True,
+            COMVARIANT(pythoncom.VT_EMPTY, None),
+            COMVARIANT(pythoncom.VT_EMPTY, None),
+        ),
+    ):
+        return True
+
+    if _run(
+        "H2_Missing",
+        lambda: sw_model.ExportToDWG2(
+            out_s,
+            in_s,
+            1,
+            True,
+            pythoncom.Missing,
+            False,
+            True,
+            pythoncom.Missing,
+            pythoncom.Missing,
+        ),
+    ):
+        return True
+
+    if _run(
+        "H3_align0_empty89",
+        lambda: sw_model.ExportToDWG2(
+            out_s,
+            in_s,
+            1,
+            True,
+            0.0,
+            False,
+            True,
+            COMVARIANT(pythoncom.VT_EMPTY, None),
+            COMVARIANT(pythoncom.VT_EMPTY, None),
+        ),
+    ):
+        return True
+
+    if _run(
+        "H4_Extension_VT_EMPTY",
+        lambda: sw_model.Extension.ExportToDWG2(
+            out_s,
+            in_s,
+            1,
+            True,
+            COMVARIANT(pythoncom.VT_EMPTY, None),
+            False,
+            True,
+            COMVARIANT(pythoncom.VT_EMPTY, None),
+            COMVARIANT(pythoncom.VT_EMPTY, None),
+        ),
+    ):
+        return True
+
+    return False
+
+
+def _resolve_dxf_path_in_project_subdirs(
+    root_path: str, codigo: str, info_codigo: str = ""
+) -> Optional[str]:
+    """Busca ``.dxf`` bajo ``root_path/dxf`` o ``root_path/BIBLIOTECA_DXF`` (escaneo red / proyecto)."""
     for stem_try in (
         _normalize_chapa_stem(codigo),
         _normalize_chapa_stem(info_codigo),
@@ -740,15 +958,42 @@ def _pick_newest_path(paths: List[str]) -> Optional[str]:
 
 
 def _convert_dwgs_batch_to_dxf(pairs: List[tuple]) -> None:
-    """pairs: list of (ruta_dwg_abs, ruta_dxf_salida_abs). Una sesión AutoCAD."""
+    """pairs: list of (ruta_dwg_abs, ruta_dxf_salida_abs). Una sesión AutoCAD + reintento si Open colapsa."""
     if not pairs:
         return
+    import time as _time
     try:
         import win32com.client as _wc
     except Exception:
         for _, out in pairs:
             _escribir_log(f"[2D] AutoCAD no disponible; no se convirtió a {out}")
         return
+
+    def _acad_restart():
+        os.system("taskkill /F /IM acad.exe /T 2>nul")
+        _time.sleep(2)
+        a = _wc.Dispatch("AutoCAD.Application")
+        try:
+            a.Visible = False
+        except Exception:
+            pass
+        return a
+
+    def _open_dwg_retry(a, p: str):
+        try:
+            return a.Documents.Open(p), a
+        except Exception:
+            _escribir_log(f"[2D] Open DWG falló; reiniciando ACAD y reintentando: {p}")
+            try:
+                a.Quit()
+            except Exception:
+                pass
+            a = _acad_restart()
+        try:
+            return a.Documents.Open(p), a
+        except Exception:
+            return None, a
+
     acad = None
     try:
         acad = _wc.Dispatch("AutoCAD.Application")
@@ -759,7 +1004,10 @@ def _convert_dwgs_batch_to_dxf(pairs: List[tuple]) -> None:
         for dwg_abs, out_dxf in pairs:
             doc = None
             try:
-                doc = acad.Documents.Open(dwg_abs)
+                doc, acad = _open_dwg_retry(acad, dwg_abs)
+                if doc is None:
+                    _escribir_log(f"[2D] DWG→DXF FALLO (sin doc): {dwg_abs}")
+                    continue
                 doc.SaveAs(out_dxf, 37)
                 _escribir_log(f"[2D] DWG→DXF OK: {dwg_abs} → {out_dxf}")
             except Exception as ex:
@@ -945,6 +1193,26 @@ def _apply_dxf_cad_audit_cross(
     return "OK (CAD y DXF coinciden)"
 
 
+def _sw_model_has_sheet_metal(sw_model) -> bool:
+    """True si el documento tiene chapa (SheetMetal / FlatPattern) en el árbol de features."""
+    try:
+        feat = sw_model.FirstFeature()
+        while feat is not None:
+            try:
+                t = feat.GetTypeName2()
+            except Exception:
+                t = ""
+            if t in ("SheetMetal", "FlatPattern"):
+                return True
+            try:
+                feat = feat.GetNextFeature()
+            except Exception:
+                break
+    except Exception as ex:
+        _escribir_log(f"[SW] detección chapa (sheet metal): {ex!r}")
+    return False
+
+
 def _sldprt_bounding_box_dims_mm(sw_model) -> Optional[tuple]:
     """GetPartBox(True) → deltas en m (típico API), ×1000 a mm; ordena X/Y/Z de mayor a menor → largo, ancho, espesor."""
     try:
@@ -1032,39 +1300,68 @@ def _sldprt_write_custom_props_and_save(
     espesor: float,
     codigo_pieza: Optional[str] = None,
 ) -> bool:
-    """CustomPropertyManager Add3/Set + Save3 en la ruta local."""
+    """Réplica macro VBA: Add3(..., 'mm') + Set + Save3 obligatorio en el .sldprt local."""
     import pythoncom
     import win32com.client as _wc
+
+    def _fmt_mm(x: float) -> str:
+        return f"{float(x):.4f} mm"
+
     try:
         cm = sw_model.Extension.CustomPropertyManager("")
-        pairs = []
+        pairs: List[tuple] = []
         if codigo_pieza and str(codigo_pieza).strip():
             pairs.append(("CODIGO_PIEZA", str(codigo_pieza).strip()))
         pairs.extend(
             [
-                ("Largo_CAD", f"{largo:.4f}"),
-                ("Ancho_CAD", f"{ancho:.4f}"),
-                ("Espesor_Perfil_CAD", f"{espesor:.4f}"),
+                ("Largo_CAD", _fmt_mm(largo)),
+                ("Ancho_CAD", _fmt_mm(ancho)),
+                ("Espesor_Perfil_CAD", _fmt_mm(espesor)),
             ]
         )
+
         for name, val in pairs:
             try:
                 cm.Delete2(name)
             except Exception:
                 pass
             try:
-                cm.Add3(name, _SW_CUSTOM_INFO_TEXT, val)
-            except Exception:
+                cm.Add3(name, _SW_CUSTOM_INFO_TEXT, val, _SW_CUSTOM_PROP_ADD_OPTION)
+            except TypeError:
                 try:
-                    cm.Set2(name, _SW_CUSTOM_INFO_TEXT, val)
+                    cm.Add3(name, _SW_CUSTOM_INFO_TEXT, val)
                 except Exception:
                     try:
-                        cm.Set2(name, val)
+                        cm.Set2(name, _SW_CUSTOM_INFO_TEXT, val)
                     except Exception:
                         try:
                             cm.Set(name, val)
                         except Exception:
                             return False
+            except Exception:
+                try:
+                    cm.Add3(name, _SW_CUSTOM_INFO_TEXT, val)
+                except Exception:
+                    try:
+                        cm.Set2(name, _SW_CUSTOM_INFO_TEXT, val)
+                    except Exception:
+                        try:
+                            cm.Set(name, val)
+                        except Exception:
+                            return False
+            try:
+                cm.Set(name, val)
+            except Exception:
+                try:
+                    cm.Set2(name, _SW_CUSTOM_INFO_TEXT, val)
+                except Exception:
+                    pass
+
+        try:
+            sw_model.Save3(1, None, None)
+            return True
+        except Exception:
+            pass
         n_err = _wc.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
         n_warn = _wc.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
         try:
@@ -1078,6 +1375,32 @@ def _sldprt_write_custom_props_and_save(
                 return False
     except Exception:
         return False
+
+
+def _sldprt_force_cutlist_after_open(sw_model) -> None:
+    """Tras abrir la pieza: fuerza lista de cortes / chapa en memoria (propiedades envolvente)."""
+    try:
+        ext = sw_model.Extension
+        if ext is not None:
+            for _upd in ("UpdateCutList", "UpdateSheetMetalCutList"):
+                fn = getattr(ext, _upd, None)
+                if callable(fn):
+                    try:
+                        fn()
+                        break
+                    except Exception:
+                        continue
+    except Exception:
+        pass
+    try:
+        if callable(getattr(sw_model, "ForceRebuild3", None)):
+            sw_model.ForceRebuild3(False)
+        elif callable(getattr(sw_model, "ForceRebuild2", None)):
+            sw_model.ForceRebuild2(False)
+        elif callable(getattr(sw_model, "ForceRebuild", None)):
+            sw_model.ForceRebuild()
+    except Exception:
+        pass
 
 
 def _sldprt_delete_doc_cad_measure_props(sw_model) -> None:
@@ -1102,6 +1425,260 @@ def abort_cad():
     with open(flag_path, "w") as f:
         f.write("abort")
     return {"status": "aborting"}
+
+
+def _sldprt_maestro_read_post_macro(
+    sw_local,
+    abspath,
+    codigo,
+    nombre_archivo,
+    ruta_abs,
+    resurrect_fn=None,
+    dxf_largo_cmp: Optional[float] = None,
+    dxf_ancho_cmp: Optional[float] = None,
+    inyectar_propiedades: bool = False,
+    ruta_original_red: Optional[str] = None,
+    dxf_export_dir: Optional[str] = None,
+):
+    """
+    Tras ejecutar la macro VBA: abre el .sldprt en solo lectura y lee únicamente
+    Largo_CAD, Ancho_CAD y Espesor_Perfil_CAD del CustomPropertyManager del documento.
+    Cruza con DXF previo; si difiere, exporta DXF nuevo y lo mide con ezdxf.
+    """
+    import re as _re
+
+    import pythoncom
+    import win32com.client
+
+    largo_cad = 0.0
+    ancho_cad = 0.0
+    espesor_cad = 0.0
+    largo_dxf_nuevo = None
+    ancho_dxf_nuevo = None
+    observacion = ""
+    codigo = _normalize_chapa_stem(str(codigo))
+    if not ruta_abs.upper().endswith(".SLDPRT"):
+        return {
+            "codigo": _ascii_report_text(codigo),
+            "largo_cad": 0.0,
+            "ancho_cad": 0.0,
+            "espesor_cad": 0.0,
+            "observacion": _ascii_report_text("Omitido (no es .SLDPRT)"),
+            "rpc_continue": False,
+            "largo_dxf_nuevo": None,
+            "ancho_dxf_nuevo": None,
+        }
+
+    injected_copy_ok = False
+    swDocPART = 1
+    SW_OPEN_SILENT = 1
+    SW_OPEN_READONLY = 2
+    # ExportToDWG2 suele fallar con documento abierto solo lectura; auditar pasa dxf_export_dir.
+    if dxf_export_dir:
+        open_options = SW_OPEN_SILENT
+    else:
+        open_options = SW_OPEN_SILENT | SW_OPEN_READONLY
+
+    arg_errors = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+    arg_warnings = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+    swModel = None
+    try:
+        swModel = sw_local.OpenDoc6(
+            ruta_abs, swDocPART, open_options, "", arg_errors, arg_warnings,
+        )
+    except Exception as try_open_err:
+        err_str = repr(try_open_err)
+        err_code = getattr(try_open_err, "hresult", None)
+        _RPC_CODES = {-2147023170, -2147023174, -2147417848}
+        is_rpc_crash = (
+            any(str(c) in err_str for c in _RPC_CODES)
+            or (err_code is not None and err_code in _RPC_CODES)
+        )
+        if is_rpc_crash and resurrect_fn:
+            resurrect_fn()
+            return {
+                "rpc_continue": True,
+                "codigo": _ascii_report_text(codigo),
+                "largo_cad": 0.0,
+                "ancho_cad": 0.0,
+                "espesor_cad": 0.0,
+                "observacion": _ascii_report_text("ERROR RPC al abrir (solo lectura)."),
+                "largo_dxf_nuevo": None,
+                "ancho_dxf_nuevo": None,
+            }
+        _escribir_log(f"Maestro apertura SLDPRT detalle ({codigo}): {try_open_err!r}")
+        return {
+            "rpc_continue": False,
+            "codigo": _ascii_report_text(codigo),
+            "largo_cad": 0.0,
+            "ancho_cad": 0.0,
+            "espesor_cad": 0.0,
+            "observacion": _ascii_report_text(
+                "ERROR: No se pudo abrir la pieza en SolidWorks."
+            ),
+            "largo_dxf_nuevo": None,
+            "ancho_dxf_nuevo": None,
+        }
+
+    if swModel is None:
+        return {
+            "rpc_continue": False,
+            "codigo": _ascii_report_text(codigo),
+            "largo_cad": 0.0,
+            "ancho_cad": 0.0,
+            "espesor_cad": 0.0,
+            "observacion": _ascii_report_text("No se pudo abrir el documento."),
+            "largo_dxf_nuevo": None,
+            "ancho_dxf_nuevo": None,
+        }
+
+    try:
+        prop_mgr = swModel.Extension.CustomPropertyManager("")
+
+        def _parse_dim(prop_name: str) -> float:
+            raw = _icm_get_property_raw(prop_mgr, prop_name)
+            if raw is None:
+                return 0.0
+            s = str(raw).strip()
+            if not s or s in ("-", "0"):
+                return 0.0
+            try:
+                num = _re.sub(r"[^\d.\-]", "", s.lower().replace("mm", "").replace(",", "."))
+                return float(num) if num and num != "." else 0.0
+            except (ValueError, TypeError):
+                return 0.0
+
+        largo_cad = _parse_dim("Largo_CAD")
+        ancho_cad = _parse_dim("Ancho_CAD")
+        espesor_cad = _parse_dim("Espesor_Perfil_CAD")
+
+        if largo_cad > 0 and ancho_cad > 0:
+            largo_cad, ancho_cad = max(largo_cad, ancho_cad), min(largo_cad, ancho_cad)
+
+        observacion = "OK (Propiedades macro VBA)"
+        if largo_cad == 0 or ancho_cad == 0:
+            observacion = "ERROR: Largo_CAD/Ancho_CAD vacíos tras macro"
+
+        observacion = _apply_dxf_cad_audit_cross(
+            observacion, largo_cad, ancho_cad, dxf_largo_cmp, dxf_ancho_cmp
+        )
+
+        is_sheet_metal = _sw_model_has_sheet_metal(swModel)
+        has_old_dxf = dxf_largo_cmp is not None and dxf_ancho_cmp is not None
+        delta_largo = abs(float(largo_cad) - float(dxf_largo_cmp or 0.0))
+        delta_ancho = abs(float(ancho_cad) - float(dxf_ancho_cmp or 0.0))
+        needs_cad_vs_dxf_fix = has_old_dxf and (
+            delta_largo > _DXF_CAD_AUDIT_TOL_MM
+            or delta_ancho > _DXF_CAD_AUDIT_TOL_MM
+        )
+        # Export DXF nuevo solo: chapa que necesita corrección/ref. 2D, o sólido/perfil que
+        # ya tenía DXF y difiere (no exportar desplegado para sólido sin DXF previo).
+        sheet_metal_needs_export = (
+            is_sheet_metal
+            and largo_cad > 0
+            and ancho_cad > 0
+            and (
+                not has_old_dxf
+                or delta_largo > _DXF_CAD_AUDIT_TOL_MM
+                or delta_ancho > _DXF_CAD_AUDIT_TOL_MM
+            )
+        )
+        need_export = largo_cad > 0 and ancho_cad > 0 and (
+            needs_cad_vs_dxf_fix or sheet_metal_needs_export
+        )
+
+        if (
+            not is_sheet_metal
+            and not has_old_dxf
+            and largo_cad > 0
+            and ancho_cad > 0
+            and not str(observacion).upper().startswith("ERROR")
+        ):
+            observacion = "OK (Sólido/Perfil - Bounding Box)"
+
+        # Auto-corrección DXF (columnas K/L): solo si need_export
+        if need_export and dxf_export_dir:
+            os.makedirs(dxf_export_dir, exist_ok=True)
+            ruta_dxf_nuevo = os.path.join(dxf_export_dir, f"{codigo}_SW_CORREGIDO.dxf")
+            try:
+                try:
+                    sw_local.Visible = True
+                except Exception:
+                    pass
+                _export_ok = _sw_part_try_export_to_dwg2(
+                    swModel, ruta_dxf_nuevo, ruta_abs, codigo
+                )
+                if not _export_ok:
+                    _escribir_log(
+                        f"Fallo crítico ExportToDWG2 (todas las variantes COM) para {codigo}"
+                    )
+                if _export_ok:
+                    ruta_medir = _find_sw_exported_corregido_dxf(dxf_export_dir, codigo)
+                    if not ruta_medir and os.path.isfile(ruta_dxf_nuevo):
+                        ruta_medir = ruta_dxf_nuevo
+                    if ruta_medir and os.path.isfile(ruta_medir):
+                        bbox_nuevo = _dxf_bbox_largo_ancho_mm(ruta_medir)
+                        if bbox_nuevo:
+                            largo_dxf_nuevo = float(bbox_nuevo[0])
+                            ancho_dxf_nuevo = float(bbox_nuevo[1])
+                            observacion = f"{observacion} | DXF exportado y medido"
+                        else:
+                            _escribir_log(
+                                f"DXF nuevo creado pero sin bbox ezdxf: {ruta_medir!r} ({codigo})"
+                            )
+                    else:
+                        _escribir_log(
+                            f"ExportToDWG2 no dejó archivo esperado para {codigo}: "
+                            f"probado {ruta_dxf_nuevo!r}"
+                        )
+            except Exception as ex_dwg:
+                _escribir_log(f"Error exportando DXF nuevo para {codigo}: {ex_dwg}")
+
+        if (
+            inyectar_propiedades
+            and ruta_original_red
+            and os.path.isfile(ruta_original_red)
+            and largo_cad > 0
+            and ancho_cad > 0
+        ):
+            try:
+                shutil.copy2(ruta_abs, ruta_original_red)
+                injected_copy_ok = True
+            except Exception as copy_err:
+                _escribir_log(f"Red copia fallida ({codigo}): {copy_err!r}")
+                observacion = f"{observacion} | Red: copia fallida"
+    finally:
+        try:
+            doc_title = None
+            if swModel is not None:
+                try:
+                    swModel.SetSaveFlag(False)
+                except Exception:
+                    pass
+                doc_title = swModel.GetTitle()
+            if doc_title:
+                try:
+                    sw_local.CloseDoc(doc_title)
+                except Exception:
+                    try:
+                        sw_local.QuitDoc(doc_title)
+                    except Exception:
+                        pass
+        except Exception as ex_fin:
+            _escribir_log(f"Maestro cierre documento ({codigo}): {ex_fin!r}")
+
+    return {
+        "rpc_continue": False,
+        "codigo": _ascii_report_text(codigo),
+        "largo_cad": largo_cad,
+        "ancho_cad": ancho_cad,
+        "espesor_cad": espesor_cad,
+        "observacion": _ascii_report_text(observacion),
+        "largo_dxf_nuevo": largo_dxf_nuevo,
+        "ancho_dxf_nuevo": ancho_dxf_nuevo,
+        "injected_copy_ok": injected_copy_ok,
+    }
+
 
 def _sldprt_extract_one(
     sw_local,
@@ -1148,12 +1725,8 @@ def _sldprt_extract_one(
     SW_OPEN_SILENT = 1
     SW_OPEN_READONLY = 2
     
-    es_posible_chapa = "chapa" in codigo.lower() or "chapa" in nombre_archivo.lower()
-    
-    if inyectar_propiedades or es_posible_chapa:
-        open_options = SW_OPEN_SILENT
-    else:
-        open_options = SW_OPEN_SILENT | SW_OPEN_READONLY
+    # Siempre editable: tras medir se inyectan propiedades y Save3 (réplica VBA).
+    open_options = SW_OPEN_SILENT
 
     arg_errors = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
     arg_warnings = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
@@ -1185,7 +1758,8 @@ def _sldprt_extract_one(
                     "Primero actualiza/guarda la pieza manualmente en esta version."
                 ),
             }
-        observacion = f"Error apertura: {str(try_open_err)[:60]}"
+        _escribir_log(f"Extract apertura detalle ({codigo}): {try_open_err!r}")
+        observacion = "ERROR: No se pudo abrir la pieza en SolidWorks."
         swModel = None
 
     if swModel is None:
@@ -1198,104 +1772,132 @@ def _sldprt_extract_one(
     else:
         scan_status["warning_message"] = ""
         try:
-            _sldprt_delete_doc_cad_measure_props(swModel)
-            prop_mgr = swModel.Extension.CustomPropertyManager("")
-
-            def safe_get_prop(prop_val):
-                if not prop_val:
-                    return ""
-                if isinstance(prop_val, str):
-                    return _clean_com_text(prop_val)
-                if isinstance(prop_val, (tuple, list)):
-                    if len(prop_val) > 1 and prop_val[1]:
-                        return _clean_com_text(str(prop_val[1]))
-                    if len(prop_val) > 0 and prop_val[0]:
-                        return _clean_com_text(str(prop_val[0]))
-                return _clean_com_text(str(prop_val))
-
-            codigo_val = safe_get_prop(prop_mgr.Get("CODIGO_PIEZA")).strip()
-            if codigo_val:
-                codigo = _normalize_chapa_stem(codigo_val)
-
-            largo_val = safe_get_prop(prop_mgr.Get("Largo_CAD"))
-            ancho_val = safe_get_prop(prop_mgr.Get("Ancho_CAD"))
-            espesor_val = safe_get_prop(prop_mgr.Get("Espesor_Perfil_CAD"))
-
-            if largo_val and ancho_val:
-                try:
-                    l_str = _re.sub(r"[^\d.]", "", str(largo_val).lower().replace("mm", "").strip().replace(",", "."))
-                    a_str = _re.sub(r"[^\d.]", "", str(ancho_val).lower().replace("mm", "").strip().replace(",", "."))
-                    largo = float(l_str) if l_str and l_str != "." else 0.0
-                    ancho = float(a_str) if a_str and a_str != "." else 0.0
-                    largo_cad = max(largo, ancho)
-                    ancho_cad = min(largo, ancho)
-                    espesor_cad = 0.0
-                    if espesor_val:
-                        e_str = _re.sub(r"[^\d.]", "", str(espesor_val).lower().replace("mm", "").strip().replace(",", "."))
-                        espesor_cad = float(e_str) if e_str and e_str != "." else 0.0
-                    observacion = "OK" if largo_cad > 0 and ancho_cad > 0 else "No detectado (valores incompletos)"
-                except ValueError as ve:
-                    observacion = f"Error metrico: {ve}"
-            else:
-                observacion = "No detectado (faltan propiedades)"
-
-            is_chapa = _sldprt_sheet_metal_feature_present(swModel)
-            if is_chapa:
-                # Plan A — CutListFolder + CM (nativo VBA, sin SetSuppress2)
-                cl_dims = _sldprt_cutlist_envelope_dims_mm(swModel, codigo)
-                if cl_dims and float(cl_dims[0]) > 0 and float(cl_dims[1]) > 0:
-                    largo_cad = float(cl_dims[0])
-                    ancho_cad = float(cl_dims[1])
-                    if len(cl_dims) > 2 and float(cl_dims[2]) > 0 and espesor_cad <= 0:
-                        espesor_cad = float(cl_dims[2])
-                    observacion = "OK (CutList Nativa)"
-                else:
-                    # Plan B — solo lectura doblado (GetPartBox)
-                    bb_fold = _sldprt_bounding_box_dims_mm(swModel)
-                    if bb_fold and float(bb_fold[0]) > 0 and float(bb_fold[1]) > 0:
-                        largo_cad = float(bb_fold[0])
-                        ancho_cad = float(bb_fold[1])
-                        if len(bb_fold) > 2 and espesor_cad <= 0:
-                            espesor_cad = float(bb_fold[2])
-                        observacion = "⚠️ ALERTA: Medida de pieza doblada"
-                    else:
-                        largo_cad = 0.0
-                        ancho_cad = 0.0
-                        observacion = "ERROR: Chapa sin medidas (CutList ni caja doblada)."
-            elif largo_cad == 0 or ancho_cad == 0:
-                bb_dims = _sldprt_bounding_box_dims_mm(swModel)
-                if bb_dims:
-                    largo_cad, ancho_cad, espesor_cad = bb_dims
-                    observacion = "OK (Bounding Box)"
-
-            if largo_cad > 0 and ancho_cad > 0 and observacion.startswith("No detectado"):
-                observacion = "OK"
-
-            observacion = _apply_dxf_cad_audit_cross(
-                observacion, largo_cad, ancho_cad, dxf_largo_cmp, dxf_ancho_cmp
+            # PASO 1: DXF/DWG antiguo (ya buscado fuera). Registrar medidas de referencia.
+            _escribir_log(
+                f"Paso 1 completado: DXF previo={dxf_largo_cmp}x{dxf_ancho_cmp}"
             )
 
-            _escribir_log(f"✅ {codigo}: L={largo_cad} A={ancho_cad} E={espesor_cad}")
+            # PASO 2: SolidWorks ya abrió en escritura (OpenDoc6 con options=1).
+            _escribir_log("Paso 2 completado: pieza abierta en modo escritura.")
 
-            if is_chapa and "ALERTA" in observacion:
+            # PASO 3: Réplica VBA a prueba de fallos (CM global; sin CutListFolder recursivo).
+            largo_cad, ancho_cad, espesor_cad = 0.0, 0.0, 0.0
+            is_sheet_metal = False
+            observacion = ""
+
+            def _parse_mm_prop(val) -> Optional[float]:
+                if val is None:
+                    return None
+                s = str(val).strip()
+                if not s or s == "0":
+                    return None
+                try:
+                    return float(s.replace(",", ".").split()[0])
+                except (ValueError, IndexError):
+                    return None
+
+            def _global_prop_get(prop_mgr, name: str):
+                """VBA Get(n); en Python COM usar lectura segura si Get falla."""
+                try:
+                    v = prop_mgr.Get(name)
+                    if v is not None and str(v).strip() not in ("", "0"):
+                        return v
+                except Exception:
+                    pass
+                return _icm_get_property_raw(prop_mgr, name)
+
+            try:
+                # 1. Determinar si es chapa (recorrido rápido)
+                feat = swModel.FirstFeature()
+                while feat is not None:
+                    try:
+                        if feat.GetTypeName2() in ("SheetMetal", "FlatPattern"):
+                            is_sheet_metal = True
+                            break
+                    except Exception:
+                        pass
+                    try:
+                        feat = feat.GetNextFeature()
+                    except Exception:
+                        break
+
+                # 2. Propiedades GLOBALES del documento (CutList propagada en SW reciente)
+                try:
+                    prop_mgr = swModel.Extension.CustomPropertyManager("")
+                    nombres_largo = ["Largo del envolvente", "Bounding Box Length"]
+                    nombres_ancho = ["Ancho del envolvente", "Bounding Box Width"]
+
+                    for n in nombres_largo:
+                        val = _global_prop_get(prop_mgr, n)
+                        if val is not None and str(val).strip() not in ("", "0"):
+                            parsed = _parse_mm_prop(val)
+                            if parsed is not None and parsed > 0:
+                                largo_cad = float(parsed)
+                                break
+                    for n in nombres_ancho:
+                        val = _global_prop_get(prop_mgr, n)
+                        if val is not None and str(val).strip() not in ("", "0"):
+                            parsed = _parse_mm_prop(val)
+                            if parsed is not None and parsed > 0:
+                                ancho_cad = float(parsed)
+                                break
+                except Exception as e:
+                    _escribir_log(f"Error leyendo propMgr global: {e}")
+
+                # 3. Fallback a GetPartBox
+                observacion = "OK (Propiedades Nativas)"
+                if largo_cad == 0 or ancho_cad == 0:
+                    try:
+                        box = swModel.GetPartBox(True)
+                        if box and len(box) >= 6:
+                            dx = abs(box[3] - box[0]) * 1000
+                            dy = abs(box[4] - box[1]) * 1000
+                            dz = abs(box[5] - box[2]) * 1000
+                            dims = sorted([dx, dy, dz], reverse=True)
+                            largo_cad = float(dims[0])
+                            ancho_cad = float(dims[1])
+                            espesor_cad = float(dims[2])
+                            observacion = "⚠️ ALERTA: Medida de pieza doblada"
+                    except Exception as e_box:
+                        _escribir_log(f"Error GetPartBox fallback: {e_box}")
+                        if not observacion:
+                            observacion = "ERROR: sin medidas (propiedades ni caja)"
+
+                _escribir_log(
+                    f"Paso 3 completado: CAD midió {largo_cad}x{ancho_cad} (sheet_metal={is_sheet_metal})"
+                )
+            except Exception as main_err:
+                _escribir_log(f"Error critico en Paso 3: {main_err}")
+                if not observacion:
+                    _escribir_log(f"Paso 3 excepción ({codigo}): {main_err!r}")
+                    observacion = "ERROR: Paso 3 (lectura de medidas) sin completar."
+
+            # PASO 4: Inyectar propiedades CAD en documento.
+            try:
+                cm_doc = swModel.Extension.CustomPropertyManager("")
+                cm_doc.Set("Largo_CAD", f"{float(largo_cad):.4f} mm")
+                cm_doc.Set("Ancho_CAD", f"{float(ancho_cad):.4f} mm")
+                cm_doc.Set("Espesor_Perfil_CAD", f"{float(espesor_cad):.4f} mm")
+                _escribir_log("Paso 4 completado: propiedades CAD inyectadas.")
+            except Exception as _inj_err:
+                _escribir_log(f"Paso 4 advertencia: inyeccion parcial ({_inj_err})")
+
+            # PASO 5: Comparacion vs DXF antiguo y exportacion de DXF nuevo si aplica.
+            _sin_dxf_prev = dxf_largo_cmp is None or dxf_ancho_cmp is None
+            _delta_largo = abs(float(largo_cad or 0.0) - float(dxf_largo_cmp or 0.0))
+            if (_sin_dxf_prev or _delta_largo > 1.0) and largo_cad > 0 and ancho_cad > 0:
                 try:
                     dxf_folder = os.path.join(_piezas_a_procesar_desktop_dir(), "dxf")
                     os.makedirs(dxf_folder, exist_ok=True)
-                    ruta_dxf_nuevo = os.path.join(
-                        dxf_folder, f"{codigo}_SW_CORREGIDO.dxf"
+                    ruta_dxf_nuevo = os.path.join(dxf_folder, f"{codigo}_SW_CORREGIDO.dxf")
+                    _export_ok_p5 = _sw_part_try_export_to_dwg2(
+                        swModel, ruta_dxf_nuevo, ruta_abs, codigo
                     )
-
-                    if swModel is not None:
-                        try:
-                            sw_local.Visible = True
-                            swModel.Extension.ExportToDWG2(
-                                ruta_dxf_nuevo, ruta_abs, 1, True, None,
-                                False, False, 1, None,
-                            )
-                        except Exception as _ex_dwg:
-                            _escribir_log(f"ExportToDWG2 {codigo}: {_ex_dwg!r}")
-
-                    if os.path.exists(ruta_dxf_nuevo):
+                    if not _export_ok_p5:
+                        _escribir_log(
+                            f"Fallo crítico ExportToDWG2 extract PASO 5 (todas variantes) para {codigo}"
+                        )
+                    if _export_ok_p5 and os.path.exists(ruta_dxf_nuevo):
                         _d = ezdxf.readfile(ruta_dxf_nuevo)
                         _ext_dxf = ezdxf_bbox.extents(_d.modelspace())
                         if _ext_dxf.has_data:
@@ -1303,24 +1905,25 @@ def _sldprt_extract_one(
                             _dy = _ext_dxf.extmax.y - _ext_dxf.extmin.y
                             largo_dxf_nuevo = float(max(_dx, _dy))
                             ancho_dxf_nuevo = float(min(_dx, _dy))
-                            observacion += (
-                                f" | DXF Auto-Corregido: {largo_dxf_nuevo:.1f}x{ancho_dxf_nuevo:.1f}"
-                            )
+                            print(f"DXF Nuevo medido: {largo_dxf_nuevo}x{ancho_dxf_nuevo}")
                 except Exception as export_err:
-                    _escribir_log(f"Error auto-exportando FlatPattern: {export_err}")
+                    _escribir_log(f"Paso 5 advertencia: export/medicion DXF nuevo fallo ({export_err})")
+            _escribir_log("Paso 5 completado: DXF nuevo generado y medido.")
 
-            if (
-                inyectar_propiedades
-                and ruta_original_red
-                and largo_cad > 0
-                and ancho_cad > 0
-                and os.path.isfile(ruta_original_red)
-            ):
-                injected_and_saved = _sldprt_write_custom_props_and_save(
-                    swModel, ruta_abs, largo_cad, ancho_cad, espesor_cad, codigo_pieza=codigo
-                )
+            # PASO 6: Guardar fisicamente y cerrar (cierre en finally).
+            try:
+                swModel.Save2(True)
+                injected_and_saved = True
+                _escribir_log("Paso 6 completado: pieza guardada fisicamente.")
+            except Exception as save_err:
+                _escribir_log(f"Paso 6 advertencia: Save2 fallo ({save_err})")
+
+            observacion = _apply_dxf_cad_audit_cross(
+                observacion, largo_cad, ancho_cad, dxf_largo_cmp, dxf_ancho_cmp
+            )
         except Exception as math_err:
-            observacion = f"Error matematico: {str(math_err)[:50]}"
+            _escribir_log(f"Error matemático extracción ({codigo}): {math_err!r}")
+            observacion = "ERROR: Procesamiento interrumpido."
         finally:
             try:
                 doc_title = None
@@ -1347,11 +1950,17 @@ def _sldprt_extract_one(
             except Exception:
                 pass
 
-    if injected_and_saved and ruta_original_red:
+    if (
+        injected_and_saved
+        and inyectar_propiedades
+        and ruta_original_red
+        and os.path.isfile(ruta_original_red)
+    ):
         try:
             shutil.copy2(ruta_abs, ruta_original_red)
         except Exception as copy_err:
-            observacion = f"{observacion} | Red: copia fallida ({str(copy_err)[:60]})"
+            _escribir_log(f"Red copia fallida extract ({codigo}): {copy_err!r}")
+            observacion = f"{observacion} | Red: copia fallida"
 
     resultados = {
         "rpc_continue": False,
@@ -1360,10 +1969,9 @@ def _sldprt_extract_one(
         "ancho_cad": ancho_cad,
         "espesor_cad": espesor_cad,
         "observacion": _ascii_report_text(observacion),
+        "largo_dxf_nuevo": largo_dxf_nuevo,
+        "ancho_dxf_nuevo": ancho_dxf_nuevo,
     }
-    # Excel: columnas Largo_DXF_Nuevo / Ancho_DXF_Nuevo (desde ExportToDWG2 + ezdxf)
-    resultados["largo_dxf_nuevo"] = largo_dxf_nuevo
-    resultados["ancho_dxf_nuevo"] = ancho_dxf_nuevo
     return resultados
 
 
@@ -1704,7 +2312,7 @@ def bg_scan_cad_task(root_path: str, solo_faltantes: bool = False):
                     else:
                         ruta_abs = os.path.abspath(abspath)
                         piece_box = {}
-                        _dxf_p_audit = _resolve_dxf_path_for_codigo(
+                        _dxf_p_audit = _resolve_dxf_path_in_project_subdirs(
                             root_path, codigo, info["codigo"]
                         )
                         _dl_cmp: Optional[float] = None
@@ -1784,8 +2392,10 @@ def bg_scan_cad_task(root_path: str, solo_faltantes: bool = False):
 
             except Exception as extract_err:
                 import traceback
+
                 if not observacion:
-                    observacion = f"Error: {str(extract_err)[:50]}"
+                    _escribir_log(f"Extract pieza excepción ({codigo}): {extract_err!r}")
+                    observacion = "ERROR: Fallo al extraer datos CAD."
                 print(f"âŒ Error leyendo {abspath}: {str(extract_err)}")
                 traceback.print_exc()
 
@@ -1930,44 +2540,23 @@ def start_cad_scan(payload: ScanCADPayload, background_tasks: BackgroundTasks):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PIPELINE MAESTRO "TODO EN UNO"  (Paso 0 Recolección + Paso 2 DXF + Paso 3 CAD)
+# PIPELINE HÍBRIDO: /api/cad/preparar (Fase 1) + macro manual + /api/cad/auditar (Fase 2)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class MaestroCADPayload(BaseModel):
-    """Payload para el endpoint /api/cad/maestro."""
-    source_folder: str          # Carpeta de red / origen (Paso 0)
-    solo_faltantes: bool = False
-    inyectar_propiedades: bool = False
-
-try:
-    from pydantic import BaseModel
-except ImportError:
-    pass  # ya importado vía models.*
-
-
-def bg_maestro_task(
+def bg_preparar_task(
     source_folder: str,
+    local_folder: str,
     solo_faltantes: bool = False,
-    inyectar_propiedades: bool = False,
 ) -> None:
-    """Pipeline maestro asíncrono:
-    Paso 0 – Copia archivos CAD desde la red hacia ~/Desktop/Piezas_A_Procesar/ (local).
-    Paso 2 – Convierte DWG → DXF vía convertir_dwg.py.
-    Paso 3 – Extrae metadata CAD con SolidWorks y genera Excel.
-
-    Regla de Oro: el bloque finally SIEMPRE exporta el Excel acumulado hasta
-    ese momento, incluso ante cancelación manual o crash crítico.
-    """
+    """Fase 1 (híbrido): BD + copia red→local, mapa JSON, convertir_dwg.py. Sin RunMacro2."""
     import datetime as _dt
-    import time as _time
 
     global scan_status, abortar_escaneo_cad, cad_execution_logs, cad_procesar_status
 
-    # ── Estado inicial ────────────────────────────────────────────────────────
     cad_execution_logs.clear()
     _cad_telemetry_clear()
     cad_procesar_status = "processing"
-    scan_status["status"] = "scanning"
+    scan_status["status"] = "collecting"
     scan_status["progress"] = 0
     scan_status["total"] = 0
     scan_status["excel_path"] = ""
@@ -1984,33 +2573,22 @@ def bg_maestro_task(
         cad_execution_logs.append(entry)
         scan_status["current_file"] = msg[:120]
 
-    # ── Carpeta local de trabajo (escritorio) + subcarpeta dxf (DXF solo local) ─
-    local_work_dir = _piezas_a_procesar_desktop_dir()
-    os.makedirs(local_work_dir, exist_ok=True)
-    dxf_local_dir = os.path.join(local_work_dir, "dxf")
-    os.makedirs(dxf_local_dir, exist_ok=True)
-    _log(f"📁 Carpeta de trabajo local: {local_work_dir}")
-    _log(f"📁 DXF (Paso 2): {dxf_local_dir}")
-
-    # Variables de datos acumulados (para el finally)
-    data_acumulada: list = []
+    source_folder = os.path.abspath(os.path.expanduser(source_folder.strip()))
+    local_folder = os.path.abspath(os.path.expanduser(local_folder.strip()))
+    os.makedirs(local_folder, exist_ok=True)
+    _log(f"📁 local_folder (destino): {local_folder}")
+    _log(f"📡 source_folder (origen red): {source_folder}")
 
     _EXCLUDED_DIRS_MAESTRO = {
         "dxf_convertidos", "exportados", "biblioteca_dxf",
         "cad_pendientes", "reportes", "__pycache__", ".git",
         "node_modules", "venv", ".venv", "dist", "build",
-        "piezas_a_procesar",  # evitar bucle en la carpeta local
+        "piezas_a_procesar",
     }
 
-    try:
-        pythoncom.CoInitialize()
-    except Exception:
-        pass
+    network_by_local_basename: Dict[str, str] = {}
 
     try:
-        # ════════════════════════════════════════════════════════════════
-        # PASO 0 – Recolección desde red → local
-        # ════════════════════════════════════════════════════════════════
         _log("🔎 PASO 0: Consultando BD para obtener lista de piezas a procesar (sin comerciales)...")
 
         piezas_objetivo: set = set()
@@ -2043,15 +2621,11 @@ def bg_maestro_task(
         except Exception as ex_q:
             _log(f"⚠️ Error consultando BD en Paso 0: {ex_q}. Se procesará todo lo encontrado.")
 
-        # Copiar archivos desde la red
         _log(f"📡 Buscando archivos CAD en la red: {source_folder}")
-        scan_status["status"] = "collecting"
         scan_status["current_file"] = "Paso 0: Copiando archivos desde la red..."
 
         copiados = 0
-        omitidos = 0
         cad_candidatos: list = []
-        network_by_local_basename: Dict[str, str] = {}
         for root_dir, dirs, files in os.walk(source_folder):
             dirs[:] = [
                 d for d in dirs
@@ -2087,12 +2661,10 @@ def bg_maestro_task(
             scan_status["current_item"] = idx
             scan_status["progress"] = idx
 
-            # Si tenemos lista de objetivos, filtrar
             if piezas_objetivo and base_norm not in piezas_objetivo:
-                omitidos += 1
                 continue
 
-            dest = os.path.join(local_work_dir, os.path.basename(full_path))
+            dest = os.path.join(local_folder, os.path.basename(full_path))
             network_by_local_basename[os.path.basename(full_path).upper()] = full_path
             if not os.path.exists(dest):
                 try:
@@ -2103,80 +2675,196 @@ def bg_maestro_task(
                 except OSError as cp_err:
                     _log(f"⚠️ No se pudo copiar {os.path.basename(full_path)}: {cp_err}")
             else:
-                copiados += 1  # ya estaba; cuenta como disponible
+                copiados += 1
 
-        _log(f"✅ PASO 0 completado: {copiados} archivos disponibles en carpeta local.")
-        if inyectar_propiedades:
-            _log("📌 Inyección de propiedades activada: tras medir, se guardará .sldprt local y se copiará a la red.")
+        _log(f"✅ Copia desde red: {copiados} archivos disponibles en carpeta local.")
 
         if abortar_escaneo_cad:
+            try:
+                _mp = _cad_network_map_path_for(local_folder)
+                with open(_mp, "w", encoding="utf-8") as f:
+                    json.dump(network_by_local_basename, f, ensure_ascii=False, indent=0)
+                _log(f"💾 Mapa parcial guardado: {_mp}")
+            except Exception as ex_w:
+                _log(f"⚠️ No se pudo guardar mapa: {ex_w}")
             scan_status["status"] = "cancelled"
-            _log("🛑 Pipeline cancelado tras Paso 0.")
-            return
-
-        _log("📐 Búsqueda universal 2D en red → dxf/{CODIGO}.dxf (DWG/DXF, con/sin 'Chapa desplegada - ')...")
-        try:
-            _materialize_universal_2d_for_pipeline(
-                source_folder, local_work_dir, dxf_local_dir, piezas_objetivo,
-            )
-        except Exception as ex_2d:
-            _log(f"⚠️ Materialización 2D universal: {ex_2d}")
-
-        # ════════════════════════════════════════════════════════════════
-        # PASO 2 – Conversión DWG → DXF (usa convertir_dwg.py)
-        # ════════════════════════════════════════════════════════════════
-        _log("🔄 PASO 2: Convirtiendo archivos DWG a DXF...")
-        scan_status["status"] = "scanning"
-        scan_status["current_file"] = "Paso 2: Convirtiendo DWG → DXF..."
-        cad_procesar_status = "processing"
-
-        script_dwg = os.path.join(_BACKEND_ROOT, "tools", "convertir_dwg.py")
-        if not os.path.exists(script_dwg):
-            _log(f"⚠️ Script DWG no encontrado en {script_dwg}. Paso 2 omitido.")
+            cad_procesar_status = "completed"
+            _log("🛑 Preparar cancelado.")
         else:
             try:
-                cmd_dwg = [sys.executable, script_dwg, local_work_dir]
-                if solo_faltantes:
-                    cmd_dwg.append("--solo-faltantes")
-                proc_dwg = subprocess.Popen(
-                    cmd_dwg,
-                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                    text=True, encoding="cp1252", errors="replace",
+                _mp = _cad_network_map_path_for(local_folder)
+                with open(_mp, "w", encoding="utf-8") as f:
+                    json.dump(network_by_local_basename, f, ensure_ascii=False, indent=0)
+                _log(f"💾 Mapa red→local: {_mp}")
+            except Exception as ex_w:
+                _log(f"⚠️ No se pudo guardar mapa: {ex_w}")
+
+            _log("🔄 convertir_dwg.py (DWG → DXF) en carpeta local...")
+            scan_status["current_file"] = "convertir_dwg.py..."
+            script_dwg = os.path.join(_BACKEND_ROOT, "tools", "convertir_dwg.py")
+            if not os.path.exists(script_dwg):
+                _log(f"⚠️ Script DWG no encontrado: {script_dwg}")
+            else:
+                try:
+                    cmd_dwg = [sys.executable, script_dwg, local_folder]
+                    if solo_faltantes:
+                        cmd_dwg.append("--solo-faltantes")
+                    proc_dwg = subprocess.Popen(
+                        cmd_dwg,
+                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                        text=True, encoding="cp1252", errors="replace",
+                    )
+                    for line in iter(proc_dwg.stdout.readline, ''):
+                        if abortar_escaneo_cad:
+                            proc_dwg.terminate()
+                            break
+                        stripped = line.strip()
+                        if stripped:
+                            _log(f"  [DWG] {stripped}")
+                    proc_dwg.stdout.close()
+                    proc_dwg.wait()
+                    _log(f"   → convertir_dwg.py terminó (código {proc_dwg.returncode}).")
+                except Exception as dwg_err:
+                    _log(f"⚠️ Error en conversión DWG: {dwg_err}")
+
+            scan_status["status"] = "completed"
+            cad_procesar_status = "completed"
+            _log("✅ Fase 1 (preparar) completada. Ejecute la macro VBA manualmente en SolidWorks y luego Fase 2.")
+
+    except Exception as pipeline_err:
+        _log(f"❌ Error en preparar: {pipeline_err}")
+        scan_status["status"] = "error"
+        scan_status["error"] = str(pipeline_err)
+        cad_procesar_status = "completed"
+
+
+def bg_auditar_task(
+    local_folder: str,
+    solo_faltantes: bool = False,
+    inyectar_propiedades: bool = False,
+    actor_user: str = "Sistema",
+) -> None:
+    """Fase 2 (híbrido): sin RunMacro2 ni convertir_dwg aquí; SW lectura + DXF + Excel + SQL.
+
+    Tras Fase 1 (preparar) el usuario ejecuta la macro VBA manualmente, luego este endpoint.
+
+    Regla de Oro: el bloque finally SIEMPRE exporta el Excel acumulado hasta
+    ese momento, incluso ante cancelación manual o crash crítico.
+    """
+    import datetime as _dt
+    import time as _time
+
+    global scan_status, abortar_escaneo_cad, cad_execution_logs, cad_procesar_status
+
+    # ── Estado inicial ────────────────────────────────────────────────────────
+    cad_execution_logs.clear()
+    _cad_telemetry_clear()
+    cad_procesar_status = "processing"
+    scan_status["status"] = "scanning"
+    scan_status["progress"] = 0
+    scan_status["total"] = 0
+    scan_status["excel_path"] = ""
+    scan_status["error"] = ""
+    scan_status["warning_message"] = ""
+    scan_status["current_file"] = ""
+    scan_status["current_item"] = 0
+    scan_status["total_items"] = 0
+
+    def _log(msg: str) -> None:
+        ts = _dt.datetime.now().strftime("%H:%M:%S")
+        entry = f"[{ts}] {msg}"
+        print(entry)
+        cad_execution_logs.append(entry)
+        scan_status["current_file"] = msg[:120]
+
+    # ── Carpeta local de trabajo (desde payload) + subcarpeta dxf ─
+    local_folder = os.path.abspath(os.path.expanduser(local_folder.strip()))
+    os.makedirs(local_folder, exist_ok=True)
+    dxf_folder = os.path.join(local_folder, "dxf")
+    os.makedirs(dxf_folder, exist_ok=True)
+    _log(f"📁 local_folder: {local_folder}")
+    _log(f"📁 dxf_folder (DXF antiguo y export): {dxf_folder}")
+
+    # Variables de datos acumulados (para el finally)
+    data_acumulada: list = []
+
+    _EXCLUDED_DIRS_MAESTRO = {
+        "dxf_convertidos", "exportados", "biblioteca_dxf",
+        "cad_pendientes", "reportes", "__pycache__", ".git",
+        "node_modules", "venv", ".venv", "dist", "build",
+        "piezas_a_procesar",  # evitar bucle en la carpeta local
+    }
+
+    try:
+        pythoncom.CoInitialize()
+    except Exception:
+        pass
+
+    try:
+        # ════════════════════════════════════════════════════════════════
+        # PASO 1 (maestro): solo disco local — sin BD, sin os.walk en red
+        # ════════════════════════════════════════════════════════════════
+        _log(
+            "🚀 bg_auditar_task: carpeta local (sin BD/red); "
+            f"trabajo en: {local_folder}"
+        )
+
+        network_by_local_basename: Dict[str, str] = {}
+        _map_path = _cad_network_map_path_for(local_folder)
+        if os.path.isfile(_map_path):
+            try:
+                with open(_map_path, "r", encoding="utf-8") as f:
+                    network_by_local_basename = json.load(f)
+                _log(
+                    f"📋 Mapa red→local cargado ({len(network_by_local_basename)} entradas) "
+                    "para inyección opcional al archivo en red."
                 )
-                for line in iter(proc_dwg.stdout.readline, ''):
-                    if abortar_escaneo_cad:
-                        proc_dwg.terminate()
-                        break
-                    stripped = line.strip()
-                    if stripped:
-                        _log(f"  [DWG] {stripped}")
-                proc_dwg.stdout.close()
-                proc_dwg.wait()
-                _log(f"   → convertir_dwg.py terminó (código {proc_dwg.returncode}).")
-            except Exception as dwg_err:
-                _log(f"⚠️ Error en conversión DWG: {dwg_err}")
+            except Exception as ex_map:
+                _log(f"⚠️ No se pudo cargar .cad_network_map.json: {ex_map}")
+        else:
+            _log(
+                "ℹ️ Sin .cad_network_map.json (ejecutar Fase 1 preparar antes si inyectas a red)."
+            )
 
-        if abortar_escaneo_cad:
-            scan_status["status"] = "cancelled"
-            _log("🛑 Pipeline cancelado tras Paso 2.")
-            return
+        if inyectar_propiedades:
+            _log(
+                "📌 Inyección activada: tras medir, se guardará .sldprt local y se copiará a la ruta de red del mapa."
+            )
+
+        scan_status["status"] = "scanning"
+        _log(f"   Parámetro solo_faltantes={solo_faltantes} (reservado; el filtro de catálogo aplica en Fase 1).")
+
+        _n_sldprt = 0
+        _n_2d = 0
+        for _dp, _ds, _fs in os.walk(local_folder):
+            _ds[:] = [
+                d for d in _ds
+                if d.lower() not in _EXCLUDED_DIRS_MAESTRO and d.lower() != "dxf"
+            ]
+            for _fn in _fs:
+                _ex = os.path.splitext(_fn)[1].lower()
+                if _ex == ".sldprt":
+                    _n_sldprt += 1
+                elif _ex in (".dwg", ".dxf"):
+                    _n_2d += 1
+        _log(
+            f"📂 Inventario en {local_folder}: {_n_sldprt} .sldprt, "
+            f"{_n_2d} archivos 2D (.dwg/.dxf) presentes en disco."
+        )
 
         # ════════════════════════════════════════════════════════════════
-        # PASO 3 – Extracción CAD (SolidWorks COM) desde carpeta local
+        # Auditoría SW (sin RunMacro2: la macro se ejecutó manualmente entre fases)
         # ════════════════════════════════════════════════════════════════
-        _log("🛠 PASO 3: Iniciando extracción CAD desde carpeta local...")
-        scan_status["current_file"] = "Paso 3: Extrayendo metadata CAD..."
+        _log("🛠 Auditoría: lectura Largo_CAD / Ancho_CAD vía CustomPropertyManager (macro manual previa)...")
+        scan_status["current_file"] = "Auditoría: leyendo propiedades CAD vs DXF..."
 
-        # Reutilizamos la función existente apuntando a la carpeta local.
-        # Llama a bg_scan_cad_task con la carpeta local; data acumulada queda
-        # en scan_status y el finally de bg_scan_cad_task genera el Excel.
-        # Para tener control del finally aquí, ejecutamos inlined.
-
-        # ──── Setup COM ────
+        # ──── Setup COM (reutiliza instancia en ejecución si existe) ────
         def _apply_silent_mode_m(app):
             for pref, val in [(11, True), (262, True)]:
-                try: app.SetUserPreferenceToggle(pref, val)
-                except Exception: pass
+                try:
+                    app.SetUserPreferenceToggle(pref, val)
+                except Exception:
+                    pass
             try:
                 app.Visible = True
             except Exception:
@@ -2189,36 +2877,44 @@ def bg_maestro_task(
         def get_sw_app_m():
             try:
                 import win32com.client as _wc
-                app = _wc.DispatchEx("SldWorks.Application")
+                try:
+                    app = _wc.GetObject("SldWorks.Application")
+                except Exception:
+                    app = _wc.DispatchEx("SldWorks.Application")
                 _apply_silent_mode_m(app)
-                _log("[SW] Instancia COM (DispatchEx) lista.")
+                _log("[SW] COM listo (GetObject o DispatchEx).")
                 return app
             except Exception as e:
                 _log(f"⚠️ SolidWorks COM no disponible: {e}")
                 return None
 
         def _resurrect_m():
-            try: os.system("taskkill /F /IM SLDWORKS.exe /T 2>nul")
-            except Exception: pass
+            try:
+                os.system("taskkill /F /IM SLDWORKS.exe /T 2>nul")
+            except Exception:
+                pass
             _time.sleep(3)
-            try: pythoncom.CoUninitialize()
-            except Exception: pass
-            try: pythoncom.CoInitialize()
-            except Exception: pass
+            try:
+                pythoncom.CoUninitialize()
+            except Exception:
+                pass
+            try:
+                pythoncom.CoInitialize()
+            except Exception:
+                pass
             return get_sw_app_m()
 
-        # Escaneo de archivos en carpeta local
-        import ezdxf
-        from ezdxf import bbox as _bbox
-        import win32com.client as _win32
+        import pythoncom
 
         cad_files_local: dict = {}
-        for _dp, _ds, _fs in os.walk(local_work_dir):
+        for _dp, _ds, _fs in os.walk(local_folder):
             _ds[:] = [
                 d for d in _ds
                 if d.lower() not in _EXCLUDED_DIRS_MAESTRO and d.lower() != "dxf"
             ]
             for _f in _fs:
+                if _f.startswith("~$"):
+                    continue
                 _ext = os.path.splitext(_f)[1].lower()
                 if _ext != ".sldprt":
                     continue
@@ -2269,6 +2965,23 @@ def bg_maestro_task(
             largo_dxf_m = ""; ancho_dxf_m = ""
             largo_dxf_nuevo_m = None; ancho_dxf_nuevo_m = None
 
+            # Referencia 2D ANTES de SW: dxf/ + raíz local; DXF y DWG (Chapa desplegada - o no)
+            ruta_dxf_antiguo = _resolve_2d_reference_for_codigo(
+                dxf_folder, local_folder, info_m["codigo"]
+            )
+            if not ruta_dxf_antiguo:
+                ruta_dxf_antiguo = _resolve_2d_reference_for_codigo(
+                    dxf_folder,
+                    local_folder,
+                    _normalize_chapa_stem(os.path.splitext(nombre_m)[0]),
+                )
+            _dl_m: Optional[float] = None
+            _da_m: Optional[float] = None
+            if ruta_dxf_antiguo:
+                _bb_m = _read_2d_file_bbox_largo_ancho_mm(ruta_dxf_antiguo)
+                if _bb_m:
+                    _dl_m, _da_m = float(_bb_m[0]), float(_bb_m[1])
+
             try:
                 # Paso 3: solo .sldprt entran a esta lista; motor 3D no trata DWG/DXF.
                 if ext_m == ".sldprt":
@@ -2276,15 +2989,6 @@ def bg_maestro_task(
                     bn_upper = os.path.basename(abspath_m).upper()
                     ruta_red_m = network_by_local_basename.get(bn_upper)
                     piece_box_m: dict = {}
-                    _dxf_pre_m = os.path.join(
-                        local_work_dir, "dxf", f"{_normalize_chapa_stem(str(codigo_m))}.dxf"
-                    )
-                    _dl_m: Optional[float] = None
-                    _da_m: Optional[float] = None
-                    if os.path.exists(_dxf_pre_m):
-                        _bb_m = _dxf_bbox_largo_ancho_mm(_dxf_pre_m)
-                        if _bb_m:
-                            _dl_m, _da_m = float(_bb_m[0]), float(_bb_m[1])
 
                     def _worker_m():
                         try: pythoncom.CoInitialize()
@@ -2296,13 +3000,18 @@ def bg_maestro_task(
                                                       "largo_cad": 0.0, "ancho_cad": 0.0, "espesor_cad": 0.0,
                                                       "observacion": _ascii_report_text("Motor SW inaccesible")}
                                 return
-                            piece_box_m["out"] = _sldprt_extract_one(
-                                sw_l, abspath_m, codigo_m, nombre_m, ruta_abs_m,
+                            piece_box_m["out"] = _sldprt_maestro_read_post_macro(
+                                sw_l,
+                                abspath_m,
+                                codigo_m,
+                                nombre_m,
+                                ruta_abs_m,
                                 resurrect_fn=_resurrect_m,
-                                inyectar_propiedades=inyectar_propiedades,
-                                ruta_original_red=ruta_red_m,
                                 dxf_largo_cmp=_dl_m,
                                 dxf_ancho_cmp=_da_m,
+                                inyectar_propiedades=inyectar_propiedades,
+                                ruta_original_red=ruta_red_m,
+                                dxf_export_dir=dxf_folder,
                             )
                         except Exception as e_w:
                             piece_box_m["exc"] = e_w
@@ -2339,24 +3048,13 @@ def bg_maestro_task(
 
             except Exception as ex_m_piece:
                 if not observacion_m:
-                    observacion_m = f"Error: {str(ex_m_piece)[:60]}"
-                _log(f"  ❌ Error procesando {nombre_m}: {ex_m_piece}")
+                    observacion_m = "ERROR: Fallo al procesar la pieza."
+                _log(f"  ❌ Error procesando {nombre_m}: {ex_m_piece!r}")
 
-            # Auditoría DXF cruzada (generados en local_work_dir/dxf/, no en red)
-            dxf_check = os.path.join(
-                local_work_dir, "dxf", f"{_normalize_chapa_stem(str(codigo_m))}.dxf"
-            )
-            if os.path.exists(dxf_check):
-                tiene_dxf_m = "SI"
-                try:
-                    _d = ezdxf.readfile(dxf_check)
-                    _ext_dxf = _bbox.extents(_d.modelspace())
-                    if _ext_dxf.has_data:
-                        _dx = _ext_dxf.extmax.x - _ext_dxf.extmin.x
-                        _dy = _ext_dxf.extmax.y - _ext_dxf.extmin.y
-                        largo_dxf_m = float(max(_dx, _dy))
-                        ancho_dxf_m = float(min(_dx, _dy))
-                except Exception: pass
+            # Fila Excel: mismo DXF que pre-SW (info_m["codigo"]); medidas con _dxf_bbox_largo_ancho_mm
+            tiene_dxf_m = "SI" if ruta_dxf_antiguo else "NO"
+            largo_dxf_m = "" if _dl_m is None else _dl_m
+            ancho_dxf_m = "" if _da_m is None else _da_m
 
             data_acumulada.append({
                 "Codigo_Pieza": _ascii_report_text(codigo_m),
@@ -2376,12 +3074,12 @@ def bg_maestro_task(
             extraidos_m += 1
             _time.sleep(0.15)  # throttle COM
 
-        _log(f"✅ PASO 3 completado: {extraidos_m} piezas procesadas.")
+        _log(f"✅ Auditoría completada: {extraidos_m} piezas procesadas.")
         scan_status["status"] = "completed"
         cad_procesar_status = "completed"
 
     except Exception as pipeline_err:
-        _log(f"❌ Error crítico en pipeline maestro: {pipeline_err}")
+        _log(f"❌ Error crítico en auditoría CAD: {pipeline_err}")
         scan_status["status"] = "error"
         scan_status["error"] = str(pipeline_err)
         cad_procesar_status = "completed"
@@ -2401,6 +3099,17 @@ def bg_maestro_task(
                 _export_reporte_cad(df_m, report_path)
                 scan_status["excel_path"] = report_path
                 _log(f"✅ Excel guardado: {report_path}")
+                try:
+                    st = _cad_sync_dataframe_to_maestro(
+                        df_m, _log, actor_user=actor_user
+                    )
+                    _log(
+                        f"📤 SQL Tbl_Maestro_Piezas: actualizadas={st['actualizadas']}, "
+                        f"ignoradas={st['ignoradas']}, no_encontradas={st['no_encontradas']}"
+                    )
+                except Exception as ex_sync:
+                    _log(f"⚠️ Error sincronizando BD: {ex_sync}")
+                    scan_status["error"] = str(ex_sync)
             except Exception as ex_export:
                 _log(f"❌ Error exportando Excel en finally: {ex_export}")
                 scan_status["error"] = f"Error exportando Excel: {ex_export}"
@@ -2418,10 +3127,30 @@ def bg_maestro_task(
             pass
 
 
-@router.post("/api/cad/maestro")
-def start_maestro_cad(payload: MaestroCADPayload, background_tasks: BackgroundTasks):
-    """Arranca el pipeline Todo en Uno (Recolección + DWG→DXF + Extracción CAD)."""
+class PrepararPayload(BaseModel):
+    """Payload para POST /api/cad/preparar (Paso 0): origen red y destino local obligatorios."""
+    source_folder: str
+    local_folder: str
+    solo_faltantes: bool = False
+
+
+class AuditarPayload(BaseModel):
+    """Payload para POST /api/cad/auditar (Paso 1): carpeta de trabajo local."""
+    local_folder: str
+    solo_faltantes: bool = False
+    inyectar_propiedades: bool = False
+
+
+@router.post("/api/cad/preparar")
+def start_preparar_cad(payload: PrepararPayload, background_tasks: BackgroundTasks):
+    """Fase 1 híbrida: catálogo, copia red→local, DWG→DXF."""
     global scan_status, abortar_escaneo_cad, cad_execution_logs, cad_procesar_status
+
+    if not (payload.source_folder or "").strip() or not (payload.local_folder or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="source_folder y local_folder son obligatorios y no pueden estar vacíos.",
+        )
 
     busy_states = {"scanning", "collecting", "generating_excel"}
     if scan_status["status"] in busy_states or cad_procesar_status == "processing":
@@ -2430,19 +3159,63 @@ def start_maestro_cad(payload: MaestroCADPayload, background_tasks: BackgroundTa
     abortar_escaneo_cad = False
     flag_path = os.path.join(_BACKEND_ROOT, "abortar_cad.flag")
     if os.path.exists(flag_path):
-        try: os.remove(flag_path)
-        except: pass
+        try:
+            os.remove(flag_path)
+        except Exception:
+            pass
 
     cad_execution_logs.clear()
     cad_procesar_status = "idle"
 
     background_tasks.add_task(
-        bg_maestro_task,
+        bg_preparar_task,
         payload.source_folder,
+        payload.local_folder,
+        payload.solo_faltantes,
+    )
+    return {"message": "Fase 1 (preparar) iniciada en segundo plano"}
+
+
+@router.post("/api/cad/auditar")
+def start_auditar_cad(
+    payload: AuditarPayload,
+    background_tasks: BackgroundTasks,
+    authorization: Optional[str] = Header(None),
+    x_usuario: Optional[str] = Header(None, alias="X-Usuario"),
+):
+    """Fase 2 híbrida: lectura SW, DXF, Excel y SQL (macro manual previa; sin RunMacro2)."""
+    global scan_status, abortar_escaneo_cad, cad_execution_logs, cad_procesar_status
+
+    if not (payload.local_folder or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="local_folder es obligatorio y no puede estar vacío.",
+        )
+
+    busy_states = {"scanning", "collecting", "generating_excel"}
+    if scan_status["status"] in busy_states or cad_procesar_status == "processing":
+        return {"message": "Ya hay un proceso en curso. Cancélalo primero."}
+
+    abortar_escaneo_cad = False
+    flag_path = os.path.join(_BACKEND_ROOT, "abortar_cad.flag")
+    if os.path.exists(flag_path):
+        try:
+            os.remove(flag_path)
+        except Exception:
+            pass
+
+    cad_execution_logs.clear()
+    cad_procesar_status = "idle"
+
+    actor_user = resolve_actor_user(authorization, x_usuario)
+    background_tasks.add_task(
+        bg_auditar_task,
+        payload.local_folder,
         payload.solo_faltantes,
         payload.inyectar_propiedades,
+        actor_user,
     )
-    return {"message": "Pipeline Maestro iniciado en segundo plano"}
+    return {"message": "Fase 2 (auditar) iniciada en segundo plano"}
 
 import subprocess
 import logging
@@ -2561,6 +3334,154 @@ def download_cad_report():
     if not excel_path or not os.path.exists(excel_path):
         raise HTTPException(status_code=404, detail="Archivo Excel no encontrado.")
     return FileResponse(excel_path, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", filename="Reporte_CAD.xlsx")
+
+
+def _cad_sync_dataframe_to_maestro(
+    df: pd.DataFrame,
+    log_fn,
+    actor_user: Optional[str] = None,
+) -> Dict[str, int]:
+    """Misma lógica que POST /api/cad/upload: escribe medidas en Tbl_Maestro_Piezas."""
+
+    def _safe_float(val) -> Optional[float]:
+        if val is None:
+            return None
+        try:
+            if pd.isna(val):
+                return None
+        except Exception:
+            pass
+        try:
+            from decimal import Decimal
+            if isinstance(val, Decimal):
+                return float(val)
+        except Exception:
+            pass
+        try:
+            import numpy as np
+            if isinstance(val, (np.floating, np.integer)):
+                x = float(val.item()) if hasattr(val, "item") else float(val)
+                if math.isnan(x):
+                    return None
+                return float(x)
+        except Exception:
+            pass
+        try:
+            if isinstance(val, float) and math.isnan(val):
+                return None
+        except (TypeError, ValueError):
+            pass
+        s = str(val).strip().lower()
+        if s in ('', 'nan', 'none', '-', 'n/a', '<na>'):
+            return None
+        s = str(val).strip().replace(',', '.')
+        s = re.sub(r'[^\d.\-]', '', s)
+        if not s or s == '.':
+            return None
+        try:
+            return float(s)
+        except ValueError:
+            return None
+
+    def _sql_param_float(v: Optional[float]) -> Optional[float]:
+        if v is None:
+            return None
+        return float(v)
+
+    df = df.copy()
+    df.columns = [str(c).strip() for c in df.columns]
+    for _col_ignore in ("Largo_DXF", "Ancho_DXF"):
+        if _col_ignore in df.columns:
+            df = df.drop(columns=[_col_ignore])
+    required_cols = ["Codigo_Pieza", "Largo_CAD", "Ancho_CAD"]
+    for col in required_cols:
+        if col not in df.columns:
+            raise ValueError(f"Falta la columna requerida: {col}")
+
+    actualizadas = 0
+    ignoradas = 0
+    no_encontradas = 0
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    usr_log = (actor_user or "").strip() or "Sistema"
+    try:
+        for index, row in df.iterrows():
+            raw_codigo = row.get("Codigo_Pieza", "")
+            codigo = str(raw_codigo).strip() if raw_codigo not in (None, '') else ''
+            if not codigo or codigo.lower() in ('nan', 'none'):
+                ignoradas += 1
+                continue
+
+            largo_float = _sql_param_float(_safe_float(row.get("Largo_CAD")))
+            ancho_float = _sql_param_float(_safe_float(row.get("Ancho_CAD")))
+            espesor_float = _sql_param_float(_safe_float(row.get("Espesor_Perfil_CAD")))
+
+            raw_mat = row.get("Material", "")
+            mat_clean = str(raw_mat).strip() if raw_mat not in (None, '') else ''
+            if mat_clean.lower() in ('', 'nan', 'none', 'n/a'):
+                material_str: Optional[str] = None
+            else:
+                material_str = mat_clean
+
+            ruta_str = str(row.get("Ruta_Archivo", "") or "").strip()
+            tiene_dxf = _sanitize_excel_si_no(row.get("Tiene_DXF"), default="NO")
+
+            if material_str is not None:
+                cursor.execute("""
+                    UPDATE Tbl_Maestro_Piezas
+                    SET Largo_CAD         = ?,
+                        Ancho_CAD         = ?,
+                        Espesor_Perfil_CAD = ?,
+                        Material          = ?,
+                        Ruta_Archivo      = ?,
+                        Tiene_DXF         = ?
+                    WHERE Codigo_Pieza = ?
+                """, (
+                    largo_float, ancho_float, espesor_float,
+                    material_str, ruta_str,
+                    tiene_dxf,
+                    codigo,
+                ))
+            else:
+                cursor.execute("""
+                    UPDATE Tbl_Maestro_Piezas
+                    SET Largo_CAD          = ?,
+                        Ancho_CAD          = ?,
+                        Espesor_Perfil_CAD  = ?,
+                        Ruta_Archivo       = ?,
+                        Tiene_DXF          = ?
+                    WHERE Codigo_Pieza = ?
+                """, (
+                    largo_float, ancho_float, espesor_float,
+                    ruta_str, tiene_dxf,
+                    codigo,
+                ))
+
+            if cursor.rowcount > 0:
+                actualizadas += 1
+                registrar_log_global(
+                    cursor,
+                    codigo,
+                    "UPDATE_MEDIDAS_CAD",
+                    "",
+                    f"L:{largo_float}, A:{ancho_float}",
+                    usr_log,
+                )
+            else:
+                no_encontradas += 1
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+    return {
+        "actualizadas": actualizadas,
+        "ignoradas": ignoradas,
+        "no_encontradas": no_encontradas,
+    }
+
 
 @router.post("/api/cad/upload")
 async def upload_cad_modifications(
@@ -2729,12 +3650,7 @@ async def upload_cad_modifications(
                 if cursor.rowcount > 0:
                     print(f"ACTUALIZADA: {codigo} (L:{largo_float}, A:{ancho_float})")
                     actualizadas += 1
-                    actor = resolve_actor_user(authorization, x_usuario)
-                    usr_log = (
-                        actor
-                        if actor != "Sistema"
-                        else ((x_usuario or "").strip() or "SISTEMA_CAD")
-                    )
+                    usr_log = resolve_actor_user(authorization, x_usuario)
                     registrar_log_global(
                         cursor,
                         codigo,

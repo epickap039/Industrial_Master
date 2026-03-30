@@ -1,6 +1,7 @@
 import os
 import re
 import sys
+import time
 import win32com.client
 
 _EXCLUDED_DIRS = {
@@ -90,6 +91,44 @@ def _collect_dwg_rutas_mas_recientes(ruta_raiz):
     return [t[1] for t in best.values()]
 
 
+def _restart_autocad_com():
+    """Mata acad.exe y crea una instancia COM nueva (recuperación tras colapso Open)."""
+    os.system("taskkill /F /IM acad.exe /T 2>nul")
+    time.sleep(2)
+    acad = win32com.client.Dispatch("AutoCAD.Application")
+    try:
+        acad.Visible = False
+    except Exception:
+        pass
+    try:
+        acad.Preferences.System.DisplayOLEScale = False
+    except Exception:
+        pass
+    return acad
+
+
+def documents_open_with_retry(acad, dwg_path: str):
+    """Abre un DWG; si Documents.Open falla (COM colapsado), reinicia AutoCAD y reintenta una vez.
+
+    Returns:
+        (document_or_None, acad_actualizado)
+    """
+    try:
+        return acad.Documents.Open(dwg_path), acad
+    except Exception as e:
+        print(f" AutoCAD Open falló ({e!r}); taskkill + nueva instancia COM y reintento...")
+        try:
+            acad.Quit()
+        except Exception:
+            pass
+        acad = _restart_autocad_com()
+    try:
+        return acad.Documents.Open(dwg_path), acad
+    except Exception as e2:
+        print(f" Open falló tras reinicio: {e2!r}")
+        return None, acad
+
+
 def procesar_biblioteca_dwg(ruta_raiz, solo_faltantes: bool = False):
     ruta_raiz = ruta_raiz.strip('"').strip("'")
     ruta_destino = os.path.join(ruta_raiz, "dxf")
@@ -140,7 +179,10 @@ def procesar_biblioteca_dwg(ruta_raiz, solo_faltantes: bool = False):
 
             doc = None
             try:
-                doc = acad.Documents.Open(ruta_completa)
+                doc, acad = documents_open_with_retry(acad, ruta_completa)
+                if doc is None:
+                    print(f" Error al abrir (tras reintento): {archivo}")
+                    continue
                 doc.SaveAs(destino_dxf, 37)
                 print(f" Procesado: {nombre_limpio}")
             except Exception as loop_e:
