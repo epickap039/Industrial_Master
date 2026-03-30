@@ -15,6 +15,7 @@ from auth_service import init_auth_db
 from routers import (
     analytics,
     auth,
+    ayudas_visuales,
     bom,
     cad,
     catalog,
@@ -72,6 +73,7 @@ for _router in (
     limpieza.router,
     qa.router,
     cad.router,
+    ayudas_visuales.router,
 ):
     app.include_router(_router)
 

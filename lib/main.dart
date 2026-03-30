@@ -21,6 +21,7 @@ import 'screens/vin_dossier.dart';
 import 'screens/engineering_map.dart'; // v60.0: Mapa de Ingeniería
 import 'screens/qa_dashboard.dart'; // Centro de QA
 import 'screens/cad_scanner_screen.dart'; // Módulo CAD
+import 'screens/ayudas_visuales/ayudas_visuales_nav.dart';
 import 'screens/lobby_screen.dart'; // Nuevo Lobby Rediseñado
 import 'screens/impact_radar_screen.dart'; // Módulo Where-Used
 import 'screens/mrp_screen.dart'; // MRP: Requerimiento de Materiales
@@ -537,6 +538,15 @@ class _MyAppState extends State<MyApp> {
                                 icon: const Icon(FluentIcons.build_issue),
                                 title: const Text('Radar de Impacto'),
                                 body: const ImpactRadarScreen(),
+                              ),
+                              PaneItem(
+                                icon: const Icon(FluentIcons.page_list),
+                                title: const Text('Ayudas visuales'),
+                                body: ConstrainedAppBody(
+                                  child: AyudasVisualesNav(
+                                    canUpload: _userRole != 'READONLY',
+                                  ),
+                                ),
                               ),
                               PaneItemHeader(
                                 header: const Text('Procesamiento de datos'),
