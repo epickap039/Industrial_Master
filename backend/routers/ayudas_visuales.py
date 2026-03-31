@@ -123,6 +123,7 @@ def lista_documentos_categoria(id_categoria: int):
                 m.Id_Ayuda,
                 m.Id_Categoria,
                 m.Titulo_Documento,
+                m.Subcategoria,
                 m.VIN,
                 r.Id_Revision,
                 r.Numero_Revision,
@@ -233,12 +234,81 @@ def eliminar_revision(
         conn.close()
 
 
+@router.delete("/api/ayudas/documento/{id_ayuda}")
+def eliminar_documento_cascada(
+    id_ayuda: int,
+    authorization: Optional[str] = Header(None),
+    x_usuario: Optional[str] = Header(None, alias="X-Usuario"),
+):
+    """Elimina todas las revisiones y el registro maestro del documento."""
+    usr = resolve_actor_user(authorization, x_usuario)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    rutas_pdf: list[str] = []
+    try:
+        cur.execute(
+            "SELECT Titulo_Documento FROM Tbl_Ayudas_Maestro WHERE Id_Ayuda = ?",
+            (id_ayuda,),
+        )
+        row_m = cur.fetchone()
+        if not row_m:
+            raise HTTPException(status_code=404, detail="Documento no encontrado")
+        titulo = str(row_m[0] or "")
+
+        cur.execute(
+            "SELECT Ruta_PDF FROM Tbl_Ayudas_Revisiones WHERE Id_Ayuda = ?",
+            (id_ayuda,),
+        )
+        for r in cur.fetchall():
+            p = str(r[0] or "").strip()
+            if p:
+                rutas_pdf.append(p)
+
+        cur.execute(
+            "DELETE FROM Tbl_Ayudas_Revisiones WHERE Id_Ayuda = ?",
+            (id_ayuda,),
+        )
+        cur.execute(
+            "DELETE FROM Tbl_Ayudas_Maestro WHERE Id_Ayuda = ?",
+            (id_ayuda,),
+        )
+
+        detalle = f"id_ayuda={id_ayuda};titulo={titulo[:120]};revs={len(rutas_pdf)}"
+        registrar_log_global(
+            cur,
+            f"AYUDA:{id_ayuda}",
+            "ELIMINAR_DOCUMENTO_AYUDAS_CASCADA",
+            "",
+            detalle[:250],
+            usr,
+        )
+        conn.commit()
+
+        for ruta in rutas_pdf:
+            if os.path.isfile(ruta):
+                try:
+                    os.remove(ruta)
+                except OSError:
+                    pass
+
+        return {"ok": True}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
 @router.post("/api/ayudas/subir")
 async def subir_revision_pdf(
     file: UploadFile = File(...),
     id_ayuda: Optional[str] = Form(None),
     id_categoria: Optional[str] = Form(None),
     titulo: Optional[str] = Form(None),
+    subcategoria: Optional[str] = Form(None),
     numero_revision: str = Form(...),
     usuario: str = Form(...),
     vin: Optional[str] = Form(None),
@@ -251,8 +321,10 @@ async def subir_revision_pdf(
     raw_ayuda = (id_ayuda or "").strip()
     raw_cat = (id_categoria or "").strip()
     titulo_doc = (titulo or "").strip()
+    subcategoria_raw = subcategoria if subcategoria is not None else None
     usuario_limpio = (usuario or "").strip() or "Sistema"
-    vin_limpio = (vin or "").strip() or None
+    # Se guarda exactamente como llega desde frontend (incluyendo comas/espacios).
+    vin_raw = vin if vin is not None else None
     usr_audit = resolve_actor_user(authorization, x_usuario)
     if usr_audit == "Sistema":
         usr_audit = usuario_limpio
@@ -280,10 +352,15 @@ async def subir_revision_pdf(
                 raise HTTPException(status_code=404, detail="Documento no encontrado")
             id_cat_int = int(row[0])
             nombre_categoria = str(row[1] or "")
-            if vin_limpio:
+            if vin_raw is not None:
                 cur.execute(
                     "UPDATE Tbl_Ayudas_Maestro SET VIN = ? WHERE Id_Ayuda = ?",
-                    (vin_limpio, id_ayuda_int),
+                    (vin_raw, id_ayuda_int),
+                )
+            if subcategoria_raw is not None:
+                cur.execute(
+                    "UPDATE Tbl_Ayudas_Maestro SET Subcategoria = ? WHERE Id_Ayuda = ?",
+                    (subcategoria_raw, id_ayuda_int),
                 )
         else:
             if not raw_cat or not titulo_doc:
@@ -303,11 +380,12 @@ async def subir_revision_pdf(
             ahora_creacion = datetime.now()
             cur.execute(
                 """
-                INSERT INTO Tbl_Ayudas_Maestro (Id_Categoria, Titulo_Documento, Fecha_Creacion, VIN)
+                INSERT INTO Tbl_Ayudas_Maestro
+                    (Id_Categoria, Titulo_Documento, Subcategoria, Fecha_Creacion, VIN)
                 OUTPUT INSERTED.Id_Ayuda
-                VALUES (?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (id_cat_int, titulo_doc, ahora_creacion, vin_limpio),
+                (id_cat_int, titulo_doc, subcategoria_raw, ahora_creacion, vin_raw),
             )
             id_ayuda_int = int(cur.fetchone()[0])
 
@@ -347,7 +425,8 @@ async def subir_revision_pdf(
 
         log_nuevo = (
             f"id_rev={new_id};num={numero_revision.strip()};"
-            f"vin={vin_limpio or '-'};ruta={os.path.basename(dest_path)}"
+            f"subcat={subcategoria_raw or '-'};vin={vin_raw or '-'};"
+            f"ruta={os.path.basename(dest_path)}"
         )
         registrar_log_global(
             cur,

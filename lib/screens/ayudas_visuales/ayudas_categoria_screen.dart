@@ -1,10 +1,10 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart' as material;
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../services/api_client.dart';
-import '../../widgets/compact_page_header.dart';
 import 'ayudas_api_models.dart';
 import 'ayudas_visor_screen.dart';
 
@@ -29,11 +29,21 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
   bool _loading = true;
   String? _error;
   List<dynamic> _docs = [];
+  final TextEditingController _searchCtrl = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _cargar();
+    _searchCtrl.addListener(() {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _cargar() async {
@@ -42,9 +52,7 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
       _error = null;
     });
     try {
-      final data = await ApiClient.get(
-        '/api/ayudas/lista/${widget.idCategoria}',
-      );
+      final data = await ApiClient.get('/api/ayudas/lista/${widget.idCategoria}');
       setState(() {
         _docs = data is List ? data : [];
         _loading = false;
@@ -57,16 +65,48 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
     }
   }
 
+  material.InputDecoration _inputDec(
+    BuildContext context,
+    String label, {
+    String? hint,
+  }) {
+    final border = material.OutlineInputBorder(
+      borderRadius: material.BorderRadius.circular(12.0),
+      borderSide: material.BorderSide(color: material.Theme.of(context).dividerColor),
+    );
+    return material.InputDecoration(
+      labelText: label,
+      hintText: hint,
+      contentPadding: const material.EdgeInsets.symmetric(
+        vertical: 12.0,
+        horizontal: 16.0,
+      ),
+      border: border,
+      enabledBorder: border,
+    );
+  }
+
   Future<void> _dialogoNuevoDocumento() async {
     final tituloCtrl = TextEditingController();
+    final subcategoriaCtrl = TextEditingController();
     final revCtrl = TextEditingController(text: 'A');
     final vinCtrl = TextEditingController();
     String? pathPdf;
 
     await showDialog<void>(
       context: context,
+      barrierColor: material.Theme.of(context).brightness == material.Brightness.dark
+          ? const material.Color(0xFF121212)
+          : material.Colors.white,
       builder: (ctx) {
-        return ContentDialog(
+        return material.AlertDialog(
+          backgroundColor: material.Theme.of(context).brightness ==
+                  material.Brightness.dark
+              ? const material.Color(0xFF121212)
+              : material.Colors.white,
+          shape: material.RoundedRectangleBorder(
+            borderRadius: material.BorderRadius.circular(20.0),
+          ),
           title: const Text('Nuevo documento'),
           content: StatefulBuilder(
             builder: (context, setLocal) {
@@ -75,27 +115,43 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text('Título'),
-                    const SizedBox(height: 6),
-                    TextBox(controller: tituloCtrl),
-                    const SizedBox(height: 12),
-                    const Text('VIN (opcional)'),
-                    const SizedBox(height: 6),
-                    TextBox(
-                      controller: vinCtrl,
-                      placeholder: 'Opcional',
+                    material.TextField(
+                      controller: tituloCtrl,
+                      style: material.TextStyle(
+                        color: material.Theme.of(context).textTheme.bodyLarge?.color,
+                      ),
+                      decoration: _inputDec(context, 'Titulo'),
                     ),
                     const SizedBox(height: 12),
-                    const Text('Número de revisión'),
-                    const SizedBox(height: 6),
-                    TextBox(controller: revCtrl),
-                    const SizedBox(height: 12),
-                    Button(
-                      child: Text(
-                        pathPdf == null
-                            ? 'Seleccionar PDF…'
-                            : 'PDF: ${pathPdf!.split(RegExp(r'[\\/]')).last}',
+                    material.TextField(
+                      controller: subcategoriaCtrl,
+                      style: material.TextStyle(
+                        color: material.Theme.of(context).textTheme.bodyLarge?.color,
                       ),
+                      decoration: _inputDec(context, 'Subcategoría / Proceso'),
+                    ),
+                    const SizedBox(height: 12),
+                    material.TextField(
+                      controller: vinCtrl,
+                      style: material.TextStyle(
+                        color: material.Theme.of(context).textTheme.bodyLarge?.color,
+                      ),
+                      decoration: _inputDec(
+                        context,
+                        'VINs aplicables',
+                        hint: 'Ej: 3N1AB7AP1HY123456, 1HGCM82633A004352',
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    material.TextField(
+                      controller: revCtrl,
+                      style: material.TextStyle(
+                        color: material.Theme.of(context).textTheme.bodyLarge?.color,
+                      ),
+                      decoration: _inputDec(context, 'Numero de revision'),
+                    ),
+                    const SizedBox(height: 12),
+                    material.OutlinedButton(
                       onPressed: () async {
                         final r = await FilePicker.platform.pickFiles(
                           type: FileType.custom,
@@ -105,6 +161,11 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
                           setLocal(() => pathPdf = r.files.single.path);
                         }
                       },
+                      child: Text(
+                        pathPdf == null
+                            ? 'Seleccionar PDF…'
+                            : 'PDF: ${pathPdf!.split(RegExp(r'[\\/]')).last}',
+                      ),
                     ),
                   ],
                 ),
@@ -112,25 +173,24 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
             },
           ),
           actions: [
-            Button(
-              child: const Text('Cancelar'),
+            material.TextButton(
               onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar'),
             ),
-            FilledButton(
+            material.ElevatedButton(
               child: const Text('Subir'),
               onPressed: () async {
                 final t = tituloCtrl.text.trim();
                 if (t.isEmpty || pathPdf == null) return;
                 final prefs = await SharedPreferences.getInstance();
                 final user = prefs.getString('username')?.trim() ?? 'Operador';
+                if (!mounted) return;
                 showDialog<void>(
                   context: context,
                   barrierDismissible: false,
                   builder: (lc) => const ContentDialog(
                     title: Text('Subiendo…'),
-                    content: Center(
-                      child: SizedBox(height: 80, child: ProgressRing()),
-                    ),
+                    content: Center(child: SizedBox(height: 80, child: ProgressRing())),
                   ),
                 );
                 try {
@@ -140,14 +200,15 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
                     'numero_revision': revCtrl.text.trim(),
                     'usuario': user,
                   };
+                  if (subcategoriaCtrl.text.trim().isNotEmpty) {
+                    fields['subcategoria'] = subcategoriaCtrl.text;
+                  }
                   final v = vinCtrl.text.trim();
                   if (v.isNotEmpty) fields['vin'] = v;
                   await ApiClient.postMultipart(
                     '/api/ayudas/subir',
                     fields: fields,
-                    files: {
-                      'file': await ApiClient.fileField('file', pathPdf!),
-                    },
+                    files: {'file': await ApiClient.fileField('file', pathPdf!)},
                   );
                   if (!mounted) return;
                   Navigator.of(context, rootNavigator: true).pop();
@@ -176,85 +237,211 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
     );
 
     tituloCtrl.dispose();
+    subcategoriaCtrl.dispose();
     revCtrl.dispose();
     vinCtrl.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return ScaffoldPage(
-      header: CompactPageHeader(
-        leading: IconButton(
-          icon: const Icon(FluentIcons.back),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: Text(widget.nombreCategoria),
-        commandBar: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              icon: const Icon(FluentIcons.refresh),
-              onPressed: _loading ? null : _cargar,
+  Map<String, List<Map<String, dynamic>>> _groupedDocs() {
+    final q = _searchCtrl.text.trim().toLowerCase();
+    final out = <String, List<Map<String, dynamic>>>{};
+    for (final d in _docs) {
+      if (d is! Map<String, dynamic>) continue;
+      final title = ayudasTituloDocumento(d).toLowerCase();
+      final vin = ayudasVin(d).toLowerCase();
+      final sub = ayudasSubcategoriaProceso(d).toLowerCase();
+      if (q.isNotEmpty && !title.contains(q) && !vin.contains(q) && !sub.contains(q)) {
+        continue;
+      }
+      final key = ayudasSubcategoriaProceso(d).isEmpty
+          ? 'Sin subcategoría'
+          : ayudasSubcategoriaProceso(d);
+      out.putIfAbsent(key, () => <Map<String, dynamic>>[]).add(d);
+    }
+    return out;
+  }
+
+  Future<void> _eliminarDocumento(int idAyuda, String titulo) async {
+    final passCtrl = TextEditingController();
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dCtx) => material.AlertDialog(
+          title: const Text('Eliminar documento'),
+          content: material.TextField(
+            controller: passCtrl,
+            obscureText: true,
+            decoration: const material.InputDecoration(labelText: 'Contraseña'),
+          ),
+          actions: [
+            material.TextButton(
+              onPressed: () => Navigator.pop(dCtx),
+              child: const Text('Cancelar'),
+            ),
+            material.TextButton(
+              onPressed: () async {
+                if (passCtrl.text != kAyudasDeletePassword) {
+                  displayInfoBar(context, builder: (c, close) {
+                    return InfoBar(
+                      title: const Text('Error'),
+                      content: const Text('Contraseña incorrecta'),
+                      severity: InfoBarSeverity.error,
+                      onClose: close,
+                    );
+                  });
+                  return;
+                }
+                Navigator.pop(dCtx);
+                try {
+                  final prefs = await SharedPreferences.getInstance();
+                  final user = prefs.getString('username')?.trim() ?? 'Operador';
+                  await ApiClient.delete(
+                    '/api/ayudas/documento/$idAyuda',
+                    headers: {'X-Usuario': user},
+                  );
+                  await _cargar();
+                } catch (e) {
+                  if (mounted) showAyudasUploadError(context, e);
+                }
+              },
+              child: const Text('Eliminar'),
             ),
           ],
         ),
+      );
+    } finally {
+      passCtrl.dispose();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final grouped = _groupedDocs();
+    final textColor = material.Theme.of(context).textTheme.bodyMedium?.color;
+    return material.Scaffold(
+      appBar: material.AppBar(
+        leading: material.IconButton(
+          icon: const material.Icon(material.Icons.arrow_back),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: Text(widget.nombreCategoria),
+        actions: [
+          material.IconButton(
+            icon: const material.Icon(material.Icons.refresh),
+            onPressed: _loading ? null : _cargar,
+          ),
+        ],
       ),
-      content: Stack(
+      body: Stack(
         children: [
           _loading
               ? const Center(child: ProgressRing())
               : _error != null
                   ? Center(child: Text(_error!))
-                  : _docs.isEmpty
+                  : grouped.isEmpty
                       ? const Center(child: Text('No hay documentos en esta categoría.'))
-                      : ListView.separated(
+                      : ListView(
                           padding: const EdgeInsets.all(16),
-                          itemCount: _docs.length,
-                          separatorBuilder: (_, __) => const SizedBox(height: 8),
-                          itemBuilder: (context, i) {
-                            final m = _docs[i] as Map<String, dynamic>;
-                            final idAyuda = ayudasIdAyuda(m);
-                            final titulo = ayudasTituloDocumento(m);
-                            final idRev = ayudasIdRevision(m);
-                            final numRev = ayudasNumeroRevision(m);
-                            final vinTxt = ayudasVin(m);
-                            return ListTile(
-                              leading: const Icon(FluentIcons.pdf),
-                              title: Text(titulo),
-                              subtitle: Text(
-                                vinTxt.isEmpty
-                                    ? 'Rev. $numRev · Vigente'
-                                    : 'VIN $vinTxt · Rev. $numRev',
+                          children: [
+                            material.TextField(
+                              controller: _searchCtrl,
+                              decoration: material.InputDecoration(
+                                hintText: 'Buscar por titulo, VIN o subcategoría',
+                                prefixIcon: const material.Icon(material.Icons.search),
+                                border: material.OutlineInputBorder(
+                                  borderRadius: material.BorderRadius.circular(12),
+                                ),
                               ),
-                              onPressed: () {
-                                Navigator.of(context).push(
-                                  material.MaterialPageRoute<void>(
-                                    builder: (_) => AyudasVisorScreen(
-                                      idAyuda: idAyuda,
-                                      tituloDocumento: titulo,
-                                      idRevisionInicial: idRev,
-                                      canUpload: widget.canUpload,
+                            ),
+                            const SizedBox(height: 12),
+                            ...grouped.entries.map((entry) {
+                              return material.Card(
+                                child: material.ExpansionTile(
+                                  title: Text(
+                                    entry.key,
+                                    style: TextStyle(
+                                      color: textColor,
+                                      fontWeight: material.FontWeight.w700,
                                     ),
                                   ),
-                                );
-                              },
-                            );
-                          },
+                                  children: entry.value.map((m) {
+                                    final idAyuda = ayudasIdAyuda(m);
+                                    final titulo = ayudasTituloDocumento(m);
+                                    final idRev = ayudasIdRevision(m);
+                                    final numRev = ayudasNumeroRevision(m);
+                                    final vinTxt = ayudasVin(m);
+                                    final usuario = (m['Usuario_Subida'] ?? '').toString();
+                                    final fecha = ayudasFechaSubida(m);
+                                    String fechaStr = '';
+                                    if (fecha != null) {
+                                      try {
+                                        fechaStr = DateFormat('yyyy-MM-dd HH:mm')
+                                            .format(DateTime.parse(fecha.toString()));
+                                      } catch (_) {
+                                        fechaStr = fecha.toString();
+                                      }
+                                    }
+                                    final subtitle = [
+                                      if (vinTxt.isNotEmpty) 'VIN: $vinTxt',
+                                      'Rev. $numRev',
+                                      if (usuario.isNotEmpty) 'Usuario: $usuario',
+                                      if (fechaStr.isNotEmpty) fechaStr,
+                                    ].join('  ·  ');
+                                    return material.Card(
+                                      margin: const material.EdgeInsets.fromLTRB(
+                                        12,
+                                        4,
+                                        12,
+                                        8,
+                                      ),
+                                      child: material.ListTile(
+                                        leading: Icon(
+                                          FluentIcons.pdf,
+                                          color: FluentTheme.of(context).accentColor,
+                                        ),
+                                        title: Text(titulo),
+                                        subtitle: Text(subtitle),
+                                        trailing: material.IconButton(
+                                          icon: Icon(
+                                            material.Icons.delete_outline,
+                                            color: material.Theme.of(
+                                              context,
+                                            ).colorScheme.error,
+                                          ),
+                                          onPressed: () =>
+                                              _eliminarDocumento(idAyuda, titulo),
+                                        ),
+                                        onTap: () {
+                                          Navigator.of(context).push(
+                                            material.MaterialPageRoute<void>(
+                                              builder: (_) => AyudasVisorScreen(
+                                                idAyuda: idAyuda,
+                                                tituloDocumento: titulo,
+                                                idRevisionInicial: idRev,
+                                                canUpload: widget.canUpload,
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    );
+                                  }).toList(),
+                                ),
+                              );
+                            }),
+                          ],
                         ),
           if (widget.canUpload)
             Positioned(
               right: 20,
               bottom: 20,
-              child: FilledButton(
+              child: material.FloatingActionButton.extended(
                 onPressed: _dialogoNuevoDocumento,
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(FluentIcons.add),
-                    SizedBox(width: 8),
-                    Text('Nuevo documento'),
-                  ],
+                shape: material.RoundedRectangleBorder(
+                  borderRadius: material.BorderRadius.circular(24.0),
                 ),
+                icon: const Icon(material.Icons.add),
+                label: const Text('Nuevo documento'),
               ),
             ),
         ],

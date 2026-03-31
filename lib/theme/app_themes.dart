@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/material.dart' as material;
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Paletas profesionales: Corporate Light, Industrial Dark, Alto contraste, Cyberpunk.
@@ -235,39 +236,33 @@ extension AppThemeModeLabel on AppThemeMode {
 /// Mismo diálogo que el pie del [NavigationView] en [main.dart], reutilizable
 /// desde pantallas sin menú lateral (p. ej. Gestor BOM a pantalla completa).
 void showAppThemePickerDialog(BuildContext context) {
-  showDialog(
+  final isDark = material.Theme.of(context).brightness == material.Brightness.dark;
+  final dialogBg = isDark ? const Color(0xFF000000) : material.Colors.white;
+  material.showDialog(
     context: context,
+    barrierColor: dialogBg,
     builder: (dialogCtx) {
-      return ListenableBuilder(
-        listenable: appTheme,
-        builder: (_, __) {
-          return ContentDialog(
-            title: const Text('Tema visual'),
-            content: SizedBox(
-              width: 320,
-              child: ComboBox<AppThemeMode>(
-                value: appTheme.currentMode,
-                items: AppThemeMode.values
-                    .map(
-                      (mode) => ComboBoxItem<AppThemeMode>(
-                        value: mode,
-                        child: Text(mode.displayLabel),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (v) {
-                  if (v != null) appTheme.setTheme(v);
-                },
-              ),
-            ),
-            actions: [
-              Button(
-                child: const Text('Cerrar'),
-                onPressed: () => Navigator.pop(dialogCtx),
-              ),
-            ],
+      return material.SimpleDialog(
+        title: const material.Text('Tema visual'),
+        shape: material.RoundedRectangleBorder(
+          borderRadius: material.BorderRadius.circular(20.0),
+        ),
+        backgroundColor: dialogBg,
+        elevation: 0,
+        children: AppThemeMode.values.map((mode) {
+          return material.RadioListTile<AppThemeMode>(
+            title: material.Text(mode.displayLabel),
+            value: mode,
+            groupValue: appTheme.currentMode,
+            tileColor: dialogBg,
+            selectedTileColor: dialogBg,
+            onChanged: (value) {
+              if (value == null) return;
+              appTheme.setTheme(value);
+              Navigator.pop(dialogCtx);
+            },
           );
-        },
+        }).toList(),
       );
     },
   );

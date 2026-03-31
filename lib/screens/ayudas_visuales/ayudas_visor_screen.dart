@@ -7,7 +7,6 @@ import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 
 import '../../config/app_config.dart';
 import '../../services/api_client.dart';
-import '../../widgets/compact_page_header.dart';
 import 'ayudas_api_models.dart';
 
 String _pdfUrlForRevision(int idRevision) {
@@ -87,8 +86,18 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
 
     await showDialog<void>(
       context: context,
+      barrierColor: material.Theme.of(context).brightness == material.Brightness.dark
+          ? const material.Color(0xFF121212)
+          : material.Colors.white,
       builder: (ctx) {
-        return ContentDialog(
+        return material.AlertDialog(
+          backgroundColor: material.Theme.of(context).brightness ==
+                  material.Brightness.dark
+              ? const material.Color(0xFF121212)
+              : material.Colors.white,
+          shape: material.RoundedRectangleBorder(
+            borderRadius: material.BorderRadius.circular(20.0),
+          ),
           title: const Text('Subir nueva revisión'),
           content: StatefulBuilder(
             builder: (context, setLocal) {
@@ -96,15 +105,68 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text('VIN (opcional)'),
+                  const Text('VINs aplicables (separados por coma)'),
                   const SizedBox(height: 6),
-                  TextBox(controller: vinCtrl, placeholder: 'Opcional'),
+                  material.TextField(
+                    controller: vinCtrl,
+                    style: material.TextStyle(
+                      color: material.Theme.of(
+                        context,
+                      ).textTheme.bodyLarge?.color,
+                    ),
+                    decoration: material.InputDecoration(
+                      labelText: 'VINs aplicables',
+                      contentPadding: const material.EdgeInsets.symmetric(
+                        vertical: 12.0,
+                        horizontal: 16.0,
+                      ),
+                      border: material.OutlineInputBorder(
+                        borderRadius: material.BorderRadius.circular(12.0),
+                        borderSide: material.BorderSide(
+                          color: material.Colors.grey.shade400,
+                        ),
+                      ),
+                      enabledBorder: material.OutlineInputBorder(
+                        borderRadius: material.BorderRadius.circular(12.0),
+                        borderSide: material.BorderSide(
+                          color: material.Colors.grey.shade400,
+                        ),
+                      ),
+                      hintText: 'Ej: 3N1AB7AP1HY123456, 1HGCM82633A004352',
+                    ),
+                  ),
                   const SizedBox(height: 12),
                   const Text('Número de revisión'),
                   const SizedBox(height: 6),
-                  TextBox(controller: revCtrl),
+                  material.TextField(
+                    controller: revCtrl,
+                    style: material.TextStyle(
+                      color: material.Theme.of(
+                        context,
+                      ).textTheme.bodyLarge?.color,
+                    ),
+                    decoration: material.InputDecoration(
+                      labelText: 'Numero de revision',
+                      contentPadding: const material.EdgeInsets.symmetric(
+                        vertical: 12.0,
+                        horizontal: 16.0,
+                      ),
+                      border: material.OutlineInputBorder(
+                        borderRadius: material.BorderRadius.circular(12.0),
+                        borderSide: material.BorderSide(
+                          color: material.Colors.grey.shade400,
+                        ),
+                      ),
+                      enabledBorder: material.OutlineInputBorder(
+                        borderRadius: material.BorderRadius.circular(12.0),
+                        borderSide: material.BorderSide(
+                          color: material.Colors.grey.shade400,
+                        ),
+                      ),
+                    ),
+                  ),
                   const SizedBox(height: 12),
-                  Button(
+                  material.OutlinedButton(
                     child: Text(
                       pathPdf == null
                           ? 'Seleccionar PDF…'
@@ -125,11 +187,11 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
             },
           ),
           actions: [
-            Button(
+            material.TextButton(
               child: const Text('Cancelar'),
               onPressed: () => Navigator.pop(ctx),
             ),
-            FilledButton(
+            material.ElevatedButton(
               child: const Text('Subir'),
               onPressed: () async {
                 if (pathPdf == null) return;
@@ -246,6 +308,10 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
                     );
                     await _cargarHistorial();
                     if (!mounted) return;
+                    if (_historial.isEmpty) {
+                      Navigator.of(context).pop();
+                      return;
+                    }
                     final ids = _historial
                         .map((e) => ayudasIdRevision(e as Map<String, dynamic>))
                         .toList();
@@ -284,15 +350,15 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
   Widget build(BuildContext context) {
     final url = _pdfUrlForRevision(_idRevisionSeleccionada);
 
-    return ScaffoldPage(
-      header: CompactPageHeader(
-        leading: IconButton(
-          icon: const Icon(FluentIcons.back),
+    return material.Scaffold(
+      appBar: material.AppBar(
+        leading: material.IconButton(
+          icon: const material.Icon(material.Icons.arrow_back),
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: Text(widget.tituloDocumento),
       ),
-      content: LayoutBuilder(
+      body: LayoutBuilder(
         builder: (context, c) {
           final narrow = c.maxWidth < 800;
           if (narrow) {
@@ -471,15 +537,19 @@ class _TimelinePane extends StatelessWidget {
                                                 BorderRadius.circular(4),
                                             border: Border.all(
                                               color: sel
-                                                  ? Colors.blue
-                                                  : Colors.grey.withValues(
-                                                      alpha: 0.4,
-                                                    ),
+                                                  ? FluentTheme.of(context).accentColor
+                                                  : FluentTheme.of(context)
+                                                      .resources
+                                                      .controlStrongStrokeColorDefault,
                                               width: sel ? 2 : 1,
                                             ),
                                             color: vig
-                                                ? const Color(0xFFE8F5E9)
-                                                : const Color(0xFFF5F5F5),
+                                                ? FluentTheme.of(context)
+                                                    .accentColor
+                                                    .withValues(alpha: 0.14)
+                                                : FluentTheme.of(context)
+                                                    .resources
+                                                    .controlFillColorDefault,
                                           ),
                                           child: Column(
                                             crossAxisAlignment:
@@ -490,22 +560,32 @@ class _TimelinePane extends StatelessWidget {
                                                 style: TextStyle(
                                                   fontWeight: FontWeight.bold,
                                                   color: vig
-                                                      ? const Color(0xFF2E7D32)
-                                                      : Colors.grey,
+                                                      ? FluentTheme.of(context)
+                                                          .accentColor
+                                                      : FluentTheme.of(context)
+                                                          .typography
+                                                          .caption
+                                                          ?.color,
                                                 ),
                                               ),
                                               if (fechaStr.isNotEmpty)
                                                 Text(
                                                   fechaStr,
-                                                  style: const TextStyle(
+                                                  style: TextStyle(
                                                     fontSize: 11,
+                                                    color: material.Theme.of(
+                                                          context,
+                                                        ).textTheme.bodySmall?.color,
                                                   ),
                                                 ),
                                               if (usuario.isNotEmpty)
                                                 Text(
                                                   usuario,
-                                                  style: const TextStyle(
+                                                  style: TextStyle(
                                                     fontSize: 11,
+                                                    color: material.Theme.of(
+                                                          context,
+                                                        ).textTheme.bodySmall?.color,
                                                   ),
                                                 ),
                                             ],

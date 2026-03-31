@@ -14,6 +14,7 @@ abstract final class AyudasJsonKeys {
   static const esVigente = 'Es_Vigente';
   static const usuarioSubida = 'Usuario_Subida';
   static const vin = 'VIN';
+  static const subcategoriaProceso = 'Subcategoria';
 }
 
 const String kAyudasDeletePassword = 'ADMIN_ING_2024';
@@ -57,6 +58,17 @@ String ayudasNumeroRevision(Map<String, dynamic> m) {
 
 String ayudasVin(Map<String, dynamic> m) {
   final v = _firstKey(m, [AyudasJsonKeys.vin, 'vin']);
+  return v?.toString().trim() ?? '';
+}
+
+String ayudasSubcategoriaProceso(Map<String, dynamic> m) {
+  final v = _firstKey(m, [
+    AyudasJsonKeys.subcategoriaProceso,
+    'subcategoria',
+    'subcategoria_proceso',
+    'Subcategoria',
+    'Subcategoria_Proceso',
+  ]);
   return v?.toString().trim() ?? '';
 }
 

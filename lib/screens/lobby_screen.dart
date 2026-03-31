@@ -78,11 +78,6 @@ class _LobbyScreenState extends State<LobbyScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    
-    // Color de fondo para las tarjetas según el modo
-    final cardBgColor = isDark ? Color(0xFF1E1E1E) : theme.cardColor;
-
     return ScaffoldPage(
       padding: const EdgeInsets.only(top: 8),
       header: Padding(
@@ -253,6 +248,12 @@ class _LobbyScreenState extends State<LobbyScreen> {
                     'desc': 'Gestión de calidad y no conformes.',
                     'nav': 13
                   },
+                  {
+                    'icon': FluentIcons.page_list,
+                    'title': 'Ayudas Visuales',
+                    'desc': 'Manuales, procesos y revisiones.',
+                    'nav': 4
+                  },
                 ];
 
                 final cardWidth = constraints.maxWidth < 360
@@ -294,8 +295,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
     required VoidCallback onTap,
   }) {
     final theme = FluentTheme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final cardColor = isDark ? Color(0xFF1E1E1E) : theme.cardColor;
+    final cardColor = theme.cardColor;
 
     return HoverButton(
       onPressed: onTap,
@@ -314,7 +314,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
             ),
             boxShadow: isHovered ? [
               BoxShadow(
-                color: Colors.black.withOpacity(0.1),
+                color: theme.shadowColor.withOpacity(0.2),
                 blurRadius: 10,
                 offset: Offset(0, 4),
               )

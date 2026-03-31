@@ -3,27 +3,30 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../services/api_client.dart';
+import '../../theme/app_themes.dart';
 import '../../widgets/compact_page_header.dart';
 import 'ayudas_categoria_screen.dart';
 
-IconData _iconForCodigo(String? codigo) {
-  switch ((codigo ?? '').toLowerCase().trim()) {
-    case 'mecanico':
-    case 'mecánico':
-      return FluentIcons.build_issue;
-    case 'electrico':
-    case 'eléctrico':
-      return FluentIcons.lightning_bolt;
-    case 'neumatico':
-    case 'neumático':
-      return FluentIcons.air_tickets;
-    case 'hidraulico':
-    case 'hidráulico':
-      return FluentIcons.flow_chart;
-    case 'soldadura':
-      return FluentIcons.toolbox;
+IconData _obtenerIcono(String? codigo) {
+  switch (codigo?.toLowerCase().trim()) {
+    case 'build':
+      return material.Icons.build;
+    case 'bolt':
+      return material.Icons.bolt;
+    case 'format_paint':
+      return material.Icons.format_paint;
+    case 'water_drop':
+      return material.Icons.water_drop;
+    case 'whatshot':
+      return material.Icons.whatshot;
+    case 'brush':
+      return material.Icons.brush;
+    case 'security':
+      return material.Icons.security;
+    case 'info':
+      return material.Icons.info;
     default:
-      return FluentIcons.document_set;
+      return material.Icons.folder_copy_outlined;
   }
 }
 
@@ -160,8 +163,16 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
     }
   }
 
+  bool _esModoCiberpunk(BuildContext context) {
+    if (appTheme.currentMode == AppThemeMode.cyberpunk) return true;
+    final theme = FluentTheme.of(context);
+    return theme.brightness == Brightness.dark &&
+        theme.typography.body?.fontFamily == 'Consolas';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isCyberpunk = _esModoCiberpunk(context);
     return ScaffoldPage(
       header: CompactPageHeader(
         title: const Text('Ayudas visuales'),
@@ -204,7 +215,7 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
                                 ? 3
                                 : 2;
                         return Padding(
-                          padding: const EdgeInsets.all(20),
+                          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
                           child: GridView.builder(
                             gridDelegate:
                                 SliverGridDelegateWithFixedCrossAxisCount(
@@ -224,7 +235,8 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
                               final icono = row['Icono_Codigo']?.toString();
                               return _CategoriaTile(
                                 titulo: nombre,
-                                icon: _iconForCodigo(icono),
+                                icon: _obtenerIcono(icono),
+                                isCyberpunk: isCyberpunk,
                                 onTap: () {
                                   Navigator.of(context).push(
                                     material.MaterialPageRoute<void>(
@@ -248,16 +260,13 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
             Positioned(
               right: 20,
               bottom: 20,
-              child: FilledButton(
+              child: material.FloatingActionButton.extended(
                 onPressed: _dialogoNuevaCategoria,
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(FluentIcons.add),
-                    SizedBox(width: 8),
-                    Text('Nueva categoría'),
-                  ],
+                shape: material.RoundedRectangleBorder(
+                  borderRadius: material.BorderRadius.circular(24.0),
                 ),
+                icon: const Icon(material.Icons.add),
+                label: const Text('Nueva categoría'),
               ),
             ),
         ],
@@ -270,34 +279,49 @@ class _CategoriaTile extends StatelessWidget {
   const _CategoriaTile({
     required this.titulo,
     required this.icon,
+    required this.isCyberpunk,
     required this.onTap,
   });
 
   final String titulo;
   final IconData icon;
+  final bool isCyberpunk;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return material.Material(
-      color: Colors.transparent,
+    final borderRadius = material.BorderRadius.circular(
+      isCyberpunk ? 4.0 : 24.0,
+    );
+    final neonColors = <Color>[
+      const Color(0xFF00E5FF), // cyan
+      const Color(0xFFFF00D4), // magenta
+      const Color(0xFFB7FF00), // lima
+    ];
+    final neonIndex = titulo.runes.fold<int>(0, (a, b) => a + b) %
+        neonColors.length;
+    final iconColor = isCyberpunk
+        ? neonColors[neonIndex]
+        : material.Theme.of(context).primaryColor;
+
+    return material.Card(
+      elevation: 4.0,
+      shape: material.RoundedRectangleBorder(
+        borderRadius: borderRadius,
+      ),
       child: material.InkWell(
         onTap: onTap,
-        borderRadius: material.BorderRadius.circular(8),
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: material.BorderRadius.circular(8),
-            border: Border.all(
-              color:
-                  FluentTheme.of(context).resources.controlStrokeColorDefault,
-            ),
-            color: FluentTheme.of(context).resources.controlFillColorDefault,
-          ),
+        borderRadius: borderRadius,
+        child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 56),
+              Icon(
+                icon,
+                size: 56.0,
+                color: iconColor,
+              ),
               const SizedBox(height: 12),
               Text(
                 titulo,
