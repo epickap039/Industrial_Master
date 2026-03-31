@@ -252,7 +252,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                     'icon': FluentIcons.page_list,
                     'title': 'Ayudas Visuales',
                     'desc': 'Manuales, procesos y revisiones.',
-                    'nav': 4
+                    'nav': 5
                   },
                 ];
 
@@ -369,6 +369,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
     required VoidCallback onTap,
   }) {
     final theme = FluentTheme.of(context);
+    final isLight = theme.brightness == Brightness.light;
     
     return HoverButton(
       onPressed: onTap,
@@ -390,7 +391,11 @@ class _LobbyScreenState extends State<LobbyScreen> {
               Icon(
                 icon, 
                 size: 32, 
-                color: isHovered ? theme.accentColor : theme.typography.body?.color?.withOpacity(0.6),
+                color: isLight
+                    ? theme.accentColor
+                    : (isHovered
+                        ? theme.accentColor
+                        : theme.typography.body?.color?.withOpacity(0.6)),
               ),
               SizedBox(width: 16),
               Expanded(
@@ -403,7 +408,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 14,
-                        color: theme.typography.body?.color,
+                        color: isLight ? theme.accentColor : theme.typography.body?.color,
                       ),
                     ),
                     SizedBox(height: 4),
@@ -411,7 +416,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
                       description,
                       style: TextStyle(
                         fontSize: 12,
-                        color: theme.typography.caption?.color?.withOpacity(0.7),
+                        color: isLight
+                            ? const Color(0x8A000000)
+                            : theme.typography.caption?.color?.withOpacity(0.7),
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,

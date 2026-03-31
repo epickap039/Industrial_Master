@@ -242,6 +242,68 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
     vinCtrl.dispose();
   }
 
+  Future<void> _dialogoEditarSubcategoria(String nombreActual) async {
+    final ctrl = TextEditingController(text: nombreActual);
+    try {
+      await showDialog<void>(
+        context: context,
+        barrierColor:
+            material.Theme.of(context).brightness == material.Brightness.dark
+            ? const material.Color(0xFF121212)
+            : material.Colors.white,
+        builder: (ctx) {
+          return material.AlertDialog(
+            backgroundColor:
+                material.Theme.of(context).brightness == material.Brightness.dark
+                ? const material.Color(0xFF121212)
+                : material.Colors.white,
+            shape: material.RoundedRectangleBorder(
+              borderRadius: material.BorderRadius.circular(20.0),
+            ),
+            title: const Text('Editar subcategoría'),
+            content: material.TextField(
+              controller: ctrl,
+              style: material.TextStyle(
+                color: material.Theme.of(context).textTheme.bodyLarge?.color,
+              ),
+              decoration: _inputDec(context, 'Subcategoría / Proceso'),
+            ),
+            actions: [
+              material.TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancelar'),
+              ),
+              material.ElevatedButton(
+                onPressed: () async {
+                  final nuevo = ctrl.text.trim();
+                  if (nuevo.isEmpty) return;
+                  await ApiClient.put(
+                    '/api/ayudas/subcategoria/editar',
+                    body: {
+                      'id_categoria': widget.idCategoria,
+                      'nombre_antiguo': nombreActual == 'Sin subcategoría'
+                          ? ''
+                          : nombreActual,
+                      'nombre_nuevo': nuevo,
+                    },
+                  );
+                  if (!mounted) return;
+                  Navigator.pop(ctx);
+                  await _cargar();
+                },
+                child: const Text('Guardar'),
+              ),
+            ],
+          );
+        },
+      );
+    } catch (e) {
+      if (mounted) showAyudasUploadError(context, e);
+    } finally {
+      ctrl.dispose();
+    }
+  }
+
   Map<String, List<Map<String, dynamic>>> _groupedDocs() {
     final q = _searchCtrl.text.trim().toLowerCase();
     final out = <String, List<Map<String, dynamic>>>{};
@@ -357,12 +419,30 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
                             ...grouped.entries.map((entry) {
                               return material.Card(
                                 child: material.ExpansionTile(
-                                  title: Text(
-                                    entry.key,
-                                    style: TextStyle(
-                                      color: textColor,
-                                      fontWeight: material.FontWeight.w700,
-                                    ),
+                                  title: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          entry.key,
+                                          style: TextStyle(
+                                            color: textColor,
+                                            fontWeight: material.FontWeight.w700,
+                                          ),
+                                        ),
+                                      ),
+                                      material.IconButton(
+                                        icon: Icon(
+                                          material.Icons.edit,
+                                          size: 18,
+                                          color: material.Theme.of(
+                                            context,
+                                          ).primaryColor,
+                                        ),
+                                        tooltip: 'Editar subcategoría',
+                                        onPressed: () =>
+                                            _dialogoEditarSubcategoria(entry.key),
+                                      ),
+                                    ],
                                   ),
                                   children: entry.value.map((m) {
                                     final idAyuda = ayudasIdAyuda(m);

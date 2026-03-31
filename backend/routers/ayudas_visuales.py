@@ -35,6 +35,11 @@ class CategoriaCreatePayload(BaseModel):
     nombre: str = Field(..., min_length=1)
     icono: str = ""
 
+class EditarSubcategoriaPayload(BaseModel):
+    id_categoria: int
+    nombre_antiguo: Optional[str] = None
+    nombre_nuevo: str = Field(..., min_length=1)
+
 
 def _sanitize_folder_name(name: str) -> str:
     s = (name or "").strip()
@@ -171,6 +176,67 @@ def historial_revisiones(id_ayuda: int):
         rows = cur.fetchall()
         return [_row_to_dict(cur, r) for r in rows]
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+@router.put("/api/ayudas/subcategoria/editar")
+def editar_subcategoria_masiva(
+    payload: EditarSubcategoriaPayload,
+    authorization: Optional[str] = Header(None),
+    x_usuario: Optional[str] = Header(None, alias="X-Usuario"),
+):
+    usr = resolve_actor_user(authorization, x_usuario)
+    id_categoria = int(payload.id_categoria)
+    nombre_antiguo = payload.nombre_antiguo
+    nombre_nuevo = (payload.nombre_nuevo or "").strip()
+    if not nombre_nuevo:
+        raise HTTPException(status_code=400, detail="nombre_nuevo es obligatorio")
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        if nombre_antiguo is None or not str(nombre_antiguo).strip():
+            cur.execute(
+                """
+                UPDATE Tbl_Ayudas_Maestro
+                SET Subcategoria = ?
+                WHERE Id_Categoria = ?
+                  AND (Subcategoria IS NULL OR LTRIM(RTRIM(Subcategoria)) = '')
+                """,
+                (nombre_nuevo, id_categoria),
+            )
+            old_label = "(vacio)"
+        else:
+            old_value = str(nombre_antiguo).strip()
+            cur.execute(
+                """
+                UPDATE Tbl_Ayudas_Maestro
+                SET Subcategoria = ?
+                WHERE Id_Categoria = ?
+                  AND Subcategoria = ?
+                """,
+                (nombre_nuevo, id_categoria, old_value),
+            )
+            old_label = old_value
+
+        updated = int(cur.rowcount or 0)
+        detalle = (
+            f"id_categoria={id_categoria};old={old_label[:80]};"
+            f"new={nombre_nuevo[:80]};rows={updated}"
+        )
+        registrar_log_global(
+            cur,
+            "AYUDAS",
+            "EDITAR_SUBCATEGORIA_MASIVA",
+            "",
+            detalle[:250],
+            usr,
+        )
+        conn.commit()
+        return {"ok": True, "updated": updated}
+    except Exception as e:
+        conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()

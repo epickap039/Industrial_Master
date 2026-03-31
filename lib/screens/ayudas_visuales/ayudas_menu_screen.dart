@@ -290,6 +290,7 @@ class _CategoriaTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = material.Theme.of(context).brightness == material.Brightness.dark;
     final borderRadius = material.BorderRadius.circular(
       isCyberpunk ? 4.0 : 24.0,
     );
@@ -302,7 +303,9 @@ class _CategoriaTile extends StatelessWidget {
         neonColors.length;
     final iconColor = isCyberpunk
         ? neonColors[neonIndex]
-        : material.Theme.of(context).primaryColor;
+        : isDark
+            ? material.Theme.of(context).colorScheme.secondary
+            : material.Theme.of(context).primaryColor;
 
     return material.Card(
       elevation: 4.0,
