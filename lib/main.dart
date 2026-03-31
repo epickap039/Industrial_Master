@@ -24,6 +24,7 @@ import 'screens/cad_scanner_screen.dart'; // Módulo CAD
 import 'screens/ayudas_visuales/ayudas_visuales_nav.dart';
 import 'screens/lobby_screen.dart'; // Nuevo Lobby Rediseñado
 import 'screens/impact_radar_screen.dart'; // Módulo Where-Used
+import 'screens/monitoreo_tareas_screen.dart';
 import 'screens/mrp_screen.dart'; // MRP: Requerimiento de Materiales
 import 'screens/analytics_screen.dart'; // Dashboard Analytics
 import 'package:pasteboard/pasteboard.dart';
@@ -394,8 +395,12 @@ class _MyAppState extends State<MyApp> {
 
   void _handleNavigation(int index, BuildContext navContext, {int? id}) async {
     FocusManager.instance.primaryFocus?.unfocus();
+    // Solo persistir revisión objetivo cuando el flujo la envía (p. ej. VIN → BOM).
+    // Si el usuario elige una pestaña manualmente, limpiar para no reabrir el gestor al volver al mapa.
     if (id != null) {
       targetRevisionId = id;
+    } else {
+      targetRevisionId = null;
     }
 
     setState(() => topIndex = index);
@@ -613,6 +618,11 @@ class _MyAppState extends State<MyApp> {
                                 icon: const Icon(FluentIcons.history),
                                 title: const Text('Historial de Cambios'),
                                 body: const HistoryScreen(),
+                              ),
+                              PaneItem(
+                                icon: const Icon(FluentIcons.activity_feed),
+                                title: const Text('Centro de Monitoreo'),
+                                body: const MonitoreoTareasScreen(),
                               ),
                             ],
                       footerItems: [

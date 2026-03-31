@@ -522,11 +522,11 @@ async def auditar_excel(file: UploadFile = File(...)):
     errores = []
     reporte_detallado = [] # Lista de objetos con contexto completo
     
-    # Índices 0-based en fila Excel (col D=3 código; E=4 Desc; F=5 Medida; G=6 Material)
+    # Índices 0-based: D=3 Código; E=4 Material (BD Material); F=5 Medida; G=6 sin usar en material;
+    # H=7 Simetria; I..L procesos (misma plantilla que antes salvo que material sale de E, no de G).
     field_map = {
-        'Descripcion': 4,
+        'Material': 4,
         'Medida': 5,
-        'Material': 6,
         'Simetria': 7,
         'Proceso_Primario': 8,
         'Proceso_1': 9,
@@ -542,7 +542,7 @@ async def auditar_excel(file: UploadFile = File(...)):
         cursor = conn.cursor()
         
         for row_idx, row in enumerate(ws.iter_rows(min_row=6, values_only=True), start=6):
-            if not row or len(row) < 12: 
+            if not row or len(row) < 12:
                 continue
             
             codigo_excel = str(row[3]).strip() if row[3] else None
@@ -573,14 +573,15 @@ async def auditar_excel(file: UploadFile = File(...)):
                 for field, col_idx in field_map.items():
                     val_excel = str(row[col_idx]).strip() if row[col_idx] else ""
                     vals_excel[field] = val_excel
-                    
-                    if val_excel != vals_bd[field]:
+                    val_bd = vals_bd[field]
+
+                    if val_excel != val_bd:
                          errores.append({
                             "fila": row_idx,
                             "codigo": codigo_excel,
                             "campo": field,
                             "excel": val_excel,
-                            "bd": vals_bd[field]
+                            "bd": val_bd,
                         })
                          row_diffs.append(field)
                 
@@ -624,20 +625,18 @@ async def corregir_excel(
         ws = wb.active # Asumimos hoja activa
 
         
-        # Mapeo Campo -> Columna Excel 1-based (plantilla maestra).
-        # Descripcion → columna E (texto pieza) → SQL Descripcion.
-        # Material → columna G → SQL Material.
-        # D(4)=Codigo, E(5)=Desc, F(6)=Medida, G(7)=Material, H(8)=Simetria
-        # I(9)=Primario, J(10)=Proc1, K(11)=Proc2, L(12)=Proc3
+        # Mapeo Campo -> Columna Excel 1-based (alineado con /api/excel/auditar).
+        # D=4 Código, E=5 Material, F=6 Medida, G=7 (histórico; no es material), H=8 Simetria,
+        # I–L procesos.
         col_map = {
-            'Descripcion': 5,  # E → SQL Descripcion
+            'Descripcion': 5,  # legado: misma celda E que Material
+            'Material': 5,     # E
             'Medida': 6,       # F
-            'Material': 7,     # G → SQL Material
             'Simetria': 8,     # H
-            'Proceso_Primario': 9,  # I
-            'Proceso_1': 10,   # J
-            'Proceso_2': 11,  # K
-            'Proceso_3': 12,  # L
+            'Proceso_Primario': 9,
+            'Proceso_1': 10,
+            'Proceso_2': 11,
+            'Proceso_3': 12,
         }
 
         count = 0

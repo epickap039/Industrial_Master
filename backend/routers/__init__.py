@@ -8,6 +8,7 @@ from . import catalog
 from . import config_api
 from . import engineering
 from . import excel
+from . import gestor_tareas
 from . import historial
 from . import limpieza
 from . import mrp
@@ -26,6 +27,7 @@ __all__ = [
     'config_api',
     'engineering',
     'excel',
+    'gestor_tareas',
     'historial',
     'limpieza',
     'mrp',

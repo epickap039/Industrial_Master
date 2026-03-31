@@ -254,6 +254,12 @@ class _LobbyScreenState extends State<LobbyScreen> {
                     'desc': 'Manuales, procesos y revisiones.',
                     'nav': 5
                   },
+                  {
+                    'icon': FluentIcons.activity_feed,
+                    'title': 'Centro de Monitoreo',
+                    'desc': 'Seguimiento de tareas automáticas y manuales.',
+                    'nav': 16
+                  },
                 ];
 
                 final cardWidth = constraints.maxWidth < 360
