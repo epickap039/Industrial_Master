@@ -19,6 +19,30 @@
 - [Protocolo de Build Limpio](#-protocolo-de-build-limpio)
 - [Infraestructura de Red](#-infraestructura-de-red)
 - [Bitácora de Errores Críticos](#-bitácora-de-errores-críticos)
+- [Industrial Master v15.5](#industrial-master-v155)
+
+---
+
+## Industrial Master v15.5
+
+Rama de trabajo: **`v15.5_Clean_Rebuild`**. Incluye el **Centro de Monitoreo** (Comando Directivo), extensiones del **gestor de tareas**, **configuración de usuarios** del comando, bandeja de **notificaciones** en cliente y ajustes del **Radar de impacto** (simulación multi-pieza, presupuestos de tiempo).
+
+### Documentación en el repositorio
+
+| Documento | Contenido |
+|-----------|-----------|
+| [DOCUMENTACION_CENTRO_MONITOREO.md](DOCUMENTACION_CENTRO_MONITOREO.md) | Centro de Monitoreo / Comando Directivo: modelo de datos, API, UI y flujos Andon. |
+| [DOCUMENTACION_PRESENTACION_DIRECTIVA.md](DOCUMENTACION_PRESENTACION_DIRECTIVA.md) | Enfoque de presentación para directivos (visión de producto y arquitectura). |
+| [RADAR_IMPACTO_ANALISIS_Y_PROPUESTAS.md](RADAR_IMPACTO_ANALISIS_Y_PROPUESTAS.md) | Análisis y propuestas sobre el módulo Radar de impacto. |
+| [RESUMEN_IA_CENTRO_MONITOREO_Y_RADAR.md](RESUMEN_IA_CENTRO_MONITOREO_Y_RADAR.md) | Resumen operativo entre Centro de Monitoreo y Radar. |
+
+### Archivos y rutas nuevos o clave
+
+- **Monitoreo:** `lib/screens/monitoreo_tareas_screen.dart`, `lib/screens/monitoreo/`
+- **Usuarios (comando):** `lib/screens/configuracion_usuarios_screen.dart`, `backend/routers/usuarios.py`, script `backend/sql/create_tbl_comando_usuarios.sql`
+- **Gestor de tareas / SQL:** `backend/routers/gestor_tareas.py` y migraciones `backend/sql/add_gestor_comando_directivo.sql`, `add_gestor_usuario_asignado.sql`, `add_gestor_checklist_meta_grupo.sql`, `add_gestor_tareas_motivo_cancelacion.sql`
+- **Tiempos de simulación Radar:** `backend/data/radar_tiempos.json` (persistido vía API en `backend/routers/engineering.py`)
+- **Notificaciones en app:** `lib/services/notification_inbox_service.dart`
 
 ---
 
@@ -392,6 +416,10 @@ industrial_manager_v15_5/
 ├── backend/                        # API REST (Python / FastAPI)
 │   ├── server.py                   # Servidor principal (~186 KB)
 │   ├── requirements.txt            # Dependencias Python
+│   ├── data/
+│   │   └── radar_tiempos.json      # Config. minutos simulación Radar (API engineering)
+│   ├── routers/                    # Routers modulares (gestor_tareas, usuarios, engineering, …)
+│   ├── sql/                        # Scripts de migración SQL Server (gestor / comando)
 │   └── tools/
 │       ├── convertir_dwg.py        # Conversor DWG → DXF (AutoCAD COM)
 │       └── preparar_solidworks.py  # Base COM de SolidWorks
@@ -408,6 +436,9 @@ industrial_manager_v15_5/
 │   │   ├── materials_list.dart     # Materiales Oficiales
 │   │   ├── engineering_map.dart    # Mapa de Ingeniería (folios/revisiones)
 │   │   ├── impact_radar_screen.dart# Where-Used / Radar de Impacto
+│   │   ├── monitoreo_tareas_screen.dart # Centro de Monitoreo / Comando Directivo
+│   │   ├── configuracion_usuarios_screen.dart # Usuarios del comando
+│   │   ├── monitoreo/              # Widgets del tablero de monitoreo
 │   │   ├── cad_scanner_screen.dart # Escáner CAD masivo (SolidWorks + AutoCAD)
 │   │   ├── arbitration.dart        # Motor de importación Excel con arbitraje
 │   │   ├── auditor.dart            # Auditor de Archivos Excel/SQL
@@ -423,6 +454,8 @@ industrial_manager_v15_5/
 │   │   └── editor.dart             # Editor auxiliar
 │   ├── widgets/
 │   │   └── conflict_dialog.dart    # Diálogo de resolución de conflictos Excel vs SQL
+│   ├── services/
+│   │   └── notification_inbox_service.dart # Bandeja de notificaciones en cliente
 │   └── utils/
 │       └── excel_helper.dart       # Utilidades para manejo de Excel
 │
@@ -430,6 +463,10 @@ industrial_manager_v15_5/
 ├── assets/                         # Assets estáticos
 ├── BLUEPRINT_INTEGRAL_v15.5.md     # Documento maestro de arquitectura
 ├── ATLAS_PROYECTO.md               # Mapa detallado del proyecto
+├── DOCUMENTACION_CENTRO_MONITOREO.md
+├── DOCUMENTACION_PRESENTACION_DIRECTIVA.md
+├── RADAR_IMPACTO_ANALISIS_Y_PROPUESTAS.md
+├── RESUMEN_IA_CENTRO_MONITOREO_Y_RADAR.md
 ├── MATAR_TODO.bat                  # Script: terminar todos los procesos
 ├── PRUEBA_RAPIDA.bat               # Script: prueba de conectividad rápida
 ├── pubspec.yaml                    # Dependencias Flutter

@@ -15,6 +15,7 @@ from . import mrp
 from . import proyectos
 from . import qa
 from . import root
+from . import usuarios
 from . import vins
 
 __all__ = [
@@ -34,5 +35,6 @@ __all__ = [
     'proyectos',
     'qa',
     'root',
+    'usuarios',
     'vins',
 ]

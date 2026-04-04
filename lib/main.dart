@@ -25,6 +25,7 @@ import 'screens/ayudas_visuales/ayudas_visuales_nav.dart';
 import 'screens/lobby_screen.dart'; // Nuevo Lobby Rediseñado
 import 'screens/impact_radar_screen.dart'; // Módulo Where-Used
 import 'screens/monitoreo_tareas_screen.dart';
+import 'screens/configuracion_usuarios_screen.dart';
 import 'screens/mrp_screen.dart'; // MRP: Requerimiento de Materiales
 import 'screens/analytics_screen.dart'; // Dashboard Analytics
 import 'package:pasteboard/pasteboard.dart';
@@ -636,6 +637,14 @@ class _MyAppState extends State<MyApp> {
                           title: const Text("Reportar Bug"),
                           onTap: () => _showBugDialog(navContext),
                         ),
+                        if (_userRole == 'ADMIN')
+                          PaneItem(
+                            icon: const Icon(FluentIcons.people),
+                            title: const Text('Usuarios (admin)'),
+                            body: ConstrainedAppBody(
+                              child: const ConfiguracionUsuariosScreen(),
+                            ),
+                          ),
                         PaneItem(
                           icon: const Icon(FluentIcons.settings),
                           title: const Text('Configuración'),

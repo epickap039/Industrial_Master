@@ -29,6 +29,7 @@ from routers import (
     proyectos,
     qa,
     root,
+    usuarios,
     vins,
 )
 
@@ -68,6 +69,7 @@ for _router in (
     vins.router,
     bom.router,
     auth.router,
+    usuarios.router,
     catalog.router,
     excel.router,
     gestor_tareas.router,

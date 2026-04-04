@@ -45,21 +45,29 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       final data = await ApiClient.post(
-        '/api/login',
+        '/api/usuarios/login',
         body: {
-          'username': _userController.text,
+          'username': _userController.text.trim(),
           'password': _passController.text,
         },
       ) as Map<String, dynamic>;
       final String rol = data['rol'] ?? 'USER';
       final token = data['access_token'];
       final String? accessToken = token is String && token.isNotEmpty ? token : null;
+      final uname = '${data['username'] ?? _userController.text}'.trim();
+      final uid = data['id'];
+      final int? userId = uid is int ? uid : int.tryParse('$uid');
 
       // Guardar Sesión
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('isLoggedIn', true);
       await prefs.setString('loginDate', DateTime.now().toIso8601String());
-      await prefs.setString('username', _userController.text);
+      await prefs.setString('username', uname.isNotEmpty ? uname : _userController.text.trim());
+      if (userId != null && userId > 0) {
+        await prefs.setInt('user_id', userId);
+      } else {
+        await prefs.remove('user_id');
+      }
       await prefs.setString('rol', rol);
       if (accessToken != null) {
         await prefs.setString('access_token', accessToken);

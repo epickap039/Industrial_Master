@@ -1,8 +1,12 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/material.dart' as material;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/api_client.dart';
 import '../widgets/compact_page_header.dart';
+import 'monitoreo/widgets/manual_mission_form_dialog.dart'
+    show kResponsablesMisionFallback;
+import 'monitoreo/widgets/task_display_utils.dart' show kGrupoJerarquiaIndefinida;
 
 class ImpactRadarScreen extends StatefulWidget {
   const ImpactRadarScreen({super.key});
@@ -13,17 +17,15 @@ class ImpactRadarScreen extends StatefulWidget {
 
 class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
   final TextEditingController _searchController = TextEditingController();
+  List<String> _listaUsernames = List<String>.from(kResponsablesMisionFallback);
+  String? _usuarioMisionSeleccionado;
+  String _prefsUsername = '';
   bool _isLoading = false;
   String _currentPiece = "";
 
   // Resultados agrupados: Map<Cliente, Map<Proyecto/Lista, List<Ensamble>>>
   Map<String, Map<String, List<dynamic>>> _groupedResults = {};
   
-  // Tareas Globales
-  bool _gPlano = false;
-  bool _gPdfDxf = false;
-  bool _gEdrawing = false;
-  bool _gDrive = false;
   bool _afectaRelaciones = false;
   bool _simulando = false;
   bool _creandoTarea = false;
@@ -32,27 +34,61 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
   final Map<int, int> _minutosPorEnsamble = {};
   /// Piezas del análisis presentes en cada ensamble (última simulación).
   final Map<int, List<String>> _piezasPorEnsamble = {};
-  /// Plano general por grupo Type (clave = tracto / proyecto / version (Rev…)).
-  Map<String, bool> _planoGeneralPorGrupo = {};
+  final material.ScrollController _splitLeftScroll = material.ScrollController();
+  final material.ScrollController _splitRightScroll = material.ScrollController();
 
-  // Checklists Locales: Map<id_ensamble, Map<String, bool>>
-  Map<int, Map<String, bool>> _localChecklists = {};
-
-  void _syncGruposPlanoGeneralKeys() {
-    final keys = <String>{};
-    for (final m in _groupedResults.values) {
-      keys.addAll(m.keys);
-    }
-    final next = <String, bool>{};
-    for (final k in keys) {
-      next[k] = _planoGeneralPorGrupo[k] ?? true;
-    }
-    _planoGeneralPorGrupo = next;
+  @override
+  void initState() {
+    super.initState();
+    _usuarioMisionSeleccionado = _listaUsernames.first;
+    _cargarUsuariosMision();
   }
 
-  bool get _incluirPlanoGeneralSimulacion =>
-      _planoGeneralPorGrupo.isEmpty ||
-      _planoGeneralPorGrupo.values.any((v) => v);
+  String? _defaultResponsableParaLista(List<String> names) {
+    if (names.isEmpty) return null;
+    if (_prefsUsername.isNotEmpty && names.contains(_prefsUsername)) {
+      return _prefsUsername;
+    }
+    return names.first;
+  }
+
+  Future<void> _cargarUsuariosMision() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _prefsUsername = (prefs.getString('username') ?? '').trim();
+      final raw = await ApiClient.get('/api/usuarios/lista');
+      if (!mounted) return;
+      List<String> names = List<String>.from(kResponsablesMisionFallback);
+      if (raw is List && raw.isNotEmpty) {
+        final fromApi = raw
+            .map((e) => Map<String, dynamic>.from(e as Map))
+            .map((u) => '${u['username'] ?? ''}'.trim())
+            .where((s) => s.isNotEmpty)
+            .toList();
+        if (fromApi.isNotEmpty) names = fromApi;
+      }
+      setState(() {
+        _listaUsernames = names;
+        _usuarioMisionSeleccionado = _defaultResponsableParaLista(names);
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _listaUsernames = List<String>.from(kResponsablesMisionFallback);
+          _usuarioMisionSeleccionado =
+              _defaultResponsableParaLista(_listaUsernames);
+        });
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _splitLeftScroll.dispose();
+    _splitRightScroll.dispose();
+    super.dispose();
+  }
 
   material.InputDecoration _inputDecTituloCambio(BuildContext ctx) {
     final border = material.OutlineInputBorder(
@@ -108,51 +144,39 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
       _isLoading = true;
       _currentPiece = codes.join(', ');
       _groupedResults = {};
-      _localChecklists = {};
       _simulacion = null;
       _minutosPorEnsamble.clear();
       _piezasPorEnsamble.clear();
-      _planoGeneralPorGrupo = {};
     });
 
     try {
+      final List<dynamic> data = await ApiClient.post(
+        '/api/bom/where-used',
+        body: {'codigo_pieza': codes.join(', ')},
+      ) as List<dynamic>;
+
       final tempGrouped = <String, Map<String, List<dynamic>>>{};
 
-      for (final query in codes) {
-        final List<dynamic> data =
-            await ApiClient.get('/api/bom/where-used/$query') as List<dynamic>;
+      for (var item in data) {
+        final cliente = item['cliente'] as String;
+        final proyLista =
+            "${item['tracto']} / ${item['proyecto']} / ${item['version']} (${item['lista_bom']})";
 
-        for (var item in data) {
-          final cliente = item['cliente'] as String;
-          final proyLista =
-              "${item['tracto']} / ${item['proyecto']} / ${item['version']} (${item['lista_bom']})";
+        if (!tempGrouped.containsKey(cliente)) {
+          tempGrouped[cliente] = {};
+        }
+        if (!tempGrouped[cliente]!.containsKey(proyLista)) {
+          tempGrouped[cliente]![proyLista] = [];
+        }
 
-          if (!tempGrouped.containsKey(cliente)) {
-            tempGrouped[cliente] = {};
-          }
-          if (!tempGrouped[cliente]!.containsKey(proyLista)) {
-            tempGrouped[cliente]![proyLista] = [];
-          }
-
-          if (!tempGrouped[cliente]![proyLista]!
-              .any((e) => e['id_ensamble'] == item['id_ensamble'])) {
-            tempGrouped[cliente]![proyLista]!.add(item);
-
-            final idEns = item['id_ensamble'];
-            if (!_localChecklists.containsKey(idEns)) {
-              _localChecklists[idEns] = {
-                'plano_ensamble': false,
-                'pdf_ensamble': false,
-                'drive': false,
-              };
-            }
-          }
+        if (!tempGrouped[cliente]![proyLista]!
+            .any((e) => e['id_ensamble'] == item['id_ensamble'])) {
+          tempGrouped[cliente]![proyLista]!.add(item);
         }
       }
 
       setState(() {
         _groupedResults = tempGrouped;
-        _syncGruposPlanoGeneralKeys();
       });
     } catch (e) {
       _showError("No se pudo conectar al servidor: $e");
@@ -164,20 +188,16 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
   }
 
   void _limpiarPantalla() {
+    _searchController.clear();
     setState(() {
-      _searchController.clear();
       _currentPiece = "";
       _groupedResults = {};
-      _localChecklists = {};
-      _gPlano = false;
-      _gPdfDxf = false;
-      _gEdrawing = false;
-      _gDrive = false;
       _afectaRelaciones = false;
       _simulacion = null;
       _minutosPorEnsamble.clear();
       _piezasPorEnsamble.clear();
-      _planoGeneralPorGrupo = {};
+      _usuarioMisionSeleccionado =
+          _defaultResponsableParaLista(_listaUsernames);
     });
   }
 
@@ -193,15 +213,116 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
     );
   }
 
+  Future<void> _abrirConfigTiemposRadar() async {
+    Map<String, dynamic> cfg = {};
+    try {
+      final raw = await ApiClient.get('/api/bom/impacto/tiempos-config');
+      if (raw is Map) {
+        cfg = Map<String, dynamic>.from(raw);
+      }
+    } catch (e) {
+      _showError('No se pudo cargar la configuración: $e');
+      return;
+    }
+    if (!mounted) return;
+
+    final ens = TextEditingController(
+      text: '${cfg['minutos_plano_ensamble'] ?? 20}',
+    );
+    final pdf = TextEditingController(text: '${cfg['minutos_pdf'] ?? 5}');
+    final rel = TextEditingController(
+      text: '${cfg['minutos_por_relacion_unidad'] ?? 5}',
+    );
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        return ContentDialog(
+          title: const Text('Tiempos estimados (Radar de impacto)'),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                InfoLabel(
+                  label: 'Minutos por Plano Ensamble',
+                  child: TextBox(controller: ens),
+                ),
+                const SizedBox(height: 12),
+                InfoLabel(
+                  label: 'Minutos por PDF',
+                  child: TextBox(controller: pdf),
+                ),
+                const SizedBox(height: 12),
+                InfoLabel(
+                  label: 'Minutos por unidad de relación (× cantidad redondeada arriba)',
+                  child: TextBox(controller: rel),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            Button(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final pe = int.tryParse(ens.text.trim()) ?? 0;
+                final pp = int.tryParse(pdf.text.trim()) ?? 0;
+                final pr = int.tryParse(rel.text.trim()) ?? 0;
+                try {
+                  await ApiClient.put(
+                    '/api/bom/impacto/tiempos-config',
+                    body: {
+                      'minutos_plano_ensamble': pe,
+                      'minutos_pdf': pp,
+                      'minutos_por_relacion_unidad': pr,
+                    },
+                  );
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  if (!mounted) return;
+                  displayInfoBar(
+                    context,
+                    builder: (c, close) => InfoBar(
+                      title: const Text('Guardado'),
+                      content: Text(
+                        _currentPiece.isEmpty
+                            ? 'Valores guardados en el servidor.'
+                            : 'Valores guardados; simulación actualizada.',
+                      ),
+                      severity: InfoBarSeverity.success,
+                      action:
+                          IconButton(icon: const Icon(FluentIcons.clear), onPressed: close),
+                    ),
+                  );
+                  if (_currentPiece.isNotEmpty) await _evaluarImpacto();
+                } catch (e) {
+                  _showError('No se pudo guardar: $e');
+                }
+              },
+              child: const Text('Guardar'),
+            ),
+          ],
+        );
+      },
+    );
+    ens.dispose();
+    pdf.dispose();
+    rel.dispose();
+  }
+
   /// El [Checkbox] de fluent_ui une caja + [content] en un `Row(mainAxisSize: min)`,
   /// así el texto no recibe límite de ancho y overflow (p. ej. tema Cyberpunk con fuente ancha).
   /// Sin [content]: fila propia con [Expanded] para la etiqueta.
   Widget _globalTaskRow({
     required bool value,
-    required ValueChanged<bool?> onChanged,
+    ValueChanged<bool?>? onChanged,
     required String label,
   }) {
-    void toggle() => onChanged(!value);
+    void toggle() {
+      if (onChanged != null) onChanged(!value);
+    }
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -221,6 +342,9 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
                 maxLines: 4,
                 overflow: TextOverflow.ellipsis,
                 softWrap: true,
+                style: TextStyle(
+                  color: onChanged == null ? material.Colors.grey : null,
+                ),
               ),
             ),
           ),
@@ -232,7 +356,7 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
   Widget _buildGlobalTasks() {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -245,29 +369,16 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
             _globalTaskRow(
-              value: _gPlano,
-              onChanged: (v) => setState(() => _gPlano = v ?? false),
-              label: 'Actualizar Plano de Pieza (.SLDDRW)',
-            ),
-            const SizedBox(height: 8),
-            _globalTaskRow(
-              value: _gPdfDxf,
-              onChanged: (v) => setState(() => _gPdfDxf = v ?? false),
-              label: 'Exportar nuevo PDF/DXF',
-            ),
-            const SizedBox(height: 8),
-            _globalTaskRow(
-              value: _gEdrawing,
-              onChanged: (v) => setState(() => _gEdrawing = v ?? false),
-              label: 'Exportar E-Drawing',
-            ),
-            const SizedBox(height: 8),
-            _globalTaskRow(
-              value: _gDrive,
-              onChanged: (v) => setState(() => _gDrive = v ?? false),
-              label: 'Reemplazar archivo en Drive',
+              value: _afectaRelaciones,
+              onChanged: _simulacion == null ? null : (v) async {
+                setState(() => _afectaRelaciones = v ?? false);
+                if (_currentPiece.isNotEmpty && !_simulando) {
+                  await _evaluarImpacto();
+                }
+              },
+              label: 'Afecta relaciones de posición (efecto dominó)',
             ),
           ],
         ),
@@ -284,11 +395,6 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
         body: {
           'codigo_pieza': _currentPiece,
           'afecta_relaciones': _afectaRelaciones,
-          'incluir_plano_pieza': _gPlano,
-          'incluir_plano_ensamble': true,
-          'incluir_pdf_ensamble': _gPdfDxf,
-          'incluir_plano_general': _incluirPlanoGeneralSimulacion,
-          'incluir_subir_drive': _gDrive,
         },
       ) as Map<String, dynamic>;
       if (!mounted) return;
@@ -309,6 +415,23 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
           }
         }
       });
+      final sinVig = res['sin_bom_aprobada_vigente'] == true;
+      final msg = '${res['mensaje_alerta'] ?? ''}'.trim();
+      if (mounted && sinVig) {
+        displayInfoBar(
+          context,
+          builder: (c, close) => InfoBar(
+            title: const Text('Sin listas aprobadas vigentes'),
+            content: Text(
+              msg.isNotEmpty
+                  ? msg
+                  : 'No hay BOM con Estado Aprobada y Es_Vigente = 1 para estos códigos.',
+            ),
+            severity: InfoBarSeverity.warning,
+            action: IconButton(icon: const Icon(FluentIcons.clear), onPressed: close),
+          ),
+        );
+      }
     } catch (e) {
       _showError('Simulación fallida: $e');
     } finally {
@@ -319,6 +442,9 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
   Future<void> _generarTareaIngenieria() async {
     if (_simulacion == null) return;
     final tituloCtrl = material.TextEditingController();
+    
+    String usrSel = _usuarioMisionSeleccionado ?? (_listaUsernames.isNotEmpty ? _listaUsernames.first : '');
+
     final ok = await material.showDialog<bool>(
       context: context,
       barrierColor: material.Theme.of(context).brightness == material.Brightness.dark
@@ -335,15 +461,34 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
               shape: material.RoundedRectangleBorder(
                 borderRadius: material.BorderRadius.circular(20.0),
               ),
-              title: const Text('Título del Cambio'),
-              content: material.TextField(
-                controller: tituloCtrl,
-                autofocus: true,
-                style: material.TextStyle(
-                  color: material.Theme.of(context).textTheme.bodyLarge?.color,
-                ),
-                decoration: _inputDecTituloCambio(context),
-                onChanged: (_) => setLocal(() {}),
+              title: const Text('Asignar Tarea de Ingeniería'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  InfoLabel(
+                    label: 'Responsable de la misión',
+                    child: ComboBox<String>(
+                      value: usrSel.isEmpty ? null : usrSel,
+                      isExpanded: true,
+                      placeholder: const Text('Seleccionar usuario'),
+                      items: _listaUsernames
+                          .map((e) => ComboBoxItem<String>(value: e, child: Text(e)))
+                          .toList(),
+                      onChanged: (v) => setLocal(() => usrSel = v ?? ''),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  material.TextField(
+                    controller: tituloCtrl,
+                    autofocus: true,
+                    style: material.TextStyle(
+                      color: material.Theme.of(context).textTheme.bodyLarge?.color,
+                    ),
+                    decoration: _inputDecTituloCambio(context),
+                    onChanged: (_) => setLocal(() {}),
+                  ),
+                ],
               ),
               actions: [
                 material.TextButton(
@@ -351,10 +496,10 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
                   child: const Text('Cancelar'),
                 ),
                 material.FilledButton(
-                  onPressed: tituloCtrl.text.trim().isEmpty
+                  onPressed: tituloCtrl.text.trim().isEmpty || usrSel.isEmpty
                       ? null
                       : () => Navigator.pop(ctx, true),
-                  child: const Text('Continuar'),
+                  child: const Text('Confirmar Asignación'),
                 ),
               ],
             );
@@ -369,14 +514,28 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
     setState(() => _creandoTarea = true);
     try {
       final entregables = (_simulacion!['entregables'] as List<dynamic>? ?? [])
-          .map(
-            (e) => {
-              'nombre': (e as Map<String, dynamic>)['nombre']?.toString() ?? 'Tarea',
-              'minutos': (e)['minutos'] is int
+          .where((raw) {
+            final e = Map<String, dynamic>.from(raw as Map);
+            final n = '${e['nombre'] ?? ''}'.toLowerCase();
+            if (n.contains('e-drawing') || n.contains('edrawing')) return false;
+            if (n.contains('drive')) return false;
+            final t = n.trim();
+            if (t == 'pdf' || t.startsWith('pdf ')) return false;
+            return true;
+          })
+          .map((raw) {
+            final e = Map<String, dynamic>.from(raw as Map);
+            final g = e['grupo']?.toString().trim();
+            final ts = e['texto_secundario']?.toString().trim() ?? '';
+            return {
+              'nombre': e['nombre']?.toString() ?? 'Tarea',
+              'minutos': e['minutos'] is int
                   ? e['minutos']
                   : int.tryParse('${e['minutos']}') ?? 0,
-            },
-          )
+              'grupo': (g != null && g.isNotEmpty) ? g : kGrupoJerarquiaIndefinida,
+              if (ts.isNotEmpty) 'texto_secundario': ts,
+            };
+          })
           .toList();
       await ApiClient.post(
         '/api/tareas/crear',
@@ -389,14 +548,18 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
           'checklist': entregables,
           'meta': _simulacion,
           'titulo_cambio': tituloCambio,
+          'usuario_asignado': usrSel,
         },
       );
       if (!mounted) return;
+      _limpiarPantalla();
       displayInfoBar(
         context,
         builder: (c, close) => InfoBar(
-          title: const Text('Listo'),
-          content: const Text('Tarea de ingeniería creada en Gestor.'),
+          title: const Text('Misión completada'),
+          content: const Text(
+            'Misión generada y enviada al Centro de Monitoreo.',
+          ),
           severity: InfoBarSeverity.success,
           onClose: close,
         ),
@@ -417,47 +580,305 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
     return '$h hrs $m min';
   }
 
-  Widget _buildSimulacionCard() {
+  bool get _tieneResultadosArbol => _groupedResults.isNotEmpty;
+
+  Widget _directivoBadge(String emoji, int value, String shortLabel) {
+    final stroke = FluentTheme.of(context).resources.controlStrokeColorDefault;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: FluentTheme.of(context).accentColor.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: stroke.withValues(alpha: 0.4)),
+      ),
+      child: Text(
+        '$emoji $value $shortLabel',
+        style: const TextStyle(
+          fontSize: 12.5,
+          fontWeight: FontWeight.w600,
+          height: 1.15,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeroSimulacion() {
     if (_simulacion == null) return const SizedBox.shrink();
     final total = int.tryParse('${_simulacion!['total_minutos'] ?? 0}') ?? 0;
-    final entregables = (_simulacion!['entregables'] as List<dynamic>? ?? []);
-    final titleStyle = FluentTheme.of(context).typography.title;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
+    final impactoMat = _simulacion!['impacto_material']?.toString() ?? '';
+    final rd = _simulacion!['resumen_directivo'];
+    final int tractos = rd is Map
+        ? (int.tryParse('${rd['total_tractos'] ?? 0}') ?? 0)
+        : 0;
+    final int listas = rd is Map
+        ? (int.tryParse('${rd['total_listas'] ?? 0}') ?? 0)
+        : 0;
+    final int ensambles = rd is Map
+        ? (int.tryParse('${rd['total_ensambles'] ?? 0}') ?? 0)
+        : 0;
+    final int piezasTot = rd is Map
+        ? (int.tryParse('${rd['total_piezas_fisicas'] ?? 0}') ?? 0)
+        : 0;
+    final accent = FluentTheme.of(context).accentColor;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          color: FluentTheme.of(context).cardColor,
+          border: Border.all(
+            color: accent.withValues(alpha: 0.55),
+            width: 2,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: accent.withValues(alpha: 0.12),
+              blurRadius: 24,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              'Simulación de impacto',
-              style: FluentTheme.of(context).typography.bodyStrong,
+            Row(
+              children: [
+                Icon(FluentIcons.chart, color: accent, size: 22),
+                const SizedBox(width: 10),
+                Text(
+                  'Resumen de impacto',
+                  style: FluentTheme.of(context).typography.subtitle?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                ),
+              ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             Text(
-              'Total: ${_formatoTiempoTotal(total)}',
+              'Total estimado',
               style: TextStyle(
-                fontSize: (titleStyle?.fontSize ?? 22) + 4,
-                fontWeight: FontWeight.w600,
-                height: 1.2,
+                fontSize: 12,
+                color: FluentTheme.of(context).typography.body?.color?.withValues(alpha: 0.75),
               ),
             ),
-            const SizedBox(height: 12),
-            ...entregables.take(12).map((e) {
-              final map = e as Map<String, dynamic>;
-              return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 2),
-                child: Text('- ${map['nombre']} (${map['minutos']} min)'),
-              );
-            }),
+            const SizedBox(height: 4),
+            Text(
+              _formatoTiempoTotal(total),
+              style: TextStyle(
+                fontSize: 34,
+                fontWeight: FontWeight.w800,
+                height: 1.05,
+                color: accent,
+              ),
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _directivoBadge('🚛', tractos, 'Proyectos'),
+                _directivoBadge('📋', listas, 'Listas BOM'),
+                _directivoBadge('⚙️', ensambles, 'Ensambles'),
+                _directivoBadge('📦', piezasTot, 'Piezas totales'),
+              ],
+            ),
+            if (impactoMat.isNotEmpty) ...[
+              const SizedBox(height: 18),
+              Text(
+                'Impacto de material',
+                style: FluentTheme.of(context).typography.bodyStrong?.copyWith(
+                      fontSize: 14,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                impactoMat,
+                style: const TextStyle(fontSize: 13, height: 1.35),
+              ),
+            ],
           ],
         ),
       ),
     );
   }
 
+  // Se quitó _buildFloatingMissionBar porque se convirtió en botón en el Header de Resultados
+  Widget _buildCompactSearchRow() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Expanded(
+            child: InfoLabel(
+              label: 'Código de pieza',
+              child: TextBox(
+                controller: _searchController,
+                placeholder: 'Ej: JA-001, JA-002',
+                onSubmitted: (_) => _escanearImpacto(),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          SizedBox(
+            height: 44,
+            child: FilledButton(
+              onPressed: _isLoading ? null : _escanearImpacto,
+              child: _isLoading
+                  ? const ProgressRing(strokeWidth: 2)
+                  : const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(FluentIcons.search, size: 16),
+                        SizedBox(width: 6),
+                        Text('Escanear'),
+                      ],
+                    ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLandingGoogle() {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                FluentIcons.bullseye_target,
+                size: 56,
+                color: FluentTheme.of(context).accentColor.withValues(alpha: 0.85),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Radar de impacto',
+                style: FluentTheme.of(context).typography.title?.copyWith(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Busca por código de pieza en listas BOM aprobadas',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: FluentTheme.of(context)
+                      .typography
+                      .body
+                      ?.color
+                      ?.withValues(alpha: 0.72),
+                ),
+              ),
+              const SizedBox(height: 36),
+              TextBox(
+                controller: _searchController,
+                placeholder: 'Código de pieza…',
+                style: const TextStyle(fontSize: 20, height: 1.3),
+                onSubmitted: (_) => _escanearImpacto(),
+              ),
+              const SizedBox(height: 24),
+              _radarFilled(
+                onPressed: _isLoading ? null : _escanearImpacto,
+                child: _isLoading
+                    ? const ProgressRing(strokeWidth: 2)
+                    : const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(FluentIcons.search, size: 20),
+                          SizedBox(width: 10),
+                          Text('Escanear impacto'),
+                        ],
+                      ),
+              ),
+              if (_currentPiece.isNotEmpty &&
+                  !_isLoading &&
+                  _groupedResults.isEmpty) ...[
+                const SizedBox(height: 28),
+                Text(
+                  'Sin resultados en listas BOM aprobadas y vigentes para estos códigos.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.grey.withValues(alpha: 0.95),
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildResultadosSplit() {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          width: 300,
+          child: material.ScrollConfiguration(
+            behavior: material.ScrollConfiguration.of(context)
+                .copyWith(scrollbars: false),
+            child: Scrollbar(
+              controller: _splitLeftScroll,
+              thumbVisibility: true,
+              child: SingleChildScrollView(
+                controller: _splitLeftScroll,
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _buildGlobalTasks(),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        Container(
+          width: 1,
+          color: FluentTheme.of(context).resources.dividerStrokeColorDefault,
+        ),
+        Expanded(
+          child: _isLoading
+              ? const Center(child: ProgressRing())
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (_simulacion != null)
+                      const SizedBox(height: 10),
+                    Expanded(
+                      child: Scrollbar(
+                        controller: _splitRightScroll,
+                        thumbVisibility: true,
+                        child: SingleChildScrollView(
+                          controller: _splitRightScroll,
+                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                          child: _buildImpactTree(),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildAssemblyCard(dynamic ensamble) {
-    final int idEns = ensamble['id_ensamble'];
-    final checks = _localChecklists[idEns]!;
+    final idRaw = ensamble['id_ensamble'];
+    final int idEns = idRaw is int ? idRaw : int.tryParse('$idRaw') ?? 0;
     final minEns = _minutosPorEnsamble[idEns];
 
     return Container(
@@ -470,95 +891,66 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
           color: FluentTheme.of(context).resources.dividerStrokeColorDefault,
         ),
       ),
-      child: Column(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      ensamble['nombre_ensamble'].toString(),
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  ensamble['nombre_ensamble'].toString(),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                  ),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (minEns != null && minEns > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      'Tiempo estimado (ensamble): $minEns min',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: FluentTheme.of(context).accentColor,
+                        fontWeight: FontWeight.w600,
                       ),
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
                     ),
-                    if (minEns != null && minEns > 0)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
+                  ),
+                Builder(
+                  builder: (context) {
+                    final list = _piezasPorEnsamble[idEns] ?? const <String>[];
+                    if (list.isEmpty) {
+                      return const Padding(
+                        padding: EdgeInsets.only(top: 8),
                         child: Text(
-                          'Tiempo estimado (ensamble): $minEns min',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: FluentTheme.of(context).accentColor,
-                            fontWeight: FontWeight.w600,
-                          ),
+                          'Piezas detectadas: —',
+                          style: TextStyle(fontSize: 12, color: Colors.grey),
                         ),
+                      );
+                    }
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        'Piezas detectadas: ${list.join(', ')} (${list.length} total)',
+                        style: const TextStyle(fontSize: 13),
                       ),
-                    Builder(
-                      builder: (context) {
-                        final list = _piezasPorEnsamble[idEns] ?? const <String>[];
-                        if (list.isEmpty) {
-                          return const Padding(
-                            padding: EdgeInsets.only(top: 8),
-                            child: Text(
-                              'Piezas detectadas: —',
-                              style: TextStyle(fontSize: 12, color: Colors.grey),
-                            ),
-                          );
-                        }
-                        return Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Text(
-                            'Piezas detectadas: ${list.join(', ')} (${list.length} total)',
-                            style: const TextStyle(fontSize: 13),
-                          ),
-                        );
-                      },
-                    ),
-                  ],
+                    );
+                  },
                 ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: FluentTheme.of(context).accentColor.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text('Cant: ${ensamble['cantidad']}'),
-              ),
-            ],
+              ],
+            ),
           ),
-          const SizedBox(height: 12),
-          const Text('Checklist de Integración:'),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 16,
-            runSpacing: 8,
-            children: [
-              Checkbox(
-                checked: checks['plano_ensamble'],
-                onChanged: (v) => setState(() => _localChecklists[idEns]!['plano_ensamble'] = v ?? false),
-                content: const Text('Plano de Ensamble'),
-              ),
-              Checkbox(
-                checked: checks['pdf_ensamble'],
-                onChanged: (v) => setState(() => _localChecklists[idEns]!['pdf_ensamble'] = v ?? false),
-                content: const Text('PDF del Ensamble'),
-              ),
-              Checkbox(
-                checked: checks['drive'],
-                onChanged: (v) => setState(() => _localChecklists[idEns]!['drive'] = v ?? false),
-                content: const Text('Subir a Drive'),
-              ),
-            ],
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: FluentTheme.of(context).accentColor.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text('Cant: ${ensamble['cantidad']}'),
           ),
         ],
       ),
@@ -573,7 +965,13 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
     }
 
     if (_groupedResults.isEmpty) {
-       return const Center(child: Text("Pieza no encontrada en ninguna Lista de Materiales (Orphaneada o Error).", style: TextStyle(color: Colors.grey)));
+      return const Center(
+        child: Text(
+          'Sin resultados en listas BOM aprobadas y vigentes para estos códigos.',
+          style: TextStyle(color: Colors.grey),
+          textAlign: TextAlign.center,
+        ),
+      );
     }
 
     List<Widget> clienteWidgets = [];
@@ -598,16 +996,6 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
                         maxLines: 3,
                         overflow: TextOverflow.ellipsis,
                       ),
-                    ),
-                    Checkbox(
-                      checked: _planoGeneralPorGrupo[proyecto] ?? true,
-                      content: const Text('Plano General'),
-                      onChanged: (v) async {
-                        setState(() => _planoGeneralPorGrupo[proyecto] = v ?? false);
-                        if (_currentPiece.isNotEmpty && !_simulando) {
-                          await _evaluarImpacto();
-                        }
-                      },
                     ),
                   ],
                 ),
@@ -665,13 +1053,42 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
     return ScaffoldPage(
       padding: const EdgeInsets.only(top: 8),
       header: CompactPageHeader(
-        title: Text(
-          'Radar de Impacto (Where-Used)',
-          style: FluentTheme.of(context).typography.title,
+        title: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Text(
+                'Gestor de Misiones — Quest Briefing',
+                style: FluentTheme.of(context).typography.title,
+              ),
+            ),
+            Tooltip(
+              message: 'Configurar minutos (plano ensamble, PDF, relaciones)',
+              child: IconButton(
+                icon: const Icon(FluentIcons.settings, size: 18),
+                onPressed: _isLoading ? null : _abrirConfigTiemposRadar,
+              ),
+            ),
+          ],
         ),
         commandBar: CommandBar(
           mainAxisAlignment: MainAxisAlignment.end,
           primaryItems: [
+            if (_tieneResultadosArbol && _currentPiece.isNotEmpty)
+              CommandBarButton(
+                icon: const Icon(FluentIcons.calculator_percentage),
+                label: const Text('Evaluar Impacto'),
+                onPressed: _simulando ? null : _evaluarImpacto,
+              ),
+            if (_simulacion != null)
+              CommandBarButton(
+                icon: const Icon(FluentIcons.rocket, color: material.Color(0xFF00C853)),
+                label: const Text(
+                  'Asignar Tarea',
+                  style: TextStyle(fontWeight: FontWeight.bold, color: material.Color(0xFF00C853)),
+                ),
+                onPressed: _creandoTarea ? null : _generarTareaIngenieria,
+              ),
             CommandBarButton(
               icon: const Icon(FluentIcons.clear),
               label: const Text('Limpiar Pantalla'),
@@ -680,100 +1097,35 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
           ],
         ),
       ),
-      content: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Panel Izquierdo (scroll completo)
-            SizedBox(
-              width: 300,
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    InfoLabel(
-                      label: "Código de Pieza a Analizar",
-                      child: TextBox(
-                        controller: _searchController,
-                        placeholder: "Ej: JA-001, JA-002",
-                        onSubmitted: (_) => _escanearImpacto(),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    _globalTaskRow(
-                      value: _afectaRelaciones,
-                      onChanged: (v) async {
-                        setState(() => _afectaRelaciones = v ?? false);
-                        if (_currentPiece.isNotEmpty && !_simulando) {
-                          await _evaluarImpacto();
-                        }
-                      },
-                      label: 'Afecta relaciones de posición (Efecto dominó)',
-                    ),
-                    const SizedBox(height: 16),
-                    _radarFilled(
-                      onPressed: _isLoading ? null : _escanearImpacto,
-                      child: _isLoading
-                          ? const ProgressRing(strokeWidth: 2)
-                          : Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(FluentIcons.search, size: 18),
-                                const SizedBox(width: 8),
-                                const Text('Escanear Impacto'),
-                              ],
-                            ),
-                    ),
-                    const SizedBox(height: 24),
-                    if (_currentPiece.isNotEmpty) _buildGlobalTasks(),
-                    const SizedBox(height: 12),
-                    _radarFilled(
-                      onPressed: (_currentPiece.isEmpty || _simulando) ? null : _evaluarImpacto,
-                      child: _simulando
-                          ? const ProgressRing(strokeWidth: 2)
-                          : Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(FluentIcons.calculator_percentage, size: 18),
-                                const SizedBox(width: 8),
-                                const Text('Evaluar Impacto'),
-                              ],
-                            ),
-                    ),
-                    const SizedBox(height: 12),
-                    if (_simulacion != null)
-                      _radarFilled(
-                        onPressed: _creandoTarea ? null : _generarTareaIngenieria,
-                        child: _creandoTarea
-                            ? const ProgressRing(strokeWidth: 2)
-                            : Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(FluentIcons.task_list, size: 18),
-                                  const SizedBox(width: 8),
-                                  const Text('Generar Tarea'),
-                                ],
+      content: Stack(
+        fit: StackFit.expand,
+        clipBehavior: Clip.none,
+        children: [
+          Positioned.fill(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: _tieneResultadosArbol
+                      ? Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _buildCompactSearchRow(),
+                            if (_simulacion != null) _buildHeroSimulacion(),
+                            Expanded(
+                              child: Padding(
+                                padding: EdgeInsets.zero,
+                                child: _buildResultadosSplit(),
                               ),
-                      ),
-                    const SizedBox(height: 12),
-                    _buildSimulacionCard(),
-                  ],
+                            ),
+                          ],
+                        )
+                      : _buildLandingGoogle(),
                 ),
-              ),
+              ],
             ),
-            const SizedBox(width: 32),
-            // Panel Derecho (Radar Tree)
-            Expanded(
-              child: _isLoading 
-                ? const Center(child: ProgressRing())
-                : SingleChildScrollView(child: _buildImpactTree()),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
