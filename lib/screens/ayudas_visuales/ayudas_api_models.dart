@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart' as material;
 import 'package:fluent_ui/fluent_ui.dart';
 
@@ -15,6 +17,7 @@ abstract final class AyudasJsonKeys {
   static const usuarioSubida = 'Usuario_Subida';
   static const vin = 'VIN';
   static const subcategoriaProceso = 'Subcategoria';
+  static const tags = 'Tags';
 }
 
 const String kAyudasDeletePassword = 'ADMIN_ING_2024';
@@ -70,6 +73,30 @@ String ayudasSubcategoriaProceso(Map<String, dynamic> m) {
     'Subcategoria_Proceso',
   ]);
   return v?.toString().trim() ?? '';
+}
+
+/// Etiquetas tipo #hashtag guardadas como JSON array en backend.
+List<String> ayudasTags(Map<String, dynamic> m) {
+  final v = _firstKey(m, [
+    AyudasJsonKeys.tags,
+    'tags',
+  ]);
+  if (v == null) return [];
+  if (v is List) {
+    return v.map((e) => e.toString().trim()).where((e) => e.isNotEmpty).toList();
+  }
+  final s = v.toString().trim();
+  if (s.isEmpty) return [];
+  try {
+    final decoded = jsonDecode(s);
+    if (decoded is List) {
+      return decoded
+          .map((e) => e.toString().trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+    }
+  } catch (_) {}
+  return [];
 }
 
 bool ayudasEsVigente(Map<String, dynamic> m) {

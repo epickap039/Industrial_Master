@@ -4,7 +4,8 @@ Ayudas visuales (PDFs por categoría y revisiones).
 Esquema SQL (nombres exactos):
 
     Tbl_Ayudas_Categorias: ID_Categoria, Nombre_Categoria, Activo, Icono_Codigo
-    Tbl_Ayudas_Maestro: Id_Ayuda, Id_Categoria, Titulo_Documento, Fecha_Creacion, VIN
+    Tbl_Ayudas_Maestro: Id_Ayuda, Id_Categoria, Titulo_Documento, Fecha_Creacion, VIN,
+                          Subcategoria, Tags (JSON array de #hashtags, NVARCHAR(MAX))
     Tbl_Ayudas_Revisiones: Id_Revision, Id_Ayuda, Numero_Revision, Ruta_PDF,
                           Fecha_Subida, Es_Vigente, Usuario_Subida
 
@@ -12,11 +13,12 @@ Archivos físicos: Z:\\Ayudas_Visuales\\<NombreCategoria_Sanitizado>\\
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import uuid
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -59,6 +61,53 @@ def _row_to_dict(cursor, row) -> Dict[str, Any]:
         else:
             out[c] = v
     return out
+
+
+def _normalize_tags_json(raw: Optional[str]) -> Optional[str]:
+    """Recibe JSON array o texto separado por comas; devuelve JSON array compacto o None."""
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    try:
+        data = json.loads(s)
+        if isinstance(data, list):
+            normalized: List[str] = []
+            for x in data:
+                t = str(x).strip().lstrip("#").strip()
+                if t:
+                    normalized.append(t)
+            return json.dumps(normalized, ensure_ascii=False) if normalized else None
+    except json.JSONDecodeError:
+        pass
+    parts = [p.strip().lstrip("#") for p in re.split(r"[,;\n]+", s) if p.strip()]
+    return json.dumps(parts, ensure_ascii=False) if parts else None
+
+
+def _distinct_tags_for_categoria(cur, id_categoria: int) -> List[str]:
+    cur.execute(
+        """
+        SELECT m.Tags
+        FROM Tbl_Ayudas_Maestro m
+        WHERE m.Id_Categoria = ? AND m.Tags IS NOT NULL AND LTRIM(RTRIM(m.Tags)) <> ''
+        """,
+        (id_categoria,),
+    )
+    seen: set[str] = set()
+    for (raw,) in cur.fetchall():
+        if not raw:
+            continue
+        try:
+            arr = json.loads(str(raw))
+            if isinstance(arr, list):
+                for x in arr:
+                    t = str(x).strip().lstrip("#").strip()
+                    if t:
+                        seen.add(t)
+        except json.JSONDecodeError:
+            continue
+    return sorted(seen, key=lambda x: x.lower())
 
 
 @router.get("/api/ayudas/categorias")
@@ -117,6 +166,19 @@ def crear_categoria(
         conn.close()
 
 
+@router.get("/api/ayudas/tags/{id_categoria}")
+def lista_tags_categoria(id_categoria: int):
+    """Lista de etiquetas unicas (#hashtags) usadas en la categoria (para filtros y sugerencias)."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        return _distinct_tags_for_categoria(cur, id_categoria)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
 @router.get("/api/ayudas/lista/{id_categoria}")
 def lista_documentos_categoria(id_categoria: int):
     conn = get_db_connection()
@@ -130,6 +192,7 @@ def lista_documentos_categoria(id_categoria: int):
                 m.Titulo_Documento,
                 m.Subcategoria,
                 m.VIN,
+                m.Tags,
                 r.Id_Revision,
                 r.Numero_Revision,
                 r.Fecha_Subida,
@@ -378,6 +441,7 @@ async def subir_revision_pdf(
     numero_revision: str = Form(...),
     usuario: str = Form(...),
     vin: Optional[str] = Form(None),
+    tags: Optional[str] = Form(None),
     authorization: Optional[str] = Header(None),
     x_usuario: Optional[str] = Header(None, alias="X-Usuario"),
 ):
@@ -394,6 +458,8 @@ async def subir_revision_pdf(
     usr_audit = resolve_actor_user(authorization, x_usuario)
     if usr_audit == "Sistema":
         usr_audit = usuario_limpio
+
+    tags_json = _normalize_tags_json(tags)
 
     conn = get_db_connection()
     cur = conn.cursor()
@@ -428,6 +494,11 @@ async def subir_revision_pdf(
                     "UPDATE Tbl_Ayudas_Maestro SET Subcategoria = ? WHERE Id_Ayuda = ?",
                     (subcategoria_raw, id_ayuda_int),
                 )
+            if tags_json is not None:
+                cur.execute(
+                    "UPDATE Tbl_Ayudas_Maestro SET Tags = ? WHERE Id_Ayuda = ?",
+                    (tags_json, id_ayuda_int),
+                )
         else:
             if not raw_cat or not titulo_doc:
                 raise HTTPException(
@@ -447,11 +518,18 @@ async def subir_revision_pdf(
             cur.execute(
                 """
                 INSERT INTO Tbl_Ayudas_Maestro
-                    (Id_Categoria, Titulo_Documento, Subcategoria, Fecha_Creacion, VIN)
+                    (Id_Categoria, Titulo_Documento, Subcategoria, Fecha_Creacion, VIN, Tags)
                 OUTPUT INSERTED.Id_Ayuda
-                VALUES (?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (id_cat_int, titulo_doc, subcategoria_raw, ahora_creacion, vin_raw),
+                (
+                    id_cat_int,
+                    titulo_doc,
+                    subcategoria_raw,
+                    ahora_creacion,
+                    vin_raw,
+                    tags_json,
+                ),
             )
             id_ayuda_int = int(cur.fetchone()[0])
 

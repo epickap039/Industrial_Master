@@ -8,7 +8,7 @@ class CompactPageHeader extends StatelessWidget {
     this.leading,
     this.title,
     this.commandBar,
-    this.padding = const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+    this.padding = const EdgeInsets.fromLTRB(24, 6, 24, 8),
   });
 
   final Widget? leading;

@@ -36,11 +36,14 @@ class AyudasVisorScreen extends StatefulWidget {
 }
 
 class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
+  static const double _kSidebarWidth = 280;
+
   bool _loadingHist = true;
   String? _errorHist;
   List<dynamic> _historial = [];
   late int _idRevisionSeleccionada;
   Map<String, String> _pdfHeaders = {};
+  bool _sidebarColapsada = false;
 
   @override
   void initState() {
@@ -352,11 +355,19 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
 
     return material.Scaffold(
       appBar: material.AppBar(
+        toolbarHeight: 44,
+        titleSpacing: 6,
         leading: material.IconButton(
           icon: const material.Icon(material.Icons.arrow_back),
           onPressed: () => Navigator.of(context).pop(),
         ),
-        title: Text(widget.tituloDocumento),
+        title: material.Text(
+          widget.tituloDocumento,
+          style: const material.TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       ),
       body: LayoutBuilder(
         builder: (context, c) {
@@ -368,6 +379,7 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
                 Expanded(
                   flex: 3,
                   child: _PdfPane(
+                    key: ValueKey<int>(_idRevisionSeleccionada),
                     url: url,
                     headers: _pdfHeaders,
                     revisionKey: _idRevisionSeleccionada,
@@ -395,28 +407,67 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Expanded(
-                flex: 8,
-                child: _PdfPane(
-                  url: url,
-                  headers: _pdfHeaders,
-                  revisionKey: _idRevisionSeleccionada,
+                child: Stack(
+                  clipBehavior: Clip.hardEdge,
+                  children: [
+                    Positioned.fill(
+                      child: _PdfPane(
+                        key: ValueKey<int>(_idRevisionSeleccionada),
+                        url: url,
+                        headers: _pdfHeaders,
+                        revisionKey: _idRevisionSeleccionada,
+                      ),
+                    ),
+                    Positioned(
+                      top: 8,
+                      right: 0,
+                      child: material.Material(
+                        elevation: 2,
+                        borderRadius: const material.BorderRadius.horizontal(
+                          left: material.Radius.circular(10),
+                        ),
+                        child: material.InkWell(
+                          borderRadius: const material.BorderRadius.horizontal(
+                            left: material.Radius.circular(10),
+                          ),
+                          onTap: () => setState(
+                            () => _sidebarColapsada = !_sidebarColapsada,
+                          ),
+                          child: Padding(
+                            padding: const material.EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 10,
+                            ),
+                            child: Icon(
+                              _sidebarColapsada
+                                  ? material.Icons.chevron_left
+                                  : material.Icons.chevron_right,
+                              size: 22,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                flex: 2,
-                child: _TimelinePane(
-                  loading: _loadingHist,
-                  error: _errorHist,
-                  historial: _historial,
-                  idSeleccionada: _idRevisionSeleccionada,
-                  canUpload: widget.canUpload,
-                  onSelect: (id) =>
-                      setState(() => _idRevisionSeleccionada = id),
-                  onSubir: _dialogoSubirRevision,
-                  onDeleteRevision: _borrarRevision,
+              // Sin animación de ancho: un AnimatedContainer con width→0 deja frames
+              // con ~12px y el Row de cada revisión hace overflow (RenderFlex).
+              if (!_sidebarColapsada)
+                SizedBox(
+                  width: _kSidebarWidth,
+                  child: _TimelinePane(
+                    loading: _loadingHist,
+                    error: _errorHist,
+                    historial: _historial,
+                    idSeleccionada: _idRevisionSeleccionada,
+                    canUpload: widget.canUpload,
+                    onSelect: (id) =>
+                        setState(() => _idRevisionSeleccionada = id),
+                    onSubir: _dialogoSubirRevision,
+                    onDeleteRevision: _borrarRevision,
+                  ),
                 ),
-              ),
             ],
           );
         },
@@ -425,8 +476,9 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
   }
 }
 
-class _PdfPane extends StatelessWidget {
+class _PdfPane extends StatefulWidget {
   const _PdfPane({
+    super.key,
     required this.url,
     required this.headers,
     required this.revisionKey,
@@ -437,14 +489,35 @@ class _PdfPane extends StatelessWidget {
   final int revisionKey;
 
   @override
+  State<_PdfPane> createState() => _PdfPaneState();
+}
+
+class _PdfPaneState extends State<_PdfPane> {
+  late final PdfViewerController _pdfController = PdfViewerController();
+
+  @override
+  void dispose() {
+    _pdfController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Card(
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(4),
+    return SizedBox.expand(
+      child: material.Card(
+        margin: material.EdgeInsets.zero,
+        clipBehavior: material.Clip.antiAlias,
+        elevation: 0,
         child: SfPdfViewer.network(
-          url,
-          key: ValueKey<int>(revisionKey),
-          headers: headers.isEmpty ? null : headers,
+          widget.url,
+          key: ValueKey<int>(widget.revisionKey),
+          headers: widget.headers.isEmpty ? null : widget.headers,
+          controller: _pdfController,
+          pageLayoutMode: PdfPageLayoutMode.single,
+          maxZoomLevel: 5,
+          canShowScrollHead: true,
+          canShowScrollStatus: true,
+          interactionMode: PdfInteractionMode.pan,
         ),
       ),
     );
@@ -557,6 +630,8 @@ class _TimelinePane extends StatelessWidget {
                                             children: [
                                               Text(
                                                 'Rev. $numR',
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
                                                 style: TextStyle(
                                                   fontWeight: FontWeight.bold,
                                                   color: vig
@@ -571,6 +646,8 @@ class _TimelinePane extends StatelessWidget {
                                               if (fechaStr.isNotEmpty)
                                                 Text(
                                                   fechaStr,
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
                                                   style: TextStyle(
                                                     fontSize: 11,
                                                     color: material.Theme.of(
@@ -581,6 +658,8 @@ class _TimelinePane extends StatelessWidget {
                                               if (usuario.isNotEmpty)
                                                 Text(
                                                   usuario,
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
                                                   style: TextStyle(
                                                     fontSize: 11,
                                                     color: material.Theme.of(
@@ -595,6 +674,12 @@ class _TimelinePane extends StatelessWidget {
                                     ),
                                   ),
                                   material.IconButton(
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(
+                                      minWidth: 36,
+                                      minHeight: 36,
+                                    ),
+                                    iconSize: 22,
                                     icon: const Icon(material.Icons.delete),
                                     color: material.Colors.red.shade700,
                                     onPressed: () => onDeleteRevision(id),

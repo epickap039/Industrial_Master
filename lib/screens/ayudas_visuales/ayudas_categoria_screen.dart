@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart' as material;
 import 'package:fluent_ui/fluent_ui.dart';
@@ -26,24 +28,17 @@ class AyudasCategoriaScreen extends StatefulWidget {
 }
 
 class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
+  static const List<String> _kSeedTags = ['Soldadura', 'Ensamble', 'Pintura'];
+
   bool _loading = true;
   String? _error;
   List<dynamic> _docs = [];
-  final TextEditingController _searchCtrl = TextEditingController();
+  List<String> _tagsEnCategoria = [];
 
   @override
   void initState() {
     super.initState();
     _cargar();
-    _searchCtrl.addListener(() {
-      if (mounted) setState(() {});
-    });
-  }
-
-  @override
-  void dispose() {
-    _searchCtrl.dispose();
-    super.dispose();
   }
 
   Future<void> _cargar() async {
@@ -53,8 +48,16 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
     });
     try {
       final data = await ApiClient.get('/api/ayudas/lista/${widget.idCategoria}');
+      List<String> tagsApi = [];
+      try {
+        final tjson = await ApiClient.get('/api/ayudas/tags/${widget.idCategoria}');
+        if (tjson is List) {
+          tagsApi = tjson.map((e) => e.toString()).where((e) => e.isNotEmpty).toList();
+        }
+      } catch (_) {}
       setState(() {
         _docs = data is List ? data : [];
+        _tagsEnCategoria = tagsApi;
         _loading = false;
       });
     } catch (e) {
@@ -91,7 +94,15 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
     final subcategoriaCtrl = TextEditingController();
     final revCtrl = TextEditingController(text: 'A');
     final vinCtrl = TextEditingController();
+    final nuevoTagCtrl = TextEditingController();
     String? pathPdf;
+    final poolTags = <String>{..._kSeedTags, ..._tagsEnCategoria};
+    for (final d in _docs) {
+      if (d is Map<String, dynamic>) poolTags.addAll(ayudasTags(d));
+    }
+    final tagsOrdenados = poolTags.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    final seleccionTags = <String>{};
 
     await showDialog<void>(
       context: context,
@@ -151,6 +162,79 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
                       decoration: _inputDec(context, 'Numero de revision'),
                     ),
                     const SizedBox(height: 12),
+                    material.Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: Text(
+                        'Etiquetas (#hashtags)',
+                        style: material.Theme.of(context).textTheme.titleSmall,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    material.Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: tagsOrdenados.map((tag) {
+                        final sel = seleccionTags.contains(tag);
+                        return material.FilterChip(
+                          label: Text('#$tag'),
+                          selected: sel,
+                          onSelected: (v) {
+                            setLocal(() {
+                              if (v) {
+                                seleccionTags.add(tag);
+                              } else {
+                                seleccionTags.remove(tag);
+                              }
+                            });
+                          },
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 8),
+                    material.TextField(
+                      controller: nuevoTagCtrl,
+                      style: material.TextStyle(
+                        color: material.Theme.of(context).textTheme.bodyLarge?.color,
+                      ),
+                      decoration: _inputDec(
+                        context,
+                        'Crear nuevo #tag',
+                        hint: 'Escribe y pulsa Enter',
+                      ).copyWith(
+                        suffixIcon: material.IconButton(
+                          icon: const material.Icon(material.Icons.add),
+                          onPressed: () {
+                            final raw = nuevoTagCtrl.text.trim().replaceAll('#', '');
+                            if (raw.isEmpty) return;
+                            setLocal(() {
+                              seleccionTags.add(raw);
+                              if (!tagsOrdenados.contains(raw)) {
+                                tagsOrdenados.add(raw);
+                                tagsOrdenados.sort(
+                                  (a, b) => a.toLowerCase().compareTo(b.toLowerCase()),
+                                );
+                              }
+                              nuevoTagCtrl.clear();
+                            });
+                          },
+                        ),
+                      ),
+                      onSubmitted: (_) {
+                        final raw = nuevoTagCtrl.text.trim().replaceAll('#', '');
+                        if (raw.isEmpty) return;
+                        setLocal(() {
+                          seleccionTags.add(raw);
+                          if (!tagsOrdenados.contains(raw)) {
+                            tagsOrdenados.add(raw);
+                            tagsOrdenados.sort(
+                              (a, b) => a.toLowerCase().compareTo(b.toLowerCase()),
+                            );
+                          }
+                          nuevoTagCtrl.clear();
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
                     material.OutlinedButton(
                       onPressed: () async {
                         final r = await FilePicker.platform.pickFiles(
@@ -205,6 +289,9 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
                   }
                   final v = vinCtrl.text.trim();
                   if (v.isNotEmpty) fields['vin'] = v;
+                  if (seleccionTags.isNotEmpty) {
+                    fields['tags'] = jsonEncode(seleccionTags.toList());
+                  }
                   await ApiClient.postMultipart(
                     '/api/ayudas/subir',
                     fields: fields,
@@ -240,6 +327,7 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
     subcategoriaCtrl.dispose();
     revCtrl.dispose();
     vinCtrl.dispose();
+    nuevoTagCtrl.dispose();
   }
 
   Future<void> _dialogoEditarSubcategoria(String nombreActual) async {
@@ -305,16 +393,9 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
   }
 
   Map<String, List<Map<String, dynamic>>> _groupedDocs() {
-    final q = _searchCtrl.text.trim().toLowerCase();
     final out = <String, List<Map<String, dynamic>>>{};
     for (final d in _docs) {
       if (d is! Map<String, dynamic>) continue;
-      final title = ayudasTituloDocumento(d).toLowerCase();
-      final vin = ayudasVin(d).toLowerCase();
-      final sub = ayudasSubcategoriaProceso(d).toLowerCase();
-      if (q.isNotEmpty && !title.contains(q) && !vin.contains(q) && !sub.contains(q)) {
-        continue;
-      }
       final key = ayudasSubcategoriaProceso(d).isEmpty
           ? 'Sin subcategoría'
           : ayudasSubcategoriaProceso(d);
@@ -403,19 +484,8 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
                   : grouped.isEmpty
                       ? const Center(child: Text('No hay documentos en esta categoría.'))
                       : ListView(
-                          padding: const EdgeInsets.all(16),
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
                           children: [
-                            material.TextField(
-                              controller: _searchCtrl,
-                              decoration: material.InputDecoration(
-                                hintText: 'Buscar por titulo, VIN o subcategoría',
-                                prefixIcon: const material.Icon(material.Icons.search),
-                                border: material.OutlineInputBorder(
-                                  borderRadius: material.BorderRadius.circular(12),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
                             ...grouped.entries.map((entry) {
                               return material.Card(
                                 child: material.ExpansionTile(
@@ -461,12 +531,14 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
                                         fechaStr = fecha.toString();
                                       }
                                     }
-                                    final subtitle = [
+                                    final tagList = ayudasTags(m);
+                                    final metaLine = [
                                       if (vinTxt.isNotEmpty) 'VIN: $vinTxt',
                                       'Rev. $numRev',
                                       if (usuario.isNotEmpty) 'Usuario: $usuario',
-                                      if (fechaStr.isNotEmpty) fechaStr,
                                     ].join('  ·  ');
+                                    final hintColor =
+                                        material.Theme.of(context).hintColor;
                                     return material.Card(
                                       margin: const material.EdgeInsets.fromLTRB(
                                         12,
@@ -475,12 +547,65 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
                                         8,
                                       ),
                                       child: material.ListTile(
+                                        isThreeLine: true,
+                                        dense: true,
                                         leading: Icon(
                                           FluentIcons.pdf,
                                           color: FluentTheme.of(context).accentColor,
                                         ),
-                                        title: Text(titulo),
-                                        subtitle: Text(subtitle),
+                                        title: material.Text(titulo),
+                                        subtitle: Column(
+                                          crossAxisAlignment:
+                                              material.CrossAxisAlignment.start,
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            if (metaLine.isNotEmpty)
+                                              material.Text(
+                                                metaLine,
+                                                style: material.TextStyle(
+                                                  fontSize: 12,
+                                                  color: material.Theme.of(context)
+                                                      .textTheme
+                                                      .bodySmall
+                                                      ?.color,
+                                                ),
+                                              ),
+                                            material.Wrap(
+                                              spacing: 6,
+                                              runSpacing: 4,
+                                              crossAxisAlignment:
+                                                  material.WrapCrossAlignment
+                                                      .center,
+                                              children: [
+                                                if (fechaStr.isNotEmpty)
+                                                  material.Text(
+                                                    fechaStr,
+                                                    style: material.TextStyle(
+                                                      fontSize: 12.5,
+                                                      color: material.Theme.of(
+                                                            context,
+                                                          )
+                                                          .textTheme
+                                                          .bodySmall
+                                                          ?.color,
+                                                    ),
+                                                  ),
+                                                ...tagList.map(
+                                                  (tg) => material.Text(
+                                                    '#$tg',
+                                                    style: material.TextStyle(
+                                                      fontSize: 10,
+                                                      height: 1.2,
+                                                      color: hintColor,
+                                                      fontWeight:
+                                                          material.FontWeight.w500,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
                                         trailing: material.IconButton(
                                           icon: Icon(
                                             material.Icons.delete_outline,
