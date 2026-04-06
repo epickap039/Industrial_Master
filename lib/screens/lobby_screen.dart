@@ -1,14 +1,15 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
 import '../config/app_config.dart';
 import '../services/api_client.dart';
+import '../services/main_nav.dart';
 import '../theme/page_title_style.dart';
 
 class LobbyScreen extends StatefulWidget {
   final Function(int) onNavigate;
   final bool isAdmin;
 
-  // REGLA ANTI-CONST: Evitamos marcar como const el constructor para mayor seguridad en este entorno
   LobbyScreen({
     Key? key,
     required this.onNavigate,
@@ -22,22 +23,26 @@ class LobbyScreen extends StatefulWidget {
 class _LobbyScreenState extends State<LobbyScreen> {
   String _userName = 'Cargando...';
   String _userRole = '';
-  
-  // Variables de Estado para KPIs
-  int totalPiezas = 0;
+
+  // KPIs /api/dashboard/kpi
   int totalLineasBom = 0;
-  int totalUnidades = 0;
-  int totalVersiones = 0;
   double saludCad = 0.0;
-  int mermaConsolidada = 0;
-  bool isLoadingKPI = true;
+  int totalVersiones = 0;
+  bool isLoadingKpi = true;
   String? kpiError;
+
+  // Operación
+  int _tractosActivos = 0;
+  int _reportesQaAbiertos = 0;
+  int _misionesCentroPendientes = 0;
+  bool _loadingOps = true;
+  String? _opsError;
 
   @override
   void initState() {
     super.initState();
     _loadUser();
-    _fetchKPIs();
+    _fetchAll();
   }
 
   Future<void> _loadUser() async {
@@ -50,26 +55,79 @@ class _LobbyScreenState extends State<LobbyScreen> {
     }
   }
 
-  Future<void> _fetchKPIs() async {
+  Future<void> _fetchAll() async {
+    await Future.wait([_fetchKpis(), _fetchOperationalStats()]);
+  }
+
+  Future<void> _fetchKpis() async {
     try {
       final data = await ApiClient.get('/api/dashboard/kpi') as Map<String, dynamic>;
       if (mounted) {
         setState(() {
-          totalPiezas    = (data['total_piezas']    ?? 0).toInt();
           totalLineasBom = (data['total_lineas_bom'] ?? 0).toInt();
-          totalUnidades  = (data['total_unidades']  ?? 0).toInt();
           totalVersiones = (data['total_versiones'] ?? 0).toInt();
-          saludCad       = (data['salud_cad']       ?? 0.0).toDouble();
-          mermaConsolidada = (data['merma_configurada'] ?? 15).toInt();
-          isLoadingKPI = false;
+          saludCad = (data['salud_cad'] ?? 0.0).toDouble();
+          isLoadingKpi = false;
         });
       }
     } catch (e) {
-      debugPrint("Error fetching KPIs: $e");
+      debugPrint('Error fetching KPIs: $e');
       if (mounted) {
         setState(() {
-          isLoadingKPI = false;
-          kpiError = "Sin conexión con el servidor.\nVerifica que el backend esté activo en $kApiBaseUrl";
+          isLoadingKpi = false;
+          kpiError =
+              'Sin conexión con el servidor.\nVerifica el backend en $kApiBaseUrl';
+        });
+      }
+    }
+  }
+
+  int _countMisionesCentroPendientes(List<dynamic> raw) {
+    int n = 0;
+    for (final e in raw) {
+      if (e is! Map) continue;
+      final t = Map<String, dynamic>.from(e.map((k, v) => MapEntry('$k', v)));
+      final tipo = '${t['tipo'] ?? ''}'.toUpperCase();
+      if (!tipo.contains('RADAR') && !tipo.contains('MANUAL')) continue;
+      final p = int.tryParse('${t['porcentaje_progreso'] ?? 0}') ?? 0;
+      if (p >= 100) continue;
+      final est = '${t['estado'] ?? t['Estado'] ?? ''}'.toLowerCase();
+      if (est.contains('cancel')) continue;
+      if (est.contains('terminad')) continue;
+      n++;
+    }
+    return n;
+  }
+
+  Future<void> _fetchOperationalStats() async {
+    try {
+      final tractosF = ApiClient.get('/api/proyectos/tractos');
+      final reportesF = ApiClient.get('/api/reportes');
+      final tareasF = ApiClient.get('/api/tareas/lista');
+
+      final tractos = await tractosF;
+      final reportes = await reportesF;
+      final tareas = await tareasF;
+
+      final tList = tractos is List ? tractos : <dynamic>[];
+      final rList = reportes is List ? reportes : <dynamic>[];
+      final mList = tareas is List ? tareas : <dynamic>[];
+
+      if (mounted) {
+        setState(() {
+          _tractosActivos = tList.length;
+          _reportesQaAbiertos = rList.length;
+          _misionesCentroPendientes = _countMisionesCentroPendientes(mList);
+          _loadingOps = false;
+          _opsError = null;
+        });
+      }
+    } catch (e) {
+      debugPrint('Lobby ops: $e');
+      if (mounted) {
+        setState(() {
+          _loadingOps = false;
+          _opsError = 'No se pudieron cargar métricas operativas.';
         });
       }
     }
@@ -78,6 +136,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
+    final loading = isLoadingKpi || _loadingOps;
+
     return ScaffoldPage(
       padding: const EdgeInsets.only(top: 8),
       header: Padding(
@@ -95,347 +155,316 @@ class _LobbyScreenState extends State<LobbyScreen> {
               overflow: TextOverflow.ellipsis,
               softWrap: false,
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 6),
             Text(
-              'Panel de Control Jaes | Rol: $_userRole',
+              'Panel de control | Rol: $_userRole',
               style: TextStyle(
                 fontSize: 14,
-                color: theme.typography.caption?.color?.withOpacity(0.6),
+                color: theme.typography.caption?.color?.withValues(alpha: 0.65),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Flujo de trabajo: Ingeniería → Gestión → Control → Administración',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: theme.accentColor.withValues(alpha: 0.95),
               ),
             ),
           ],
         ),
       ),
       content: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+        padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // --- SECCIÓN SUPERIOR: TARJETAS KPI ---
-            Text(
-              'Accesos Rápidos e Indicadores',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: theme.typography.title?.color,
-              ),
-            ),
-            SizedBox(height: 24),
-            
             if (kpiError != null)
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+                padding: const EdgeInsets.only(bottom: 16),
                 child: InfoBar(
-                  title: const Text('Backend no disponible'),
+                  title: const Text('Backend no disponible (KPI)'),
                   content: Text(kpiError!),
                   severity: InfoBarSeverity.warning,
                   onClose: () => setState(() => kpiError = null),
                 ),
               ),
-
-            if (isLoadingKPI)
+            if (_opsError != null)
               Padding(
-                padding: EdgeInsets.symmetric(vertical: 40),
+                padding: const EdgeInsets.only(bottom: 16),
+                child: InfoBar(
+                  title: const Text('Métricas operativas'),
+                  content: Text(_opsError!),
+                  severity: InfoBarSeverity.info,
+                  onClose: () => setState(() => _opsError = null),
+                ),
+              ),
+            if (loading)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 48),
                 child: Center(
                   child: Column(
                     children: [
                       ProgressRing(),
                       SizedBox(height: 16),
-                      Text('Sincronizando métricas en tiempo real...',
-                        style: TextStyle(color: theme.typography.caption?.color)),
+                      Text('Cargando indicadores…'),
                     ],
                   ),
                 ),
               )
             else
-              // Usamos Wrap para que sea responsivo si la ventana se encoge
-              Wrap(
-                spacing: 24,
-                runSpacing: 24,
-                children: [
-                  _buildKPICard(
-                    title: 'Catálogo Maestro',
-                    value: totalPiezas.toString(),
-                    subtitle: 'Registros en Tbl_Maestro_Piezas',
-                    icon: FluentIcons.database,
-                    onTap: () => widget.onNavigate(1),
-                  ),
-                  _buildKPICard(
-                    title: 'Líneas en listas BOM',
-                    value: totalLineasBom.toString(),
-                    subtitle: 'Filas en Tbl_BOM_Estructura',
-                    icon: FluentIcons.bulleted_list2,
-                    onTap: () => widget.onNavigate(9),
-                  ),
-                  _buildKPICard(
-                    title: 'Motor MRP',
-                    value: '$mermaConsolidada%',
-                    subtitle: 'Merma Configurada',
-                    icon: FluentIcons.shopping_cart,
-                    onTap: () => widget.onNavigate(9),
-                  ),
-                  _buildKPICard(
-                    title: 'Salud CAD',
-                    value: '${saludCad.toStringAsFixed(1)}%',
-                    subtitle: 'Piezas Listas',
-                    icon: FluentIcons.line_chart,
-                    onTap: () => widget.onNavigate(3),
-                  ),
-                  _buildKPICard(
-                    title: 'Versiones de Ing.',
-                    value: totalVersiones.toString(),
-                    subtitle: 'Listas Únicas',
-                    icon: FluentIcons.fabric_folder,
-                    onTap: () => widget.onNavigate(10),
-                  ),
-                  _buildKPICard(
-                    title: 'VINs Producidos',
-                    value: totalUnidades.toString(),
-                    subtitle: 'Unidades Físicas',
-                    icon: FluentIcons.car,
-                    onTap: () => widget.onNavigate(11),
-                  ),
-                ],
-              ),
-
-            SizedBox(height: 48),
-            Divider(),
-            SizedBox(height: 32),
-
-            // --- SECCIÓN INFERIOR: CUADRÍCULA DE MÓDULOS ---
-            Text(
-              'Ecosistema de Módulos Secundarios',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            SizedBox(height: 24),
-
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final modules = [
-                  {
-                    'icon': FluentIcons.cube_shape,
-                    'title': 'Escáner CAD',
-                    'desc': 'Extracción automática de metadatos.',
-                    'nav': 5
-                  },
-                  {
-                    'icon': FluentIcons.excel_logo,
-                    'title': 'Importar Excel',
-                    'desc': 'Carga masiva de listas BOM.',
-                    'nav': 6
-                  },
-                  {
-                    'icon': FluentIcons.check_list,
-                    'title': 'Auditor',
-                    'desc': 'Radar de integridad de archivos.',
-                    'nav': 7
-                  },
-                  {
-                    'icon': FluentIcons.fabric_folder,
-                    'title': 'Gestión de Proyectos',
-                    'desc': 'Control de versiones y tractos.',
-                    'nav': 10
-                  },
-                  {
-                    'icon': FluentIcons.car,
-                    'title': 'Expedientes VIN',
-                    'desc': 'Trazabilidad de manufactura.',
-                    'nav': 11
-                  },
-                  {
-                    'icon': FluentIcons.tablet,
-                    'title': 'Centro de QA',
-                    'desc': 'Gestión de calidad y no conformes.',
-                    'nav': 13
-                  },
-                  {
-                    'icon': FluentIcons.page_list,
-                    'title': 'Ayudas Visuales',
-                    'desc': 'Manuales, procesos y revisiones.',
-                    'nav': 5
-                  },
-                  {
-                    'icon': FluentIcons.activity_feed,
-                    'title': 'Centro de Monitoreo',
-                    'desc': 'Seguimiento de tareas automáticas y manuales.',
-                    'nav': 16
-                  },
-                ];
-
-                final cardWidth = constraints.maxWidth < 360
-                    ? constraints.maxWidth
-                    : 340.0;
-
-                return Wrap(
-                  spacing: 20,
-                  runSpacing: 20,
-                  children: modules.map((mod) {
-                    return SizedBox(
-                      width: cardWidth,
-                      child: _buildModuleItem(
-                        icon: mod['icon'] as IconData,
-                        title: mod['title'] as String,
-                        description: mod['desc'] as String,
-                        onTap: () => widget.onNavigate(mod['nav'] as int),
-                      ),
+              LayoutBuilder(
+                builder: (context, c) {
+                  final wide = c.maxWidth > 900;
+                  final gap = 16.0;
+                  final cards = [
+                    _areaCard(
+                      theme: theme,
+                      title: 'Ingeniería · Estandarización',
+                      accent: const Color(0xFF1565C0),
+                      headline: '${saludCad.toStringAsFixed(1)} %',
+                      headlineLabel: 'Salud CAD (plano vinculado)',
+                      footerLine:
+                          '${totalLineasBom.toString()} líneas en listas BOM',
+                      chips: [
+                        _chip(
+                          FluentIcons.cube_shape,
+                          'Escáner CAD',
+                          () => widget.onNavigate(kPaneCadScanner),
+                        ),
+                        _chip(
+                          FluentIcons.database,
+                          'Catálogo',
+                          () => widget.onNavigate(kPaneCatalogo),
+                        ),
+                      ],
+                    ),
+                    _areaCard(
+                      theme: theme,
+                      title: 'Gestión · Trazabilidad',
+                      accent: const Color(0xFF00695C),
+                      headline: '$_tractosActivos',
+                      headlineLabel: 'Proyectos (tractos) activos',
+                      footerLine:
+                          '$totalVersiones versiones de ingeniería registradas',
+                      chips: [
+                        _chip(
+                          FluentIcons.fabric_folder,
+                          'Proyectos',
+                          () => widget.onNavigate(kPaneGestionProyectos),
+                        ),
+                        _chip(
+                          FluentIcons.car,
+                          'Expedientes VIN',
+                          () => widget.onNavigate(kPaneVin),
+                        ),
+                      ],
+                    ),
+                    _areaCard(
+                      theme: theme,
+                      title: 'Control · Estadísticas',
+                      accent: const Color(0xFF6A1B9A),
+                      headline: '${totalLineasBom.toString()}',
+                      headlineLabel: 'Piezas / líneas en BOM (volumen)',
+                      footerLine: 'Salud global ${saludCad.toStringAsFixed(1)} %',
+                      chips: [
+                        _chip(
+                          FluentIcons.pie_single,
+                          'Dashboard Analytics',
+                          () => widget.onNavigate(kPaneAnalytics),
+                        ),
+                        _chip(
+                          FluentIcons.tablet,
+                          'Centro de QA',
+                          () => widget.onNavigate(kPaneQa),
+                        ),
+                      ],
+                    ),
+                    _areaCard(
+                      theme: theme,
+                      title: 'Operaciones · Monitoreo',
+                      accent: const Color(0xFFE65100),
+                      headline: '$_misionesCentroPendientes',
+                      headlineLabel: 'Misiones Radar/Manual pendientes',
+                      footerLine:
+                          '$_reportesQaAbiertos reportes de bug / QA abiertos',
+                      chips: [
+                        _chip(
+                          FluentIcons.build_issue,
+                          'Radar de Impacto',
+                          () => widget.onNavigate(kPaneRadar),
+                        ),
+                        _chip(
+                          FluentIcons.activity_feed,
+                          'Centro de Monitoreo',
+                          () => widget.onNavigate(kPaneMonitoreo),
+                        ),
+                      ],
+                      badge: _misionesCentroPendientes > 0
+                          ? _misionesCentroPendientes
+                          : null,
+                    ),
+                  ];
+                  if (wide) {
+                    return Column(
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(child: cards[0]),
+                            SizedBox(width: gap),
+                            Expanded(child: cards[1]),
+                          ],
+                        ),
+                        SizedBox(height: gap),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(child: cards[2]),
+                            SizedBox(width: gap),
+                            Expanded(child: cards[3]),
+                          ],
+                        ),
+                      ],
                     );
-                  }).toList(),
-                );
-              },
-            ),
-            
-            // Espacio extra al final para scroll suave
-            SizedBox(height: 50),
+                  }
+                  return Column(
+                    children: [
+                      for (var i = 0; i < cards.length; i++) ...[
+                        if (i > 0) SizedBox(height: gap),
+                        cards[i],
+                      ],
+                    ],
+                  );
+                },
+              ),
           ],
         ),
       ),
     );
   }
 
-  // Helper para construir las tarjetas de KPI
-  Widget _buildKPICard({
-    required String title,
-    required String value,
-    required String subtitle,
-    required IconData icon,
-    required VoidCallback onTap,
-  }) {
-    final theme = FluentTheme.of(context);
-    final cardColor = theme.cardColor;
-
-    return HoverButton(
-      onPressed: onTap,
-      builder: (context, states) {
-        final isHovered = states.isHovered;
-        return AnimatedContainer(
-          duration: Duration(milliseconds: 200),
-          width: 300,
-          padding: EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: isHovered ? theme.accentColor.withOpacity(0.12) : cardColor,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: isHovered ? theme.accentColor : theme.resources.dividerStrokeColorDefault!,
-              width: isHovered ? 2 : 1,
-            ),
-            boxShadow: isHovered ? [
-              BoxShadow(
-                color: theme.shadowColor.withOpacity(0.2),
-                blurRadius: 10,
-                offset: Offset(0, 4),
-              )
-            ] : [],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: theme.typography.caption?.color,
-                    ),
-                  ),
-                  Icon(icon, color: theme.accentColor, size: 24),
-                ],
-              ),
-              SizedBox(height: 16),
-              Text(
-                value,
-                style: TextStyle(
-                  fontSize: 36,
-                  fontWeight: FontWeight.bold,
-                  color: isHovered ? theme.accentColor : theme.typography.titleLarge?.color,
-                ),
-              ),
-              SizedBox(height: 6),
-              Text(
-                subtitle,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: theme.typography.caption?.color?.withOpacity(0.7),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
+  Widget _chip(
+    IconData icon,
+    String label,
+    VoidCallback onTap,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8, top: 6),
+      child: Button(
+        onPressed: onTap,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14),
+            const SizedBox(width: 6),
+            Text(label, style: const TextStyle(fontSize: 12.5)),
+          ],
+        ),
+      ),
     );
   }
 
-  // Helper para construir los ítems de la cuadrícula de módulos
-  Widget _buildModuleItem({
-    required IconData icon,
+  Widget _areaCard({
+    required FluentThemeData theme,
     required String title,
-    required String description,
-    required VoidCallback onTap,
+    required Color accent,
+    required String headline,
+    required String headlineLabel,
+    required String footerLine,
+    required List<Widget> chips,
+    int? badge,
   }) {
-    final theme = FluentTheme.of(context);
-    final isLight = theme.brightness == Brightness.light;
-    
-    return HoverButton(
-      onPressed: onTap,
-      builder: (context, states) {
-        final isHovered = states.isHovered;
-        return AnimatedContainer(
-          duration: Duration(milliseconds: 150),
-          padding: EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: isHovered ? theme.accentColor.withOpacity(0.08) : theme.cardColor.withOpacity(0.4),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: isHovered ? theme.accentColor.withOpacity(0.6) : theme.resources.dividerStrokeColorDefault!,
-              width: 1,
-            ),
+    final stroke = theme.resources.controlStrokeColorDefault;
+    return Container(
+      constraints: const BoxConstraints(minHeight: 200),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: stroke.withValues(alpha: 0.45)),
+        boxShadow: [
+          BoxShadow(
+            color: theme.shadowColor.withValues(alpha: 0.08),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
           ),
-          child: Row(
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              Icon(
-                icon, 
-                size: 32, 
-                color: isLight
-                    ? theme.accentColor
-                    : (isHovered
-                        ? theme.accentColor
-                        : theme.typography.body?.color?.withOpacity(0.6)),
-              ),
-              SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                        color: isLight ? theme.accentColor : theme.typography.body?.color,
-                      ),
-                    ),
-                    SizedBox(height: 4),
-                    Text(
-                      description,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: isLight
-                            ? const Color(0x8A000000)
-                            : theme.typography.caption?.color?.withOpacity(0.7),
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
+              Container(
+                width: 4,
+                height: 22,
+                decoration: BoxDecoration(
+                  color: accent,
+                  borderRadius: BorderRadius.circular(2),
                 ),
               ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: theme.typography.body?.color,
+                  ),
+                ),
+              ),
+              if (badge != null)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE53935),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '$badge',
+                    style: const TextStyle(
+                      color: Color(0xFFFFFFFF),
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
             ],
           ),
-        );
-      },
+          const SizedBox(height: 16),
+          Text(
+            headline,
+            style: TextStyle(
+              fontSize: 36,
+              fontWeight: FontWeight.w800,
+              height: 1.05,
+              color: accent.withValues(alpha: 0.95),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            headlineLabel,
+            style: TextStyle(
+              fontSize: 13,
+              color: theme.typography.caption?.color?.withValues(alpha: 0.85),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            footerLine,
+            style: TextStyle(
+              fontSize: 12,
+              color: theme.typography.caption?.color?.withValues(alpha: 0.7),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(children: chips),
+        ],
+      ),
     );
   }
 }

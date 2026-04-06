@@ -1,0 +1,5 @@
+root = true
+
+# Dart analyzer rejects U+0000 (UTF-16 on disk looks like null bytes). Force UTF-8 for sources.
+[*.dart]
+charset = utf-8

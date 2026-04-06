@@ -141,7 +141,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   description: 'Cálculo de compras y requerimientos.',
                   icon: FluentIcons.shopping_cart,
                   color: Colors.green,
-                  onTap: () => widget.onNavigate(9), // MRP
+                  onTap: () => widget.onNavigate(15), // MRP (índice panel principal)
                 ),
                 _buildQuickCard(
                   title: 'Dashboard Analytics',

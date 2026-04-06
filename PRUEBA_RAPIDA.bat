@@ -1,17 +1,21 @@
 @echo off
-echo ==========================================
-echo   INDUSTRIAL MANAGER v15.5 - PRUEBA RAPIDA
-echo ==========================================
+cd /d "%~dp0"
 
-call MATAR_TODO.bat
+:: --- CONFIGURACIÓN DE FLUTTER ---
+set "FLUTTER_ROOT=C:\flutter"
+set "PATH=%FLUTTER_ROOT%\bin;%PATH%"
 
-echo.
-echo [1/2] Iniciando Backend (FastAPI)...
-start "BACKEND API (No cerrar)" cmd /k ".venv\Scripts\activate && cd backend && python server.py"
+:: --- LIMPIEZA DE RUTAS ANTIGUAS ---
+:: Esto es necesario para eliminar los errores "Type not found" de la cache
+call flutter clean
+call flutter pub get
 
-echo.
-echo [2/2] Iniciando Frontend (Flutter Windows)...
-echo Espere mientras compila y lanza la ventana...
-flutter run -d windows
+:: --- INICIO DE PROCESOS ---
+echo [1/2] Iniciando Backend...
+:: Entrada FastAPI de este repo: backend\server.py (con venv del proyecto)
+start /min cmd /c cd /d "%~dp0backend" ^&^& "%~dp0.venv\Scripts\python.exe" server.py
+
+echo [2/2] Iniciando Frontend...
+call flutter run -d windows
 
 pause

@@ -9,7 +9,6 @@ import '../services/api_client.dart';
 import '../services/notification_inbox_service.dart';
 import '../widgets/compact_page_header.dart';
 import 'monitoreo/widgets/directive_mission_card.dart';
-import 'monitoreo/widgets/notification_inbox_panel.dart';
 import 'monitoreo/widgets/manual_mission_form_dialog.dart';
 import 'monitoreo/widgets/mission_meta_sheet.dart';
 import 'monitoreo/widgets/task_display_utils.dart';
@@ -28,7 +27,8 @@ class MonitoreoTareasScreen extends StatefulWidget {
   State<MonitoreoTareasScreen> createState() => _MonitoreoTareasScreenState();
 }
 
-class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen> {
+class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
+    with SingleTickerProviderStateMixin {
   bool _loading = true;
   bool _vistaCompacta = false;
   List<Map<String, dynamic>> _tareas = [];
@@ -39,17 +39,22 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen> {
   String _currentUserName = '';
   final Set<int> _checkEnProceso = {};
   final Set<int> _seenTaskIds = {};
-  int _inboxUnread = 0;
   Timer? _refreshTimer;
   final material.ScrollController _activasScrollController = material.ScrollController();
   final material.ScrollController _historialScrollController = material.ScrollController();
+  late final material.TabController _tabController;
 
   @override
   void initState() {
     super.initState();
+    _tabController = material.TabController(length: 3, vsync: this);
+    _tabController.addListener(() {
+      if (_tabController.indexIsChanging) return;
+      if (!mounted) return;
+      setState(() {});
+    });
     _initSesion();
     _cargar();
-    unawaited(_refreshInboxBadge());
 
     // Auto-refresco cada 30 segundos para recibir notificaciones
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
@@ -57,27 +62,9 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen> {
     });
   }
 
-  Future<void> _refreshInboxBadge() async {
-    try {
-      final n = await CmdInboxStore.instance.unreadCount();
-      if (mounted) setState(() => _inboxUnread = n);
-    } catch (_) {
-      if (mounted) setState(() => _inboxUnread = 0);
-    }
-  }
-
-  Future<void> _abrirBuzonNotificaciones() async {
-    await showNotificationInboxDialog(
-      context,
-      onChanged: () {
-        unawaited(_refreshInboxBadge());
-      },
-    );
-    if (mounted) await _refreshInboxBadge();
-  }
-
   @override
   void dispose() {
+    _tabController.dispose();
     _refreshTimer?.cancel();
     _activasScrollController.dispose();
     _historialScrollController.dispose();
@@ -185,7 +172,6 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen> {
                   titulo: titulo,
                 );
                 if (agregada) {
-                  await _refreshInboxBadge();
                   if (mounted) {
                     displayInfoBar(
                       context,
@@ -749,9 +735,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen> {
   @override
   Widget build(BuildContext context) {
     return material.Material(
-      child: material.DefaultTabController(
-        length: 3,
-        child: ScaffoldPage(
+      child: ScaffoldPage(
           header: CompactPageHeader(
             title: Text(
               _esModoSoloLectura
@@ -767,14 +751,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen> {
                   content: const Text('Vista Compacta'),
                 ),
                 const SizedBox(width: 12),
-                NotificationInboxButton(
-                  unreadCount: _inboxUnread,
-                  onOpen: () {
-                    unawaited(_abrirBuzonNotificaciones());
-                  },
-                ),
-                const SizedBox(width: 4),
-                if (_puedeControlarMisiones) ...[
+                if (_puedeControlarMisiones && _tabController.index == 1) ...[
                   IconButton(
                     icon: Icon(FluentIcons.delete, color: material.Colors.red.shade400),
                     onPressed: _dialogoLimpiarHistorial,
@@ -791,6 +768,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen> {
           content: Column(
             children: [
               material.TabBar(
+                controller: _tabController,
                 tabs: [
                   material.Tab(
                     text: _esModoSoloLectura
@@ -804,6 +782,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen> {
               const SizedBox(height: 12),
               Expanded(
                 child: material.TabBarView(
+                  controller: _tabController,
                   children: [
                     _tabActivas(),
                     _tabHistorial(),
@@ -814,7 +793,6 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen> {
             ],
           ),
         ),
-      ),
     );
   }
 

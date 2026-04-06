@@ -556,9 +556,9 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
       displayInfoBar(
         context,
         builder: (c, close) => InfoBar(
-          title: const Text('Misión completada'),
-          content: const Text(
-            'Misión generada y enviada al Centro de Monitoreo.',
+          title: const Text('Misión creada'),
+          content: Text(
+            '🚀 Misión Creada: $tituloCambio asignada a $usrSel',
           ),
           severity: InfoBarSeverity.success,
           onClose: close,

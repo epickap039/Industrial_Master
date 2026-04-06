@@ -5,29 +5,8 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 
-import 'screens/catalog.dart';
-
-import 'screens/auditor.dart'; // Fase 12
-import 'screens/arbitration.dart';
-import 'screens/editor.dart';
-import 'screens/settings.dart';
-import 'screens/login.dart';
-import 'screens/history.dart';
-import 'screens/standardization.dart'; // Fase 18
-import 'screens/materials_list.dart'; // Fase 20
-import 'screens/project_management.dart';
 import 'screens/bom_manager.dart';
-import 'screens/vin_dossier.dart';
-import 'screens/engineering_map.dart'; // v60.0: Mapa de Ingeniería
-import 'screens/qa_dashboard.dart'; // Centro de QA
-import 'screens/cad_scanner_screen.dart'; // Módulo CAD
-import 'screens/ayudas_visuales/ayudas_visuales_nav.dart';
-import 'screens/lobby_screen.dart'; // Nuevo Lobby Rediseñado
-import 'screens/impact_radar_screen.dart'; // Módulo Where-Used
-import 'screens/monitoreo_tareas_screen.dart';
-import 'screens/configuracion_usuarios_screen.dart';
-import 'screens/mrp_screen.dart'; // MRP: Requerimiento de Materiales
-import 'screens/analytics_screen.dart'; // Dashboard Analytics
+import 'screens/login.dart';
 import 'package:pasteboard/pasteboard.dart';
 import 'package:flutter/services.dart';
 import 'theme/app_themes.dart';
@@ -36,7 +15,9 @@ import 'config/app_config.dart';
 import 'services/api_client.dart';
 import 'services/arbitration_bridge.dart';
 import 'services/main_nav.dart';
-import 'widgets/constrained_app_body.dart';
+import 'main_layout.dart';
+import 'screens/monitoreo/widgets/notification_inbox_panel.dart';
+import 'services/notification_inbox_service.dart';
 
 const String API_URL = kApiBaseUrl;
 
@@ -480,6 +461,8 @@ class _MyAppState extends State<MyApp> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            const _AppBarNotificationInbox(),
+                            const SizedBox(width: 8),
                             const NetworkStatusIndicator(),
                             const SizedBox(width: 8),
                             IconButton(
@@ -490,169 +473,20 @@ class _MyAppState extends State<MyApp> {
                         ),
                       ),
                     ),
-                    pane: NavigationPane(
-                      size: const NavigationPaneSize(openWidth: 220.0),
+                    pane: buildIndustrialNavigationPane(
                       selected: topIndex,
-                      onChanged: (index) => _handleNavigation(index, navContext),
+                      onPaneChanged: (index) =>
+                          _handleNavigation(index, navContext),
                       onItemPressed: (index) =>
                           _handleNavigation(index, navContext),
                       displayMode: _navPaneDisplayMode,
-                      // Un solo control de ancho: el IconButton del AppBar (sin segundo menú en rail compacto).
                       toggleable: false,
-                      items: _userRole == 'QA'
-                          ? [
-                              PaneItem(
-                                icon: const Icon(FluentIcons.database),
-                                title: const Text('Catálogo Maestro'),
-                                body: const CatalogScreen(),
-                              ),
-                            ]
-                          : [
-                              PaneItem(
-                                icon: const Icon(FluentIcons.home),
-                                title: const Text('Lobby Principal'),
-                                body: ConstrainedAppBody(
-                                  child: LobbyScreen(
-                                    isAdmin: _userRole == 'ADMIN',
-                                    onNavigate: (index) {
-                                      _handleNavigation(index, navContext);
-                                    },
-                                  ),
-                                ),
-                              ),
-                              PaneItemHeader(
-                                header: const Text('Consultas rápidas'),
-                              ),
-                              PaneItem(
-                                icon: const Icon(FluentIcons.database),
-                                title: const Text('Catálogo Maestro'),
-                                body: const CatalogScreen(),
-                              ),
-                              PaneItem(
-                                icon: const Icon(FluentIcons.set_action),
-                                title: const Text('Materiales Oficiales'),
-                                body: const MaterialsListScreen(),
-                              ),
-                              PaneItem(
-                                icon: const Icon(FluentIcons.map_layers),
-                                title: const Text('Mapa de Ingeniería'),
-                                body: EngineeringMapScreen(
-                                  targetRevisionId: targetRevisionId,
-                                ),
-                              ),
-                              PaneItem(
-                                icon: const Icon(FluentIcons.build_issue),
-                                title: const Text('Radar de Impacto'),
-                                body: const ImpactRadarScreen(),
-                              ),
-                              PaneItem(
-                                icon: const Icon(FluentIcons.page_list),
-                                title: const Text('Ayudas visuales'),
-                                body: ConstrainedAppBody(
-                                  child: AyudasVisualesNav(
-                                    canUpload: _userRole != 'READONLY',
-                                  ),
-                                ),
-                              ),
-                              PaneItemHeader(
-                                header: const Text('Procesamiento de datos'),
-                              ),
-                              PaneItem(
-                                icon: const Icon(FluentIcons.cube_shape),
-                                title: const Text('Escáner CAD 3D/2D'),
-                                body: const CADScannerScreen(),
-                              ),
-                              PaneItem(
-                                icon: const Icon(FluentIcons.cloud),
-                                title: const Text('Importar Excel'),
-                                body: const ArbitrationScreen(),
-                              ),
-                              PaneItem(
-                                icon: const Icon(FluentIcons.check_list),
-                                title: const Text('Auditor de Archivos'),
-                                body: const AuditorScreen(),
-                              ),
-                              PaneItem(
-                                icon: const Icon(FluentIcons.filter),
-                                title: const Text('Estandarización'),
-                                body: ConstrainedAppBody(
-                                  child: StandardizationScreen(),
-                                ),
-                              ),
-                              PaneItemHeader(
-                                header: const Text('Control de producción'),
-                              ),
-                              PaneItem(
-                                icon: const Icon(FluentIcons.shopping_cart),
-                                title: const Text('Requerimientos (MRP)'),
-                                body: const MRPScreen(),
-                              ),
-                              PaneItem(
-                                icon: const Icon(FluentIcons.fabric_folder),
-                                title: const Text('Gestión de Proyectos'),
-                                body: const ProjectManagementScreen(),
-                              ),
-                              PaneItem(
-                                icon: const Icon(FluentIcons.car),
-                                title: const Text('Expedientes VIN'),
-                                body: VINDossierScreen(
-                                  onNavigateToBOM: (id) {
-                                    _handleNavigation(3, navContext, id: id);
-                                  },
-                                ),
-                              ),
-                              PaneItem(
-                                icon: const Icon(FluentIcons.pie_single),
-                                title: const Text('Dashboard Analytics'),
-                                body: const ConstrainedAppBody(
-                                  child: AnalyticsScreen(),
-                                ),
-                              ),
-                              PaneItem(
-                                icon: const Icon(FluentIcons.tablet),
-                                title: const Text('Centro de QA'),
-                                body: const ConstrainedAppBody(
-                                  child: QADashboardScreen(),
-                                ),
-                              ),
-                              PaneItem(
-                                icon: const Icon(FluentIcons.history),
-                                title: const Text('Historial de Cambios'),
-                                body: const HistoryScreen(),
-                              ),
-                              PaneItem(
-                                icon: const Icon(FluentIcons.activity_feed),
-                                title: const Text('Centro de Monitoreo'),
-                                body: const MonitoreoTareasScreen(),
-                              ),
-                            ],
-                      footerItems: [
-                        PaneItemAction(
-                          icon: const Icon(FluentIcons.color),
-                          title: const Text('Tema visual'),
-                          onTap: () => showAppThemePickerDialog(navContext),
-                        ),
-                        PaneItemAction(
-                          icon: const Icon(FluentIcons.bug),
-                          title: const Text("Reportar Bug"),
-                          onTap: () => _showBugDialog(navContext),
-                        ),
-                        if (_userRole == 'ADMIN')
-                          PaneItem(
-                            icon: const Icon(FluentIcons.people),
-                            title: const Text('Usuarios (admin)'),
-                            body: ConstrainedAppBody(
-                              child: const ConfiguracionUsuariosScreen(),
-                            ),
-                          ),
-                        PaneItem(
-                          icon: const Icon(FluentIcons.settings),
-                          title: const Text('Configuración'),
-                          body: const ConstrainedAppBody(
-                            child: SettingsScreen(),
-                          ),
-                        ),
-                      ],
+                      targetRevisionId: targetRevisionId,
+                      onNavigate: (index, {id}) =>
+                          _handleNavigation(index, navContext, id: id),
+                      userRole: _userRole,
+                      onThemeTap: () => showAppThemePickerDialog(navContext),
+                      onBugTap: () => _showBugDialog(navContext),
                     ),
                   );
                   },
@@ -660,6 +494,60 @@ class _MyAppState extends State<MyApp> {
           },
         );
       },
+    );
+  }
+}
+
+/// Campana de buzón (misiones asignadas) visible en toda la app desde la barra superior.
+class _AppBarNotificationInbox extends StatefulWidget {
+  const _AppBarNotificationInbox();
+
+  @override
+  State<_AppBarNotificationInbox> createState() =>
+      _AppBarNotificationInboxState();
+}
+
+class _AppBarNotificationInboxState extends State<_AppBarNotificationInbox> {
+  int _unread = 0;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_refresh());
+    _timer = Timer.periodic(const Duration(seconds: 30), (_) {
+      unawaited(_refresh());
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _refresh() async {
+    try {
+      final n = await CmdInboxStore.instance.unreadCount();
+      if (mounted) setState(() => _unread = n);
+    } catch (_) {
+      if (mounted) setState(() => _unread = 0);
+    }
+  }
+
+  Future<void> _open() async {
+    await showNotificationInboxDialog(
+      context,
+      onChanged: () => unawaited(_refresh()),
+    );
+    if (mounted) await _refresh();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return NotificationInboxButton(
+      unreadCount: _unread,
+      onOpen: _open,
     );
   }
 }

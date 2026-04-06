@@ -52,6 +52,9 @@ __pycache__/
 *.db
 *.sqlite
 
+# Carpeta de logs locales (no versionar)
+logs/
+
 # Archivos de prueba / temporales
 test_*.xlsx
 anal.txt
