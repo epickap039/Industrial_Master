@@ -10,6 +10,7 @@ import 'dart:io';
 
 import '../services/api_client.dart';
 import '../services/main_nav.dart';
+import '../services/nav_pane.dart';
 import '../theme/app_themes.dart';
 import '../widgets/compact_page_header.dart';
 
@@ -29,26 +30,26 @@ class BOMManagerScreen extends StatefulWidget {
   final int? targetRevisionId;
 
   const BOMManagerScreen({
-    Key? key,
+    super.key,
     this.idCliente,
     this.clientName,
     this.idVersion,
     this.versionName,
     this.tractoName,
     this.targetRevisionId,
-  }) : super(key: key);
+  });
 
   @override
   _BOMManagerScreenState createState() => _BOMManagerScreenState();
 }
 
-class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerControllerMixin {
+class _BOMManagerScreenState extends State<BOMManagerScreen>
+    with BomManagerControllerMixin {
   CommandBarButton get _ecrCommandBarItem {
     final bool hasBorrador = _revisiones.any(
       (r) => r['estado'] == 'Borrador' || r['estado'] == 'PENDIENTE',
     );
-    final bool hasAprobada =
-        _revisiones.any((r) => r['estado'] == 'Aprobada');
+    final bool hasAprobada = _revisiones.any((r) => r['estado'] == 'Aprobada');
 
     if (_revisiones.isEmpty) {
       return CommandBarButton(
@@ -77,10 +78,10 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
             if (approved != null) {
               setState(() {
                 _selectedRevision = approved;
-                _arbol            = [];
+                _arbol = [];
                 _selectedEnsamble = null;
-                _vins             = [];
-                _bomPlana         = [];
+                _vins = [];
+                _bomPlana = [];
               });
               _fetchArbol();
               _fetchVINs();
@@ -161,7 +162,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                   child: Container(
                     color:
                         isSelected
-                            ? Colors.blue.withOpacity(0.2)
+                            ? Colors.blue.withValues(alpha: 0.2)
                             : Colors.transparent,
                     child: Row(
                       children: [
@@ -196,7 +197,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
 
   Widget _buildRevisionEmptyState() {
     final Color base =
-        FluentTheme.of(context).typography.body?.color?.withOpacity(0.65) ??
+        FluentTheme.of(context).typography.body?.color?.withValues(alpha: 0.65) ??
         Colors.grey;
     return Center(
       child: ConstrainedBox(
@@ -318,8 +319,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
         Expanded(
           child: LayoutBuilder(
             builder: (context, bx) {
-              final double tableW =
-                  bx.maxWidth < 960 ? 960.0 : bx.maxWidth;
+              final double tableW = bx.maxWidth < 960 ? 960.0 : bx.maxWidth;
               return SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: SizedBox(
@@ -334,7 +334,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                           horizontal: 12.0,
                         ),
                         decoration: BoxDecoration(
-                          color: Colors.blue.withOpacity(0.1),
+                          color: Colors.blue.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Row(
@@ -346,10 +346,10 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 12,
-                                  color: FluentTheme.of(context)
-                                      .typography
-                                      .body
-                                      ?.color,
+                                  color:
+                                      FluentTheme.of(
+                                        context,
+                                      ).typography.body?.color,
                                 ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -362,10 +362,10 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 12,
-                                  color: FluentTheme.of(context)
-                                      .typography
-                                      .body
-                                      ?.color,
+                                  color:
+                                      FluentTheme.of(
+                                        context,
+                                      ).typography.body?.color,
                                 ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -379,10 +379,10 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 12,
-                                  color: FluentTheme.of(context)
-                                      .typography
-                                      .body
-                                      ?.color,
+                                  color:
+                                      FluentTheme.of(
+                                        context,
+                                      ).typography.body?.color,
                                 ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -395,10 +395,10 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 12,
-                                  color: FluentTheme.of(context)
-                                      .typography
-                                      .body
-                                      ?.color,
+                                  color:
+                                      FluentTheme.of(
+                                        context,
+                                      ).typography.body?.color,
                                 ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -411,10 +411,10 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 12,
-                                  color: FluentTheme.of(context)
-                                      .typography
-                                      .body
-                                      ?.color,
+                                  color:
+                                      FluentTheme.of(
+                                        context,
+                                      ).typography.body?.color,
                                 ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -427,10 +427,10 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 12,
-                                  color: FluentTheme.of(context)
-                                      .typography
-                                      .body
-                                      ?.color,
+                                  color:
+                                      FluentTheme.of(
+                                        context,
+                                      ).typography.body?.color,
                                 ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -444,10 +444,10 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 12,
-                                  color: FluentTheme.of(context)
-                                      .typography
-                                      .body
-                                      ?.color,
+                                  color:
+                                      FluentTheme.of(
+                                        context,
+                                      ).typography.body?.color,
                                 ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -465,10 +465,11 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                     "No hay piezas en este ensamble.",
                                     style: TextStyle(
                                       color:
-                                          (FluentTheme.of(
-                                                context,
-                                              ).typography.body?.color
-                                                  ?.withOpacity(0.5) ??
+                                          (FluentTheme.of(context)
+                                                  .typography
+                                                  .body
+                                                  ?.color
+                                                  ?.withValues(alpha: 0.5) ??
                                               Colors.grey),
                                     ),
                                   ),
@@ -495,21 +496,21 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                     final strLink =
                                         pieza['link_drive']?.toString() ?? '';
                                     final hasLink =
-                                        strLink.isNotEmpty &&
-                                        strLink != 'N/A';
-                                    final material = (pieza['material']
-                                                ?.toString()
-                                                .trim()
-                                                .isNotEmpty ??
-                                            false)
-                                        ? pieza['material'].toString()
-                                        : (pieza['descripcion']
-                                                  ?.toString()
-                                                  .trim()
-                                                  .isNotEmpty ??
-                                              false)
-                                        ? pieza['descripcion'].toString()
-                                        : '';
+                                        strLink.isNotEmpty && strLink != 'N/A';
+                                    final material =
+                                        (pieza['material']
+                                                    ?.toString()
+                                                    .trim()
+                                                    .isNotEmpty ??
+                                                false)
+                                            ? pieza['material'].toString()
+                                            : (pieza['descripcion']
+                                                    ?.toString()
+                                                    .trim()
+                                                    .isNotEmpty ??
+                                                false)
+                                            ? pieza['descripcion'].toString()
+                                            : '';
                                     final strObs =
                                         pieza['observaciones']
                                             ?.toString()
@@ -522,10 +523,9 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                     final themeRow = FluentTheme.of(context);
                                     final Color bodyColor =
                                         themeRow.typography.body?.color ??
-                                            (themeRow.brightness ==
-                                                    Brightness.dark
-                                                ? const Color(0xFFE8E8E8)
-                                                : const Color(0xFF242424));
+                                        (themeRow.brightness == Brightness.dark
+                                            ? const Color(0xFFE8E8E8)
+                                            : const Color(0xFF242424));
 
                                     return Container(
                                       padding: const EdgeInsets.symmetric(
@@ -567,8 +567,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                                   color: bodyColor,
                                                 ),
                                                 maxLines: 1,
-                                                overflow:
-                                                    TextOverflow.ellipsis,
+                                                overflow: TextOverflow.ellipsis,
                                               ),
                                             ),
                                           ),
@@ -604,10 +603,9 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                                   color: obsMuted,
                                                 ),
                                                 onSubmitted: (value) {
-                                                  final cant =
-                                                      double.tryParse(
-                                                        value,
-                                                      );
+                                                  final cant = double.tryParse(
+                                                    value,
+                                                  );
                                                   if (cant != null &&
                                                       cant > 0) {
                                                     _updateCantidadPieza(
@@ -634,8 +632,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                                   color: bodyColor,
                                                 ),
                                                 maxLines: 1,
-                                                overflow:
-                                                    TextOverflow.ellipsis,
+                                                overflow: TextOverflow.ellipsis,
                                               ),
                                             ),
                                           ),
@@ -650,8 +647,8 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                                         color: obsMuted,
                                                       ),
                                                       maxLines: 1,
-                                                      overflow: TextOverflow
-                                                          .ellipsis,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
                                                     )
                                                     : Tooltip(
                                                       message: strObs,
@@ -669,13 +666,11 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                                           Expanded(
                                                             child: Text(
                                                               strObs,
-                                                              style:
-                                                                  TextStyle(
-                                                                    fontSize:
-                                                                        10,
-                                                                    color:
-                                                                        bodyColor,
-                                                                  ),
+                                                              style: TextStyle(
+                                                                fontSize: 10,
+                                                                color:
+                                                                    bodyColor,
+                                                              ),
                                                               maxLines: 1,
                                                               overflow:
                                                                   TextOverflow
@@ -689,8 +684,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                           Expanded(
                                             flex: 1,
                                             child: Text(
-                                              pieza['simetria']
-                                                      ?.toString() ??
+                                              pieza['simetria']?.toString() ??
                                                   '',
                                               style: TextStyle(
                                                 fontSize: 12,
@@ -723,9 +717,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                                         if (await canLaunchUrl(
                                                           uri,
                                                         )) {
-                                                          await launchUrl(
-                                                            uri,
-                                                          );
+                                                          await launchUrl(uri);
                                                         }
                                                         if (!mounted) return;
                                                       },
@@ -770,7 +762,8 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
   Widget _buildVistaPlanaExcel() {
     final theme = FluentTheme.of(context);
     final res = theme.resources;
-    final Color bodyColor = theme.typography.body?.color ??
+    final Color bodyColor =
+        theme.typography.body?.color ??
         (theme.brightness == Brightness.dark
             ? const Color(0xFFE8E8E8)
             : const Color(0xFF242424));
@@ -794,7 +787,11 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
     const int flexAncho = 2;
     const int flexEspesor = 2;
 
-    Widget flexHeaderCell(String label, int flex, {TextAlign align = TextAlign.start}) {
+    Widget flexHeaderCell(
+      String label,
+      int flex, {
+      TextAlign align = TextAlign.start,
+    }) {
       return Expanded(
         flex: flex,
         child: Container(
@@ -808,9 +805,10 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
               ),
             ),
           ),
-          alignment: align == TextAlign.center
-              ? Alignment.center
-              : AlignmentDirectional.centerStart,
+          alignment:
+              align == TextAlign.center
+                  ? Alignment.center
+                  : AlignmentDirectional.centerStart,
           child: Text(
             label,
             style: TextStyle(
@@ -841,17 +839,12 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
       final bool isEmpty = rawCell(text).isEmpty;
       final String shown =
           (dashIfEmpty && isEmpty) ? ' — ' : (isEmpty ? '' : text.trim());
-      final Color tc = colorOverride ??
-          ((dashIfEmpty && isEmpty)
-              ? res.textFillColorSecondary
-              : bodyColor);
+      final Color tc =
+          colorOverride ??
+          ((dashIfEmpty && isEmpty) ? res.textFillColorSecondary : bodyColor);
       final child = Text(
         shown,
-        style: TextStyle(
-          color: tc,
-          fontSize: 12,
-          fontWeight: fontWeight,
-        ),
+        style: TextStyle(color: tc, fontSize: 12, fontWeight: fontWeight),
         textAlign: align,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
@@ -861,16 +854,16 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
           decoration: BoxDecoration(
-            border: Border(
-              right: BorderSide(color: borderColor, width: 0.5),
-            ),
+            border: Border(right: BorderSide(color: borderColor, width: 0.5)),
           ),
-          alignment: align == TextAlign.center
-              ? Alignment.center
-              : AlignmentDirectional.centerStart,
-          child: tooltip && !isEmpty && shown.length > 36
-              ? Tooltip(message: shown, child: child)
-              : child,
+          alignment:
+              align == TextAlign.center
+                  ? Alignment.center
+                  : AlignmentDirectional.centerStart,
+          child:
+              tooltip && !isEmpty && shown.length > 36
+                  ? Tooltip(message: shown, child: child)
+                  : child,
         ),
       );
     }
@@ -894,10 +887,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
               _selectedRevision == null
                   ? "Selecciona una revisión para ver la Vista Plana."
                   : "No hay datos para mostrar en esta revisión.",
-              style: TextStyle(
-                color: bodyColor,
-                fontSize: 13,
-              ),
+              style: TextStyle(color: bodyColor, fontSize: 13),
             ),
           ],
         ),
@@ -934,8 +924,11 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(FluentIcons.document_search,
-                          size: 13, color: _accentColor),
+                      Icon(
+                        FluentIcons.document_search,
+                        size: 13,
+                        color: _accentColor,
+                      ),
                       const SizedBox(width: 5),
                       Text(
                         "Auditar Planos",
@@ -973,20 +966,35 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                           children: [
                             flexHeaderCell('Código pieza', flexCodigo),
                             flexHeaderCell('Medida', flexMedida),
-                            flexHeaderCell('Cantidad', flexCantidad,
-                                align: TextAlign.center),
+                            flexHeaderCell(
+                              'Cantidad',
+                              flexCantidad,
+                              align: TextAlign.center,
+                            ),
                             flexHeaderCell('Material', flexMaterial),
-                            flexHeaderCell('Simetría', flexSimetria,
-                                align: TextAlign.center),
+                            flexHeaderCell(
+                              'Simetría',
+                              flexSimetria,
+                              align: TextAlign.center,
+                            ),
                             flexHeaderCell('P. primario', flexPPrim),
                             flexHeaderCell('P. 1', flexP1),
                             flexHeaderCell('P. 2', flexP2),
-                            flexHeaderCell('Largo', flexLargo,
-                                align: TextAlign.center),
-                            flexHeaderCell('Ancho', flexAncho,
-                                align: TextAlign.center),
-                            flexHeaderCell('Espesor', flexEspesor,
-                                align: TextAlign.center),
+                            flexHeaderCell(
+                              'Largo',
+                              flexLargo,
+                              align: TextAlign.center,
+                            ),
+                            flexHeaderCell(
+                              'Ancho',
+                              flexAncho,
+                              align: TextAlign.center,
+                            ),
+                            flexHeaderCell(
+                              'Espesor',
+                              flexEspesor,
+                              align: TextAlign.center,
+                            ),
                           ],
                         ),
                       ),
@@ -1005,7 +1013,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                   nivel == 1 ? 'ESTACIÓN' : 'ENSAMBLE';
                               final TextStyle? baseGrp =
                                   theme.typography.subtitle ??
-                                      theme.typography.bodyStrong;
+                                  theme.typography.bodyStrong;
                               final Color accentText = theme.accentColor;
                               return Container(
                                 width: double.infinity,
@@ -1042,12 +1050,13 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                         textAlign: TextAlign.center,
                                         maxLines: 2,
                                         overflow: TextOverflow.ellipsis,
-                                        style: baseGrp?.copyWith(
+                                        style:
+                                            baseGrp?.copyWith(
                                               color: accentText,
                                               fontWeight: FontWeight.w600,
                                               fontSize:
                                                   (baseGrp.fontSize ?? 13) +
-                                                      0.5,
+                                                  0.5,
                                             ) ??
                                             TextStyle(
                                               color: accentText,
@@ -1061,11 +1070,12 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                               );
                             }
 
-                            final cantStr = row['cantidad'] != null
-                                ? (row['cantidad'] as num)
-                                    .toStringAsFixed(2)
-                                    .replaceAll(RegExp(r'\.?0+$'), '')
-                                : '';
+                            final cantStr =
+                                row['cantidad'] != null
+                                    ? (row['cantidad'] as num)
+                                        .toStringAsFixed(2)
+                                        .replaceAll(RegExp(r'\.?0+$'), '')
+                                    : '';
 
                             final medidaTxt = row['medida']?.toString() ?? '';
                             final matTxt = row['material']?.toString() ?? '';
@@ -1079,19 +1089,20 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                               }
                             }
                             final bool zebraDark = pieceOrdinal.isOdd;
-                            final Color? pieceRowBg = zebraDark
-                                ? Color.alphaBlend(
-                                    (theme.brightness == Brightness.dark
-                                            ? Colors.white
-                                            : Colors.black)
-                                        .withValues(alpha: 0.03),
-                                    Color.alphaBlend(
-                                      res.layerOnMicaBaseAltFillColorDefault
-                                          .withValues(alpha: 0.12),
-                                      baseRow,
-                                    ),
-                                  )
-                                : null;
+                            final Color? pieceRowBg =
+                                zebraDark
+                                    ? Color.alphaBlend(
+                                      (theme.brightness == Brightness.dark
+                                              ? Colors.white
+                                              : Colors.black)
+                                          .withValues(alpha: 0.03),
+                                      Color.alphaBlend(
+                                        res.layerOnMicaBaseAltFillColorDefault
+                                            .withValues(alpha: 0.12),
+                                        baseRow,
+                                      ),
+                                    )
+                                    : null;
 
                             return Container(
                               decoration: BoxDecoration(
@@ -1131,57 +1142,67 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                           ),
                                         ),
                                       ),
-                                      child: nivel == 3
-                                          ? TextBox(
-                                              controller: TextEditingController(
-                                                text: cantStr,
-                                              ),
-                                              keyboardType: TextInputType.number,
-                                              enabled: _esEditable,
-                                              textAlign: TextAlign.center,
-                                              style: TextStyle(
-                                                color: bodyColor,
-                                                fontSize: 12,
-                                              ),
-                                              cursorColor: theme.accentColor,
-                                              placeholderStyle: TextStyle(
-                                                color: res.textFillColorSecondary,
-                                                fontSize: 11,
-                                              ),
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                horizontal: 6,
-                                              ),
-                                              onSubmitted: (value) async {
-                                                final cant =
-                                                    double.tryParse(value);
-                                                if (cant != null && cant > 0) {
-                                                  final idEst =
-                                                      row['id_estructura'];
-                                                  if (idEst != null) {
-                                                    await _updateCantidadPieza(
-                                                      (idEst as num).toInt(),
-                                                      cant,
-                                                    );
-                                                    if (!mounted) return;
+                                      child:
+                                          nivel == 3
+                                              ? TextBox(
+                                                controller:
+                                                    TextEditingController(
+                                                      text: cantStr,
+                                                    ),
+                                                keyboardType:
+                                                    TextInputType.number,
+                                                enabled: _esEditable,
+                                                textAlign: TextAlign.center,
+                                                style: TextStyle(
+                                                  color: bodyColor,
+                                                  fontSize: 12,
+                                                ),
+                                                cursorColor: theme.accentColor,
+                                                placeholderStyle: TextStyle(
+                                                  color:
+                                                      res.textFillColorSecondary,
+                                                  fontSize: 11,
+                                                ),
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 6,
+                                                    ),
+                                                onSubmitted: (value) async {
+                                                  final cant = double.tryParse(
+                                                    value,
+                                                  );
+                                                  if (cant != null &&
+                                                      cant > 0) {
+                                                    final idEst =
+                                                        row['id_estructura'];
+                                                    if (idEst != null) {
+                                                      await _updateCantidadPieza(
+                                                        (idEst as num).toInt(),
+                                                        cant,
+                                                      );
+                                                      if (!mounted) return;
+                                                    } else {
+                                                      _showError(
+                                                        "Sin id_estructura",
+                                                      );
+                                                    }
                                                   } else {
-                                                    _showError("Sin id_estructura");
+                                                    _showError(
+                                                      "Cantidad inválida",
+                                                    );
                                                   }
-                                                } else {
-                                                  _showError("Cantidad inválida");
-                                                }
-                                              },
-                                            )
-                                          : Text(
-                                              cantStr,
-                                              textAlign: TextAlign.center,
-                                              style: TextStyle(
-                                                color: bodyColor,
-                                                fontSize: 12,
+                                                },
+                                              )
+                                              : Text(
+                                                cantStr,
+                                                textAlign: TextAlign.center,
+                                                style: TextStyle(
+                                                  color: bodyColor,
+                                                  fontSize: 12,
+                                                ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
                                               ),
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
                                     ),
                                   ),
                                   flexDataText(
@@ -1265,7 +1286,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
             return Container(
               width: 24,
               height: 2,
-              color: Colors.grey.withOpacity(0.4),
+              color: Colors.grey.withValues(alpha: 0.4),
             );
           }
           final idx = i ~/ 2;
@@ -1276,10 +1297,11 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
               _selectedRevision['id_revision'] == rev['id_revision'];
           final isAprobada = rev['estado'] == 'Aprobada';
           final isObsoleta = rev['estado'] == 'OBSOLETO';
-          final stepColor = isAprobada
-              ? const Color(0xFF2E7D32)   // verde
-              : isObsoleta
-                  ? const Color(0xFF9E9E9E)  // gris
+          final stepColor =
+              isAprobada
+                  ? const Color(0xFF2E7D32) // verde
+                  : isObsoleta
+                  ? const Color(0xFF9E9E9E) // gris
                   : const Color(0xFFF9A825); // amarillo (Borrador)
 
           return Tooltip(
@@ -1293,10 +1315,10 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                 // los TextBox y botones instantáneamente.
                 setState(() {
                   _selectedRevision = rev;
-                  _arbol            = [];
+                  _arbol = [];
                   _selectedEnsamble = null;
-                  _vins             = [];
-                  _bomPlana         = [];
+                  _vins = [];
+                  _bomPlana = [];
                 });
                 _fetchArbol();
                 _fetchVINs();
@@ -1309,7 +1331,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                   vertical: 6,
                 ),
                 decoration: BoxDecoration(
-                  color: isSelected ? stepColor : stepColor.withOpacity(0.15),
+                  color: isSelected ? stepColor : stepColor.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
                     color: stepColor,
@@ -1319,7 +1341,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                       isSelected
                           ? [
                             BoxShadow(
-                              color: stepColor.withOpacity(0.4),
+                              color: stepColor.withValues(alpha: 0.4),
                               blurRadius: 6,
                             ),
                           ]
@@ -1332,8 +1354,8 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                       isAprobada
                           ? FluentIcons.lock
                           : isObsoleta
-                              ? FluentIcons.blocked
-                              : FluentIcons.edit,
+                          ? FluentIcons.blocked
+                          : FluentIcons.edit,
                       size: 12,
                       color: isSelected ? Colors.white : stepColor,
                     ),
@@ -1388,7 +1410,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                     Icon(
                       FluentIcons.people,
                       size: 11,
-                      color: Colors.blue.withOpacity(0.65),
+                      color: Colors.blue.withValues(alpha: 0.65),
                     ),
                     const SizedBox(width: 4),
                     Flexible(
@@ -1397,7 +1419,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                         style: TextStyle(
                           fontSize: 12,
                           fontStyle: FontStyle.italic,
-                          color: Colors.blue.withOpacity(0.75),
+                          color: Colors.blue.withValues(alpha: 0.75),
                         ),
                         overflow: TextOverflow.ellipsis,
                         maxLines: 1,
@@ -1422,30 +1444,33 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   // ─── Banner: ingeniería compartida entre múltiples clientes ───
-                  Builder(builder: (context) {
-                    final clientes = _clientesDeRevision(_selectedRevision);
-                    final isShared = clientes.isNotEmpty &&
-                        clientes != 'Ingeniería Base (Sin clientes)';
-                    if (!isShared) return const SizedBox.shrink();
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 8.0),
-                      child: InfoBar(
-                        title: const Text('Ingeniería Compartida'),
-                        content: Text(
-                          '⚠️ Ingeniería compartida por: $clientes. '
-                          'Cambios afectan a todos los VINs vinculados.',
+                  Builder(
+                    builder: (context) {
+                      final clientes = _clientesDeRevision(_selectedRevision);
+                      final isShared =
+                          clientes.isNotEmpty &&
+                          clientes != 'Ingeniería Base (Sin clientes)';
+                      if (!isShared) return const SizedBox.shrink();
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8.0),
+                        child: InfoBar(
+                          title: const Text('Ingeniería Compartida'),
+                          content: Text(
+                            '⚠️ Ingeniería compartida por: $clientes. '
+                            'Cambios afectan a todos los VINs vinculados.',
+                          ),
+                          severity: InfoBarSeverity.warning,
                         ),
-                        severity: InfoBarSeverity.warning,
-                      ),
-                    );
-                  }),
+                      );
+                    },
+                  ),
                   // ─── Barra superior: stepper + acciones (sin flex 4:1 que aplasta el CommandBar)
                   Container(
                     decoration: BoxDecoration(
-                      color: _accentColor.withOpacity(0.06),
+                      color: _accentColor.withValues(alpha: 0.06),
                       border: Border(
                         bottom: BorderSide(
-                          color: _accentColor.withOpacity(0.2),
+                          color: _accentColor.withValues(alpha: 0.2),
                           width: 1.5,
                         ),
                       ),
@@ -1477,17 +1502,19 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                     horizontal: 10,
                                   ),
                                   child: Tooltip(
-                                    message: _esAprobada
-                                        ? 'Revisión Aprobada - Sólo Lectura'
-                                        : _esObsoleta
+                                    message:
+                                        _esAprobada
+                                            ? 'Revisión Aprobada - Sólo Lectura'
+                                            : _esObsoleta
                                             ? 'Archivo Histórico - Sólo Lectura'
                                             : 'Borrador - Edición Activa',
                                     child: Icon(
                                       FluentIcons.circle_fill,
                                       size: 14,
-                                      color: _esAprobada
-                                          ? const Color(0xFF2E7D32)
-                                          : _esObsoleta
+                                      color:
+                                          _esAprobada
+                                              ? const Color(0xFF2E7D32)
+                                              : _esObsoleta
                                               ? const Color(0xFF9E9E9E)
                                               : const Color(0xFFF9A825),
                                     ),
@@ -1501,8 +1528,8 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                       color: _accentColor,
                                       size: 18,
                                     ),
-                                    onPressed: () =>
-                                        showAppThemePickerDialog(context),
+                                    onPressed:
+                                        () => showAppThemePickerDialog(context),
                                   ),
                                 ),
                                 Tooltip(
@@ -1511,10 +1538,10 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                     icon: Icon(
                                       FluentIcons.info,
                                       size: 18,
-                                      color: FluentTheme.of(context)
-                                          .typography
-                                          .body
-                                          ?.color,
+                                      color:
+                                          FluentTheme.of(
+                                            context,
+                                          ).typography.body?.color,
                                     ),
                                     onPressed: _showGuiaImportacionDialog,
                                   ),
@@ -1523,152 +1550,179 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                                 // SingleChildScrollView horizontal (ancho ilimitado → assert).
                                 Expanded(
                                   child: CommandBar(
-                            // Incluye tamaño de árbol y pending: al cargar lista nueva, fluent_ui
-                            // puede dejar índices de overflow obsoletos y ocultar botones mal.
-                            key: ValueKey(
-                              'cmd_${_selectedRevision?['id_revision']}_'
-                              'e${_esEditable}_'
-                              'n${_arbol.length}_'
-                              'p${_hasPendingChanges}_'
-                              'vp$_vistaPlana',
-                            ),
-                            overflowBehavior:
-                                CommandBarOverflowBehavior.dynamicOverflow,
-                            primaryItems: [
-                              // ── Botón ECR inteligente ──────────────────────
-                              _ecrCommandBarItem,
+                                    // Incluye tamaño de árbol y pending: al cargar lista nueva, fluent_ui
+                                    // puede dejar índices de overflow obsoletos y ocultar botones mal.
+                                    key: ValueKey(
+                                      'cmd_${_selectedRevision?['id_revision']}_'
+                                      'e${_esEditable}_'
+                                      'n${_arbol.length}_'
+                                      'p${_hasPendingChanges}_'
+                                      'vp$_vistaPlana',
+                                    ),
+                                    overflowBehavior:
+                                        CommandBarOverflowBehavior
+                                            .dynamicOverflow,
+                                    primaryItems: [
+                                      // ── Botón ECR inteligente ──────────────────────
+                                      _ecrCommandBarItem,
 
-                              // ── 💾 Guardar Cambios (solo Borrador) ─────────
-                              if (_esEditable)
-                                CommandBarButton(
-                                  icon: Icon(
-                                    FluentIcons.save,
-                                    color: _hasPendingChanges
-                                        ? Colors.orange
-                                        : Colors.grey,
-                                  ),
-                                  label: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(
-                                        _hasPendingChanges
-                                            ? 'Cambios sin guardar'
-                                            : 'Actualizado',
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          color: _hasPendingChanges
-                                              ? Colors.orange
-                                              : Colors.grey,
-                                          fontWeight: _hasPendingChanges
-                                              ? FontWeight.bold
-                                              : FontWeight.normal,
-                                        ),
-                                      ),
-                                      if (_hasPendingChanges) ...[
-                                        const SizedBox(width: 4),
-                                        Container(
-                                          width: 7,
-                                          height: 7,
-                                          decoration: BoxDecoration(
-                                            color: Colors.orange,
-                                            shape: BoxShape.circle,
+                                      // ── 💾 Guardar Cambios (solo Borrador) ─────────
+                                      if (_esEditable)
+                                        CommandBarButton(
+                                          icon: Icon(
+                                            FluentIcons.save,
+                                            color:
+                                                _hasPendingChanges
+                                                    ? Colors.orange
+                                                    : Colors.grey,
                                           ),
+                                          label: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Text(
+                                                _hasPendingChanges
+                                                    ? 'Cambios sin guardar'
+                                                    : 'Actualizado',
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  color:
+                                                      _hasPendingChanges
+                                                          ? Colors.orange
+                                                          : Colors.grey,
+                                                  fontWeight:
+                                                      _hasPendingChanges
+                                                          ? FontWeight.bold
+                                                          : FontWeight.normal,
+                                                ),
+                                              ),
+                                              if (_hasPendingChanges) ...[
+                                                const SizedBox(width: 4),
+                                                Container(
+                                                  width: 7,
+                                                  height: 7,
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.orange,
+                                                    shape: BoxShape.circle,
+                                                  ),
+                                                ),
+                                              ],
+                                            ],
+                                          ),
+                                          onPressed:
+                                              _hasPendingChanges
+                                                  ? () =>
+                                                      _vistaPlana
+                                                          ? _fetchBomPlana()
+                                                          : _fetchArbol()
+                                                  : null,
                                         ),
-                                      ],
+                                      if (_esEditable)
+                                        CommandBarButton(
+                                          icon: Icon(
+                                            FluentIcons.lock,
+                                            color: Colors.green,
+                                          ),
+                                          label: const Text("Aprobar"),
+                                          onPressed: _showAprobarConfirmDialog,
+                                        ),
+                                      // ── Eliminar: siempre visible, admin bypass si no es borrador ──
+                                      if (_selectedRevision != null)
+                                        CommandBarButton(
+                                          icon: Icon(
+                                            FluentIcons.delete,
+                                            color:
+                                                _esEditable
+                                                    ? const Color(0xFFF57C00)
+                                                    : const Color(0xFFBDBDBD),
+                                          ),
+                                          label: const Text("Eliminar"),
+                                          onPressed:
+                                              _esEditable
+                                                  ? _checkAndShowDeleteDialog
+                                                  : _showAdminDeleteDialog,
+                                        ),
+                                      CommandBarButton(
+                                        icon: Icon(
+                                          _vistaPlana
+                                              ? FluentIcons.check_list
+                                              : FluentIcons.table,
+                                          color:
+                                              _vistaPlana
+                                                  ? _accentColor
+                                                  : const Color(0xFF757575),
+                                        ),
+                                        label: Text(
+                                          _vistaPlana
+                                              ? "Vista Árbol"
+                                              : "Vista Plana",
+                                        ),
+                                        onPressed:
+                                            _selectedRevision == null
+                                                ? null
+                                                : () {
+                                                  final entering = !_vistaPlana;
+                                                  setState(
+                                                    () =>
+                                                        _vistaPlana = entering,
+                                                  );
+                                                  if (entering) {
+                                                    _fetchBomPlana();
+                                                  }
+                                                },
+                                      ),
+                                      // Importar / Sumar en primary: si van solo a secondary, el overflow
+                                      // del CommandBar suele ocultarlos (no visibles en barra ni obvios).
+                                      if (_selectedRevision != null &&
+                                          _esEditable)
+                                        CommandBarButton(
+                                          icon: const Icon(
+                                            FluentIcons.download,
+                                          ),
+                                          label: const Text('Importar Excel'),
+                                          onPressed: _importarExcel,
+                                        ),
+                                      if (_selectedRevision != null &&
+                                          _esEditable)
+                                        CommandBarButton(
+                                          icon: const Icon(FluentIcons.add_to),
+                                          label: Tooltip(
+                                            message:
+                                                'Añade o suma cantidades por ruta Estación → Ensamble → Código',
+                                            child: const Text('Sumar Excel'),
+                                          ),
+                                          onPressed: _sumarExcel,
+                                        ),
+                                    ],
+                                    secondaryItems: [
+                                      CommandBarButton(
+                                        icon: Icon(
+                                          FluentIcons.excel_document,
+                                          color: Colors.green,
+                                        ),
+                                        label: const Text("Exportar BOM"),
+                                        onPressed:
+                                            _selectedRevision == null
+                                                ? null
+                                                : _exportarExcel,
+                                      ),
+                                      CommandBarButton(
+                                        icon: Icon(
+                                          FluentIcons.car,
+                                          color: Colors.blue,
+                                        ),
+                                        label: Tooltip(
+                                          message:
+                                              "Administra las unidades físicas ligadas a esta revisión",
+                                          child: const Text("Gestionar VINs"),
+                                        ),
+                                        onPressed:
+                                            _selectedRevision == null
+                                                ? null
+                                                : _showVINManagementDialog,
+                                      ),
                                     ],
                                   ),
-                                  onPressed: _hasPendingChanges
-                                      ? () => _vistaPlana
-                                          ? _fetchBomPlana()
-                                          : _fetchArbol()
-                                      : null,
                                 ),
-                              if (_esEditable)
-                                CommandBarButton(
-                                  icon: Icon(FluentIcons.lock,
-                                      color: Colors.green),
-                                  label: const Text("Aprobar"),
-                                  onPressed: _showAprobarConfirmDialog,
-                                ),
-                              // ── Eliminar: siempre visible, admin bypass si no es borrador ──
-                              if (_selectedRevision != null)
-                                CommandBarButton(
-                                  icon: Icon(FluentIcons.delete,
-                                      color: _esEditable ? const Color(0xFFF57C00) : const Color(0xFFBDBDBD)),
-                                  label: const Text("Eliminar"),
-                                  onPressed: _esEditable 
-                                      ? _checkAndShowDeleteDialog 
-                                      : _showAdminDeleteDialog,
-                                ),
-                              CommandBarButton(
-                                icon: Icon(
-                                  _vistaPlana
-                                      ? FluentIcons.check_list
-                                      : FluentIcons.table,
-                                  color:
-                                      _vistaPlana
-                                          ? _accentColor
-                                          : const Color(0xFF757575),
-                                ),
-                                label: Text(
-                                  _vistaPlana ? "Vista Árbol" : "Vista Plana",
-                                ),
-                                onPressed:
-                                    _selectedRevision == null
-                                        ? null
-                                        : () {
-                                          final entering = !_vistaPlana;
-                                          setState(
-                                            () => _vistaPlana = entering,
-                                          );
-                                          if (entering) _fetchBomPlana();
-                                        },
-                              ),
-                              // Importar / Sumar en primary: si van solo a secondary, el overflow
-                              // del CommandBar suele ocultarlos (no visibles en barra ni obvios).
-                              if (_selectedRevision != null && _esEditable)
-                                CommandBarButton(
-                                  icon: const Icon(FluentIcons.download),
-                                  label: const Text('Importar Excel'),
-                                  onPressed: _importarExcel,
-                                ),
-                              if (_selectedRevision != null && _esEditable)
-                                CommandBarButton(
-                                  icon: const Icon(FluentIcons.add_to),
-                                  label: Tooltip(
-                                    message:
-                                        'Añade o suma cantidades por ruta Estación → Ensamble → Código',
-                                    child: const Text('Sumar Excel'),
-                                  ),
-                                  onPressed: _sumarExcel,
-                                ),
-                            ],
-                            secondaryItems: [
-                              CommandBarButton(
-                                icon: Icon(
-                                  FluentIcons.excel_document,
-                                  color: Colors.green,
-                                ),
-                                label: const Text("Exportar BOM"),
-                                onPressed:
-                                    _selectedRevision == null
-                                        ? null
-                                        : _exportarExcel,
-                              ),
-                              CommandBarButton(
-                                icon: Icon(FluentIcons.car, color: Colors.blue),
-                                label: Tooltip(
-                                  message: "Administra las unidades físicas ligadas a esta revisión",
-                                  child: const Text("Gestionar VINs"),
-                                ),
-                                onPressed:
-                                    _selectedRevision == null
-                                        ? null
-                                        : _showVINManagementDialog,
-                              ),
-                            ],
-                          ),
-                                  ),
                               ],
                             ),
                           ),
@@ -1681,87 +1735,90 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
                   const SizedBox(height: 8),
                   // ─── ZONA PRINCIPAL: ocupa todo el espacio restante ─────
                   Expanded(
-                    child: _vistaPlana
-                        ? Card(
-                            padding: const EdgeInsets.all(12),
-                            child: _buildVistaPlanaExcel(),
-                          )
-                        : Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        // Panel izquierdo: TreeView de ensambles
-                        SizedBox(
-                          width: 280,
-                          child: Card(
-                            padding: const EdgeInsets.all(8),
-                            child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.stretch,
-                                    children: [
-                                      Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          const Text(
-                                            "ENSAMBLES",
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 12,
+                    child:
+                        _vistaPlana
+                            ? Card(
+                              padding: const EdgeInsets.all(12),
+                              child: _buildVistaPlanaExcel(),
+                            )
+                            : Row(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                // Panel izquierdo: TreeView de ensambles
+                                SizedBox(
+                                  width: 280,
+                                  child: Card(
+                                    padding: const EdgeInsets.all(8),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            const Text(
+                                              "ENSAMBLES",
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 12,
+                                              ),
                                             ),
-                                          ),
-                                          if (_esEditable)
-                                            Tooltip(
-                                              message: "Agregar Estación",
-                                              child: IconButton(
-                                                icon: const Icon(
-                                                  FluentIcons.add,
-                                                  size: 14,
+                                            if (_esEditable)
+                                              Tooltip(
+                                                message: "Agregar Estación",
+                                                child: IconButton(
+                                                  icon: const Icon(
+                                                    FluentIcons.add,
+                                                    size: 14,
+                                                  ),
+                                                  onPressed:
+                                                      _manualBomMutating
+                                                          ? null
+                                                          : () => _showAddDialog(
+                                                            "Nueva Estación",
+                                                            _addEstacion,
+                                                          ),
                                                 ),
-                                                onPressed:
-                                                    _manualBomMutating
-                                                        ? null
-                                                        : () =>
-                                                            _showAddDialog(
-                                                              "Nueva Estación",
-                                                              _addEstacion,
-                                                            ),
                                               ),
-                                            ),
-                                        ],
-                                      ),
-                                      const Divider(),
-                                      Expanded(
-                                        child: _arbol.isEmpty
-                                            ? _buildRevisionEmptyState()
-                                            : TreeView(
-                                                items: _buildTreeItems(),
-                                                selectionMode:
-                                                    TreeViewSelectionMode
-                                                        .single,
-                                                onItemInvoked:
-                                                    (item, reason) async {},
-                                              ),
-                                      ),
-                                    ],
+                                          ],
+                                        ),
+                                        const Divider(),
+                                        Expanded(
+                                          child:
+                                              _arbol.isEmpty
+                                                  ? _buildRevisionEmptyState()
+                                                  : TreeView(
+                                                    items: _buildTreeItems(),
+                                                    selectionMode:
+                                                        TreeViewSelectionMode
+                                                            .single,
+                                                    onItemInvoked:
+                                                        (item, reason) async {},
+                                                  ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        // Panel derecho: tabla de piezas — Expanded recibe
-                        // constraints exactos del Row padre
-                        Expanded(
-                          child: Card(
-                            padding: const EdgeInsets.all(12),
-                            child:
-                                _manualBomMutating ||
-                                        (_isLoading &&
-                                            _selectedEnsamble == null)
-                                    ? const Center(child: ProgressRing())
-                                    : _buildPiezasTable(),
-                          ),
-                        ),
-                      ],
-                    ),
+                                ),
+                                const SizedBox(width: 12),
+                                // Panel derecho: tabla de piezas — Expanded recibe
+                                // constraints exactos del Row padre
+                                Expanded(
+                                  child: Card(
+                                    padding: const EdgeInsets.all(12),
+                                    child:
+                                        _manualBomMutating ||
+                                                (_isLoading &&
+                                                    _selectedEnsamble == null)
+                                            ? const Center(
+                                              child: ProgressRing(),
+                                            )
+                                            : _buildPiezasTable(),
+                                  ),
+                                ),
+                              ],
+                            ),
                   ),
                 ],
               ),
@@ -1773,7 +1830,6 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
   }
 }
 
-
 // ════════════════════════════════════════════════════════════════════════════
 // _DiffAuditorDialog — Auditor de Cambios estilo Git/Cursor
 // Muestra el diff de la revisión actual vs la anterior antes de aprobar.
@@ -1781,9 +1837,9 @@ class _BOMManagerScreenState extends State<BOMManagerScreen> with BomManagerCont
 // ════════════════════════════════════════════════════════════════════════════
 
 class _DiffAuditorDialog extends StatefulWidget {
-  final int          idRevision;
-  final String       revNum;
-  final Color        accentColor;
+  final int idRevision;
+  final String revNum;
+  final Color accentColor;
   final VoidCallback onConfirm;
 
   const _DiffAuditorDialog({
@@ -1798,12 +1854,12 @@ class _DiffAuditorDialog extends StatefulWidget {
 }
 
 class _DiffAuditorDialogState extends State<_DiffAuditorDialog> {
-  bool    _loading     = true;
+  bool _loading = true;
   String? _error;
   List<_DiffRow> _rows = [];
-  int _cntNuevos       = 0;
-  int _cntEliminados   = 0;
-  int _cntModificados  = 0;
+  int _cntNuevos = 0;
+  int _cntEliminados = 0;
+  int _cntModificados = 0;
 
   @override
   void initState() {
@@ -1819,7 +1875,7 @@ class _DiffAuditorDialogState extends State<_DiffAuditorDialog> {
       if (!mounted) return;
       if (respDelta.statusCode != 200) {
         setState(() {
-          _error   = 'Error en delta: ${respDelta.statusCode}';
+          _error = 'Error en delta: ${respDelta.statusCode}';
           _loading = false;
         });
         return;
@@ -1827,16 +1883,22 @@ class _DiffAuditorDialogState extends State<_DiffAuditorDialog> {
       final delta = respDelta.decodeJson() as Map<String, dynamic>;
 
       if (delta['tiene_anterior'] != true) {
-        setState(() { _rows = []; _loading = false; });
+        setState(() {
+          _rows = [];
+          _loading = false;
+        });
         return;
       }
 
-      final List<String> nuevos =
-          List<String>.from(delta['codigos_nuevos']     as List? ?? []);
-      final List<String> eliminados =
-          List<String>.from(delta['codigos_eliminados'] as List? ?? []);
-      final Map<String, dynamic> modificados =
-          Map<String, dynamic>.from(delta['modificados'] as Map? ?? {});
+      final List<String> nuevos = List<String>.from(
+        delta['codigos_nuevos'] as List? ?? [],
+      );
+      final List<String> eliminados = List<String>.from(
+        delta['codigos_eliminados'] as List? ?? [],
+      );
+      final Map<String, dynamic> modificados = Map<String, dynamic>.from(
+        delta['modificados'] as Map? ?? {},
+      );
 
       final respPlana = await ApiClient.getUnvalidated(
         '/api/bom/plana/${widget.idRevision}',
@@ -1848,9 +1910,10 @@ class _DiffAuditorDialogState extends State<_DiffAuditorDialog> {
         final plana = respPlana.decodeJson() as List<dynamic>;
         for (final row in plana) {
           if ((row['nivel'] as num).toInt() == 3) {
-            final cod    = row['codigo_pieza']?.toString() ?? '';
+            final cod = row['codigo_pieza']?.toString() ?? '';
             descMap[cod] = row['descripcion']?.toString() ?? '';
-            cantMap[cod] = double.tryParse(row['cantidad']?.toString() ?? '') ?? 0.0;
+            cantMap[cod] =
+                double.tryParse(row['cantidad']?.toString() ?? '') ?? 0.0;
           }
         }
       }
@@ -1858,49 +1921,64 @@ class _DiffAuditorDialogState extends State<_DiffAuditorDialog> {
       final List<_DiffRow> rows = [];
 
       for (final cod in nuevos) {
-        rows.add(_DiffRow(
-          tipo:         _DiffTipo.agregado,
-          codigo:       cod,
-          descripcion:  descMap[cod] ?? '',
-          cantAnterior: '',
-          cantActual:   _fmt(cantMap[cod] ?? 0.0),
-        ));
+        rows.add(
+          _DiffRow(
+            tipo: _DiffTipo.agregado,
+            codigo: cod,
+            descripcion: descMap[cod] ?? '',
+            cantAnterior: '',
+            cantActual: _fmt(cantMap[cod] ?? 0.0),
+          ),
+        );
       }
       for (final cod in eliminados) {
         final prev = (modificados[cod]?['prev_qty'] as num?)?.toDouble() ?? 0.0;
-        rows.add(_DiffRow(
-          tipo:         _DiffTipo.eliminado,
-          codigo:       cod,
-          descripcion:  '',
-          cantAnterior: _fmt(prev),
-          cantActual:   '--',
-        ));
+        rows.add(
+          _DiffRow(
+            tipo: _DiffTipo.eliminado,
+            codigo: cod,
+            descripcion: '',
+            cantAnterior: _fmt(prev),
+            cantActual: '--',
+          ),
+        );
       }
       for (final entry in modificados.entries) {
-        final cod  = entry.key;
-        final prev = double.tryParse(entry.value['prev_qty']?.toString() ?? '') ?? 0.0;
-        final curr = double.tryParse(entry.value['curr_qty']?.toString() ?? '') ?? 0.0;
+        final cod = entry.key;
+        final prev =
+            double.tryParse(entry.value['prev_qty']?.toString() ?? '') ?? 0.0;
+        final curr =
+            double.tryParse(entry.value['curr_qty']?.toString() ?? '') ?? 0.0;
         if (prev == curr) continue;
-        rows.add(_DiffRow(
-          tipo:         _DiffTipo.modificado,
-          codigo:       cod,
-          descripcion:  descMap[cod] ?? '',
-          cantAnterior: _fmt(prev),
-          cantActual:   _fmt(curr),
-        ));
+        rows.add(
+          _DiffRow(
+            tipo: _DiffTipo.modificado,
+            codigo: cod,
+            descripcion: descMap[cod] ?? '',
+            cantAnterior: _fmt(prev),
+            cantActual: _fmt(curr),
+          ),
+        );
       }
 
       rows.sort((a, b) => a.tipo.index.compareTo(b.tipo.index));
 
       setState(() {
-        _rows           = rows;
-        _cntNuevos      = rows.where((r) => r.tipo == _DiffTipo.agregado).length;
-        _cntEliminados  = rows.where((r) => r.tipo == _DiffTipo.eliminado).length;
-        _cntModificados = rows.where((r) => r.tipo == _DiffTipo.modificado).length;
-        _loading        = false;
+        _rows = rows;
+        _cntNuevos = rows.where((r) => r.tipo == _DiffTipo.agregado).length;
+        _cntEliminados =
+            rows.where((r) => r.tipo == _DiffTipo.eliminado).length;
+        _cntModificados =
+            rows.where((r) => r.tipo == _DiffTipo.modificado).length;
+        _loading = false;
       });
     } catch (e) {
-      if (mounted) setState(() { _error = 'Error: $e'; _loading = false; });
+      if (mounted) {
+        setState(() {
+          _error = 'Error: $e';
+          _loading = false;
+        });
+      }
     }
   }
 
@@ -1912,22 +1990,23 @@ class _DiffAuditorDialogState extends State<_DiffAuditorDialog> {
   @override
   Widget build(BuildContext context) {
     final bool isDark = FluentTheme.of(context).brightness == Brightness.dark;
-    final Color bg  = isDark ? const Color(0xFF1E1E2A) : Colors.white;
-    final Color tx  = isDark ? const Color(0xFFE8EAED) : const Color(0xFF1A1A2E);
-    final Color bdr = isDark ? const Color(0xFF3A3A4A) : const Color(0xFFDDE3EA);
+    final Color bg = isDark ? const Color(0xFF1E1E2A) : Colors.white;
+    final Color tx = isDark ? const Color(0xFFE8EAED) : const Color(0xFF1A1A2E);
+    final Color bdr =
+        isDark ? const Color(0xFF3A3A4A) : const Color(0xFFDDE3EA);
 
-    const Color clrGreen    = Color(0xFF2E7D32);
-    const Color clrGreenBg  = Color(0x182E7D32);
-    const Color clrRed      = Color(0xFFC62828);
-    const Color clrRedBg    = Color(0x18C62828);
-    const Color clrOrange   = Color(0xFFE65100);
+    const Color clrGreen = Color(0xFF2E7D32);
+    const Color clrGreenBg = Color(0x182E7D32);
+    const Color clrRed = Color(0xFFC62828);
+    const Color clrRedBg = Color(0x18C62828);
+    const Color clrOrange = Color(0xFFE65100);
     const Color clrOrangeBg = Color(0x18E65100);
 
-    const double wFlag  =   5.0;
-    const double wCod   = 160.0;
-    const double wDesc  = 450.0;
-    const double wPrev  =  90.0;
-    const double wCurr  =  90.0;
+    const double wFlag = 5.0;
+    const double wCod = 160.0;
+    const double wDesc = 450.0;
+    const double wPrev = 90.0;
+    const double wCurr = 90.0;
     const double totalW = wFlag + wCod + wDesc + wPrev + wCurr;
 
     Widget hCell(String label, double w, {TextAlign align = TextAlign.left}) {
@@ -1936,30 +2015,55 @@ class _DiffAuditorDialogState extends State<_DiffAuditorDialog> {
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
         decoration: BoxDecoration(
           color: widget.accentColor,
-          border: Border(right: BorderSide(
-              color: const Color(0xFFF8F8F8).withValues(alpha: 0.15), width: 0.5)),
+          border: Border(
+            right: BorderSide(
+              color: const Color(0xFFF8F8F8).withValues(alpha: 0.15),
+              width: 0.5,
+            ),
+          ),
         ),
-        child: Text(label,
+        child: Text(
+          label,
           style: TextStyle(
-              color: FluentTheme.of(context).typography.title?.color ??
-                  const Color(0xFFF8F8F8),
-              fontWeight: FontWeight.bold, fontSize: 11, letterSpacing: 0.3),
-          textAlign: align, overflow: TextOverflow.ellipsis),
+            color:
+                FluentTheme.of(context).typography.title?.color ??
+                const Color(0xFFF8F8F8),
+            fontWeight: FontWeight.bold,
+            fontSize: 11,
+            letterSpacing: 0.3,
+          ),
+          textAlign: align,
+          overflow: TextOverflow.ellipsis,
+        ),
       );
     }
 
-    Widget dCell(String text, double w,
-        {Color? fg, FontWeight fw = FontWeight.normal,
-         bool mono = false, TextAlign align = TextAlign.left}) {
-      final txt = Text(text,
-        style: TextStyle(color: fg ?? tx, fontSize: 11, fontWeight: fw,
-            fontFamily: mono ? 'monospace' : null),
-        textAlign: align, overflow: TextOverflow.ellipsis, maxLines: 1);
+    Widget dCell(
+      String text,
+      double w, {
+      Color? fg,
+      FontWeight fw = FontWeight.normal,
+      bool mono = false,
+      TextAlign align = TextAlign.left,
+    }) {
+      final txt = Text(
+        text,
+        style: TextStyle(
+          color: fg ?? tx,
+          fontSize: 11,
+          fontWeight: fw,
+          fontFamily: mono ? 'monospace' : null,
+        ),
+        textAlign: align,
+        overflow: TextOverflow.ellipsis,
+        maxLines: 1,
+      );
       return Container(
         width: w,
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
         decoration: BoxDecoration(
-            border: Border(right: BorderSide(color: bdr, width: 0.5))),
+          border: Border(right: BorderSide(color: bdr, width: 0.5)),
+        ),
         child: text.length > 35 ? Tooltip(message: text, child: txt) : txt,
       );
     }
@@ -1968,144 +2072,235 @@ class _DiffAuditorDialogState extends State<_DiffAuditorDialog> {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.12),
+          color: color.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: color.withOpacity(0.5)),
+          border: Border.all(color: color.withValues(alpha: 0.5)),
         ),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Container(width: 8, height: 8,
-              decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-          const SizedBox(width: 5),
-          Text('$count $label',
-              style: TextStyle(color: color, fontSize: 11,
-                  fontWeight: FontWeight.bold)),
-        ]),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            ),
+            const SizedBox(width: 5),
+            Text(
+              '$count $label',
+              style: TextStyle(
+                color: color,
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
       );
     }
 
     return ContentDialog(
       constraints: BoxConstraints(
-        maxWidth:  MediaQuery.of(context).size.width  * 0.95,
+        maxWidth: MediaQuery.of(context).size.width * 0.95,
         maxHeight: MediaQuery.of(context).size.height * 0.85,
       ),
-      title: Row(children: [
-        Icon(FluentIcons.compare, size: 18, color: widget.accentColor),
-        const SizedBox(width: 8),
-        Expanded(child: Text(
-          'Auditor de Cambios — Rev. ${widget.revNum}',
-          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-          overflow: TextOverflow.ellipsis)),
-        if (!_loading && _error == null) ...[
+      title: Row(
+        children: [
+          Icon(FluentIcons.compare, size: 18, color: widget.accentColor),
           const SizedBox(width: 8),
-          badge('Nuevas',      _cntNuevos,      clrGreen),
-          const SizedBox(width: 6),
-          badge('Eliminadas',  _cntEliminados,  clrRed),
-          const SizedBox(width: 6),
-          badge('Modificadas', _cntModificados, clrOrange),
+          Expanded(
+            child: Text(
+              'Auditor de Cambios — Rev. ${widget.revNum}',
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (!_loading && _error == null) ...[
+            const SizedBox(width: 8),
+            badge('Nuevas', _cntNuevos, clrGreen),
+            const SizedBox(width: 6),
+            badge('Eliminadas', _cntEliminados, clrRed),
+            const SizedBox(width: 6),
+            badge('Modificadas', _cntModificados, clrOrange),
+          ],
         ],
-      ]),
-      content: _loading
-          ? const Center(child: ProgressRing())
-          : _error != null
-              ? Center(child: Text(_error!,
-                  style: TextStyle(color: Colors.red)))
+      ),
+      content:
+          _loading
+              ? const Center(child: ProgressRing())
+              : _error != null
+              ? Center(
+                child: Text(_error!, style: TextStyle(color: Colors.red)),
+              )
               : _rows.isEmpty
-                  ? Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-                      Icon(FluentIcons.check_mark, size: 40, color: clrGreen),
-                      const SizedBox(height: 12),
-                      const Text('Sin diferencias detectadas.',
-                          style: TextStyle(fontSize: 15,
-                              fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 6),
-                      Text(
-                        'La revisión ${widget.revNum} es idéntica a la anterior.',
-                        style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                    ]))
-                  : Container(
-                      decoration: BoxDecoration(
-                          border: Border.all(color: bdr),
-                          borderRadius: BorderRadius.circular(6),
-                          color: bg),
-                      child: Column(children: [
-                        Row(children: [
-                          Container(width: wFlag, color: widget.accentColor),
-                          hCell('Código',        wCod),
-                          hCell('Descripción',   wDesc),
-                          hCell('Rev. Anterior', wPrev, align: TextAlign.center),
-                          hCell('Rev. Actual',   wCurr, align: TextAlign.center),
-                        ]),
-                        Expanded(child: SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: SizedBox(
-                            width: totalW,
-                            child: ListView.builder(
-                              itemCount: _rows.length,
-                              itemBuilder: (ctx, i) {
-                                final r = _rows[i];
-                                Color rowBg, flagClr, codeFg, qtyFg;
-                                String icon;
-                                switch (r.tipo) {
-                                  case _DiffTipo.agregado:
-                                    rowBg = clrGreenBg; flagClr = clrGreen;
-                                    codeFg = clrGreen; qtyFg = clrGreen; icon = '+';
-                                  case _DiffTipo.eliminado:
-                                    rowBg = clrRedBg; flagClr = clrRed;
-                                    codeFg = clrRed; qtyFg = clrRed; icon = '-';
-                                  case _DiffTipo.modificado:
-                                    rowBg = isDark ? const Color(0xFF1E1000) : clrOrangeBg;
-                                    flagClr = clrOrange; codeFg = clrOrange;
-                                    qtyFg = clrOrange; icon = '*';
-                                }
-                                return Container(
-                                  color: rowBg,
-                                  child: Row(children: [
+              ? Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(FluentIcons.check_mark, size: 40, color: clrGreen),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Sin diferencias detectadas.',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'La revisión ${widget.revNum} es idéntica a la anterior.',
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              )
+              : Container(
+                decoration: BoxDecoration(
+                  border: Border.all(color: bdr),
+                  borderRadius: BorderRadius.circular(6),
+                  color: bg,
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Container(width: wFlag, color: widget.accentColor),
+                        hCell('Código', wCod),
+                        hCell('Descripción', wDesc),
+                        hCell('Rev. Anterior', wPrev, align: TextAlign.center),
+                        hCell('Rev. Actual', wCurr, align: TextAlign.center),
+                      ],
+                    ),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: SizedBox(
+                          width: totalW,
+                          child: ListView.builder(
+                            itemCount: _rows.length,
+                            itemBuilder: (ctx, i) {
+                              final r = _rows[i];
+                              Color rowBg, flagClr, codeFg, qtyFg;
+                              String icon;
+                              switch (r.tipo) {
+                                case _DiffTipo.agregado:
+                                  rowBg = clrGreenBg;
+                                  flagClr = clrGreen;
+                                  codeFg = clrGreen;
+                                  qtyFg = clrGreen;
+                                  icon = '+';
+                                case _DiffTipo.eliminado:
+                                  rowBg = clrRedBg;
+                                  flagClr = clrRed;
+                                  codeFg = clrRed;
+                                  qtyFg = clrRed;
+                                  icon = '-';
+                                case _DiffTipo.modificado:
+                                  rowBg =
+                                      isDark
+                                          ? const Color(0xFF1E1000)
+                                          : clrOrangeBg;
+                                  flagClr = clrOrange;
+                                  codeFg = clrOrange;
+                                  qtyFg = clrOrange;
+                                  icon = '*';
+                              }
+                              return Container(
+                                color: rowBg,
+                                child: Row(
+                                  children: [
                                     Container(
-                                      width: wFlag, color: flagClr,
+                                      width: wFlag,
+                                      color: flagClr,
                                       alignment: Alignment.center,
-                                      child: Text(icon, style: TextStyle(
-                                          color: FluentTheme.of(context).typography.title?.color ??
+                                      child: Text(
+                                        icon,
+                                        style: TextStyle(
+                                          color:
+                                              FluentTheme.of(
+                                                context,
+                                              ).typography.title?.color ??
                                               const Color(0xFFF8F8F8),
                                           fontSize: 10,
-                                          fontWeight: FontWeight.bold)),
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
                                     ),
-                                    dCell(r.codigo, wCod,
-                                        fg: codeFg, fw: FontWeight.w600, mono: true),
-                                    dCell(r.descripcion, wDesc,
-                                        fg: r.tipo == _DiffTipo.eliminado
-                                            ? clrRed.withOpacity(0.8) : null),
+                                    dCell(
+                                      r.codigo,
+                                      wCod,
+                                      fg: codeFg,
+                                      fw: FontWeight.w600,
+                                      mono: true,
+                                    ),
+                                    dCell(
+                                      r.descripcion,
+                                      wDesc,
+                                      fg:
+                                          r.tipo == _DiffTipo.eliminado
+                                              ? clrRed.withValues(alpha: 0.8)
+                                              : null,
+                                    ),
                                     Container(
                                       width: wPrev,
                                       padding: const EdgeInsets.symmetric(
-                                          horizontal: 8, vertical: 5),
-                                      decoration: BoxDecoration(border: Border(
-                                          right: BorderSide(color: bdr, width: 0.5))),
-                                      child: Text(r.cantAnterior,
+                                        horizontal: 8,
+                                        vertical: 5,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        border: Border(
+                                          right: BorderSide(
+                                            color: bdr,
+                                            width: 0.5,
+                                          ),
+                                        ),
+                                      ),
+                                      child: Text(
+                                        r.cantAnterior,
                                         style: TextStyle(
-                                          fontSize: 12, fontWeight: FontWeight.w600,
-                                          color: r.tipo == _DiffTipo.eliminado ? clrRed
-                                              : r.tipo == _DiffTipo.modificado
-                                                  ? clrOrange.withOpacity(0.7) : tx,
-                                          decoration: r.tipo == _DiffTipo.modificado
-                                              ? TextDecoration.lineThrough : null),
-                                        textAlign: TextAlign.center),
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color:
+                                              r.tipo == _DiffTipo.eliminado
+                                                  ? clrRed
+                                                  : r.tipo ==
+                                                      _DiffTipo.modificado
+                                                  ? clrOrange.withValues(alpha: 0.7)
+                                                  : tx,
+                                          decoration:
+                                              r.tipo == _DiffTipo.modificado
+                                                  ? TextDecoration.lineThrough
+                                                  : null,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
                                     ),
                                     Container(
                                       width: wCurr,
                                       padding: const EdgeInsets.symmetric(
-                                          horizontal: 8, vertical: 5),
-                                      child: Text(r.cantActual,
-                                        style: TextStyle(fontSize: 12,
-                                            fontWeight: FontWeight.bold, color: qtyFg),
-                                        textAlign: TextAlign.center),
+                                        horizontal: 8,
+                                        vertical: 5,
+                                      ),
+                                      child: Text(
+                                        r.cantActual,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                          color: qtyFg,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
                                     ),
-                                  ]),
-                                );
-                              },
-                            ),
+                                  ],
+                                ),
+                              );
+                            },
                           ),
-                        )),
-                      ]),
+                        ),
+                      ),
                     ),
+                  ],
+                ),
+              ),
       actions: [
         Button(
           child: const Text('Cancelar'),
@@ -2113,24 +2308,41 @@ class _DiffAuditorDialogState extends State<_DiffAuditorDialog> {
         ),
         Padding(
           padding: const EdgeInsets.only(right: 8),
-          child: Text('Esta acción es irreversible.',
-              style: TextStyle(fontSize: 11,
-                  color: Colors.orange.withOpacity(0.9))),
+          child: Text(
+            'Esta acción es irreversible.',
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.orange.withValues(alpha: 0.9),
+            ),
+          ),
         ),
         FilledButton(
-          style: ButtonStyle(backgroundColor: WidgetStateProperty.all(clrGreen)),
+          style: ButtonStyle(
+            backgroundColor: WidgetStateProperty.all(clrGreen),
+          ),
           onPressed: widget.onConfirm,
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(FluentIcons.check_mark, size: 13,
-                color: FluentTheme.of(context).typography.title?.color ??
-                    const Color(0xFFF8F8F8)),
-            const SizedBox(width: 6),
-            Text('Confirmar y Aprobar Revisión',
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                FluentIcons.check_mark,
+                size: 13,
+                color:
+                    FluentTheme.of(context).typography.title?.color ??
+                    const Color(0xFFF8F8F8),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'Confirmar y Aprobar Revisión',
                 style: TextStyle(
-                    color: FluentTheme.of(context).typography.title?.color ??
-                        const Color(0xFFF8F8F8),
-                    fontWeight: FontWeight.bold)),
-          ]),
+                  color:
+                      FluentTheme.of(context).typography.title?.color ??
+                      const Color(0xFFF8F8F8),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
         ),
       ],
     );
@@ -2142,10 +2354,10 @@ enum _DiffTipo { eliminado, modificado, agregado }
 
 class _DiffRow {
   final _DiffTipo tipo;
-  final String    codigo;
-  final String    descripcion;
-  final String    cantAnterior;
-  final String    cantActual;
+  final String codigo;
+  final String descripcion;
+  final String cantAnterior;
+  final String cantActual;
 
   const _DiffRow({
     required this.tipo,

@@ -6,7 +6,8 @@ import '../services/api_client.dart';
 import '../widgets/compact_page_header.dart';
 import 'monitoreo/widgets/manual_mission_form_dialog.dart'
     show kResponsablesMisionFallback;
-import 'monitoreo/widgets/task_display_utils.dart' show kGrupoJerarquiaIndefinida;
+import 'monitoreo/widgets/task_display_utils.dart'
+    show kGrupoImpactoMaterial, kGrupoJerarquiaIndefinida;
 
 class ImpactRadarScreen extends StatefulWidget {
   const ImpactRadarScreen({super.key});
@@ -138,7 +139,18 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
 
   Future<void> _escanearImpacto() async {
     final codes = _codigosPiezaDesdeCampo();
-    if (codes.isEmpty) return;
+    if (codes.isEmpty) {
+      displayInfoBar(
+        context,
+        builder: (c, close) => InfoBar(
+          title: const Text('Código requerido'),
+          content: const Text('Escriba al menos un código de pieza y pulse Escanear.'),
+          severity: InfoBarSeverity.warning,
+          action: IconButton(icon: const Icon(FluentIcons.clear), onPressed: close),
+        ),
+      );
+      return;
+    }
 
     setState(() {
       _isLoading = true;
@@ -181,9 +193,11 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
     } catch (e) {
       _showError("No se pudo conectar al servidor: $e");
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -233,6 +247,15 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
     final rel = TextEditingController(
       text: '${cfg['minutos_por_relacion_unidad'] ?? 5}',
     );
+    final eDraw = TextEditingController(
+      text: '${cfg['minutos_e_drawings_por_proyecto'] ?? 30}',
+    );
+    final planoPieza = TextEditingController(
+      text: '${cfg['minutos_plano_pieza'] ?? 5}',
+    );
+    final drive = TextEditingController(
+      text: '${cfg['minutos_subir_drive'] ?? 10}',
+    );
 
     await showDialog<void>(
       context: context,
@@ -245,18 +268,51 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 InfoLabel(
-                  label: 'Minutos por Plano Ensamble',
+                  label: 'Minutos por plano de ensamble',
                   child: TextBox(controller: ens),
                 ),
                 const SizedBox(height: 12),
                 InfoLabel(
-                  label: 'Minutos por PDF',
+                  label: 'Minutos por PDF (referencia)',
                   child: TextBox(controller: pdf),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Relación de posición: si en la simulación activas «Afecta relaciones de posición», '
+                  'a cada ensamble se le suma: minutos de arriba + (este valor × cantidad de piezas '
+                  'en el ensamble, redondeada hacia arriba).',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    height: 1.3,
+                    color: FluentTheme.of(ctx).typography.body?.color?.withValues(alpha: 0.72),
+                  ),
                 ),
                 const SizedBox(height: 12),
                 InfoLabel(
-                  label: 'Minutos por unidad de relación (× cantidad redondeada arriba)',
+                  label: 'Minutos por unidad de relación (solo con «Afecta relaciones»)',
                   child: TextBox(controller: rel),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Tiempos estándar globales (se suman al total estimado)',
+                  style: FluentTheme.of(ctx).typography.bodyStrong?.copyWith(
+                        fontSize: 13,
+                      ),
+                ),
+                const SizedBox(height: 10),
+                InfoLabel(
+                  label: 'E-Drawings: minutos por proyecto distinto (tracto + tipo)',
+                  child: TextBox(controller: eDraw),
+                ),
+                const SizedBox(height: 12),
+                InfoLabel(
+                  label: 'Plano de la pieza (una sola vez por análisis)',
+                  child: TextBox(controller: planoPieza),
+                ),
+                const SizedBox(height: 12),
+                InfoLabel(
+                  label: 'Subir a Drive (una sola vez por análisis)',
+                  child: TextBox(controller: drive),
                 ),
               ],
             ),
@@ -271,6 +327,9 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
                 final pe = int.tryParse(ens.text.trim()) ?? 0;
                 final pp = int.tryParse(pdf.text.trim()) ?? 0;
                 final pr = int.tryParse(rel.text.trim()) ?? 0;
+                final ed = int.tryParse(eDraw.text.trim()) ?? 0;
+                final ppz = int.tryParse(planoPieza.text.trim()) ?? 0;
+                final dr = int.tryParse(drive.text.trim()) ?? 0;
                 try {
                   await ApiClient.put(
                     '/api/bom/impacto/tiempos-config',
@@ -278,6 +337,9 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
                       'minutos_plano_ensamble': pe,
                       'minutos_pdf': pp,
                       'minutos_por_relacion_unidad': pr,
+                      'minutos_e_drawings_por_proyecto': ed,
+                      'minutos_plano_pieza': ppz,
+                      'minutos_subir_drive': dr,
                     },
                   );
                   if (ctx.mounted) Navigator.pop(ctx);
@@ -310,6 +372,9 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
     ens.dispose();
     pdf.dispose();
     rel.dispose();
+    eDraw.dispose();
+    planoPieza.dispose();
+    drive.dispose();
   }
 
   /// El [Checkbox] de fluent_ui une caja + [content] en un `Row(mainAxisSize: min)`,
@@ -380,6 +445,36 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
               },
               label: 'Afecta relaciones de posición (efecto dominó)',
             ),
+            if (_simulacion != null) ...[
+              _buildTiemposEstandarBloque(),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 46,
+                child: FilledButton(
+                  onPressed: _creandoTarea ? null : _generarTareaIngenieria,
+                  style: ButtonStyle(
+                    shape: WidgetStatePropertyAll(
+                      RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                  child: _creandoTarea
+                      ? const ProgressRing(strokeWidth: 2)
+                      : const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(FluentIcons.rocket, size: 16),
+                            SizedBox(width: 8),
+                            Text(
+                              'Asignar tarea',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                          ],
+                        ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -442,7 +537,8 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
   Future<void> _generarTareaIngenieria() async {
     if (_simulacion == null) return;
     final tituloCtrl = material.TextEditingController();
-    
+    final descCtrl = material.TextEditingController();
+
     String usrSel = _usuarioMisionSeleccionado ?? (_listaUsernames.isNotEmpty ? _listaUsernames.first : '');
 
     final ok = await material.showDialog<bool>(
@@ -488,6 +584,23 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
                     decoration: _inputDecTituloCambio(context),
                     onChanged: (_) => setLocal(() {}),
                   ),
+                  const SizedBox(height: 12),
+                  material.TextField(
+                    controller: descCtrl,
+                    maxLines: 3,
+                    style: material.TextStyle(
+                      color: material.Theme.of(context).textTheme.bodyLarge?.color,
+                    ),
+                    decoration: material.InputDecoration(
+                      labelText: 'Descripción de la misión',
+                      hintText: 'Contexto para el responsable (opcional)',
+                      border: const material.OutlineInputBorder(),
+                      labelStyle: material.TextStyle(
+                        color: material.Theme.of(context).hintColor,
+                      ),
+                    ),
+                    onChanged: (_) => setLocal(() {}),
+                  ),
                 ],
               ),
               actions: [
@@ -507,8 +620,15 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
         );
       },
     );
-    if (ok != true) return;
+    if (ok != true) {
+      tituloCtrl.dispose();
+      descCtrl.dispose();
+      return;
+    }
     final tituloCambio = tituloCtrl.text.trim();
+    final descMision = descCtrl.text.trim();
+    tituloCtrl.dispose();
+    descCtrl.dispose();
     if (tituloCambio.isEmpty) return;
 
     setState(() => _creandoTarea = true);
@@ -537,12 +657,34 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
             };
           })
           .toList();
+      // Checklist global fijo para misiones Radar (no depende de ensambles puntuales).
+      const extrasRadar = <String>[
+        'E-Drawings',
+        'Planos de ensamble',
+        'Actualizar listas',
+        'Subir a Drive',
+        'Mandar correo',
+      ];
+      final ya = entregables
+          .map((e) => '${e['nombre'] ?? ''}'.trim().toLowerCase())
+          .where((s) => s.isNotEmpty)
+          .toSet();
+      for (final n in extrasRadar) {
+        if (ya.contains(n.toLowerCase())) continue;
+        entregables.add({
+          'nombre': n,
+          'minutos': 0,
+          'grupo': kGrupoImpactoMaterial,
+        });
+      }
       await ApiClient.post(
         '/api/tareas/crear',
         body: {
           'tipo': 'RADAR',
           'titulo': tituloCambio,
-          'descripcion': 'Generada desde simulación de Radar de Impacto',
+          'descripcion': descMision.isNotEmpty
+              ? descMision
+              : 'Generada desde simulación de Radar de Impacto',
           'codigo_pieza': _currentPiece,
           'minutos_estimados': _simulacion!['total_minutos'] ?? 0,
           'checklist': entregables,
@@ -580,7 +722,8 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
     return '$h hrs $m min';
   }
 
-  bool get _tieneResultadosArbol => _groupedResults.isNotEmpty;
+  /// Vista con buscador + panel (no solo landing): basta con haber escaneado al menos un código.
+  bool get _vistaDetalleRadar => _currentPiece.trim().isNotEmpty;
 
   Widget _directivoBadge(String emoji, int value, String shortLabel) {
     final stroke = FluentTheme.of(context).resources.controlStrokeColorDefault;
@@ -704,6 +847,68 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
     );
   }
 
+  /// Desglose de E-Drawings / plano pieza / Drive (viene del backend en `tiempos_estandar_radar`).
+  /// Solo en columna izquierda (junto a tareas globales) para no duplicar ni ocupar el resumen.
+  Widget _buildTiemposEstandarBloque() {
+    final raw = _simulacion?['tiempos_estandar_radar'];
+    if (raw is! Map) return const SizedBox.shrink();
+    final n = int.tryParse('${raw['proyectos_distintos'] ?? 0}') ?? 0;
+    final me = int.tryParse('${raw['minutos_e_drawings_total'] ?? 0}') ?? 0;
+    final mp = int.tryParse('${raw['minutos_plano_pieza'] ?? 0}') ?? 0;
+    final md = int.tryParse('${raw['minutos_subir_drive'] ?? 0}') ?? 0;
+    final mpp = int.tryParse('${raw['minutos_por_proyecto_e_drawings'] ?? 0}') ?? 0;
+    const fs = 11.5;
+    final sub = FluentTheme.of(context).typography.body?.color?.withValues(alpha: 0.78);
+    return Padding(
+      padding: const EdgeInsets.only(top: 14),
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: FluentTheme.of(context).accentColor.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: FluentTheme.of(context).resources.dividerStrokeColorDefault.withValues(alpha: 0.65),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(FluentIcons.clock, size: 15, color: FluentTheme.of(context).accentColor),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Tiempos estándar (sumados al total)',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'E-Drawings: $me min · $n proyecto(s) × $mpp min/proyecto',
+              style: TextStyle(fontSize: fs, height: 1.35, color: sub),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Plano pieza: $mp min (una vez)',
+              style: TextStyle(fontSize: fs, height: 1.35, color: sub),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Subir a Drive: $md min (una vez)',
+              style: TextStyle(fontSize: fs, height: 1.35, color: sub),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // Se quitó _buildFloatingMissionBar porque se convirtió en botón en el Header de Resultados
   Widget _buildCompactSearchRow() {
     return Padding(
@@ -721,24 +926,63 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
               ),
             ),
           ),
-          const SizedBox(width: 12),
-          SizedBox(
-            height: 44,
-            child: FilledButton(
-              onPressed: _isLoading ? null : _escanearImpacto,
-              child: _isLoading
-                  ? const ProgressRing(strokeWidth: 2)
-                  : const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(FluentIcons.search, size: 16),
-                        SizedBox(width: 6),
-                        Text('Escanear'),
-                      ],
-                    ),
-            ),
-          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildActionBarInline() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: FluentTheme.of(context).micaBackgroundColor,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: FluentTheme.of(context).resources.dividerStrokeColorDefault,
+          ),
+        ),
+        child: Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            Button(
+              onPressed: _isLoading ? null : _abrirConfigTiemposRadar,
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(FluentIcons.settings, size: 16),
+                  SizedBox(width: 6),
+                  Text('Configurar minutos'),
+                ],
+              ),
+            ),
+            if (_vistaDetalleRadar)
+              Button(
+                onPressed: _simulando ? null : _evaluarImpacto,
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(FluentIcons.calculator_percentage, size: 16),
+                    SizedBox(width: 6),
+                    Text('Evaluar impacto'),
+                  ],
+                ),
+              ),
+            Button(
+              onPressed: _limpiarPantalla,
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(FluentIcons.clear, size: 16),
+                  SizedBox(width: 6),
+                  Text('Limpiar'),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -856,8 +1100,7 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
               : Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    if (_simulacion != null)
-                      const SizedBox(height: 10),
+                    if (_simulacion != null) const SizedBox(height: 10),
                     Expanded(
                       child: Scrollbar(
                         controller: _splitRightScroll,
@@ -1062,38 +1305,6 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
                 style: FluentTheme.of(context).typography.title,
               ),
             ),
-            Tooltip(
-              message: 'Configurar minutos (plano ensamble, PDF, relaciones)',
-              child: IconButton(
-                icon: const Icon(FluentIcons.settings, size: 18),
-                onPressed: _isLoading ? null : _abrirConfigTiemposRadar,
-              ),
-            ),
-          ],
-        ),
-        commandBar: CommandBar(
-          mainAxisAlignment: MainAxisAlignment.end,
-          primaryItems: [
-            if (_tieneResultadosArbol && _currentPiece.isNotEmpty)
-              CommandBarButton(
-                icon: const Icon(FluentIcons.calculator_percentage),
-                label: const Text('Evaluar Impacto'),
-                onPressed: _simulando ? null : _evaluarImpacto,
-              ),
-            if (_simulacion != null)
-              CommandBarButton(
-                icon: const Icon(FluentIcons.rocket, color: material.Color(0xFF00C853)),
-                label: const Text(
-                  'Asignar Tarea',
-                  style: TextStyle(fontWeight: FontWeight.bold, color: material.Color(0xFF00C853)),
-                ),
-                onPressed: _creandoTarea ? null : _generarTareaIngenieria,
-              ),
-            CommandBarButton(
-              icon: const Icon(FluentIcons.clear),
-              label: const Text('Limpiar Pantalla'),
-              onPressed: _limpiarPantalla,
-            ),
           ],
         ),
       ),
@@ -1106,11 +1317,12 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Expanded(
-                  child: _tieneResultadosArbol
+                  child: _vistaDetalleRadar
                       ? Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             _buildCompactSearchRow(),
+                            _buildActionBarInline(),
                             if (_simulacion != null) _buildHeroSimulacion(),
                             Expanded(
                               child: Padding(

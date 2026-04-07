@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
@@ -15,6 +16,7 @@ import 'config/app_config.dart';
 import 'services/api_client.dart';
 import 'services/arbitration_bridge.dart';
 import 'services/main_nav.dart';
+import 'services/nav_pane.dart';
 import 'main_layout.dart';
 import 'screens/monitoreo/widgets/notification_inbox_panel.dart';
 import 'services/notification_inbox_service.dart';
@@ -23,6 +25,7 @@ const String API_URL = kApiBaseUrl;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await initializeDateFormatting('es_ES', null);
   runApp(const MyApp());
 }
 
@@ -37,9 +40,17 @@ class _MyAppState extends State<MyApp> {
   bool _isLoggedIn = false;
   bool _isLoadingAuth = true;
   String _userRole = 'USER';
+
+  /// Solo admin: simula Calidad / Produccion / Ingenieria (UI). No cambia JWT.
+  String? _simulatedRoleOverride;
   int topIndex = 0;
+
+  String get _effectiveRole =>
+      (_simulatedRoleOverride != null && _simulatedRoleOverride!.isNotEmpty)
+          ? _simulatedRoleOverride!
+          : _userRole;
   int? targetRevisionId;
-  List<AutoSuggestBoxItem<dynamic>> _searchItems = [];
+  final List<AutoSuggestBoxItem<dynamic>> _searchItems = [];
 
   /// Compacto = solo íconos; open = barra ancha. El botón hamburguesa del AppBar alterna entre ambos.
   PaneDisplayMode _navPaneDisplayMode = PaneDisplayMode.compact;
@@ -60,9 +71,12 @@ class _MyAppState extends State<MyApp> {
       final loginDate = DateTime.parse(loginDateStr);
       final difference = DateTime.now().difference(loginDate).inDays;
       if (difference < 7) {
+        MainNav.registerRole(storedRole);
+        MainNav.setSimulatedRole(null);
         setState(() {
           _isLoggedIn = true;
           _userRole = storedRole;
+          _simulatedRoleOverride = null;
         });
       } else {
         // Caducó la sesión
@@ -84,9 +98,14 @@ class _MyAppState extends State<MyApp> {
 
   void _onLoginSuccess() async {
     final prefs = await SharedPreferences.getInstance();
+    final r = prefs.getString('rol') ?? 'USER';
+    MainNav.registerRole(r);
+    MainNav.setSimulatedRole(null);
     setState(() {
       _isLoggedIn = true;
-      _userRole = prefs.getString('rol') ?? 'USER';
+      _userRole = r;
+      _simulatedRoleOverride = null;
+      topIndex = 0;
     });
   }
 
@@ -142,8 +161,10 @@ class _MyAppState extends State<MyApp> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('isLoggedIn', false);
     await prefs.remove('access_token');
+    MainNav.setSimulatedRole(null);
     setState(() {
       _isLoggedIn = false;
+      _simulatedRoleOverride = null;
     });
     Navigator.pushReplacementNamed(context, '/login');
   }
@@ -386,7 +407,9 @@ class _MyAppState extends State<MyApp> {
     }
 
     setState(() => topIndex = index);
-    if (_userRole != 'QA' && index == kMainPaneImportarExcel) {
+    final ar = MainNav.currentRole;
+    final pane = navPaneAtIndex(index, ar);
+    if (pane == NavPaneId.importarExcel) {
       ArbitrationBridge.notifyConsumePending();
     }
   }
@@ -408,87 +431,128 @@ class _MyAppState extends State<MyApp> {
           routes: {
             '/': (context) => const SplashScreen(),
             '/login': (context) => LoginScreen(onLoginSuccess: _onLoginSuccess),
-            '/main': (context) => Builder(
+            '/main':
+                (context) => Builder(
                   builder: (navContext) {
                     MainNav.registerPaneNavigator(
                       (index) => _handleNavigation(index, navContext),
                     );
-                    return NavigationView(
-                    appBar: NavigationAppBar(
-                      title: Builder(
-                        builder: (appBarCtx) => Text(
-                          'Industrial Master V135.0',
-                          style: FluentTheme.of(appBarCtx).typography.caption,
-                        ),
-                      ),
-                      automaticallyImplyLeading: false,
-                      leading: Padding(
-                        padding: const EdgeInsetsDirectional.only(start: 8.0),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Tooltip(
-                              message:
-                                  _navPaneDisplayMode == PaneDisplayMode.compact
-                                      ? 'Expandir menú lateral'
-                                      : 'Comprimir menú a íconos',
-                              child: IconButton(
-                                icon: Icon(
-                                  _navPaneDisplayMode == PaneDisplayMode.compact
-                                      ? FluentIcons.global_nav_button
-                                      : FluentIcons.chrome_close,
+                    MainNav.registerRole(_userRole);
+                    MainNav.setSimulatedRole(_simulatedRoleOverride);
+                    return SimulationModeShell(
+                      active:
+                          _simulatedRoleOverride != null &&
+                          _simulatedRoleOverride!.isNotEmpty,
+                      effectiveRoleLabel: _effectiveRole,
+                      child: NavigationView(
+                        appBar: NavigationAppBar(
+                          title: Builder(
+                            builder:
+                                (appBarCtx) => Text(
+                                  'Industrial Master V135.0',
+                                  style:
+                                      FluentTheme.of(
+                                        appBarCtx,
+                                      ).typography.caption,
                                 ),
-                                onPressed: () {
-                                  setState(() {
-                                    _navPaneDisplayMode =
-                                        _navPaneDisplayMode ==
-                                                PaneDisplayMode.compact
-                                            ? PaneDisplayMode.open
-                                            : PaneDisplayMode.compact;
-                                  });
-                                },
-                              ),
+                          ),
+                          automaticallyImplyLeading: false,
+                          leading: Padding(
+                            padding: const EdgeInsetsDirectional.only(
+                              start: 8.0,
                             ),
-                            const Padding(
-                              padding: EdgeInsetsDirectional.only(start: 4),
-                              child: Icon(FluentIcons.factory),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Tooltip(
+                                  message:
+                                      _navPaneDisplayMode ==
+                                              PaneDisplayMode.compact
+                                          ? 'Expandir menú lateral'
+                                          : 'Comprimir menú a íconos',
+                                  child: IconButton(
+                                    icon: Icon(
+                                      _navPaneDisplayMode ==
+                                              PaneDisplayMode.compact
+                                          ? FluentIcons.global_nav_button
+                                          : FluentIcons.chrome_close,
+                                    ),
+                                    onPressed: () {
+                                      setState(() {
+                                        _navPaneDisplayMode =
+                                            _navPaneDisplayMode ==
+                                                    PaneDisplayMode.compact
+                                                ? PaneDisplayMode.open
+                                                : PaneDisplayMode.compact;
+                                      });
+                                    },
+                                  ),
+                                ),
+                                const Padding(
+                                  padding: EdgeInsetsDirectional.only(start: 4),
+                                  child: Icon(FluentIcons.factory),
+                                ),
+                              ],
                             ),
-                          ],
+                          ),
+                          actions: Padding(
+                            padding: const EdgeInsets.only(right: 12.0),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                RoleSimulationAppBarControls(
+                                  realRoleRaw: _userRole,
+                                  simulatedRole: _simulatedRoleOverride,
+                                  onChanged: (v) {
+                                    setState(() {
+                                      _simulatedRoleOverride = v;
+                                      MainNav.setSimulatedRole(v);
+                                      topIndex = 0;
+                                    });
+                                  },
+                                ),
+                                const SizedBox(width: 12),
+                                const _AppBarNotificationInbox(),
+                                const SizedBox(width: 8),
+                                const NetworkStatusIndicator(),
+                                const SizedBox(width: 8),
+                                IconButton(
+                                  icon: const Icon(FluentIcons.sign_out),
+                                  onPressed: () => _logout(navContext),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        pane: buildIndustrialNavigationPane(
+                          selected: topIndex,
+                          onPaneChanged:
+                              (index) => _handleNavigation(index, navContext),
+                          onItemPressed:
+                              (index) => _handleNavigation(index, navContext),
+                          displayMode: _navPaneDisplayMode,
+                          toggleable: false,
+                          targetRevisionId: targetRevisionId,
+                          onNavigatePane: (id, {revisionId}) {
+                            final idx = navIndexForPane(
+                              id,
+                              MainNav.currentRole,
+                            );
+                            if (idx >= 0) {
+                              _handleNavigation(
+                                idx,
+                                navContext,
+                                id: revisionId,
+                              );
+                            }
+                          },
+                          userRole: _effectiveRole,
+                          onThemeTap:
+                              () => showAppThemePickerDialog(navContext),
+                          onBugTap: () => _showBugDialog(navContext),
                         ),
                       ),
-                      actions: Padding(
-                        padding: const EdgeInsets.only(right: 12.0),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const _AppBarNotificationInbox(),
-                            const SizedBox(width: 8),
-                            const NetworkStatusIndicator(),
-                            const SizedBox(width: 8),
-                            IconButton(
-                              icon: const Icon(FluentIcons.sign_out),
-                              onPressed: () => _logout(navContext),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    pane: buildIndustrialNavigationPane(
-                      selected: topIndex,
-                      onPaneChanged: (index) =>
-                          _handleNavigation(index, navContext),
-                      onItemPressed: (index) =>
-                          _handleNavigation(index, navContext),
-                      displayMode: _navPaneDisplayMode,
-                      toggleable: false,
-                      targetRevisionId: targetRevisionId,
-                      onNavigate: (index, {id}) =>
-                          _handleNavigation(index, navContext, id: id),
-                      userRole: _userRole,
-                      onThemeTap: () => showAppThemePickerDialog(navContext),
-                      onBugTap: () => _showBugDialog(navContext),
-                    ),
-                  );
+                    );
                   },
                 ),
           },
@@ -545,15 +609,12 @@ class _AppBarNotificationInboxState extends State<_AppBarNotificationInbox> {
 
   @override
   Widget build(BuildContext context) {
-    return NotificationInboxButton(
-      unreadCount: _unread,
-      onOpen: _open,
-    );
+    return NotificationInboxButton(unreadCount: _unread, onOpen: _open);
   }
 }
 
 class NetworkStatusIndicator extends StatefulWidget {
-  const NetworkStatusIndicator({Key? key}) : super(key: key);
+  const NetworkStatusIndicator({super.key});
 
   @override
   State<NetworkStatusIndicator> createState() => _NetworkStatusIndicatorState();
@@ -588,7 +649,8 @@ class _NetworkStatusIndicatorState extends State<NetworkStatusIndicator> {
         final data = response.decodeJson() as Map<String, dynamic>;
         if (mounted) {
           setState(() {
-            _isConnected = data['status'] == 'ok' && data['db_connected'] == true;
+            _isConnected =
+                data['status'] == 'ok' && data['db_connected'] == true;
           });
         }
       } else {
@@ -602,7 +664,10 @@ class _NetworkStatusIndicatorState extends State<NetworkStatusIndicator> {
   @override
   Widget build(BuildContext context) {
     return Tooltip(
-      message: _isConnected ? 'Servidor Principal Conectado' : 'Desconectado del Servidor Principal',
+      message:
+          _isConnected
+              ? 'Servidor Principal Conectado'
+              : 'Desconectado del Servidor Principal',
       child: Container(
         width: 12,
         height: 12,

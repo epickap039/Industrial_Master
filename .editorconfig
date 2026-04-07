@@ -1,5 +1,23 @@
+# https://editorconfig.org
 root = true
 
-# Dart analyzer rejects U+0000 (UTF-16 on disk looks like null bytes). Force UTF-8 for sources.
-[*.dart]
+[*]
 charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{dart,yml,yaml,json}]
+indent_style = space
+indent_size = 2
+
+[*.py]
+indent_style = space
+indent_size = 4
+
+[*.sql]
+indent_style = space
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false

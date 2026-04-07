@@ -10,13 +10,14 @@ import '../widgets/compact_page_header.dart';
 class VINDossierScreen extends StatefulWidget {
   final Function(int idRevision)? onNavigateToBOM;
 
-  const VINDossierScreen({Key? key, this.onNavigateToBOM}) : super(key: key);
+  const VINDossierScreen({super.key, this.onNavigateToBOM});
 
   @override
   _VINDossierScreenState createState() => _VINDossierScreenState();
 }
 
-class _VINDossierScreenState extends State<VINDossierScreen> with AutomaticKeepAliveClientMixin {
+class _VINDossierScreenState extends State<VINDossierScreen>
+    with AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true;
 
@@ -169,10 +170,7 @@ class _VINDossierScreenState extends State<VINDossierScreen> with AutomaticKeepA
       final response = await ApiClient.putUnvalidated(
         '/api/vins/${_vinData['id_unidad']}/notas',
         headers: {'X-Usuario': username},
-        body: {
-          'vin': _vinData['vin'],
-          'observaciones': _notesController.text,
-        },
+        body: {'vin': _vinData['vin'], 'observaciones': _notesController.text},
       );
       if (response.statusCode == 200) {
         _showError("Nota guardada en el historial", isError: false);
@@ -209,21 +207,29 @@ class _VINDossierScreenState extends State<VINDossierScreen> with AutomaticKeepA
   void _confirmarEliminarArchivo(String nombreArchivo) {
     showDialog(
       context: context,
-      builder: (ctx) => ContentDialog(
-        title: const Text("Eliminar Archivo"),
-        content: Text("¿Confirmas eliminar '$nombreArchivo'? Esta acción es irreversible."),
-        actions: [
-          Button(child: const Text("Cancelar"), onPressed: () => Navigator.pop(ctx)),
-          FilledButton(
-            style: ButtonStyle(backgroundColor: ButtonState.all(Colors.red)),
-            child: const Text("Eliminar"),
-            onPressed: () {
-              Navigator.pop(ctx);
-              _eliminarArchivo(nombreArchivo);
-            },
+      builder:
+          (ctx) => ContentDialog(
+            title: const Text("Eliminar Archivo"),
+            content: Text(
+              "¿Confirmas eliminar '$nombreArchivo'? Esta acción es irreversible.",
+            ),
+            actions: [
+              Button(
+                child: const Text("Cancelar"),
+                onPressed: () => Navigator.pop(ctx),
+              ),
+              FilledButton(
+                style: ButtonStyle(
+                  backgroundColor: WidgetStateProperty.all(Colors.red),
+                ),
+                child: const Text("Eliminar"),
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _eliminarArchivo(nombreArchivo);
+                },
+              ),
+            ],
           ),
-        ],
-      ),
     );
   }
 
@@ -255,21 +261,29 @@ class _VINDossierScreenState extends State<VINDossierScreen> with AutomaticKeepA
   void _confirmarBorrarNota(List<String> lineas, int indice) {
     showDialog(
       context: context,
-      builder: (ctx) => ContentDialog(
-        title: const Text('Borrar Nota'),
-        content: const Text('¿Borrar esta nota del historial? Esta acción no se puede deshacer.'),
-        actions: [
-          Button(child: const Text('Cancelar'), onPressed: () => Navigator.pop(ctx)),
-          FilledButton(
-            style: ButtonStyle(backgroundColor: ButtonState.all(Colors.red)),
-            child: const Text('Borrar'),
-            onPressed: () {
-              Navigator.pop(ctx);
-              _borrarNota(lineas, indice);
-            },
+      builder:
+          (ctx) => ContentDialog(
+            title: const Text('Borrar Nota'),
+            content: const Text(
+              '¿Borrar esta nota del historial? Esta acción no se puede deshacer.',
+            ),
+            actions: [
+              Button(
+                child: const Text('Cancelar'),
+                onPressed: () => Navigator.pop(ctx),
+              ),
+              FilledButton(
+                style: ButtonStyle(
+                  backgroundColor: WidgetStateProperty.all(Colors.red),
+                ),
+                child: const Text('Borrar'),
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _borrarNota(lineas, indice);
+                },
+              ),
+            ],
           ),
-        ],
-      ),
     );
   }
 
@@ -335,9 +349,9 @@ class _VINDossierScreenState extends State<VINDossierScreen> with AutomaticKeepA
                                   (item['titulo'] as String).toLowerCase();
 
                               String icn = "🔧";
-                              if (titulo.contains('aprob'))
+                              if (titulo.contains('aprob')) {
                                 icn = "✅";
-                              else if (titulo.contains('archivo'))
+                              } else if (titulo.contains('archivo'))
                                 icn = "📎";
                               else if (titulo.contains('combo') ||
                                   titulo.contains('vinc'))
@@ -380,7 +394,7 @@ class _VINDossierScreenState extends State<VINDossierScreen> with AutomaticKeepA
                                                           .typography
                                                           .body
                                                           ?.color
-                                                          ?.withOpacity(0.3) ??
+                                                          ?.withValues(alpha: 0.3) ??
                                                       Colors.grey),
                                             ),
                                           ),
@@ -523,7 +537,7 @@ class _VINDossierScreenState extends State<VINDossierScreen> with AutomaticKeepA
                   ),
                   FilledButton(
                     style: ButtonStyle(
-                      backgroundColor: ButtonState.all(Colors.red),
+                      backgroundColor: WidgetStateProperty.all(Colors.red),
                     ),
                     onPressed: () async {
                       if (password.isEmpty) return;
@@ -531,7 +545,8 @@ class _VINDossierScreenState extends State<VINDossierScreen> with AutomaticKeepA
                       try {
                         // === TAREA 2: Leer usuario real para el header ===
                         final prefs = await SharedPreferences.getInstance();
-                        final username = prefs.getString('username') ?? 'SISTEMA_VIN';
+                        final username =
+                            prefs.getString('username') ?? 'SISTEMA_VIN';
                         final res = await ApiClient.deleteUnvalidated(
                           '/api/vins/${_vinData['vin']}',
                           headers: {
@@ -661,7 +676,7 @@ class _VINDossierScreenState extends State<VINDossierScreen> with AutomaticKeepA
                                     borderRadius: BorderRadius.circular(4),
                                     color:
                                         isSelected
-                                            ? Colors.blue.withOpacity(0.1)
+                                            ? Colors.blue.withValues(alpha: 0.1)
                                             : null,
                                   ),
                                   child: ListTile(
@@ -900,45 +915,80 @@ class _VINDossierScreenState extends State<VINDossierScreen> with AutomaticKeepA
                                                   ).typography.subtitle,
                                             ),
                                             FilledButton(
+                                              onPressed: _saveNotes,
                                               child: const Text(
                                                 "Guardar Notas",
                                               ),
-                                              onPressed: _saveNotes,
                                             ),
                                           ],
                                         ),
                                         const Divider(),
                                         const SizedBox(height: 8),
                                         // === TAREA 3: Feed de Historial VIN ===
-                                        if ((_vinData['notas'] != null && _vinData['notas'].isNotEmpty) ||
-                                            (_vinData['observaciones'] != null && _vinData['observaciones'].isNotEmpty))
+                                        if ((_vinData['notas'] != null &&
+                                                _vinData['notas'].isNotEmpty) ||
+                                            (_vinData['observaciones'] !=
+                                                    null &&
+                                                _vinData['observaciones']
+                                                    .isNotEmpty))
                                           Container(
-                                            margin: const EdgeInsets.only(bottom: 12),
-                                            constraints: const BoxConstraints(maxHeight: 250),
-                                            decoration: BoxDecoration(
-                                              color: FluentTheme.of(context).micaBackgroundColor.withOpacity(0.3),
-                                              borderRadius: BorderRadius.circular(8),
+                                            margin: const EdgeInsets.only(
+                                              bottom: 12,
                                             ),
-                                            child: Builder(builder: (ctx) {
-                                              // === TAREA 3: split del string multilinea ===
-                                              final rawNotes = (_vinData['notas'] ?? _vinData['observaciones'] ?? '') as String;
-                                              final lineas = rawNotes
-                                                  .split('\n')
-                                                  .map((l) => l.trim())
-                                                  .where((l) => l.isNotEmpty)
-                                                  .toList();
-                                              if (lineas.isEmpty) return const SizedBox.shrink();
-                                              return ListView.builder(
-                                                shrinkWrap: true,
-                                                padding: const EdgeInsets.all(8),
-                                                itemCount: lineas.length,
-                                                itemBuilder: (c, i) => _buildNoteHistoryItem(c, lineas[i], i, lineas),
-                                              );
-                                            }),
+                                            constraints: const BoxConstraints(
+                                              maxHeight: 250,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: FluentTheme.of(context)
+                                                  .micaBackgroundColor
+                                                  .withValues(alpha: 0.3),
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
+                                            ),
+                                            child: Builder(
+                                              builder: (ctx) {
+                                                // === TAREA 3: split del string multilinea ===
+                                                final rawNotes =
+                                                    (_vinData['notas'] ??
+                                                            _vinData['observaciones'] ??
+                                                            '')
+                                                        as String;
+                                                final lineas =
+                                                    rawNotes
+                                                        .split('\n')
+                                                        .map((l) => l.trim())
+                                                        .where(
+                                                          (l) => l.isNotEmpty,
+                                                        )
+                                                        .toList();
+                                                if (lineas.isEmpty) {
+                                                  return const SizedBox.shrink();
+                                                }
+                                                return ListView.builder(
+                                                  shrinkWrap: true,
+                                                  padding: const EdgeInsets.all(
+                                                    8,
+                                                  ),
+                                                  itemCount: lineas.length,
+                                                  itemBuilder:
+                                                      (c, i) =>
+                                                          _buildNoteHistoryItem(
+                                                            c,
+                                                            lineas[i],
+                                                            i,
+                                                            lineas,
+                                                          ),
+                                                );
+                                              },
+                                            ),
                                           ),
                                         const Text(
                                           "Nueva Nota:",
-                                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey),
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.grey,
+                                          ),
                                         ),
                                         const SizedBox(height: 4),
                                         TextBox(
@@ -1059,7 +1109,7 @@ class _VINDossierScreenState extends State<VINDossierScreen> with AutomaticKeepA
                                                                     .typography
                                                                     .body
                                                                     ?.color
-                                                                    ?.withOpacity(
+                                                                    ?.withValues(alpha: 
                                                                       0.3,
                                                                     ) ??
                                                                 Colors.grey),
@@ -1106,15 +1156,21 @@ class _VINDossierScreenState extends State<VINDossierScreen> with AutomaticKeepA
                                                       icon: const Icon(
                                                         FluentIcons.delete,
                                                         size: 14,
-                                                        color: Color(0xFFE53935),
+                                                        color: Color(
+                                                          0xFFE53935,
+                                                        ),
                                                       ),
-                                                      onPressed: () => _confirmarEliminarArchivo(arch['nombre']),
+                                                      onPressed:
+                                                          () =>
+                                                              _confirmarEliminarArchivo(
+                                                                arch['nombre'],
+                                                              ),
                                                     ),
                                                   ),
                                                 ],
                                               ),
                                             ),
-                                          )).toList(),
+                                          )),
                                       ],
                                     ),
                                   ),
@@ -1158,7 +1214,8 @@ class _VINDossierScreenState extends State<VINDossierScreen> with AutomaticKeepA
   ) {
     final isDark = FluentTheme.of(context).brightness == Brightness.dark;
     final textColor = isDark ? Colors.white : const Color(0xFF1A1A1A);
-    final metaColor = isDark ? const Color(0xFF9E9E9E) : const Color(0xFF666666);
+    final metaColor =
+        isDark ? const Color(0xFF9E9E9E) : const Color(0xFF666666);
 
     // Parsear formato [YYYY-MM-DD HH:MM] usuario: texto
     String meta = "";
@@ -1175,7 +1232,9 @@ class _VINDossierScreenState extends State<VINDossierScreen> with AutomaticKeepA
       decoration: BoxDecoration(
         color: FluentTheme.of(context).cardColor,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: FluentTheme.of(context).resources.dividerStrokeColorDefault),
+        border: Border.all(
+          color: FluentTheme.of(context).resources.dividerStrokeColorDefault,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1198,8 +1257,13 @@ class _VINDossierScreenState extends State<VINDossierScreen> with AutomaticKeepA
                   width: 24,
                   height: 24,
                   child: IconButton(
-                    icon: const Icon(FluentIcons.delete, size: 11, color: Color(0xFFE53935)),
-                    onPressed: () => _confirmarBorrarNota(todasLasLineas, indice),
+                    icon: const Icon(
+                      FluentIcons.delete,
+                      size: 11,
+                      color: Color(0xFFE53935),
+                    ),
+                    onPressed:
+                        () => _confirmarBorrarNota(todasLasLineas, indice),
                   ),
                 ),
               ),

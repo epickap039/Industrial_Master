@@ -3,12 +3,7 @@ import 'package:flutter/material.dart' as material;
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Paletas profesionales: Corporate Light, Industrial Dark, Alto contraste, Cyberpunk.
-enum AppThemeMode {
-  corporateLight,
-  industrialDark,
-  highContrast,
-  cyberpunk,
-}
+enum AppThemeMode { corporateLight, industrialDark, highContrast, cyberpunk }
 
 final appTheme = ThemeProvider();
 
@@ -124,10 +119,7 @@ class AppThemes {
         fontWeight: FontWeight.w600,
       ),
       bodyLarge: TextStyle(color: Color(0xFF1A1A1A)),
-      title: TextStyle(
-        color: Color(0xFF383838),
-        fontWeight: FontWeight.w600,
-      ),
+      title: TextStyle(color: Color(0xFF383838), fontWeight: FontWeight.w600),
       subtitle: TextStyle(color: Color(0xFF37474F)),
       caption: TextStyle(color: Color(0xFF546E7A)),
     ),
@@ -147,10 +139,7 @@ class AppThemes {
         fontWeight: FontWeight.bold,
       ),
       bodyLarge: TextStyle(color: Color(0xFFF0F0F0)),
-      title: TextStyle(
-        color: Color(0xFFE8E8E8),
-        fontWeight: FontWeight.w600,
-      ),
+      title: TextStyle(color: Color(0xFFE8E8E8), fontWeight: FontWeight.w600),
       subtitle: TextStyle(color: Color(0xFFCCCCCC)),
       caption: TextStyle(color: Color(0xFFB0B0B0)),
     ),
@@ -170,10 +159,7 @@ class AppThemes {
         fontWeight: FontWeight.bold,
       ),
       bodyLarge: TextStyle(color: Color(0xFFFFFFFF)),
-      title: TextStyle(
-        color: Color(0xFFFFFFFF),
-        fontWeight: FontWeight.w600,
-      ),
+      title: TextStyle(color: Color(0xFFFFFFFF), fontWeight: FontWeight.w600),
       subtitle: TextStyle(color: Color(0xFFFFFFFF)),
       caption: TextStyle(color: Color(0xFFE0E0E0)),
     ),
@@ -196,25 +182,116 @@ class AppThemes {
     ),
     buttonTheme: ButtonThemeData(
       defaultButtonStyle: ButtonStyle(
-        shape: ButtonState.all(
+        shape: WidgetStateProperty.all(
           BeveledRectangleBorder(
             borderRadius: BorderRadius.zero,
             side: const BorderSide(color: Color(0xFF00FFCC)),
           ),
         ),
-        elevation: ButtonState.all(0),
+        elevation: WidgetStateProperty.all(0),
       ),
       filledButtonStyle: ButtonStyle(
-        shape: ButtonState.all(
+        shape: WidgetStateProperty.all(
           BeveledRectangleBorder(
             borderRadius: BorderRadius.zero,
             side: const BorderSide(color: Color(0xFF00FFCC)),
           ),
         ),
-        elevation: ButtonState.all(0),
+        elevation: WidgetStateProperty.all(0),
       ),
     ),
   );
+}
+
+// ============================================================================
+// MEJORA INTEGRAL v15.5: Paleta de colores para asignación de usuarios
+// ============================================================================
+
+class UserColorPalette {
+  /// 12 colores estándares WCAG AA compatible para asignación a usuarios.
+  /// Cada color tiene contraste ≥ 4.5:1 contra backgrounds oscuros.
+  static const List<Color> userColors = [
+    Color(0xFFFF8C00), // Naranja (default)
+    Color(0xFFFF6B6B), // Rojo vibrante
+    Color(0xFF4ECDC4), // Teal
+    Color(0xFF45B7D1), // Azul celeste
+    Color(0xFF96CEB4), // Verde menta
+    Color(0xFFFFFAED), // Blanco crema
+    Color(0xFFEEAAED), // Magenta/Púrpura
+    Color(0xFFDDA0DD), // Plumero
+    Color(0xFFA4DE6C), // Verde lima
+    Color(0xFF74B9FF), // Azul cielo
+    Color(0xFFA29BFE), // Lavanda
+    Color(0xFFF7B731), // Oro
+  ];
+
+  /// Códigos hexadecimales correspondientes para envío a API
+  static const List<String> userColorsHex = [
+    '#FF8C00', // Naranja (default)
+    '#FF6B6B', // Rojo vibrante
+    '#4ECDC4', // Teal
+    '#45B7D1', // Azul celeste
+    '#96CEB4', // Verde menta
+    '#FFFFAED', // Blanco crema
+    '#EEAAED', // Magenta/Púrpura
+    '#DDA0DD', // Plumero
+    '#A4DE6C', // Verde lima
+    '#74B9FF', // Azul cielo
+    '#A29BFE', // Lavanda
+    '#F7B731', // Oro
+  ];
+
+  /// Nombres amigables para cada color
+  static const List<String> userColorNames = [
+    'Naranja (Default)',
+    'Rojo Vibrante',
+    'Teal',
+    'Azul Celeste',
+    'Verde Menta',
+    'Blanco Crema',
+    'Magenta',
+    'Plumero',
+    'Verde Lima',
+    'Azul Cielo',
+    'Lavanda',
+    'Oro',
+  ];
+
+  /// Obtener color por índice
+  static Color getColorByIndex(int index) {
+    return userColors[index % userColors.length];
+  }
+
+  /// Obtener color por código hexadecimal
+  static Color? getColorByHex(String hex) {
+    try {
+      final cleanHex = hex.replaceAll('#', '').toUpperCase();
+      final index = userColorsHex.indexWhere(
+        (h) => h.replaceAll('#', '') == cleanHex,
+      );
+      return index >= 0 ? userColors[index] : null;
+    } catch (e) {
+      return userColors[0]; // Fallback a naranja
+    }
+  }
+
+  /// Obtener hexadecimal por índice
+  static String getHexByIndex(int index) {
+    return userColorsHex[index % userColorsHex.length];
+  }
+
+  /// Obtener nombre amigable por índice
+  static String getNameByIndex(int index) {
+    return userColorNames[index % userColorNames.length];
+  }
+
+  /// Encontrar índice más cercano por color
+  static int getIndexByColor(Color color) {
+    for (int i = 0; i < userColors.length; i++) {
+      if (userColors[i].toARGB32() == color.toARGB32()) return i;
+    }
+    return 0; // Fallback a naranja
+  }
 }
 
 /// Etiquetas para el selector de tema (footer NavigationView).
@@ -236,7 +313,8 @@ extension AppThemeModeLabel on AppThemeMode {
 /// Mismo diálogo que el pie del [NavigationView] en [main.dart], reutilizable
 /// desde pantallas sin menú lateral (p. ej. Gestor BOM a pantalla completa).
 void showAppThemePickerDialog(BuildContext context) {
-  final isDark = material.Theme.of(context).brightness == material.Brightness.dark;
+  final isDark =
+      material.Theme.of(context).brightness == material.Brightness.dark;
   final dialogBg = isDark ? const Color(0xFF000000) : material.Colors.white;
   material.showDialog(
     context: context,
@@ -249,20 +327,21 @@ void showAppThemePickerDialog(BuildContext context) {
         ),
         backgroundColor: dialogBg,
         elevation: 0,
-        children: AppThemeMode.values.map((mode) {
-          return material.RadioListTile<AppThemeMode>(
-            title: material.Text(mode.displayLabel),
-            value: mode,
-            groupValue: appTheme.currentMode,
-            tileColor: dialogBg,
-            selectedTileColor: dialogBg,
-            onChanged: (value) {
-              if (value == null) return;
-              appTheme.setTheme(value);
-              Navigator.pop(dialogCtx);
-            },
-          );
-        }).toList(),
+        children:
+            AppThemeMode.values.map((mode) {
+              return material.RadioListTile<AppThemeMode>(
+                title: material.Text(mode.displayLabel),
+                value: mode,
+                groupValue: appTheme.currentMode,
+                tileColor: dialogBg,
+                selectedTileColor: dialogBg,
+                onChanged: (value) {
+                  if (value == null) return;
+                  appTheme.setTheme(value);
+                  Navigator.pop(dialogCtx);
+                },
+              );
+            }).toList(),
       );
     },
   );

@@ -1,0 +1,252 @@
+/// Roles de negocio (valor en `Tbl_Usuarios.rol` y `SharedPreferences` 'rol').
+enum AppRole {
+  administrador,
+  desarrollador, // Rango superior con máximos permisos
+  calidad,
+  produccion,
+  ingenieriaMetodos,
+  gestion,
+  compras,
+  direccion,
+  qaLegacy,
+  userLegacy,
+  otro,
+}
+
+AppRole parseAppRole(String? raw) {
+  final s = (raw ?? '')
+      .trim()
+      .toUpperCase()
+      .replaceAll('Á', 'A')
+      .replaceAll('É', 'E')
+      .replaceAll('Í', 'I')
+      .replaceAll('Ó', 'O')
+      .replaceAll('Ú', 'U');
+  switch (s) {
+    case 'ADMIN':
+    case 'ADMINISTRADOR':
+      return AppRole.administrador;
+    case 'DESARROLLADOR':
+    case 'DESARROLLO':
+    case 'DEVELOPER':
+      return AppRole.desarrollador;
+    case 'CALIDAD':
+      return AppRole.calidad;
+    case 'PRODUCCION':
+    case 'PRODUCCIÓN':
+      return AppRole.produccion;
+    case 'INGENIERIA':
+    case 'INGENIERIA_METODOS':
+    case 'INGENIERÍA':
+    case 'INGENIERIA METODOS':
+    case 'METODOS':
+    case 'METODOS DE INGENIERIA':
+    case 'INGENIERIA DE METODOS':
+      return AppRole.ingenieriaMetodos;
+    case 'GESTION':
+    case 'GESTIÓN':
+      return AppRole.gestion;
+    case 'COMPRAS':
+      return AppRole.compras;
+    case 'DIRECCION':
+    case 'DIRECCIÓN':
+      return AppRole.direccion;
+    case 'QA':
+      return AppRole.qaLegacy;
+    case 'USER':
+    case 'READONLY':
+      return AppRole.userLegacy;
+    default:
+      return AppRole.otro;
+  }
+}
+
+extension AppRoleAccess on AppRole {
+  bool get showsNavLobby => switch (this) {
+        AppRole.qaLegacy => false,
+        _ => true,
+      };
+
+  /// Lobby con últimas piezas de catálogo y estadísticas de ayudas visuales por categoría.
+  /// Solo **Calidad**, **Ingeniería / Métodos**, **Producción** y **Desarrollador** (incluye simulación admin).
+  bool get showsLobbyOperativoAyudasCatalogo => switch (this) {
+        AppRole.calidad => true,
+        AppRole.ingenieriaMetodos => true,
+        AppRole.produccion => true,
+        AppRole.desarrollador => true,
+        _ => false,
+      };
+
+  bool get showsNavCatalogo => switch (this) {
+        AppRole.qaLegacy => true,
+        AppRole.gestion => false,
+        AppRole.direccion => false,
+        AppRole.compras => true,
+        AppRole.calidad => true,
+        AppRole.produccion => true,
+        _ => true,
+      };
+
+  bool get showsNavMateriales =>
+      this != AppRole.qaLegacy && _fullEngineering;
+
+  bool get showsNavCadScanner =>
+      this != AppRole.qaLegacy && _fullEngineering;
+
+  bool get showsNavImportarExcel =>
+      this != AppRole.qaLegacy && _fullEngineering;
+
+  bool get showsNavAuditor =>
+      this != AppRole.qaLegacy && _fullEngineering;
+
+  bool get showsNavEstandarizacion =>
+      this != AppRole.qaLegacy && _fullEngineering;
+
+  bool get showsNavGestionProyectos => switch (this) {
+        AppRole.qaLegacy => false,
+        AppRole.gestion => false,
+        AppRole.direccion => false,
+        AppRole.compras => false,
+        _ => _fullEngineering || this == AppRole.userLegacy || this == AppRole.otro,
+      };
+
+  bool get showsNavMapaIngenieria => switch (this) {
+        AppRole.qaLegacy => false,
+        AppRole.gestion => true,
+        AppRole.direccion => false,
+        AppRole.compras => false,
+        AppRole.calidad => false,
+        AppRole.produccion => false,
+        _ => _fullEngineering || this == AppRole.userLegacy || this == AppRole.otro,
+      };
+
+  bool get showsNavVin => switch (this) {
+        AppRole.qaLegacy => false,
+        AppRole.direccion => true,
+        AppRole.gestion => false,
+        AppRole.compras => false,
+        AppRole.calidad => false,
+        AppRole.produccion => false,
+        _ => _fullEngineering || this == AppRole.userLegacy || this == AppRole.otro,
+      };
+
+  bool get showsNavHistorialCambios => switch (this) {
+        AppRole.qaLegacy => false,
+        AppRole.gestion => true,
+        AppRole.direccion => false,
+        AppRole.compras => false,
+        AppRole.calidad => false,
+        AppRole.produccion => false,
+        _ => _fullEngineering || this == AppRole.userLegacy || this == AppRole.otro,
+      };
+
+  bool get showsNavAyudas => switch (this) {
+        AppRole.qaLegacy => false,
+        AppRole.gestion => false,
+        AppRole.direccion => false,
+        AppRole.compras => false,
+        AppRole.calidad => true,
+        AppRole.produccion => true,
+        _ => _fullEngineering || this == AppRole.userLegacy || this == AppRole.otro,
+      };
+
+  bool get showsNavAnalytics => switch (this) {
+        AppRole.qaLegacy => false,
+        AppRole.direccion => true,
+        AppRole.gestion => false,
+        AppRole.compras => false,
+        AppRole.calidad => false,
+        AppRole.produccion => false,
+        _ => _fullEngineering || this == AppRole.userLegacy || this == AppRole.otro,
+      };
+
+  bool get showsNavQa => switch (this) {
+        AppRole.qaLegacy => false,
+        AppRole.direccion => false,
+        AppRole.gestion => false,
+        AppRole.compras => false,
+        AppRole.calidad => false,
+        AppRole.produccion => false,
+        _ => _fullEngineering || this == AppRole.userLegacy || this == AppRole.otro,
+      };
+
+  bool get showsNavRadar => switch (this) {
+        AppRole.qaLegacy => false,
+        AppRole.gestion => true,
+        AppRole.direccion => false,
+        AppRole.compras => false,
+        AppRole.calidad => false,
+        AppRole.produccion => false,
+        _ => _fullEngineering || this == AppRole.userLegacy || this == AppRole.otro,
+      };
+
+  bool get showsNavMrp => switch (this) {
+        AppRole.qaLegacy => false,
+        AppRole.compras => true,
+        AppRole.gestion => false,
+        AppRole.direccion => false,
+        AppRole.calidad => false,
+        AppRole.produccion => false,
+        _ => _fullEngineering || this == AppRole.userLegacy || this == AppRole.otro,
+      };
+
+  bool get showsNavMonitoreo => switch (this) {
+        AppRole.qaLegacy => false,
+        AppRole.gestion => false,
+        AppRole.direccion => false,
+        AppRole.compras => false,
+        AppRole.calidad => false,
+        AppRole.produccion => false,
+        _ => _fullEngineering || this == AppRole.userLegacy || this == AppRole.otro,
+      };
+
+  bool get _fullEngineering =>
+      this == AppRole.administrador ||
+      this == AppRole.desarrollador ||
+      this == AppRole.ingenieriaMetodos;
+
+  bool get catalogCanEditRows =>
+      this == AppRole.administrador ||
+      this == AppRole.desarrollador ||
+      this == AppRole.ingenieriaMetodos;
+
+  bool get catalogCanExport => switch (this) {
+        AppRole.produccion => false,
+        AppRole.qaLegacy => true,
+        AppRole.calidad => true,
+        _ => true,
+      };
+
+  bool get catalogCanSearchDxf => switch (this) {
+        AppRole.produccion => false,
+        AppRole.qaLegacy => false,
+        _ => true,
+      };
+
+  bool get catalogCanSelectColumns => this != AppRole.produccion;
+
+  bool get catalogHideModificadoPor => this == AppRole.calidad;
+
+  bool get catalogHideRutaArchivo => this == AppRole.calidad || this == AppRole.produccion;
+
+  bool get catalogHideFechaModificacion => this == AppRole.produccion;
+
+  bool get catalogHideDxfColumns => this == AppRole.produccion;
+
+  bool get ayudasCanUpload => switch (this) {
+        AppRole.administrador => true,
+        AppRole.desarrollador => true,
+        AppRole.ingenieriaMetodos => true,
+        _ => false,
+      };
+
+  bool get ayudasShowRevisionHistory => this != AppRole.produccion;
+
+  bool get monitoreoCanControlMisiones => _fullEngineering;
+
+  bool get isAdminRail => this == AppRole.administrador;
+}
+
+extension AppRoleAdmin on AppRole {
+  bool get isAdmin => this == AppRole.administrador;
+}

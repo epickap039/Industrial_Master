@@ -383,7 +383,7 @@ class _MRPScreenState extends State<MRPScreen> {
                                 Icon(
                                   FluentIcons.people,
                                   size: 11,
-                                  color: Colors.blue.withOpacity(0.65),
+                                  color: Colors.blue.withValues(alpha: 0.65),
                                 ),
                                 const SizedBox(width: 4),
                                 Flexible(
@@ -392,7 +392,7 @@ class _MRPScreenState extends State<MRPScreen> {
                                     style: TextStyle(
                                       fontSize: 11,
                                       fontStyle: FontStyle.italic,
-                                      color: Colors.blue.withOpacity(0.75),
+                                      color: Colors.blue.withValues(alpha: 0.75),
                                     ),
                                     overflow: TextOverflow.ellipsis,
                                     maxLines: 1,
@@ -453,7 +453,7 @@ class _MRPScreenState extends State<MRPScreen> {
                     .typography
                     .body
                     ?.color
-                    ?.withOpacity(0.25)),
+                    ?.withValues(alpha: 0.25)),
             const SizedBox(height: 16),
             Text(
               "Selecciona una Revisión de Ingeniería y presiona Calcular.",
@@ -550,8 +550,8 @@ class _MRPScreenState extends State<MRPScreen> {
     final textColor = isActive
         ? Colors.white
         : (isDark
-            ? Colors.white.withOpacity(0.75)
-            : Colors.black.withOpacity(0.65));
+            ? Colors.white.withValues(alpha: 0.75)
+            : Colors.black.withValues(alpha: 0.65));
 
     return GestureDetector(
       onTap: () => setState(() => _tabIndex = index),
@@ -565,8 +565,8 @@ class _MRPScreenState extends State<MRPScreen> {
             color: isActive
                 ? activeColor
                 : (isDark
-                    ? Colors.white.withOpacity(0.2)
-                    : Colors.black.withOpacity(0.15)),
+                    ? Colors.white.withValues(alpha: 0.2)
+                    : Colors.black.withValues(alpha: 0.15)),
           ),
         ),
         child: Row(
@@ -588,10 +588,10 @@ class _MRPScreenState extends State<MRPScreen> {
                   const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
                 color: isActive
-                    ? Colors.white.withOpacity(0.25)
+                    ? Colors.white.withValues(alpha: 0.25)
                     : (isDark
-                        ? Colors.white.withOpacity(0.1)
-                        : Colors.black.withOpacity(0.08)),
+                        ? Colors.white.withValues(alpha: 0.1)
+                        : Colors.black.withValues(alpha: 0.08)),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Text(

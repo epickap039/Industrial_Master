@@ -295,7 +295,7 @@ class _AuditorScreenState extends State<AuditorScreen> {
                           icon: const Icon(FluentIcons.folder_open),
                           onPressed: _openFile,
                           style: ButtonStyle(
-                            foregroundColor: ButtonState.all(Colors.blue),
+                            foregroundColor: WidgetStateProperty.all(Colors.blue),
                           ),
                         ),
                         const SizedBox(width: 20),
@@ -346,7 +346,7 @@ class _AuditorScreenState extends State<AuditorScreen> {
                     FilledButton(
                       onPressed: _autoCorrect,
                       style: ButtonStyle(
-                        backgroundColor: ButtonState.all(Colors.blue),
+                        backgroundColor: WidgetStateProperty.all(Colors.blue),
                       ),
                       child: const Row(
                         children: [
@@ -464,7 +464,7 @@ class _AuditorScreenState extends State<AuditorScreen> {
                               vertical: 2,
                             ),
                             decoration: BoxDecoration(
-                              color: Colors.red.withOpacity(0.1),
+                              color: Colors.red.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: Text(
@@ -530,9 +530,9 @@ class _AuditorScreenState extends State<AuditorScreen> {
                                     decoration: BoxDecoration(
                                       color: FluentTheme.of(
                                         context,
-                                      ).cardColor.withOpacity(0.5),
+                                      ).cardColor.withValues(alpha: 0.5),
                                       border: Border.all(
-                                        color: Colors.grey.withOpacity(0.2),
+                                        color: Colors.grey.withValues(alpha: 0.2),
                                       ),
                                       borderRadius: BorderRadius.circular(6.0),
                                     ),
@@ -597,13 +597,13 @@ class _AuditorScreenState extends State<AuditorScreen> {
                                                   8,
                                                 ),
                                                 decoration: BoxDecoration(
-                                                  color: Colors.red.withOpacity(
+                                                  color: Colors.red.withValues(alpha: 
                                                     0.05,
                                                   ),
                                                   border: Border(
                                                     left: BorderSide(
                                                       color: Colors.red
-                                                          .withOpacity(0.5),
+                                                          .withValues(alpha: 0.5),
                                                       width: 3,
                                                     ),
                                                   ),
@@ -653,11 +653,11 @@ class _AuditorScreenState extends State<AuditorScreen> {
                                                 ),
                                                 decoration: BoxDecoration(
                                                   color: Colors.green
-                                                      .withOpacity(0.05),
+                                                      .withValues(alpha: 0.05),
                                                   border: Border(
                                                     left: BorderSide(
                                                       color: Colors.green
-                                                          .withOpacity(0.5),
+                                                          .withValues(alpha: 0.5),
                                                       width: 3,
                                                     ),
                                                   ),

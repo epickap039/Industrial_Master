@@ -80,7 +80,7 @@ class ConflictResolutionDialog extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
-                color: accentBorder.withOpacity(0.18),
+                color: accentBorder.withValues(alpha: 0.18),
                 border: Border(
                   bottom: BorderSide(color: accentBorder, width: 3),
                 ),
@@ -148,7 +148,7 @@ class ConflictResolutionDialog extends StatelessWidget {
                               vertical: 2,
                             ),
                             decoration: BoxDecoration(
-                              color: Colors.orange.withOpacity(0.2),
+                              color: Colors.orange.withValues(alpha: 0.2),
                               borderRadius: BorderRadius.circular(4),
                               border: Border.all(
                                 color: Colors.orange,

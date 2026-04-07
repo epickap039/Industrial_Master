@@ -47,6 +47,199 @@ String? motivoCancelacion(Map<String, dynamic> t) {
   return null;
 }
 
+/// Texto libre al crear la misión (columna SQL o meta).
+String descripcionMision(Map<String, dynamic> t) {
+  String? norm(Object? v) {
+    if (v == null) return null;
+    final s = v.toString().trim();
+    if (s.isEmpty || s == 'null') return null;
+    return s;
+  }
+
+  for (final key in [
+    'descripcion',
+    'Descripcion',
+    'Detalle',
+    'Descripcion_Tarea',
+    'detalle_tarea',
+  ]) {
+    final s = norm(t[key]);
+    if (s != null) return s;
+  }
+  final mm = metaMapTarea(t);
+  if (mm != null) {
+    for (final key in [
+      'descripcion',
+      'Descripcion',
+      'detalle',
+      'descripcion_mision',
+      'texto_descripcion',
+    ]) {
+      final s = norm(mm[key]);
+      if (s != null) return s;
+    }
+  }
+  return '';
+}
+
+DateTime? _parseSoloDia(Object? raw) {
+  if (raw == null) return null;
+  try {
+    final d = DateTime.parse(raw.toString());
+    final l = d.isUtc ? d.toLocal() : d;
+    return DateTime(l.year, l.month, l.day);
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Inicio de ciclo (ISO API) para franjas en calendario.
+/// Si no hay ciclo explícito, usa fecha de creación como respaldo (API/SQL).
+DateTime? fechaInicioHistorialDate(Map<String, dynamic> t) {
+  Object? raw;
+  for (final k in [
+    'fecha_inicio_ciclo',
+    'Fecha_Inicio_Ciclo',
+    'Fecha_Inicio',
+    'fecha_creacion',
+    'Fecha_Creacion',
+    'FechaCreacion',
+    'CreatedAt',
+    'created_at',
+  ]) {
+    final v = t[k];
+    if (v == null) continue;
+    final s = v.toString().trim();
+    if (s.isEmpty || s == 'null') continue;
+    raw = v;
+    break;
+  }
+  return _parseSoloDia(raw);
+}
+
+DateTime? _parseFechaHoraCompleta(Object? raw) {
+  if (raw == null) return null;
+  try {
+    final d = DateTime.parse(raw.toString());
+    return d.isUtc ? d.toLocal() : d;
+  } catch (_) {
+    return null;
+  }
+}
+
+Object? _rawFechaInicioLead(Map<String, dynamic> t) {
+  for (final k in [
+    'fecha_inicio_ciclo',
+    'Fecha_Inicio_Ciclo',
+    'Fecha_Inicio',
+    'fecha_creacion',
+    'Fecha_Creacion',
+    'FechaCreacion',
+    'CreatedAt',
+    'created_at',
+  ]) {
+    final v = t[k];
+    if (v == null) continue;
+    final s = v.toString().trim();
+    if (s.isEmpty || s == 'null') continue;
+    return v;
+  }
+  return null;
+}
+
+/// Minutos desde medianoche (local) del inicio ciclo/creación — ordenar tareas el mismo día.
+int minutosDesdeMedianocheInicioCiclo(Map<String, dynamic> t) {
+  final full = _parseFechaHoraCompleta(_rawFechaInicioLead(t));
+  if (full == null) return 0;
+  return full.hour * 60 + full.minute;
+}
+
+/// Hora local de inicio HH:mm (para calendario mismo día).
+String etiquetaHoraInicioCiclo(Map<String, dynamic> t) {
+  final full = _parseFechaHoraCompleta(_rawFechaInicioLead(t));
+  if (full == null) return '';
+  final h = full.hour.toString().padLeft(2, '0');
+  final m = full.minute.toString().padLeft(2, '0');
+  return '$h:$m';
+}
+
+/// Lead time visible en tarjeta: activa → "En curso: …"; cerrada → "Cerrado en: …".
+String etiquetaLeadTimeTarjeta(Map<String, dynamic> t) {
+  final start = _parseFechaHoraCompleta(_rawFechaInicioLead(t));
+  if (start == null) return '';
+  final p = int.tryParse('${t['porcentaje_progreso'] ?? 0}') ?? 0;
+  final st = normEst(t);
+  final cerrada = esCancelada(t) || p >= 100 || st.contains('terminad');
+  final DateTime end;
+  if (cerrada) {
+    final rawC = _rawFechaCierre(t);
+    final ep = _parseFechaHoraCompleta(rawC);
+    if (ep == null) return '';
+    end = ep;
+  } else {
+    end = DateTime.now();
+  }
+  final d = end.difference(start);
+  if (d.isNegative) return '';
+  if (cerrada) {
+    if (d.inDays >= 1) return 'Cerrado en: ${d.inDays}d';
+    if (d.inHours >= 1) return 'Cerrado en: ${d.inHours}h';
+    return 'Cerrado en: ${d.inMinutes}m';
+  }
+  if (d.inDays >= 1) {
+    return 'En curso: ${d.inDays}d ${d.inHours.remainder(24)}h';
+  }
+  return 'En curso: ${d.inHours}h';
+}
+
+/// Rango [inicio, cierre] en días calendario para barras mult día.
+({DateTime start, DateTime end})? rangoHistorialCalendario(Map<String, dynamic> t) {
+  final fin = fechaCierreHistorialDate(t);
+  final ini = fechaInicioHistorialDate(t);
+  if (fin == null && ini == null) return null;
+  if (ini == null) {
+    final f = fin!;
+    return (start: f, end: f);
+  }
+  if (fin == null) {
+    return (start: ini, end: ini);
+  }
+  if (fin.isBefore(ini)) {
+    return (start: fin, end: ini);
+  }
+  return (start: ini, end: fin);
+}
+
+bool manualSinTiempoEstimado(Map<String, dynamic> t) {
+  if (!esManualSource(t)) return false;
+  final mm = metaMapTarea(t);
+  if (mm == null) return false;
+  final v = mm['sin_tiempo_estimado'];
+  if (v == true) return true;
+  final s = '$v'.toLowerCase();
+  return s == 'true' || s == '1';
+}
+
+/// Presupuesto: Radar (`total_minutos` en meta) o manual (`minutos_estimados` en API).
+int? totalMinutosPresupuestoCombinado(Map<String, dynamic> task) {
+  final meta = totalMinutosPresupuestoMeta(task);
+  if (meta != null && meta > 0) return meta;
+  final m = int.tryParse('${task['minutos_estimados'] ?? ''}');
+  if (m != null && m > 0) return m;
+  return null;
+}
+
+/// Minutos restantes ~ presupuesto × (1 − progreso/100).
+int? minutosRestantesEstimados(Map<String, dynamic> task) {
+  if (manualSinTiempoEstimado(task)) return null;
+  final totalMin = totalMinutosPresupuestoCombinado(task);
+  if (totalMin == null) return null;
+  final p = int.tryParse('${task['porcentaje_progreso'] ?? 0}') ?? 0;
+  final pClamped = p.clamp(0, 100);
+  final safeTotal = totalMin < 0 ? 0 : totalMin;
+  return (safeTotal * (1.0 - pClamped / 100.0)).round().clamp(0, safeTotal);
+}
+
 String tituloMision(Map<String, dynamic> t) {
   String? norm(Object? v) {
     if (v == null) return null;
@@ -311,9 +504,66 @@ int? totalMinutosPresupuestoMeta(Map<String, dynamic> task) {
   return null;
 }
 
+Object? _rawFechaCierre(Map<String, dynamic> t) {
+  const keys = [
+    'fecha_cierre',
+    'Fecha_Cierre',
+    'fecha_Cierre',
+    'Fecha_Completado',
+    'Ultima_Modificacion',
+    'Fecha_Modificacion',
+    'Fecha_Actualizacion',
+  ];
+  for (final k in keys) {
+    final v = t[k];
+    if (v == null) continue;
+    final s = v.toString().trim();
+    if (s.isEmpty || s == 'null') continue;
+    return v;
+  }
+  final mm = metaMapTarea(t);
+  if (mm != null) {
+    for (final k in ['fecha_cierre', 'fecha_fin', 'Fecha_Cierre', 'fecha_completado']) {
+      final v = mm[k];
+      if (v == null) continue;
+      final s = v.toString().trim();
+      if (s.isEmpty || s == 'null') continue;
+      return v;
+    }
+  }
+  return null;
+}
+
 /// Fecha de cierre / fin para tarjeta de historial (ISO desde API).
+/// Fecha (solo día) para agrupar en calendario; null si no hay fecha válida.
+DateTime? fechaCierreHistorialDate(Map<String, dynamic> t) {
+  Object? raw = _rawFechaCierre(t);
+  if (raw == null) {
+    final p = int.tryParse('${t['porcentaje_progreso'] ?? 0}') ?? 0;
+    final st = normEst(t);
+    if (p >= 100 || st.contains('terminad') || st.contains('cancel')) {
+      for (final k in ['fecha_inicio_ciclo', 'Fecha_Inicio_Ciclo']) {
+        final v = t[k];
+        if (v == null) continue;
+        final s = v.toString().trim();
+        if (s.isEmpty || s == 'null') continue;
+        raw = v;
+        break;
+      }
+    }
+  }
+  if (raw == null) return null;
+  try {
+    final d = DateTime.parse(raw.toString());
+    final l = d.isUtc ? d.toLocal() : d;
+    return DateTime(l.year, l.month, l.day);
+  } catch (_) {
+    return null;
+  }
+}
+
 String fechaCierreHistorialLegible(Map<String, dynamic> t) {
-  final raw = t['fecha_cierre'];
+  final raw = _rawFechaCierre(t);
   if (raw == null) return '';
   var s = '$raw'.trim();
   if (s.isEmpty || s == 'null') return '';
@@ -381,12 +631,15 @@ String? textoSecundarioChecklistUI(String? raw) {
 
 /// Tiempo restante estimado: total_meta × (1 − progreso/100).
 String tiempoEstimadoEtiqueta(Map<String, dynamic> task) {
-  final totalMin = totalMinutosPresupuestoMeta(task);
+  if (manualSinTiempoEstimado(task)) {
+    return 'Tiempo estimado: no aplica';
+  }
+  final totalMin = totalMinutosPresupuestoCombinado(task);
   final p = int.tryParse('${task['porcentaje_progreso'] ?? 0}') ?? 0;
   final pClamped = p.clamp(0, 100);
   if (totalMin == null) {
     if (esManualSource(task)) {
-      return 'Tiempo estimado: misión manual (sin simulación Radar)';
+      return 'Tiempo estimado: sin definir (indique minutos o no aplica)';
     }
     return 'Tiempo estimado: no disponible en metadata';
   }

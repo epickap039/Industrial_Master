@@ -17,11 +17,13 @@ class AyudasCategoriaScreen extends StatefulWidget {
     required this.idCategoria,
     required this.nombreCategoria,
     required this.canUpload,
+    this.allowRevisionHistory = true,
   });
 
   final int idCategoria;
   final String nombreCategoria;
   final bool canUpload;
+  final bool allowRevisionHistory;
 
   @override
   State<AyudasCategoriaScreen> createState() => _AyudasCategoriaScreenState();
@@ -624,6 +626,8 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
                                                 tituloDocumento: titulo,
                                                 idRevisionInicial: idRev,
                                                 canUpload: widget.canUpload,
+                                                allowRevisionHistory:
+                                                    widget.allowRevisionHistory,
                                               ),
                                             ),
                                           );

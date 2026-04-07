@@ -1,7 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'dart:convert';
 import 'dart:io';
-import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
 import '../services/api_client.dart';
@@ -21,6 +20,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   bool _hasMore = true;
   bool _isLoading = false;
   bool _isLoadingMore = false;
+
   /// Búsqueda activa para paginación (sincronizada al refrescar / buscar).
   String _activeSearchQuery = '';
 
@@ -71,10 +71,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   Map<String, String> _historialQueryParams(int offset) {
-    final qp = <String, String>{
-      'offset': '$offset',
-      'limit': '$_pageSize',
-    };
+    final qp = <String, String>{'offset': '$offset', 'limit': '$_pageSize'};
     if (_activeSearchQuery.isNotEmpty) {
       qp['busqueda'] = _activeSearchQuery;
     }
@@ -93,10 +90,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
     });
 
     try {
-      final data = await ApiClient.get(
-        '/api/historial',
-        queryParameters: _historialQueryParams(0),
-      ) as Map<String, dynamic>;
+      final data =
+          await ApiClient.get(
+                '/api/historial',
+                queryParameters: _historialQueryParams(0),
+              )
+              as Map<String, dynamic>;
 
       if (!mounted) return;
       setState(() {
@@ -120,10 +119,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
     setState(() => _isLoadingMore = true);
 
     try {
-      final data = await ApiClient.get(
-        '/api/historial',
-        queryParameters: _historialQueryParams(_registros.length),
-      ) as Map<String, dynamic>;
+      final data =
+          await ApiClient.get(
+                '/api/historial',
+                queryParameters: _historialQueryParams(_registros.length),
+              )
+              as Map<String, dynamic>;
 
       if (!mounted) return;
       setState(() {
@@ -175,9 +176,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   /// Nodo de timeline: verde crear/aprobar, azul editar, rojo eliminar, naranja resto.
   Color _getTimelineNodeColor(String action) {
     final u = action.toUpperCase();
-    if (u.contains('APROB') ||
-        u.contains('CREACION') ||
-        u == 'NUEVO') {
+    if (u.contains('APROB') || u.contains('CREACION') || u == 'NUEVO') {
       return Colors.green;
     }
     if (u.contains('MODIFICACION') || u.contains('UPDATE')) {
@@ -190,8 +189,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   Color _timelineLineColor(BuildContext context) {
-    return FluentTheme.of(context).resources.dividerStrokeColorDefault ??
-        Colors.grey.withOpacity(0.45);
+    return FluentTheme.of(context).resources.dividerStrokeColorDefault;
   }
 
   Widget _buildDiffView(
@@ -236,7 +234,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
         final newVal = safeNew[key]?.toString() ?? 'N/A';
         // === TAREA 3: Colores explícitos independientes de TextTheme ===
         final isDark = FluentTheme.of(context).brightness == Brightness.dark;
-        final labelColor = isDark ? Colors.white.withOpacity(0.7) : const Color(0xFF444444);
+        final labelColor =
+            isDark ? Colors.white.withValues(alpha: 0.7) : const Color(0xFF444444);
 
         if (oldVal != newVal) {
           changes.add(
@@ -245,7 +244,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
               children: [
                 Text(
                   '$key: ',
-                  style: TextStyle(fontWeight: FontWeight.bold, color: labelColor),
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: labelColor,
+                  ),
                 ),
                 Text(
                   oldVal,
@@ -283,7 +285,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
       // 2B. CONSTRUCCIÓN VISUAL (TEXTO SIMPLE)
       // === TAREA 3: Colores explícitos para modo oscuro ===
       final isDark = FluentTheme.of(context).brightness == Brightness.dark;
-      final labelColor = isDark ? Colors.white.withOpacity(0.7) : const Color(0xFF555555);
+      final labelColor =
+          isDark ? Colors.white.withValues(alpha: 0.7) : const Color(0xFF555555);
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -291,7 +294,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Anterior: ', style: TextStyle(color: labelColor, fontWeight: FontWeight.bold)),
+                Text(
+                  'Anterior: ',
+                  style: TextStyle(
+                    color: labelColor,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 Expanded(
                   child: Text(
                     oldData.toString(),
@@ -305,7 +314,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Nuevo: ', style: TextStyle(color: labelColor, fontWeight: FontWeight.bold)),
+                Text(
+                  'Nuevo: ',
+                  style: TextStyle(
+                    color: labelColor,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 Expanded(
                   child: Text(
                     newData.toString(),
@@ -323,8 +338,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
   Future<void> _exportarBugs() async {
     setState(() => _isLoading = true);
     try {
-      final response =
-          await ApiClient.getUnvalidated('/api/reportes/exportar_gemini');
+      final response = await ApiClient.getUnvalidated(
+        '/api/reportes/exportar_gemini',
+      );
       if (response.statusCode == 200) {
         final dir = await getDownloadsDirectory();
         final filePath =
@@ -367,9 +383,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
         if (index == _registros.length) {
           return const Padding(
             padding: EdgeInsets.symmetric(vertical: 20),
-            child: Center(
-              child: ProgressRing(),
-            ),
+            child: Center(child: ProgressRing()),
           );
         }
         final item = _registros[index];
@@ -385,10 +399,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     item['fecha'] ?? 'Sin fecha',
                     style: TextStyle(
                       fontSize: 12,
-                      color: FluentTheme.of(context).brightness ==
-                              Brightness.dark
-                          ? Colors.white.withOpacity(0.54)
-                          : const Color(0xFF666666),
+                      color:
+                          FluentTheme.of(context).brightness == Brightness.dark
+                              ? Colors.white.withValues(alpha: 0.54)
+                              : const Color(0xFF666666),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -398,10 +412,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
-                        color: FluentTheme.of(context).brightness ==
-                                Brightness.dark
-                            ? Colors.white
-                            : Colors.black.withOpacity(0.87),
+                        color:
+                            FluentTheme.of(context).brightness ==
+                                    Brightness.dark
+                                ? Colors.white
+                                : Colors.black.withValues(alpha: 0.87),
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -413,7 +428,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       vertical: 4,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.orange.withOpacity(0.2),
+                      color: Colors.orange.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
@@ -435,9 +450,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
-                  color: FluentTheme.of(context).brightness == Brightness.dark
-                      ? Colors.white
-                      : Colors.black,
+                  color:
+                      FluentTheme.of(context).brightness == Brightness.dark
+                          ? Colors.white
+                          : Colors.black,
                 ),
               ),
               const SizedBox(height: 8),
@@ -445,9 +461,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: FluentTheme.of(context).brightness == Brightness.dark
-                      ? Colors.black.withOpacity(0.2)
-                      : Colors.grey[20],
+                  color:
+                      FluentTheme.of(context).brightness == Brightness.dark
+                          ? Colors.black.withValues(alpha: 0.2)
+                          : Colors.grey[20],
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: _buildDiffView(
@@ -473,9 +490,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
         if (index == _registros.length) {
           return const Padding(
             padding: EdgeInsets.symmetric(vertical: 20),
-            child: Center(
-              child: ProgressRing(),
-            ),
+            child: Center(child: ProgressRing()),
           );
         }
 
@@ -485,11 +500,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
         final accion = item['accion']?.toString() ?? '';
         final nodeColor = _getTimelineNodeColor(accion);
         final isDark = FluentTheme.of(context).brightness == Brightness.dark;
-        final metaColor = isDark
-            ? Colors.white.withOpacity(0.54)
-            : const Color(0xFF666666);
+        final metaColor =
+            isDark ? Colors.white.withValues(alpha: 0.54) : const Color(0xFF666666);
         final titleColor =
-            isDark ? Colors.white : Colors.black.withOpacity(0.87);
+            isDark ? Colors.white : Colors.black.withValues(alpha: 0.87);
 
         return Padding(
           padding: const EdgeInsets.only(bottom: 12),
@@ -526,9 +540,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                               shape: BoxShape.circle,
                               color: nodeColor,
                               border: Border.all(
-                                color: isDark
-                                    ? Colors.white.withOpacity(0.35)
-                                    : Colors.black.withOpacity(0.2),
+                                color:
+                                    isDark
+                                        ? Colors.white.withValues(alpha: 0.35)
+                                        : Colors.black.withValues(alpha: 0.2),
                                 width: 1,
                               ),
                             ),
@@ -538,10 +553,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       if (!isLast)
                         Expanded(
                           child: Center(
-                            child: Container(
-                              width: 2,
-                              color: lineColor,
-                            ),
+                            child: Container(width: 2, color: lineColor),
                           ),
                         )
                       else
@@ -558,10 +570,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                         children: [
                           Text(
                             item['fecha']?.toString() ?? 'Sin fecha',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: metaColor,
-                            ),
+                            style: TextStyle(fontSize: 12, color: metaColor),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -603,9 +612,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                             width: double.infinity,
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
-                              color: isDark
-                                  ? Colors.black.withOpacity(0.2)
-                                  : Colors.grey[20],
+                              color:
+                                  isDark
+                                      ? Colors.black.withValues(alpha: 0.2)
+                                      : Colors.grey[20],
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: _buildDiffView(
@@ -629,9 +639,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   void _showEventosAyuda() {
     final typo = FluentTheme.of(context).typography;
-    final bodyStyle = typo.body?.copyWith(fontSize: 13) ??
-        const TextStyle(fontSize: 13);
-    final hintStyle = typo.caption?.copyWith(
+    final bodyStyle =
+        typo.body?.copyWith(fontSize: 13) ?? const TextStyle(fontSize: 13);
+    final hintStyle =
+        typo.caption?.copyWith(
           fontSize: 12,
           color: FluentTheme.of(context).inactiveColor,
         ) ??
@@ -653,43 +664,27 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   style: hintStyle,
                 ),
                 const SizedBox(height: 14),
-                _ayudaCategoria(
-                  'Catálogo',
-                  const [
-                    'CREAR_PIEZA',
-                    'MODIFICAR_PIEZA',
-                    'ELIMINAR_PIEZA',
-                  ],
-                  bodyStyle,
-                ),
-                _ayudaCategoria(
-                  'Ingeniería',
-                  const [
-                    'CREAR_REVISION',
-                    'APROBAR_REVISION',
-                    'ELIMINAR_REVISION',
-                    'DERIVACION',
-                    'ECR_BRANCHING',
-                  ],
-                  bodyStyle,
-                ),
-                _ayudaCategoria(
-                  'Estructura',
-                  const [
-                    'AGREGAR_PIEZA',
-                    'ELIMINAR_PIEZA_BOM',
-                    'MODIFICAR_CANTIDAD',
-                  ],
-                  bodyStyle,
-                ),
-                _ayudaCategoria(
-                  'Autenticación',
-                  const [
-                    'LOGIN_EXITOSO',
-                    'LOGIN_FALLIDO',
-                  ],
-                  bodyStyle,
-                ),
+                _ayudaCategoria('Catálogo', const [
+                  'CREAR_PIEZA',
+                  'MODIFICAR_PIEZA',
+                  'ELIMINAR_PIEZA',
+                ], bodyStyle),
+                _ayudaCategoria('Ingeniería', const [
+                  'CREAR_REVISION',
+                  'APROBAR_REVISION',
+                  'ELIMINAR_REVISION',
+                  'DERIVACION',
+                  'ECR_BRANCHING',
+                ], bodyStyle),
+                _ayudaCategoria('Estructura', const [
+                  'AGREGAR_PIEZA',
+                  'ELIMINAR_PIEZA_BOM',
+                  'MODIFICAR_CANTIDAD',
+                ], bodyStyle),
+                _ayudaCategoria('Autenticación', const [
+                  'LOGIN_EXITOSO',
+                  'LOGIN_FALLIDO',
+                ], bodyStyle),
               ],
             ),
           ),
@@ -714,15 +709,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            titulo,
-            style: bodyStyle.copyWith(fontWeight: FontWeight.w600),
-          ),
+          Text(titulo, style: bodyStyle.copyWith(fontWeight: FontWeight.w600)),
           const SizedBox(height: 4),
-          SelectableText(
-            eventos.join(' · '),
-            style: bodyStyle,
-          ),
+          SelectableText(eventos.join(' · '), style: bodyStyle),
         ],
       ),
     );
@@ -762,13 +751,15 @@ class _HistoryScreenState extends State<HistoryScreen> {
                           ),
                         IconButton(
                           icon: Icon(FluentIcons.search),
-                          onPressed: () =>
-                              _reloadHistory(query: _searchController.text),
+                          onPressed:
+                              () =>
+                                  _reloadHistory(query: _searchController.text),
                         ),
                         IconButton(
                           icon: Icon(FluentIcons.refresh),
-                          onPressed: () =>
-                              _reloadHistory(query: _searchController.text),
+                          onPressed:
+                              () =>
+                                  _reloadHistory(query: _searchController.text),
                         ),
                       ],
                     ),
@@ -785,9 +776,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   ),
                 ),
                 Tooltip(
-                  message: _isTimelineView
-                      ? 'Ver como lista'
-                      : 'Ver línea de tiempo',
+                  message:
+                      _isTimelineView
+                          ? 'Ver como lista'
+                          : 'Ver línea de tiempo',
                   child: IconButton(
                     icon: Icon(
                       _isTimelineView
@@ -803,15 +795,16 @@ class _HistoryScreenState extends State<HistoryScreen> {
             ),
             const SizedBox(height: 20),
             Expanded(
-              child: _isLoading && _registros.isEmpty
-                  ? const Center(child: ProgressRing())
-                  : _registros.isEmpty
+              child:
+                  _isLoading && _registros.isEmpty
+                      ? const Center(child: ProgressRing())
+                      : _registros.isEmpty
                       ? const Center(
-                          child: Text('No se encontraron registros.'),
-                        )
+                        child: Text('No se encontraron registros.'),
+                      )
                       : _isTimelineView
-                          ? _buildTimelineView()
-                          : _buildStandardView(),
+                      ? _buildTimelineView()
+                      : _buildStandardView(),
             ),
           ],
         ),

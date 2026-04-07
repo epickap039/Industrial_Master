@@ -7,21 +7,22 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/api_client.dart';
 import '../services/notification_inbox_service.dart';
+import '../widgets/bitacora_calendario_panel.dart';
 import '../widgets/compact_page_header.dart';
 import 'monitoreo/widgets/directive_mission_card.dart';
 import 'monitoreo/widgets/manual_mission_form_dialog.dart';
 import 'monitoreo/widgets/mission_meta_sheet.dart';
 import 'monitoreo/widgets/task_display_utils.dart';
+import '../services/app_role.dart';
 
-const List<String> _kMotivosPausa = [
-  'Falta material',
-  'Avería',
-  'Aprobación',
-];
+const List<String> _kMotivosPausa = ['Falta material', 'Avería', 'Aprobación'];
 
 /// Centro de Comando Directivo Industrial (Radar + Manual, sin IA predictiva).
 class MonitoreoTareasScreen extends StatefulWidget {
-  const MonitoreoTareasScreen({super.key});
+  const MonitoreoTareasScreen({super.key, required this.effectiveRole});
+
+  /// Rol efectivo (incluye simulacion admin desde [MainNav] / main.dart).
+  final String effectiveRole;
 
   @override
   State<MonitoreoTareasScreen> createState() => _MonitoreoTareasScreenState();
@@ -33,15 +34,15 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
   bool _vistaCompacta = false;
   List<Map<String, dynamic>> _tareas = [];
   List<Map<String, dynamic>> _activasOrdenadas = [];
+
   /// Tracks which swimlane rows are collapsed. Key = usuario label.
   final Set<String> _swimlanesColapsadas = {};
-  String _userRole = 'USER';
   String _currentUserName = '';
   final Set<int> _checkEnProceso = {};
   final Set<int> _seenTaskIds = {};
   Timer? _refreshTimer;
-  final material.ScrollController _activasScrollController = material.ScrollController();
-  final material.ScrollController _historialScrollController = material.ScrollController();
+  final material.ScrollController _activasScrollController =
+      material.ScrollController();
   late final material.TabController _tabController;
 
   @override
@@ -56,7 +57,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
     _initSesion();
     _cargar();
 
-    // Auto-refresco cada 30 segundos para recibir notificaciones
+    // Auto-refresco cada 30 s para recibir notificaciones
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
       if (mounted) _cargar(silent: true);
     });
@@ -67,8 +68,43 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
     _tabController.dispose();
     _refreshTimer?.cancel();
     _activasScrollController.dispose();
-    _historialScrollController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(MonitoreoTareasScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.effectiveRole != widget.effectiveRole) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _mostrarGuiaOperaciones() async {
+    await showDialog<void>(
+      context: context,
+      builder:
+          (ctx) => ContentDialog(
+            title: const Text('Guia de Operaciones'),
+            content: const SingleChildScrollView(
+              child: Text(
+                'Pestana Activas: misiones en curso. Tarjetas rojas = criticas. '
+                'Tarjetas amarillas = pausadas.\n\n'
+                'Pestana Historial: misiones finalizadas o canceladas. '
+                'Indexadas por fecha de cierre.\n\n'
+                'Botones de tarjeta:\n'
+                '• Pausa: pausar o reanudar la mision.\n'
+                '• Checklist: ver y marcar pasos del trabajo.\n'
+                '• Finalizar: cerrar una mision manual completada.\n',
+              ),
+            ),
+            actions: [
+              FilledButton(
+                child: const Text('Entendido'),
+                onPressed: () => Navigator.pop(ctx),
+              ),
+            ],
+          ),
+    );
   }
 
   Future<void> _initSesion() async {
@@ -76,7 +112,6 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
       final prefs = await SharedPreferences.getInstance();
       if (mounted) {
         setState(() {
-          _userRole = prefs.getString('rol') ?? 'USER';
           _currentUserName = (prefs.getString('username') ?? '').trim();
         });
       }
@@ -84,13 +119,22 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
   }
 
   bool get _puedeControlarMisiones {
-    final r = _userRole.trim().toUpperCase();
-    return r == 'ADMIN' || r == 'INGENIERIA' || r == 'INGENIERÍA';
+    final role = parseAppRole(widget.effectiveRole);
+    // Desarrollador tiene todos los permisos sin limitación
+    if (role == AppRole.desarrollador) return true;
+    // Otros admins solo si tienen permisos de control
+    return role.monitoreoCanControlMisiones;
   }
 
   bool get _esModoSoloLectura => !_puedeControlarMisiones;
 
   bool _esMisionCentro(Map<String, dynamic> t) {
+    var src =
+        '${t['source_type'] ?? t['SourceType'] ?? ''}'.trim().toUpperCase();
+    if (src.isEmpty) {
+      src = 'MANUAL';
+    }
+    if (src == 'MANUAL' || src == 'RADAR') return true;
     final raw = t['tipo']?.toString().trim() ?? '';
     if (raw.isEmpty || raw == 'null') return false;
     final u = raw.toUpperCase();
@@ -136,12 +180,18 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
         if (mounted && !silent) {
           displayInfoBar(
             context,
-            builder: (context, close) => InfoBar(
-              title: const Text('Error'),
-              content: const Text('Respuesta invalida del servidor (lista de tareas).'),
-              severity: InfoBarSeverity.error,
-              action: IconButton(icon: const Icon(FluentIcons.clear), onPressed: close),
-            ),
+            builder:
+                (context, close) => InfoBar(
+                  title: const Text('Error'),
+                  content: const Text(
+                    'Respuesta invalida del servidor (lista de tareas).',
+                  ),
+                  severity: InfoBarSeverity.error,
+                  action: IconButton(
+                    icon: const Icon(FluentIcons.clear),
+                    onPressed: close,
+                  ),
+                ),
           );
         }
         setState(() {
@@ -152,40 +202,42 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
         return;
       }
       final list = data.whereType<Map<String, dynamic>>().toList();
-      
+
       // Notificaciones: buzón persistente + InfoBar si es nueva misión para el usuario
       if (_seenTaskIds.isNotEmpty) {
         for (final t in list) {
           final idRaw = t['id_tarea'];
           final id = idRaw is int ? idRaw : int.tryParse('$idRaw');
           if (id != null && !_seenTaskIds.contains(id)) {
-            final asignado = '${t['usuario_asignado'] ?? t['Usuario_Asignado'] ?? ''}'.trim();
-            final soyYo = asignado.isNotEmpty && _currentUserName.isNotEmpty &&
+            final asignado =
+                '${t['usuario_asignado'] ?? t['Usuario_Asignado'] ?? ''}'
+                    .trim();
+            final soyYo =
+                asignado.isNotEmpty &&
+                _currentUserName.isNotEmpty &&
                 asignado.toLowerCase() == _currentUserName.toLowerCase();
 
             if (soyYo && mounted) {
               try {
                 final titulo = '${t['titulo'] ?? ''}';
-                final agregada =
-                    await CmdInboxStore.instance.addMissionAssigned(
-                  idTarea: id,
-                  titulo: titulo,
-                );
+                final agregada = await CmdInboxStore.instance
+                    .addMissionAssigned(idTarea: id, titulo: titulo);
                 if (agregada) {
                   if (mounted) {
                     displayInfoBar(
                       context,
-                      builder: (c, close) => InfoBar(
-                        title: const Text('Nueva Misión Asignada'),
-                        content: Text(
-                          'ID: #$id - $titulo · Guardado en el buzón',
-                        ),
-                        severity: InfoBarSeverity.info,
-                        action: IconButton(
-                          icon: const Icon(FluentIcons.clear),
-                          onPressed: close,
-                        ),
-                      ),
+                      builder:
+                          (c, close) => InfoBar(
+                            title: const Text('Nueva Misión Asignada'),
+                            content: Text(
+                              'ID: #$id - $titulo · Guardado en el buzón',
+                            ),
+                            severity: InfoBarSeverity.info,
+                            action: IconButton(
+                              icon: const Icon(FluentIcons.clear),
+                              onPressed: close,
+                            ),
+                          ),
                     );
                   }
                 }
@@ -202,7 +254,11 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
         if (id != null) _seenTaskIds.add(id);
       }
 
-      final activas = list.where(_esActivaTab).map((e) => Map<String, dynamic>.from(e)).toList();
+      final activas =
+          list
+              .where(_esActivaTab)
+              .map((e) => Map<String, dynamic>.from(e))
+              .toList();
       setState(() {
         _tareas = list;
         _activasOrdenadas = activas;
@@ -212,12 +268,16 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
       if (mounted && !silent) {
         displayInfoBar(
           context,
-          builder: (context, close) => InfoBar(
-            title: const Text('Error'),
-            content: Text('No se pudieron cargar las tareas: $e'),
-            severity: InfoBarSeverity.error,
-            action: IconButton(icon: const Icon(FluentIcons.clear), onPressed: close),
-          ),
+          builder:
+              (context, close) => InfoBar(
+                title: const Text('Error'),
+                content: Text('No se pudieron cargar las tareas: $e'),
+                severity: InfoBarSeverity.error,
+                action: IconButton(
+                  icon: const Icon(FluentIcons.clear),
+                  onPressed: close,
+                ),
+              ),
         );
       }
       setState(() {
@@ -270,9 +330,11 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
           if (e is Map<String, dynamic>) {
             list.add(Map<String, dynamic>.from(e));
           } else if (e is Map) {
-            list.add(Map<String, dynamic>.from(
-              e.map((k, v) => MapEntry(k.toString(), v)),
-            ));
+            list.add(
+              Map<String, dynamic>.from(
+                e.map((k, v) => MapEntry(k.toString(), v)),
+              ),
+            );
           }
         }
         final ci = list.indexWhere((c) => idCheckDe(c) == idCheck);
@@ -286,18 +348,23 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
           _aplicarEstadoLocalPorProgreso(task, pct);
           _tareas[ti] = task;
         }
-        _activasOrdenadas = _tareas.where(_esActivaTab).map((e) => Map<String, dynamic>.from(e)).toList();
+        _activasOrdenadas =
+            _tareas
+                .where(_esActivaTab)
+                .map((e) => Map<String, dynamic>.from(e))
+                .toList();
       });
     } catch (e) {
       if (mounted) {
         displayInfoBar(
           context,
-          builder: (c, close) => InfoBar(
-            title: const Text('Error'),
-            content: Text('$e'),
-            severity: InfoBarSeverity.error,
-            onClose: close,
-          ),
+          builder:
+              (c, close) => InfoBar(
+                title: const Text('Error'),
+                content: Text('$e'),
+                severity: InfoBarSeverity.error,
+                onClose: close,
+              ),
         );
       }
     } finally {
@@ -322,7 +389,6 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
     if (!_puedeControlarMisiones) return;
     final t = _tareaActivaPorId(idTarea);
     if (t == null) return;
-
     final r = await showAsignarPrioridadMissionDialog(
       context,
       nivelInicial: _nivelPrioridadUiDesdeRank(t),
@@ -340,7 +406,11 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
     return null;
   }
 
-  Future<void> _aplicarPrioridadMision(int idTarea, int nivel, bool suspender) async {
+  Future<void> _aplicarPrioridadMision(
+    int idTarea,
+    int nivel,
+    bool suspender,
+  ) async {
     if (!_puedeControlarMisiones) return;
     final idx = _activasOrdenadas.indexWhere((t) {
       final id = t['id_tarea'];
@@ -363,9 +433,11 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
     setState(() => _activasOrdenadas = copy);
 
     final doSuspend = suspender && nivel == 1;
+    final forced = <int, int>{idTarea: (nivel - 1).clamp(0, 2)};
     final ok = await _persistirReorden(
       suspenderOtrasMismoResponsable: doSuspend,
       idTareaPrioridadUrgente: doSuspend ? idTarea : null,
+      forcedRankById: forced,
     );
     if (!mounted) return;
     if (ok) {
@@ -374,14 +446,15 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
       if (doSuspend) {
         displayInfoBar(
           context,
-          builder: (c, close) => InfoBar(
-            title: const Text('Prioridad crítica'),
-            content: const Text(
-              'Orden actualizado. Las demás tareas del mismo responsable quedaron en pausa (Prioridad Urgente asignada).',
-            ),
-            severity: InfoBarSeverity.warning,
-            onClose: close,
-          ),
+          builder:
+              (c, close) => InfoBar(
+                title: const Text('Prioridad crítica'),
+                content: const Text(
+                  'Orden actualizado. Las demás tareas del mismo responsable quedaron en pausa (Prioridad Urgente asignada).',
+                ),
+                severity: InfoBarSeverity.warning,
+                onClose: close,
+              ),
         );
       }
     }
@@ -419,9 +492,10 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
                     child: const Text('Volver'),
                   ),
                   FilledButton(
-                    onPressed: ctrl.text.trim().length < 3
-                        ? null
-                        : () => Navigator.pop(ctx, true),
+                    onPressed:
+                        ctrl.text.trim().length < 3
+                            ? null
+                            : () => Navigator.pop(ctx, true),
                     child: const Text('Cancelar mision'),
                   ),
                 ],
@@ -442,23 +516,25 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
       if (!mounted) return;
       displayInfoBar(
         context,
-        builder: (c, close) => InfoBar(
-          title: const Text('Mision cancelada'),
-          content: const Text('El estado se actualizo a Cancelado.'),
-          severity: InfoBarSeverity.warning,
-          onClose: close,
-        ),
+        builder:
+            (c, close) => InfoBar(
+              title: const Text('Mision cancelada'),
+              content: const Text('El estado se actualizo a Cancelado.'),
+              severity: InfoBarSeverity.warning,
+              onClose: close,
+            ),
       );
     } catch (e) {
       if (mounted) {
         displayInfoBar(
           context,
-          builder: (c, close) => InfoBar(
-            title: const Text('Error'),
-            content: Text('$e'),
-            severity: InfoBarSeverity.error,
-            onClose: close,
-          ),
+          builder:
+              (c, close) => InfoBar(
+                title: const Text('Error'),
+                content: Text('$e'),
+                severity: InfoBarSeverity.error,
+                onClose: close,
+              ),
         );
       }
     } finally {
@@ -483,9 +559,10 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
                   const SizedBox(height: 12),
                   ComboBox<String>(
                     value: motivo,
-                    items: _kMotivosPausa
-                        .map((e) => ComboBoxItem(value: e, child: Text(e)))
-                        .toList(),
+                    items:
+                        _kMotivosPausa
+                            .map((e) => ComboBoxItem(value: e, child: Text(e)))
+                            .toList(),
                     onChanged: (v) => setLocal(() => motivo = v ?? motivo),
                   ),
                 ],
@@ -509,10 +586,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
     try {
       await ApiClient.put(
         '/api/tareas/estado/$idTarea',
-        body: {
-          'estado': 'Pausado',
-          'motivo_pausa': motivo,
-        },
+        body: {'estado': 'Pausado', 'motivo_pausa': motivo},
       );
       if (!mounted) return;
       await _cargar();
@@ -520,12 +594,13 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
       if (mounted) {
         displayInfoBar(
           context,
-          builder: (c, close) => InfoBar(
-            title: const Text('Error'),
-            content: Text('$e'),
-            severity: InfoBarSeverity.error,
-            onClose: close,
-          ),
+          builder:
+              (c, close) => InfoBar(
+                title: const Text('Error'),
+                content: Text('$e'),
+                severity: InfoBarSeverity.error,
+                onClose: close,
+              ),
         );
       }
     }
@@ -543,12 +618,13 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
       if (mounted) {
         displayInfoBar(
           context,
-          builder: (c, close) => InfoBar(
-            title: const Text('Error'),
-            content: Text('$e'),
-            severity: InfoBarSeverity.error,
-            onClose: close,
-          ),
+          builder:
+              (c, close) => InfoBar(
+                title: const Text('Error'),
+                content: Text('$e'),
+                severity: InfoBarSeverity.error,
+                onClose: close,
+              ),
         );
       }
     }
@@ -560,24 +636,26 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
       if (!mounted) return;
       displayInfoBar(
         context,
-        builder: (c, close) => InfoBar(
-          title: const Text('Misión finalizada'),
-          content: const Text('Progreso al 100 % y estado Terminado.'),
-          severity: InfoBarSeverity.success,
-          onClose: close,
-        ),
+        builder:
+            (c, close) => InfoBar(
+              title: const Text('Misión finalizada'),
+              content: const Text('Progreso al 100 % y estado Terminado.'),
+              severity: InfoBarSeverity.success,
+              onClose: close,
+            ),
       );
       await _cargar();
     } catch (e) {
       if (mounted) {
         displayInfoBar(
           context,
-          builder: (c, close) => InfoBar(
-            title: const Text('Error'),
-            content: Text('$e'),
-            severity: InfoBarSeverity.error,
-            onClose: close,
-          ),
+          builder:
+              (c, close) => InfoBar(
+                title: const Text('Error'),
+                content: Text('$e'),
+                severity: InfoBarSeverity.error,
+                onClose: close,
+              ),
         );
       }
     }
@@ -586,22 +664,47 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
   Future<bool> _persistirReorden({
     bool suspenderOtrasMismoResponsable = false,
     int? idTareaPrioridadUrgente,
+    Map<int, int>? forcedRankById,
   }) async {
+    final soloServidor =
+        _activasOrdenadas.where((t) {
+          final id = t['id_tarea'];
+          final n = id is int ? id : int.tryParse('$id');
+          return n != null && n >= 1;
+        }).toList();
+    if (soloServidor.isEmpty) {
+      return true;
+    }
     final body = <String, dynamic>{
       'items': List<Map<String, dynamic>>.generate(
-        _activasOrdenadas.length,
+        soloServidor.length,
         (i) => {
-          'id_tarea': _activasOrdenadas[i]['id_tarea'],
-          'priority_rank': i,
+          'id_tarea': soloServidor[i]['id_tarea'],
+          'priority_rank':
+              (() {
+                final id = soloServidor[i]['id_tarea'];
+                final idInt = id is int ? id : int.tryParse('$id');
+                if (idInt != null &&
+                    forcedRankById != null &&
+                    forcedRankById.containsKey(idInt)) {
+                  final pr = forcedRankById[idInt]!;
+                  return pr < 0 ? 0 : pr;
+                }
+                return i;
+              })(),
         },
       ),
-      if (suspenderOtrasMismoResponsable && idTareaPrioridadUrgente != null) ...{
+      if (suspenderOtrasMismoResponsable &&
+          idTareaPrioridadUrgente != null &&
+          idTareaPrioridadUrgente >= 1) ...{
         'suspender_otras_mismo_responsable': true,
         'id_tarea_prioridad_urgente': idTareaPrioridadUrgente,
       },
     };
     try {
-      debugPrint('JSON ENVIADO A /reordenar (Prioridades): ${jsonEncode(body)}');
+      debugPrint(
+        'JSON ENVIADO A /reordenar (Prioridades): ${jsonEncode(body)}',
+      );
       await ApiClient.put('/api/tareas/reordenar', body: body);
       return true;
     } catch (e) {
@@ -609,14 +712,15 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
       if (mounted) {
         displayInfoBar(
           context,
-          builder: (c, close) => InfoBar(
-            title: const Text('Reordenar / Prioridad'),
-            content: Text(
-              'No se pudo actualizar prioridad.\nError: $e\nJSON: ${jsonEncode(body)}',
-            ),
-            severity: InfoBarSeverity.error,
-            onClose: close,
-          ),
+          builder:
+              (c, close) => InfoBar(
+                title: const Text('Reordenar / Prioridad'),
+                content: Text(
+                  'No se pudo actualizar prioridad.\nError: $e\nJSON: ${jsonEncode(body)}',
+                ),
+                severity: InfoBarSeverity.error,
+                onClose: close,
+              ),
         );
       }
       await _cargar();
@@ -683,12 +787,13 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
                   } else {
                     displayInfoBar(
                       ctx,
-                      builder: (c, close) => InfoBar(
-                        title: const Text('Acceso Denegado'),
-                        content: const Text('Contraseña incorrecta.'),
-                        severity: InfoBarSeverity.error,
-                        onClose: close,
-                      ),
+                      builder:
+                          (c, close) => InfoBar(
+                            title: const Text('Acceso Denegado'),
+                            content: const Text('Contraseña incorrecta.'),
+                            severity: InfoBarSeverity.error,
+                            onClose: close,
+                          ),
                     );
                   }
                 },
@@ -704,12 +809,15 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
           if (mounted) {
             displayInfoBar(
               context,
-              builder: (c, close) => InfoBar(
-                title: const Text('Historial Limpiado'),
-                content: const Text('Las tareas antiguas fueron borradas con éxito.'),
-                severity: InfoBarSeverity.success,
-                onClose: close,
-              ),
+              builder:
+                  (c, close) => InfoBar(
+                    title: const Text('Historial Limpiado'),
+                    content: const Text(
+                      'Las tareas antiguas fueron borradas con éxito.',
+                    ),
+                    severity: InfoBarSeverity.success,
+                    onClose: close,
+                  ),
             );
             await _cargar();
           }
@@ -717,12 +825,13 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
           if (mounted) {
             displayInfoBar(
               context,
-              builder: (c, close) => InfoBar(
-                title: const Text('Error'),
-                content: Text('$e'),
-                severity: InfoBarSeverity.error,
-                onClose: close,
-              ),
+              builder:
+                  (c, close) => InfoBar(
+                    title: const Text('Error'),
+                    content: Text('$e'),
+                    severity: InfoBarSeverity.error,
+                    onClose: close,
+                  ),
             );
           }
         }
@@ -736,63 +845,110 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
   Widget build(BuildContext context) {
     return material.Material(
       child: ScaffoldPage(
-          header: CompactPageHeader(
-            title: Text(
-              _esModoSoloLectura
-                  ? 'Centro de Comando (solo lectura)'
-                  : 'Centro de Comando Directivo',
-            ),
-            commandBar: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ToggleSwitch(
-                  checked: _vistaCompacta,
-                  onChanged: (v) => setState(() => _vistaCompacta = v),
-                  content: const Text('Vista Compacta'),
-                ),
-                const SizedBox(width: 12),
-                if (_puedeControlarMisiones && _tabController.index == 1) ...[
-                  IconButton(
-                    icon: Icon(FluentIcons.delete, color: material.Colors.red.shade400),
-                    onPressed: _dialogoLimpiarHistorial,
+        header: CompactPageHeader(
+          title: Row(
+            children: [
+              Icon(
+                _esModoSoloLectura
+                    ? FluentIcons.lock
+                    : FluentIcons.org,
+                size: 24,
+                color: FluentTheme.of(context).accentColor,
+              ),
+              const SizedBox(width: 12),
+              Text(
+                _esModoSoloLectura
+                    ? 'Centro de Comando (Lectura)'
+                    : 'Centro de Comando Directivo',
+              ),
+              if (_esModoSoloLectura)
+                Container(
+                  margin: const EdgeInsets.only(left: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
                   ),
-                  const SizedBox(width: 8),
-                ],
+                  decoration: BoxDecoration(
+                    color: material.Colors.orange.shade100,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    'Solo Lectura',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: material.Colors.orange.shade800,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          commandBar: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ToggleSwitch(
+                checked: _vistaCompacta,
+                onChanged: (v) => setState(() => _vistaCompacta = v),
+                content: const Text('Vista Compacta'),
+              ),
+              const SizedBox(width: 12),
+              if (_puedeControlarMisiones && _tabController.index == 1) ...[
                 IconButton(
+                  icon: Icon(
+                    FluentIcons.delete,
+                    color: material.Colors.red.shade400,
+                  ),
+                  onPressed: _dialogoLimpiarHistorial,
+                ),
+                const SizedBox(width: 8),
+              ],
+              material.Tooltip(
+                message: _loading ? 'Cargando...' : 'Actualizar',
+                child: IconButton(
                   icon: const Icon(FluentIcons.refresh),
                   onPressed: _loading ? null : _cargar,
                 ),
-              ],
-            ),
-          ),
-          content: Column(
-            children: [
-              material.TabBar(
-                controller: _tabController,
-                tabs: [
-                  material.Tab(
-                    text: _esModoSoloLectura
-                        ? 'Misiones activas (lectura)'
-                        : 'Misiones activas',
-                  ),
-                  const material.Tab(text: 'Historial (100 % / Canceladas)'),
-                  const material.Tab(text: 'Alta manual'),
-                ],
               ),
-              const SizedBox(height: 12),
-              Expanded(
-                child: material.TabBarView(
-                  controller: _tabController,
-                  children: [
-                    _tabActivas(),
-                    _tabHistorial(),
-                    _tabAltaManual(),
-                  ],
+              const SizedBox(width: 4),
+              material.Tooltip(
+                message: 'Guía de operaciones',
+                child: IconButton(
+                  icon: const Icon(FluentIcons.info),
+                  onPressed: _mostrarGuiaOperaciones,
                 ),
               ),
             ],
           ),
         ),
+        content: Column(
+          children: [
+            material.TabBar(
+              controller: _tabController,
+              tabs: [
+                material.Tab(
+                  text:
+                      _esModoSoloLectura
+                          ? 'Misiones activas (lectura)'
+                          : 'Misiones activas',
+                ),
+                const material.Tab(text: 'Historial (100 % / Canceladas)'),
+                const material.Tab(text: 'Alta manual'),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: material.TabBarView(
+                controller: _tabController,
+                children: [
+                  _MonitoreoTabKeepAlive(child: _tabActivas()),
+                  _MonitoreoTabKeepAlive(child: _tabHistorial()),
+                  _MonitoreoTabKeepAlive(child: _tabAltaManual()),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -809,12 +965,12 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
       final key = (us == 'Sin asignar' || us.isEmpty) ? _kSinAsignar : us;
       byUser.putIfAbsent(key, () => []).add(t);
     }
-    final entries = byUser.entries.toList()
-      ..sort((a, b) {
-        if (a.key == _kSinAsignar) return -1;
-        if (b.key == _kSinAsignar) return 1;
-        return a.key.toLowerCase().compareTo(b.key.toLowerCase());
-      });
+    final entries =
+        byUser.entries.toList()..sort((a, b) {
+          if (a.key == _kSinAsignar) return -1;
+          if (b.key == _kSinAsignar) return 1;
+          return a.key.toLowerCase().compareTo(b.key.toLowerCase());
+        });
     return entries;
   }
 
@@ -850,7 +1006,11 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
 
   // ─────────────────────────────────────────────────────────────────────────
 
-  Widget _tarjetaActivaLobby(int globalIndex, Map<String, dynamic> t, bool dark) {
+  Widget _tarjetaActivaLobby(
+    int globalIndex,
+    Map<String, dynamic> t,
+    bool dark,
+  ) {
     final id = t['id_tarea'];
     return DirectiveMissionCard(
       task: t,
@@ -865,18 +1025,118 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
       lobbyCount: _activasOrdenadas.length,
       onReorderByDelta: _puedeControlarMisiones ? _moveActivaEnGrid : null,
       onToggleCheck: _marcarChecklistItem,
-      onAbrirDialogoPrioridad: _puedeControlarMisiones
-          ? (int tid) => _dialogoAsignarPrioridad(tid)
-          : null,
-      onCancel: () => _dialogoCancelarMision(id is int ? id : int.tryParse('$id') ?? 0),
+      onAbrirDialogoPrioridad:
+          _puedeControlarMisiones
+              ? (int tid) => _dialogoAsignarPrioridad(tid)
+              : null,
+      onCancel:
+          () =>
+              _dialogoCancelarMision(id is int ? id : int.tryParse('$id') ?? 0),
       onPause: () => _dialogoPausar(id is int ? id : int.tryParse('$id') ?? 0),
-      onResume: () => _reanudarMision(id is int ? id : int.tryParse('$id') ?? 0),
-      onFinalizarManual: _puedeControlarMisiones
-          ? () => _finalizarManualMision(id is int ? id : int.tryParse('$id') ?? 0)
-          : null,
+      onResume:
+          () => _reanudarMision(id is int ? id : int.tryParse('$id') ?? 0),
+      onFinalizarManual:
+          _puedeControlarMisiones
+              ? () => _finalizarManualMision(
+                id is int ? id : int.tryParse('$id') ?? 0,
+              )
+              : null,
+      onCargarBitacora: _cargarBitacora,
       onShowMeta: () {
-        showMissionMetaSideSheet(context, t['meta']);
+        showMissionMetaSideSheet(
+          context,
+          t['meta'],
+          task: Map<String, dynamic>.from(t),
+        );
       },
+    );
+  }
+
+  String _formatoMinutosCarga(int mins) {
+    if (mins <= 0) return '0 min';
+    final h = mins ~/ 60;
+    final m = mins % 60;
+    if (h == 0) return '$m min';
+    if (m == 0) return '${h}h';
+    return '${h}h ${m}m';
+  }
+
+  int _minutosRestantesParaUsuario(String usuario) {
+    var sum = 0;
+    for (final t in _activasOrdenadas) {
+      if (asignadoMision(t) != usuario) continue;
+      final r = minutosRestantesEstimados(t);
+      if (r != null && r > 0) sum += r;
+    }
+    return sum;
+  }
+
+  Widget _cargaDisponibilidadResumen() {
+    final usuarios =
+        _activasOrdenadas.map((t) => asignadoMision(t)).toSet().toList()
+          ..sort();
+    final chips = <Widget>[];
+    for (final u in usuarios) {
+      final m = _minutosRestantesParaUsuario(u);
+      if (m <= 0) continue;
+      chips.add(
+        Padding(
+          padding: const EdgeInsets.only(right: 8, bottom: 6),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: FluentTheme.of(
+                context,
+              ).accentColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: FluentTheme.of(
+                  context,
+                ).resources.controlStrokeColorDefault.withValues(alpha: 0.35),
+              ),
+            ),
+            child: Text(
+              '$u · ${_formatoMinutosCarga(m)} restantes (estim.)',
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ),
+      );
+    }
+    if (chips.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
+        child: Text(
+          'Carga acumulada: sin minutos presupuestados en misiones activas '
+          '(o todas marcadas como «no aplica»).',
+          style: TextStyle(
+            fontSize: 12,
+            color: FluentTheme.of(
+              context,
+            ).typography.body?.color?.withValues(alpha: 0.75),
+          ),
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Disponibilidad estimada (suma de tiempo restante por responsable)',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: FluentTheme.of(
+                context,
+              ).typography.body?.color?.withValues(alpha: 0.95),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Wrap(children: chips),
+        ],
+      ),
     );
   }
 
@@ -887,7 +1147,9 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
         child: Text(
           'No hay misiones activas.',
           style: TextStyle(
-            color: FluentTheme.of(context).typography.body?.color?.withValues(alpha: 0.8),
+            color: FluentTheme.of(
+              context,
+            ).typography.body?.color?.withValues(alpha: 0.8),
           ),
         ),
       );
@@ -899,45 +1161,47 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
     final Map<int, int> idToGlobalIndex = {
       for (var i = 0; i < _activasOrdenadas.length; i++)
         (_activasOrdenadas[i]['id_tarea'] is int
-            ? _activasOrdenadas[i]['id_tarea'] as int
-            : int.tryParse('${_activasOrdenadas[i]['id_tarea']}') ?? -1): i,
+                ? _activasOrdenadas[i]['id_tarea'] as int
+                : int.tryParse('${_activasOrdenadas[i]['id_tarea']}') ?? -1):
+            i,
     };
 
     return material.Scrollbar(
       controller: _activasScrollController,
       thumbVisibility: true,
-      child: material.SingleChildScrollView(
+      child: material.ListView(
         controller: _activasScrollController,
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 32),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            for (final lane in lanes)
-              _SwimlaneRow(
-                key: ValueKey('lane_${lane.key}'),
-                usuario: lane.key,
-                tareas: lane.value,
-                colapsada: _swimlanesColapsadas.contains(lane.key),
-                onToggleColapso: () => setState(() {
-                  if (_swimlanesColapsadas.contains(lane.key)) {
-                    _swimlanesColapsadas.remove(lane.key);
-                  } else {
-                    _swimlanesColapsadas.add(lane.key);
-                  }
-                }),
-                avatarColor: _avatarColor(lane.key),
-                iniciales: _iniciales(lane.key),
-                dark: dark,
-                idToGlobalIndex: idToGlobalIndex,
-                cardBuilder: (t) {
-                  final gIdx = idToGlobalIndex[t['id_tarea'] is int
-                      ? t['id_tarea'] as int
-                      : int.tryParse('${t['id_tarea']}') ?? -1] ?? 0;
-                  return _tarjetaActivaLobby(gIdx, t, dark);
-                },
-              ),
-          ],
-        ),
+        children: [
+          _cargaDisponibilidadResumen(),
+          for (final lane in lanes)
+            _SwimlaneRow(
+              key: ValueKey('lane_${lane.key}'),
+              usuario: lane.key,
+              tareas: lane.value,
+              colapsada: _swimlanesColapsadas.contains(lane.key),
+              onToggleColapso:
+                  () => setState(() {
+                    if (_swimlanesColapsadas.contains(lane.key)) {
+                      _swimlanesColapsadas.remove(lane.key);
+                    } else {
+                      _swimlanesColapsadas.add(lane.key);
+                    }
+                  }),
+              avatarColor: _avatarColor(lane.key),
+              iniciales: _iniciales(lane.key),
+              dark: dark,
+              idToGlobalIndex: idToGlobalIndex,
+              cardBuilder: (t) {
+                final gIdx =
+                    idToGlobalIndex[t['id_tarea'] is int
+                        ? t['id_tarea'] as int
+                        : int.tryParse('${t['id_tarea']}') ?? -1] ??
+                    0;
+                return _tarjetaActivaLobby(gIdx, t, dark);
+              },
+            ),
+        ],
       ),
     );
   }
@@ -950,122 +1214,213 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
         child: Text(
           'Sin misiones en historial (terminadas al 100 % o canceladas).',
           style: TextStyle(
-            color: FluentTheme.of(context).typography.body?.color?.withValues(alpha: 0.8),
+            color: FluentTheme.of(
+              context,
+            ).typography.body?.color?.withValues(alpha: 0.8),
           ),
         ),
       );
     }
-    final dark = _isDark(context);
-    // Un solo scroll (slivers): ListView + GridView shrinkWrap provocaba cajas sin tamaño / hit-test.
-    return material.Scrollbar(
-      controller: _historialScrollController,
-      thumbVisibility: true,
-      child: material.CustomScrollView(
-        controller: _historialScrollController,
-        slivers: [
-          material.SliverPadding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-            sliver: material.SliverToBoxAdapter(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Historial: misiones con progreso 100 %, estado terminado o canceladas. '
-                    'En canceladas se muestra el motivo de forma destacada.',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: FluentTheme.of(context)
-                          .typography
-                          .body
-                          ?.color
-                          ?.withValues(alpha: 0.85),
-                      height: 1.35,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                ],
-              ),
-            ),
-          ),
-        material.SliverPadding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
-          sliver: material.SliverGrid(
-            gridDelegate: const material.SliverGridDelegateWithMaxCrossAxisExtent(
-              maxCrossAxisExtent: 460,
-              mainAxisExtent: 640,
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 16,
-            ),
-            delegate: material.SliverChildBuilderDelegate(
-              (context, i) {
-                final t = hist[i];
-                final id = t['id_tarea'];
-                return RepaintBoundary(
-                  key: ValueKey('hist_$id'),
-                  child: DirectiveMissionCard(
-                    task: t,
-                    canControl: _puedeControlarMisiones,
-                    permitirChecklist: false,
-                    vistaMisionesActivas: false,
-                    vistaHistorial: true,
-                    checkEnProceso: _checkEnProceso,
-                    isDark: dark,
-                    onToggleCheck: _marcarChecklistItem,
-                    onCargarBitacora: _cargarBitacora,
-                    onCancel: null,
-                    onPause: null,
-                    onResume: null,
-                    onFinalizarManual: null,
-                    onShowMeta: () {
-                      showMissionMetaSideSheet(context, t['meta']);
-                    },
-                  ),
-                );
-              },
-              childCount: hist.length,
-            ),
-          ),
-        ),
-        ],
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+      child: BitacoraCalendarioPanel(
+        key: const ValueKey<String>('bitacora_hist_centro'),
+        tareasHistorial: hist,
+        onTapTarea: (t) {
+          showMissionMetaSideSheet(
+            context,
+            t['meta'],
+            task: Map<String, dynamic>.from(t),
+          );
+        },
       ),
     );
   }
 
   Widget _tabAltaManual() {
-    return Padding(
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Crear mision en servidor',
-            style: FluentTheme.of(context).typography.subtitle?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+          // Header con icono
+          Row(
+            children: [
+              Icon(
+                FluentIcons.add_field,
+                size: 28,
+                color: FluentTheme.of(context).accentColor,
+              ),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Crear Misión en Servidor',
+                    style: FluentTheme.of(context)
+                        .typography
+                        .title
+                        ?.copyWith(fontSize: 18),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Alta manual de tareas con responsable y categoría',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: FluentTheme.of(context)
+                          .typography
+                          .body
+                          ?.color
+                          ?.withValues(alpha: 0.7),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
-          const SizedBox(height: 8),
-          Text(
-            'Registra una tarea manual con responsable y categoria. '
-            'Se guarda en SQL con SourceType Manual y CurrentAssignee.',
-            style: TextStyle(
-              color: FluentTheme.of(context).typography.body?.color?.withValues(alpha: 0.85),
+          const SizedBox(height: 24),
+          // Card de información
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: FluentTheme.of(context).cardColor,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: FluentTheme.of(context)
+                    .inactiveColor
+                    .withValues(alpha: 0.3),
+              ),
             ),
-          ),
-          const SizedBox(height: 20),
-          FilledButton(
-            onPressed: _esModoSoloLectura ? null : _abrirAltaManual,
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(FluentIcons.add, size: 16),
-                SizedBox(width: 8),
-                Text('Nueva mision manual'),
+                Text(
+                  _esModoSoloLectura
+                      ? 'Modo Lectura - No puede crear misiones'
+                      : 'Modo Edición - Puede crear misiones',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                    color: _esModoSoloLectura
+                        ? material.Colors.orange.shade700
+                        : material.Colors.green.shade700,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  _esModoSoloLectura
+                      ? 'Su rol actual no tiene permiso para crear misiones. Solo los administradores con permisos de control pueden crear tareas manuales.'
+                      : 'Registra una tarea manual con responsable, categoría y descripción. Se guardará en SQL con SourceType Manual y se asignará automáticamente.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: FluentTheme.of(context)
+                        .typography
+                        .body
+                        ?.color
+                        ?.withValues(alpha: 0.8),
+                    height: 1.5,
+                  ),
+                ),
               ],
             ),
           ),
+          const SizedBox(height: 24),
+          // Botón
+          FilledButton(
+            onPressed: _esModoSoloLectura ? null : _abrirAltaManual,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  _esModoSoloLectura
+                      ? FluentIcons.lock
+                      : FluentIcons.add,
+                  size: 18,
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  _esModoSoloLectura
+                      ? 'Crear misión (Deshabilitado)'
+                      : 'Crear nueva misión',
+                  style: const TextStyle(fontSize: 14),
+                ),
+              ],
+            ),
+          ),
+          if (_esModoSoloLectura) ...[
+            const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: material.Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: material.Colors.blue.shade300,
+                  width: 1,
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        FluentIcons.info,
+                        size: 20,
+                        color: material.Colors.blue.shade700,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Cómo habilitar creación de misiones',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: material.Colors.blue.shade700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    '1. Chequee arriba en "Simulando:" cuál es su rol\n'
+                    '2. Si es administrador, solo algunos roles tienen permisos\n'
+                    '3. Contacte al administrador del sistema para actualizar permisos',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: material.Colors.blue.shade700,
+                      height: 1.6,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );
+  }
+}
+
+/// Evita destruir el estado de cada pestana al cambiar de tab (historial/calendario).
+class _MonitoreoTabKeepAlive extends StatefulWidget {
+  const _MonitoreoTabKeepAlive({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_MonitoreoTabKeepAlive> createState() => _MonitoreoTabKeepAliveState();
+}
+
+class _MonitoreoTabKeepAliveState extends State<_MonitoreoTabKeepAlive>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
   }
 }
 
@@ -1099,9 +1454,10 @@ class _SwimlaneRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final headerBg = dark
-        ? const material.Color(0xFF1E1E2E)
-        : const material.Color(0xFFECEFF1);
+    final headerBg =
+        dark
+            ? const material.Color(0xFF1E1E2E)
+            : const material.Color(0xFFECEFF1);
     final borderColor = avatarColor.withValues(alpha: 0.45);
     final countBadgeBg = avatarColor.withValues(alpha: 0.18);
 
@@ -1117,21 +1473,24 @@ class _SwimlaneRow extends StatelessWidget {
         ),
         child: material.Row(
           children: [
-            // Avatar circular con iniciales
             material.Container(
-              width: 42,
-              height: 42,
+              width: 34,
+              height: 34,
               decoration: material.BoxDecoration(
-                color: avatarColor,
-                shape: material.BoxShape.circle,
+                color: avatarColor.withValues(alpha: 0.92),
+                borderRadius: material.BorderRadius.circular(8),
+                border: material.Border.all(
+                  color: material.Colors.white.withValues(alpha: 0.35),
+                  width: 1,
+                ),
               ),
               alignment: Alignment.center,
               child: material.Text(
                 iniciales,
                 style: const material.TextStyle(
                   color: material.Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 13,
                 ),
               ),
             ),
@@ -1176,9 +1535,7 @@ class _SwimlaneRow extends StatelessWidget {
               child: Icon(
                 FluentIcons.chevron_down,
                 size: 16,
-                color: dark
-                    ? material.Colors.white70
-                    : material.Colors.black54,
+                color: dark ? material.Colors.white70 : material.Colors.black54,
               ),
             ),
           ],

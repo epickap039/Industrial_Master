@@ -4,6 +4,8 @@ import '../services/api_client.dart';
 import '../theme/page_title_style.dart';
 
 class StandardizationScreen extends StatefulWidget {
+  const StandardizationScreen({super.key});
+
   @override
   _StandardizationScreenState createState() => _StandardizationScreenState();
 }
@@ -84,8 +86,7 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
           _campo == 'material' && _soloNoEstandarizados
               ? _items
                   .where(
-                    (item) =>
-                        !_officialMaterials.contains(_etiqueta(item)),
+                    (item) => !_officialMaterials.contains(_etiqueta(item)),
                   )
                   .toList()
               : _items;
@@ -107,9 +108,7 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
     final autoSuggestController = TextEditingController();
     final bool esMaterial = _campo == 'material';
     final titulo =
-        esMaterial
-            ? 'Estandarizar material'
-            : 'Estandarizar descripción';
+        esMaterial ? 'Estandarizar material' : 'Estandarizar descripción';
 
     await showDialog(
       context: context,
@@ -312,9 +311,9 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
         child: Text(
           'Estandarización de datos',
-          style: pageTitleTextStyle(context).copyWith(
-            color: FluentTheme.of(context).typography.title?.color,
-          ),
+          style: pageTitleTextStyle(
+            context,
+          ).copyWith(color: FluentTheme.of(context).typography.title?.color),
         ),
       ),
       content: Padding(
@@ -344,10 +343,7 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
                   child: ComboBox<String>(
                     value: _campo,
                     items: const [
-                      ComboBoxItem(
-                        value: 'material',
-                        child: Text('Material'),
-                      ),
+                      ComboBoxItem(value: 'material', child: Text('Material')),
                       ComboBoxItem(
                         value: 'descripcion',
                         child: Text('Descripción'),
@@ -395,8 +391,7 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
                           final val = _etiqueta(item);
                           final total = item['total'] ?? 0;
                           final isOfficial =
-                              esMaterial &&
-                              _officialMaterials.contains(val);
+                              esMaterial && _officialMaterials.contains(val);
 
                           return Card(
                             margin: EdgeInsets.only(bottom: 8),
@@ -412,7 +407,8 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
                                         style: TextStyle(
                                           fontWeight: FontWeight.bold,
                                           fontSize: 16,
-                                          color: isOfficial ? successGreen : null,
+                                          color:
+                                              isOfficial ? successGreen : null,
                                         ),
                                       ),
                                       Text(
@@ -481,10 +477,7 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
                                             val,
                                             total is int
                                                 ? total
-                                                : int.tryParse(
-                                                      '$total',
-                                                    ) ??
-                                                    0,
+                                                : int.tryParse('$total') ?? 0,
                                           ),
                                     ),
                                     if (esMaterial && isOfficial) ...[
@@ -516,7 +509,7 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
                                                     FilledButton(
                                                       style: ButtonStyle(
                                                         backgroundColor:
-                                                            ButtonState.all(
+                                                            WidgetStateProperty.all(
                                                               Colors.red,
                                                             ),
                                                       ),

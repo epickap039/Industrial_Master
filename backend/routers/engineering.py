@@ -34,6 +34,11 @@ _RADAR_TIEMPOS_DEFAULT: Dict[str, int] = {
     "minutos_plano_ensamble": 20,
     "minutos_pdf": 5,
     "minutos_por_relacion_unidad": 5,
+    # Por cada par (tracto, tipo de proyecto) distinto en el análisis.
+    "minutos_e_drawings_por_proyecto": 30,
+    # Una sola vez por análisis de código(s) de pieza.
+    "minutos_plano_pieza": 5,
+    "minutos_subir_drive": 10,
 }
 
 
@@ -74,6 +79,9 @@ class RadarTiemposPayload(BaseModel):
     minutos_plano_ensamble: int = Field(20, ge=0, le=9999)
     minutos_pdf: int = Field(5, ge=0, le=9999)
     minutos_por_relacion_unidad: int = Field(5, ge=0, le=9999)
+    minutos_e_drawings_por_proyecto: int = Field(30, ge=0, le=9999)
+    minutos_plano_pieza: int = Field(5, ge=0, le=9999)
+    minutos_subir_drive: int = Field(10, ge=0, le=9999)
 
 
 @router.get("/api/bom/impacto/tiempos-config")
@@ -263,6 +271,51 @@ def _consolidar_filas_entregable_por_version(rows: List[Dict[str, Any]]) -> List
 
 def _total_minutos_desde_entregables(entregables: List[Dict[str, Any]]) -> int:
     return sum(int(x.get("minutos") or 0) for x in entregables)
+
+
+def _tiempos_estandar_radar_extra(
+    rows: Any,
+    radar_cfg: Dict[str, int],
+) -> Tuple[int, Dict[str, Any]]:
+    """
+    Tiempos fijos configurables en el panel del Radar (además de plano/relación por ensamble).
+
+    - E-Drawings: minutos por proyecto distinto (tracto + tipo de proyecto).
+    - Plano de pieza: una sola vez por simulación.
+    - Subir a Drive: una sola vez por simulación.
+    """
+    if not rows:
+        n_proy = 0
+    else:
+        n_proy = len({(int(r.ID_Tracto), int(r.ID_Tipo)) for r in rows})
+    me_cfg = int(
+        radar_cfg.get(
+            "minutos_e_drawings_por_proyecto",
+            _RADAR_TIEMPOS_DEFAULT["minutos_e_drawings_por_proyecto"],
+        )
+    )
+    mp = int(
+        radar_cfg.get(
+            "minutos_plano_pieza",
+            _RADAR_TIEMPOS_DEFAULT["minutos_plano_pieza"],
+        )
+    )
+    md = int(
+        radar_cfg.get(
+            "minutos_subir_drive",
+            _RADAR_TIEMPOS_DEFAULT["minutos_subir_drive"],
+        )
+    )
+    m_e = me_cfg * n_proy
+    extra = m_e + mp + md
+    return extra, {
+        "proyectos_distintos": n_proy,
+        "minutos_por_proyecto_e_drawings": me_cfg,
+        "minutos_e_drawings_total": m_e,
+        "minutos_plano_pieza": mp,
+        "minutos_subir_drive": md,
+        "minutos_extra_total": extra,
+    }
 
 
 class WhereUsedPayload(BaseModel):
@@ -608,9 +661,12 @@ def simular_impacto(payload: ImpactSimulationPayload):
                     "items": [one_mat],
                 }
             ]
+            radar_cfg_vacio = load_radar_tiempos()
+            extra_std_v, std_info_v = _tiempos_estandar_radar_extra([], radar_cfg_vacio)
+            total_v = _total_minutos_desde_entregables(ent_vacio) + extra_std_v
             return {
                 "codigo_pieza": codigo_display,
-                "total_minutos": _total_minutos_desde_entregables(ent_vacio),
+                "total_minutos": total_v,
                 "entregables": ent_vacio,
                 "entregables_agrupados": ent_agrup_vacio,
                 "resumen_ensambles": [],
@@ -625,6 +681,7 @@ def simular_impacto(payload: ImpactSimulationPayload):
                     "total_ensambles": 0,
                     "total_piezas_fisicas": 0,
                 },
+                "tiempos_estandar_radar": std_info_v,
             }
 
         # Consolidación por ensamble único + piezas del análisis presentes en cada ensamble.
@@ -874,6 +931,8 @@ def simular_impacto(payload: ImpactSimulationPayload):
         for gblk in entregables_agrupados:
             gblk["items"] = [_normalizar_grupo_entregable(x) for x in gblk.get("items") or []]
         total_min = _total_minutos_desde_entregables(entregables)
+        extra_std, std_info = _tiempos_estandar_radar_extra(rows, radar_cfg)
+        total_min += extra_std
 
         return {
             "codigo_pieza": codigo_display,
@@ -887,6 +946,7 @@ def simular_impacto(payload: ImpactSimulationPayload):
             "resumen_directivo": resumen_directivo,
             "sin_bom_aprobada_vigente": False,
             "mensaje_alerta": None,
+            "tiempos_estandar_radar": std_info,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

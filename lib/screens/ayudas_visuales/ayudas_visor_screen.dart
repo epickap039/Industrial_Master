@@ -24,12 +24,16 @@ class AyudasVisorScreen extends StatefulWidget {
     required this.tituloDocumento,
     required this.idRevisionInicial,
     required this.canUpload,
+    this.allowRevisionHistory = true,
   });
 
   final int idAyuda;
   final String tituloDocumento;
   final int idRevisionInicial;
   final bool canUpload;
+
+  /// Si es false (p. ej. rol Producción), solo se muestra la revisión vigente sin panel de historial.
+  final bool allowRevisionHistory;
 
   @override
   State<AyudasVisorScreen> createState() => _AyudasVisorScreenState();
@@ -50,7 +54,12 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
     super.initState();
     _idRevisionSeleccionada = widget.idRevisionInicial;
     _cargarHeaders();
-    _cargarHistorial();
+    if (widget.allowRevisionHistory) {
+      _cargarHistorial();
+    } else {
+      _historial = [];
+      _loadingHist = false;
+    }
   }
 
   Future<void> _cargarHeaders() async {
@@ -385,21 +394,23 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
                     revisionKey: _idRevisionSeleccionada,
                   ),
                 ),
-                const Divider(),
-                SizedBox(
-                  height: 220,
-                  child: _TimelinePane(
-                    loading: _loadingHist,
-                    error: _errorHist,
-                    historial: _historial,
-                    idSeleccionada: _idRevisionSeleccionada,
-                    canUpload: widget.canUpload,
-                    onSelect: (id) =>
-                        setState(() => _idRevisionSeleccionada = id),
-                    onSubir: _dialogoSubirRevision,
-                    onDeleteRevision: _borrarRevision,
+                if (widget.allowRevisionHistory) ...[
+                  const Divider(),
+                  SizedBox(
+                    height: 220,
+                    child: _TimelinePane(
+                      loading: _loadingHist,
+                      error: _errorHist,
+                      historial: _historial,
+                      idSeleccionada: _idRevisionSeleccionada,
+                      canUpload: widget.canUpload,
+                      onSelect: (id) =>
+                          setState(() => _idRevisionSeleccionada = id),
+                      onSubir: _dialogoSubirRevision,
+                      onDeleteRevision: _borrarRevision,
+                    ),
                   ),
-                ),
+                ],
               ],
             );
           }
@@ -418,42 +429,42 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
                         revisionKey: _idRevisionSeleccionada,
                       ),
                     ),
-                    Positioned(
-                      top: 8,
-                      right: 0,
-                      child: material.Material(
-                        elevation: 2,
-                        borderRadius: const material.BorderRadius.horizontal(
-                          left: material.Radius.circular(10),
-                        ),
-                        child: material.InkWell(
+                    if (widget.allowRevisionHistory)
+                      Positioned(
+                        top: 8,
+                        right: 0,
+                        child: material.Material(
+                          elevation: 2,
                           borderRadius: const material.BorderRadius.horizontal(
                             left: material.Radius.circular(10),
                           ),
-                          onTap: () => setState(
-                            () => _sidebarColapsada = !_sidebarColapsada,
-                          ),
-                          child: Padding(
-                            padding: const material.EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 10,
+                          child: material.InkWell(
+                            borderRadius: const material.BorderRadius.horizontal(
+                              left: material.Radius.circular(10),
                             ),
-                            child: Icon(
-                              _sidebarColapsada
-                                  ? material.Icons.chevron_left
-                                  : material.Icons.chevron_right,
-                              size: 22,
+                            onTap: () => setState(
+                              () => _sidebarColapsada = !_sidebarColapsada,
+                            ),
+                            child: Padding(
+                              padding: const material.EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 10,
+                              ),
+                              child: Icon(
+                                _sidebarColapsada
+                                    ? material.Icons.chevron_left
+                                    : material.Icons.chevron_right,
+                                size: 22,
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
                   ],
                 ),
               ),
-              // Sin animación de ancho: un AnimatedContainer con width→0 deja frames
-              // con ~12px y el Row de cada revisión hace overflow (RenderFlex).
-              if (!_sidebarColapsada)
+              if (widget.allowRevisionHistory &&
+                  !_sidebarColapsada)
                 SizedBox(
                   width: _kSidebarWidth,
                   child: _TimelinePane(

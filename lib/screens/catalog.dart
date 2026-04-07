@@ -7,6 +7,7 @@ import 'package:excel/excel.dart' as excel_lib;
 import 'package:file_picker/file_picker.dart';
 import '../utils/excel_helper.dart';
 import '../services/api_client.dart';
+import '../services/app_role.dart';
 import '../widgets/compact_page_header.dart';
 
 class CatalogScreen extends StatefulWidget {
@@ -60,6 +61,50 @@ class _CatalogScreenState extends State<CatalogScreen> {
     }
   }
 
+  bool _excludeColumnForRole(String c) {
+    final ar = parseAppRole(_userRole);
+    if (ar == AppRole.qaLegacy) {
+      return const {
+        'Ruta_Archivo',
+        'Ruta_Plano',
+        'Link_Drive',
+        'Ruta',
+        'Modificado_Por',
+        'Autor',
+        'Ultima_Actualizacion',
+        'Fecha_Creacion',
+      }.contains(c);
+    }
+    if (ar.catalogHideModificadoPor && c == 'Modificado_Por') return true;
+    if (ar == AppRole.produccion &&
+        const {
+          'Modificado_Por',
+          'Ruta_Archivo',
+          'Ruta_Plano',
+          'Tiene_DXF',
+          'Largo_DXF',
+          'Ancho_DXF',
+        }.contains(c)) {
+      return true;
+    }
+    if (ar.catalogHideRutaArchivo &&
+        (c == 'Ruta_Archivo' ||
+            c == 'Ruta_Plano' ||
+            c == 'Link_Drive' ||
+            c == 'Ruta')) {
+      return true;
+    }
+    if (ar.catalogHideFechaModificacion &&
+        (c == 'Ultima_Actualizacion' || c == 'Fecha_Creacion')) {
+      return true;
+    }
+    if (ar.catalogHideDxfColumns &&
+        (c == 'Tiene_DXF' || c == 'Largo_DXF' || c == 'Ancho_DXF')) {
+      return true;
+    }
+    return false;
+  }
+
   @override
   void dispose() {
     _horizontalScrollController.dispose();
@@ -73,11 +118,12 @@ class _CatalogScreenState extends State<CatalogScreen> {
   /// Carga datos del backend
   Future<void> _fetchData({bool showLoading = true}) async {
     if (showLoading) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _isLoading = true;
           _errorMessage = null;
         });
+      }
     }
 
     try {
@@ -87,49 +133,50 @@ class _CatalogScreenState extends State<CatalogScreen> {
       );
 
       if (data.isNotEmpty) {
-          List<String> allKeys = data.first.keys.toList();
-          allKeys.remove('Link_Drive'); // Metadata interna
-          
-          // Reordenar Espesor_Perfil_CAD después de Ancho_CAD
-          if (allKeys.contains('Espesor_Perfil_CAD') && allKeys.contains('Ancho_CAD')) {
-            allKeys.remove('Espesor_Perfil_CAD');
-            final indexOfAncho = allKeys.indexOf('Ancho_CAD');
-            allKeys.insert(indexOfAncho + 1, 'Espesor_Perfil_CAD');
-          }
-          
-          _columns = allKeys;
+        List<String> allKeys = data.first.keys.toList();
+        allKeys.remove('Link_Drive'); // Metadata interna
 
-          if (_visibleColumns.isEmpty) {
-            // Columnas ocultas por defecto (ruido técnico).
-            // Descripcion oculta: el foco operativo es Material; la descripción
-            // sigue disponible en el selector de columnas y en búsqueda/filtros.
-            const hiddenByDefault = {
-              'Descripcion',
-              'Modificado_Por',
-              'Ultima_Actualizacion',
-              'Fecha_Creacion',
-              'Simetria',
-              'Tiene_DXF',
-              'Largo_DXF',
-              'Ancho_DXF',
-            };
-            for (var col in _columns) {
-              _visibleColumns[col] = !hiddenByDefault.contains(col);
-            }
-          } else {
-            for (var col in _columns) {
-              if (!_visibleColumns.containsKey(col)) {
-                _visibleColumns[col] = true;
-              }
-            }
-          }
+        // Reordenar Espesor_Perfil_CAD después de Ancho_CAD
+        if (allKeys.contains('Espesor_Perfil_CAD') &&
+            allKeys.contains('Ancho_CAD')) {
+          allKeys.remove('Espesor_Perfil_CAD');
+          final indexOfAncho = allKeys.indexOf('Ancho_CAD');
+          allKeys.insert(indexOfAncho + 1, 'Espesor_Perfil_CAD');
+        }
 
+        _columns = allKeys;
+
+        if (_visibleColumns.isEmpty) {
+          // Columnas ocultas por defecto (ruido técnico).
+          // Descripcion oculta: el foco operativo es Material; la descripción
+          // sigue disponible en el selector de columnas y en búsqueda/filtros.
+          const hiddenByDefault = {
+            'Descripcion',
+            'Modificado_Por',
+            'Ultima_Actualizacion',
+            'Fecha_Creacion',
+            'Simetria',
+            'Tiene_DXF',
+            'Largo_DXF',
+            'Ancho_DXF',
+          };
           for (var col in _columns) {
-            if (!_filterControllers.containsKey(col)) {
-              _filterControllers[col] = TextEditingController();
+            _visibleColumns[col] = !hiddenByDefault.contains(col);
+          }
+        } else {
+          for (var col in _columns) {
+            if (!_visibleColumns.containsKey(col)) {
+              _visibleColumns[col] = true;
             }
           }
         }
+
+        for (var col in _columns) {
+          if (!_filterControllers.containsKey(col)) {
+            _filterControllers[col] = TextEditingController();
+          }
+        }
+      }
 
       if (mounted) {
         setState(() {
@@ -235,31 +282,22 @@ class _CatalogScreenState extends State<CatalogScreen> {
     excel_lib.Sheet sheetObject = excel['Catálogo'];
     excel.delete('Sheet1');
 
-    final exportCols = _columns.where((c) {
-      if (_visibleColumns[c] != true) return false;
-      if (_userRole == 'QA' &&
-          (c == 'Ruta_Archivo' ||
-              c == 'Ruta_Plano' ||
-              c == 'Link_Drive' ||
-              c == 'Ruta' ||
-              c == 'Modificado_Por' ||
-              c == 'Autor' ||
-              c == 'Ultima_Actualizacion' ||
-              c == 'Fecha_Creacion')) {
-        return false;
-      }
-      return true;
-    }).toList();
+    final exportCols =
+        _columns.where((c) {
+          if (_visibleColumns[c] != true) return false;
+          if (_excludeColumnForRole(c)) return false;
+          return true;
+        }).toList();
 
     Map<int, int> colWidths = {};
 
     for (int i = 0; i < exportCols.length; i++) {
-        sheetObject.updateCell(
-            excel_lib.CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0),
-            excel_lib.TextCellValue(exportCols[i]),
-            cellStyle: headerStyle,
-        );
-        ExcelHelper.updateMaxWith(colWidths, i, exportCols[i]);
+      sheetObject.updateCell(
+        excel_lib.CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0),
+        excel_lib.TextCellValue(exportCols[i]),
+        cellStyle: headerStyle,
+      );
+      ExcelHelper.updateMaxWith(colWidths, i, exportCols[i]);
     }
 
     for (int r = 0; r < _filteredData.length; r++) {
@@ -267,23 +305,25 @@ class _CatalogScreenState extends State<CatalogScreen> {
       for (int c = 0; c < exportCols.length; c++) {
         String colName = exportCols[c];
         excel_lib.CellValue value;
-        
+
         // Identificamos columnas numéricas para limpieza estricta
-        if (colName.toLowerCase().contains('area') || 
-            colName.toLowerCase().contains('largo') || 
+        if (colName.toLowerCase().contains('area') ||
+            colName.toLowerCase().contains('largo') ||
             colName.toLowerCase().contains('ancho') ||
             colName.toLowerCase().contains('espesor') ||
             colName.toLowerCase().contains('cantidad')) {
-            value = excel_lib.DoubleCellValue(ExcelHelper.cleanToDouble(row[colName]));
+          value = excel_lib.DoubleCellValue(
+            ExcelHelper.cleanToDouble(row[colName]),
+          );
         } else if (colName.toLowerCase() == 'medida') {
-            value = ExcelHelper.parseDynamicCell(row[colName]);
+          value = ExcelHelper.parseDynamicCell(row[colName]);
         } else {
-            value = excel_lib.TextCellValue(row[colName]?.toString() ?? '-');
+          value = excel_lib.TextCellValue(row[colName]?.toString() ?? '-');
         }
 
         sheetObject.updateCell(
-            excel_lib.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: r + 1),
-            value,
+          excel_lib.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: r + 1),
+          value,
         );
         ExcelHelper.updateMaxWith(colWidths, c, value.toString());
       }
@@ -426,15 +466,16 @@ class _CatalogScreenState extends State<CatalogScreen> {
       builder: (context) {
         return ContentDialog(
           title: const Text('Confirmar Eliminación'),
-          content: Text('¿Estás seguro de que deseas eliminar permanentemente la pieza $codigo? Esta acción no se puede deshacer.'),
+          content: Text(
+            '¿Estás seguro de que deseas eliminar permanentemente la pieza $codigo? Esta acción no se puede deshacer.',
+          ),
           actions: [
             Button(
               child: const Text('Cancelar'),
               onPressed: () => Navigator.pop(context),
             ),
             FilledButton(
-              child: const Text('Eliminar'),
-              style: ButtonStyle(backgroundColor: ButtonState.all(Colors.red)),
+              style: ButtonStyle(backgroundColor: WidgetStateProperty.all(Colors.red)),
               onPressed: () async {
                 Navigator.pop(context);
                 try {
@@ -466,6 +507,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                   );
                 }
               },
+              child: const Text('Eliminar'),
             ),
           ],
         );
@@ -658,16 +700,31 @@ class _CatalogScreenState extends State<CatalogScreen> {
                 ),
                 Row(
                   children: [
-                    Expanded(child: _buildLabelValue("LARGO CAD", row['Largo_CAD'])),
-                    Expanded(child: _buildLabelValue("ANCHO CAD", row['Ancho_CAD'])),
-                    Expanded(child: _buildLabelValue("ESPESOR / PERFIL", row['Espesor_Perfil_CAD'])),
+                    Expanded(
+                      child: _buildLabelValue("LARGO CAD", row['Largo_CAD']),
+                    ),
+                    Expanded(
+                      child: _buildLabelValue("ANCHO CAD", row['Ancho_CAD']),
+                    ),
+                    Expanded(
+                      child: _buildLabelValue(
+                        "ESPESOR / PERFIL",
+                        row['Espesor_Perfil_CAD'],
+                      ),
+                    ),
                   ],
                 ),
                 Row(
                   children: [
-                    Expanded(child: _buildLabelValue("TIENE DXF", row['Tiene_DXF'])),
-                    Expanded(child: _buildLabelValue("LARGO DXF", row['Largo_DXF'])),
-                    Expanded(child: _buildLabelValue("ANCHO DXF", row['Ancho_DXF'])),
+                    Expanded(
+                      child: _buildLabelValue("TIENE DXF", row['Tiene_DXF']),
+                    ),
+                    Expanded(
+                      child: _buildLabelValue("LARGO DXF", row['Largo_DXF']),
+                    ),
+                    Expanded(
+                      child: _buildLabelValue("ANCHO DXF", row['Ancho_DXF']),
+                    ),
                   ],
                 ),
                 Row(
@@ -697,15 +754,17 @@ class _CatalogScreenState extends State<CatalogScreen> {
                   ],
                 ),
                 const Divider(),
-                if (_userRole != 'QA') ...[
+                if (!_excludeColumnForRole('Link_Drive')) ...[
                   _buildLabelValue("LINK PLANO", row['Link_Drive']),
                   const Divider(),
+                ],
+                if (!_excludeColumnForRole('Modificado_Por'))
                   _buildLabelValue("Modificado Por", row['Modificado_Por']),
+                if (!_excludeColumnForRole('Ultima_Actualizacion'))
                   _buildLabelValue(
                     "Última Actualización",
                     row['Ultima_Actualizacion'],
                   ),
-                ],
               ],
             ),
           ),
@@ -779,7 +838,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: List<Widget>.from(
-                _columns.map((col) {
+                _columns.where((col) => !_excludeColumnForRole(col)).map((col) {
                   return Padding(
                     padding: const EdgeInsets.symmetric(vertical: 4.0),
                     child: Row(
@@ -843,7 +902,8 @@ class _CatalogScreenState extends State<CatalogScreen> {
     bool isSearching = false;
 
     final prefs = await SharedPreferences.getInstance();
-    pathController.text = prefs.getString('dxf_master_path') ?? r'C:\Libreria_DXF';
+    pathController.text =
+        prefs.getString('dxf_master_path') ?? r'C:\Libreria_DXF';
 
     await showDialog(
       context: context,
@@ -864,9 +924,13 @@ class _CatalogScreenState extends State<CatalogScreen> {
                     suffix: IconButton(
                       icon: const Icon(FluentIcons.folder_open),
                       onPressed: () async {
-                        String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
+                        String? selectedDirectory =
+                            await FilePicker.platform.getDirectoryPath();
                         if (selectedDirectory != null) {
-                           pathController.text = selectedDirectory.replaceAll('/', r'\');
+                          pathController.text = selectedDirectory.replaceAll(
+                            '/',
+                            r'\',
+                          );
                         }
                       },
                     ),
@@ -881,7 +945,9 @@ class _CatalogScreenState extends State<CatalogScreen> {
                     suffix: IconButton(
                       icon: const Icon(FluentIcons.paste),
                       onPressed: () async {
-                        final data = await Clipboard.getData(Clipboard.kTextPlain);
+                        final data = await Clipboard.getData(
+                          Clipboard.kTextPlain,
+                        );
                         if (data != null && data.text != null) {
                           searchController.text = data.text!;
                         }
@@ -901,72 +967,102 @@ class _CatalogScreenState extends State<CatalogScreen> {
                   onPressed: () => Navigator.pop(context),
                 ),
                 FilledButton(
-                  onPressed: isSearching ? null : () async {
-                    if (searchController.text.isEmpty || pathController.text.isEmpty) return;
-                    
-                    final plainPath = pathController.text.trim().replaceAll('"', '').replaceAll("'", "");
-                    await prefs.setString('dxf_master_path', plainPath);
-                    setStateDialog(() => isSearching = true);
-                    
-                    try {
-                      final req = await ApiClient.getUnvalidated(
-                        '/api/dxf/search/${searchController.text.trim()}',
-                        queryParameters: {'base_path': plainPath},
-                      );
-                      setStateDialog(() => isSearching = false);
-                      if (req.statusCode == 200) {
-                        final data = req.decodeJson() as Map<String, dynamic>;
-                        final dxfPath = data['dxf_path'];
-                        if (!context.mounted) return;
-                        Navigator.pop(context); // close search dialog
-                        // show success
-                        showDialog(context: context, builder: (ctx) => ContentDialog(
-                          title: const Text('Archivo Encontrado'),
-                          content: Text('Ruta: $dxfPath'),
-                          actions: [
-                            Button(child: const Text('Cerrar'), onPressed: () => Navigator.pop(ctx)),
-                            FilledButton(child: const Text('Abrir Ubicación'), onPressed: () {
-                              Process.run('explorer.exe', ['/select,', dxfPath]);
-                              Navigator.pop(ctx);
-                            }),
-                          ]
-                        ));
-                      } else {
-                        final err = req.decodeJson();
-                        final detail = err is Map
-                            ? (err['detail'] ?? 'No se encontraron archivos válidos.').toString()
-                            : 'No se encontraron archivos válidos.';
-                        if (!context.mounted) return;
-                        displayInfoBar(
-                          context, 
-                          builder: (c, close) => InfoBar(
-                            title: const Text('No encontrado'), 
-                            content: Text(detail), 
-                            severity: InfoBarSeverity.warning, 
-                            onClose: close
-                          )
-                        );
-                      }
-                    } catch (e) {
-                       setStateDialog(() => isSearching = false);
-                       displayInfoBar(
-                         context, 
-                         builder: (c, close) => InfoBar(
-                           title: const Text('Error de Red'), 
-                           content: Text(e.toString()), 
-                           severity: InfoBarSeverity.error, 
-                           onClose: close
-                         )
-                       );
-                    }
-                  },
+                  onPressed:
+                      isSearching
+                          ? null
+                          : () async {
+                            if (searchController.text.isEmpty ||
+                                pathController.text.isEmpty) {
+                              return;
+                            }
+
+                            final plainPath = pathController.text
+                                .trim()
+                                .replaceAll('"', '')
+                                .replaceAll("'", "");
+                            await prefs.setString('dxf_master_path', plainPath);
+                            setStateDialog(() => isSearching = true);
+
+                            try {
+                              final req = await ApiClient.getUnvalidated(
+                                '/api/dxf/search/${searchController.text.trim()}',
+                                queryParameters: {'base_path': plainPath},
+                              );
+                              setStateDialog(() => isSearching = false);
+                              if (req.statusCode == 200) {
+                                final data =
+                                    req.decodeJson() as Map<String, dynamic>;
+                                final dxfPath = data['dxf_path'];
+                                if (!context.mounted) return;
+                                Navigator.pop(context); // close search dialog
+                                // show success
+                                showDialog(
+                                  context: context,
+                                  builder:
+                                      (ctx) => ContentDialog(
+                                        title: const Text('Archivo Encontrado'),
+                                        content: Text('Ruta: $dxfPath'),
+                                        actions: [
+                                          Button(
+                                            child: const Text('Cerrar'),
+                                            onPressed: () => Navigator.pop(ctx),
+                                          ),
+                                          FilledButton(
+                                            child: const Text(
+                                              'Abrir Ubicación',
+                                            ),
+                                            onPressed: () {
+                                              Process.run('explorer.exe', [
+                                                '/select,',
+                                                dxfPath,
+                                              ]);
+                                              Navigator.pop(ctx);
+                                            },
+                                          ),
+                                        ],
+                                      ),
+                                );
+                              } else {
+                                final err = req.decodeJson();
+                                final detail =
+                                    err is Map
+                                        ? (err['detail'] ??
+                                                'No se encontraron archivos válidos.')
+                                            .toString()
+                                        : 'No se encontraron archivos válidos.';
+                                if (!context.mounted) return;
+                                displayInfoBar(
+                                  context,
+                                  builder:
+                                      (c, close) => InfoBar(
+                                        title: const Text('No encontrado'),
+                                        content: Text(detail),
+                                        severity: InfoBarSeverity.warning,
+                                        onClose: close,
+                                      ),
+                                );
+                              }
+                            } catch (e) {
+                              setStateDialog(() => isSearching = false);
+                              displayInfoBar(
+                                context,
+                                builder:
+                                    (c, close) => InfoBar(
+                                      title: const Text('Error de Red'),
+                                      content: Text(e.toString()),
+                                      severity: InfoBarSeverity.error,
+                                      onClose: close,
+                                    ),
+                              );
+                            }
+                          },
                   child: const Text('Buscar'),
                 ),
               ],
             );
-          }
+          },
         );
-      }
+      },
     );
   }
 
@@ -1007,13 +1103,14 @@ class _CatalogScreenState extends State<CatalogScreen> {
             _applyFilters();
           },
         ),
-        Tooltip(
-          message: "Seleccionar Columnas",
-          child: IconButton(
-            icon: const Icon(FluentIcons.column_options),
-            onPressed: _showColumnSelector,
+        if (parseAppRole(_userRole).catalogCanSelectColumns)
+          Tooltip(
+            message: "Seleccionar Columnas",
+            child: IconButton(
+              icon: const Icon(FluentIcons.column_options),
+              onPressed: _showColumnSelector,
+            ),
           ),
-        ),
         Tooltip(
           message: "Refrescar Datos",
           child: IconButton(
@@ -1028,7 +1125,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
             onPressed: _clearFilters,
           ),
         ),
-        if (_userRole != 'QA')
+        if (parseAppRole(_userRole).catalogCanSearchDxf)
           Tooltip(
             message: "Buscar DXF",
             child: Button(
@@ -1043,13 +1140,14 @@ class _CatalogScreenState extends State<CatalogScreen> {
               ),
             ),
           ),
-        Tooltip(
-          message: "Exportar a Excel",
-          child: IconButton(
-            icon: const Icon(FluentIcons.excel_logo),
-            onPressed: _filteredData.isNotEmpty ? _exportToExcel : null,
+        if (parseAppRole(_userRole).catalogCanExport)
+          Tooltip(
+            message: "Exportar a Excel",
+            child: IconButton(
+              icon: const Icon(FluentIcons.excel_logo),
+              onPressed: _filteredData.isNotEmpty ? _exportToExcel : null,
+            ),
           ),
-        ),
       ],
     );
   }
@@ -1057,21 +1155,32 @@ class _CatalogScreenState extends State<CatalogScreen> {
   double _getColumnWidth(String col) {
     switch (col) {
       case 'Codigo_Pieza':
-      case 'Codigo':         return 120.0;
-      case 'Descripcion':    return 250.0;
-      case 'Medida':         return 100.0;
-      case 'Material':       return 160.0;
-      case 'Proceso_Primario': return 135.0;
+      case 'Codigo':
+        return 120.0;
+      case 'Descripcion':
+        return 250.0;
+      case 'Medida':
+        return 100.0;
+      case 'Material':
+        return 160.0;
+      case 'Proceso_Primario':
+        return 135.0;
       case 'Proceso_1':
       case 'Proceso_2':
-      case 'Proceso_3':      return 100.0;
+      case 'Proceso_3':
+        return 100.0;
       case 'Largo_CAD':
-      case 'Ancho_CAD':      return  90.0;
-      case 'Espesor_Perfil_CAD': return 120.0;
-      case 'Tiene_DXF':      return  80.0;
+      case 'Ancho_CAD':
+        return 90.0;
+      case 'Espesor_Perfil_CAD':
+        return 120.0;
+      case 'Tiene_DXF':
+        return 80.0;
       case 'Largo_DXF':
-      case 'Ancho_DXF':      return  90.0;
-      default:               return 130.0;
+      case 'Ancho_DXF':
+        return 90.0;
+      default:
+        return 130.0;
     }
   }
 
@@ -1099,21 +1208,12 @@ class _CatalogScreenState extends State<CatalogScreen> {
     }
     if (_allData.isEmpty) return const Center(child: Text('Sin datos.'));
 
-    final activeCols = _columns.where((c) {
-      if (_visibleColumns[c] != true) return false;
-      if (_userRole == 'QA' &&
-          (c == 'Ruta_Archivo' ||
-              c == 'Ruta_Plano' ||
-              c == 'Link_Drive' ||
-              c == 'Ruta' ||
-              c == 'Modificado_Por' ||
-              c == 'Autor' ||
-              c == 'Ultima_Actualizacion' ||
-              c == 'Fecha_Creacion')) {
-        return false;
-      }
-      return true;
-    }).toList();
+    final activeCols =
+        _columns.where((c) {
+          if (_visibleColumns[c] != true) return false;
+          if (_excludeColumnForRole(c)) return false;
+          return true;
+        }).toList();
 
     return Padding(
       padding: const EdgeInsets.all(8.0),
@@ -1123,7 +1223,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
           borderRadius: BorderRadius.circular(8.0),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.1),
+              color: Colors.black.withValues(alpha: 0.1),
               blurRadius: 10,
               offset: const Offset(0, 4),
             ),
@@ -1235,7 +1335,9 @@ class _CatalogScreenState extends State<CatalogScreen> {
                     children: [
                       Expanded(
                         child: Text(
-                          col == 'Espesor_Perfil_CAD' ? 'Espesor / Long. Perfil' : col.replaceAll('_', ' '),
+                          col == 'Espesor_Perfil_CAD'
+                              ? 'Espesor / Long. Perfil'
+                              : col.replaceAll('_', ' '),
                           style: const TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 12.0,
@@ -1270,15 +1372,14 @@ class _CatalogScreenState extends State<CatalogScreen> {
                       controller: _filterControllers[col]!,
                       placeholder: 'Buscar',
                       style: filterTextStyle,
-                      onChanged: (_) =>
-                          _applyFilters(resetScroll: false),
+                      onChanged: (_) => _applyFilters(resetScroll: false),
                     ),
                   ),
                 ],
               ),
             ),
           );
-        }).toList(),
+        }),
       ],
     );
   }
@@ -1296,7 +1397,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
 
     return Container(
       color:
-          index % 2 == 0 ? Colors.transparent : Colors.black.withOpacity(0.03),
+          index % 2 == 0 ? Colors.transparent : Colors.black.withValues(alpha: 0.03),
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         children: [
@@ -1316,7 +1417,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                     onPressed: () => _showInfoDetails(row),
                   ),
                 ),
-                if (_userRole == 'ADMIN')
+                if (parseAppRole(_userRole).catalogCanEditRows)
                   Tooltip(
                     message: 'Editar',
                     child: IconButton(
@@ -1354,7 +1455,10 @@ class _CatalogScreenState extends State<CatalogScreen> {
                       color: Colors.magenta,
                     ), // MAGENTA/MORADO PARA RESALTAR
                     onPressed: () {
-                      final codigoCopiar = row['Codigo_Pieza']?.toString() ?? row['Codigo']?.toString() ?? '';
+                      final codigoCopiar =
+                          row['Codigo_Pieza']?.toString() ??
+                          row['Codigo']?.toString() ??
+                          '';
                       Clipboard.setData(ClipboardData(text: codigoCopiar));
                       displayInfoBar(
                         context,
@@ -1370,7 +1474,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                     },
                   ),
                 ),
-                if (_userRole == 'ADMIN')
+                if (parseAppRole(_userRole).catalogCanEditRows)
                   Tooltip(
                     message: 'Eliminar Pieza',
                     child: IconButton(
@@ -1379,7 +1483,12 @@ class _CatalogScreenState extends State<CatalogScreen> {
                         size: 14,
                         color: Colors.red,
                       ),
-                      onPressed: () => _deleteMaterial(row['Codigo_Pieza']?.toString() ?? row['Codigo']?.toString() ?? ''),
+                      onPressed:
+                          () => _deleteMaterial(
+                            row['Codigo_Pieza']?.toString() ??
+                                row['Codigo']?.toString() ??
+                                '',
+                          ),
                     ),
                   ),
               ],

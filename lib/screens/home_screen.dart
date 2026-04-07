@@ -48,10 +48,16 @@ class _HomeScreenState extends State<HomeScreen> {
         return AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           decoration: BoxDecoration(
-            color: isHovered ? theme.accentColor.withOpacity(0.1) : theme.cardColor,
+            color:
+                isHovered
+                    ? theme.accentColor.withValues(alpha: 0.1)
+                    : theme.cardColor,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: isHovered ? theme.accentColor : theme.resources.dividerStrokeColorDefault!,
+              color:
+                  isHovered
+                      ? theme.accentColor
+                      : theme.resources.dividerStrokeColorDefault,
               width: isHovered ? 2 : 1,
             ),
           ),
@@ -59,12 +65,19 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 48, color: isHovered ? theme.accentColor : color),
+              Icon(
+                icon,
+                size: 48,
+                color: isHovered ? theme.accentColor : color,
+              ),
               const SizedBox(height: 12),
               Text(
                 title,
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 8),
               Text(
@@ -72,7 +85,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 13,
-                  color: theme.typography.body?.color?.withOpacity(0.7),
+                  color: theme.typography.body?.color?.withValues(alpha: 0.7),
                 ),
               ),
             ],
@@ -141,7 +154,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   description: 'Cálculo de compras y requerimientos.',
                   icon: FluentIcons.shopping_cart,
                   color: Colors.green,
-                  onTap: () => widget.onNavigate(15), // MRP (índice panel principal)
+                  onTap:
+                      () =>
+                          widget.onNavigate(15), // MRP (índice panel principal)
                 ),
                 _buildQuickCard(
                   title: 'Dashboard Analytics',
@@ -164,32 +179,38 @@ class _HomeScreenState extends State<HomeScreen> {
                 _buildModuleInfo(
                   icon: FluentIcons.cube_shape,
                   title: 'Escáner CAD 3D/2D',
-                  description: 'Motor de extracción automática. Analiza archivos nativos de SolidWorks para extraer metadatos, dimensiones y pesos exactos.',
+                  description:
+                      'Motor de extracción automática. Analiza archivos nativos de SolidWorks para extraer metadatos, dimensiones y pesos exactos.',
                 ),
                 _buildModuleInfo(
                   icon: FluentIcons.excel_logo,
                   title: 'Importar Excel',
-                  description: 'Módulo de carga masiva. Permite subir listas de materiales (BOM) estructuradas por Ingeniería para poblar la base de datos.',
+                  description:
+                      'Módulo de carga masiva. Permite subir listas de materiales (BOM) estructuradas por Ingeniería para poblar la base de datos.',
                 ),
                 _buildModuleInfo(
                   icon: FluentIcons.check_list,
                   title: 'Auditor de Archivos',
-                  description: 'Radar de calidad. Rastrea el servidor local para asegurar que cada pieza registrada cuente con su plano DXF o PDF correspondiente.',
+                  description:
+                      'Radar de calidad. Rastrea el servidor local para asegurar que cada pieza registrada cuente con su plano DXF o PDF correspondiente.',
                 ),
                 _buildModuleInfo(
                   icon: FluentIcons.fabric_folder,
                   title: 'Gestión de Proyectos',
-                  description: 'Centro de control de revisiones. Aquí puedes crear, clonar o bloquear las versiones de los tractos (Ej. Cascadia 01) antes de enviarlos a piso.',
+                  description:
+                      'Centro de control de revisiones. Aquí puedes crear, clonar o bloquear las versiones de los tractos (Ej. Cascadia 01) antes de enviarlos a piso.',
                 ),
                 _buildModuleInfo(
                   icon: FluentIcons.car,
                   title: 'Expedientes VIN',
-                  description: 'Control de piso de producción. Monitorea en tiempo real en qué estación de ensamblaje o manufactura se encuentra cada tracto.',
+                  description:
+                      'Control de piso de producción. Monitorea en tiempo real en qué estación de ensamblaje o manufactura se encuentra cada tracto.',
                 ),
                 _buildModuleInfo(
                   icon: FluentIcons.tablet,
                   title: 'Centro de QA',
-                  description: 'Gestión de calidad. Sistema de tickets para reportar piezas no conformes, errores de corte láser o problemas de doblez.',
+                  description:
+                      'Gestión de calidad. Sistema de tickets para reportar piezas no conformes, errores de corte láser o problemas de doblez.',
                 ),
               ],
             ),
@@ -199,24 +220,31 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildModuleInfo({required IconData icon, required String title, required String description}) {
+  Widget _buildModuleInfo({
+    required IconData icon,
+    required String title,
+    required String description,
+  }) {
     final theme = FluentTheme.of(context);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
       child: Row(
         children: [
-          Icon(icon, size: 20, color: theme.accentColor.withOpacity(0.8)),
+          Icon(icon, size: 20, color: theme.accentColor.withValues(alpha: 0.8)),
           const SizedBox(width: 16),
           Expanded(
             child: RichText(
               text: TextSpan(
                 style: theme.typography.body,
                 children: [
-                  TextSpan(text: '$title: ', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  TextSpan(
+                    text: '$title: ',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
                   TextSpan(
                     text: description,
                     style: TextStyle(
-                      color: theme.typography.caption?.color?.withOpacity(0.7),
+                      color: theme.typography.caption?.color?.withValues(alpha: 0.7),
                       fontSize: 13,
                     ),
                   ),
@@ -229,4 +257,3 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
-

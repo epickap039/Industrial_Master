@@ -36,9 +36,14 @@ IconData _obtenerIcono(String? codigo) {
 
 /// Pantalla 1: menú de categorías (grid grande con iconos).
 class AyudasMenuScreen extends StatefulWidget {
-  const AyudasMenuScreen({super.key, required this.canUpload});
+  const AyudasMenuScreen({
+    super.key,
+    required this.canUpload,
+    this.allowRevisionHistory = true,
+  });
 
   final bool canUpload;
+  final bool allowRevisionHistory;
 
   @override
   State<AyudasMenuScreen> createState() => _AyudasMenuScreenState();
@@ -274,6 +279,7 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
                     tituloDocumento: titulo,
                     idRevisionInicial: idRev,
                     canUpload: widget.canUpload,
+                    allowRevisionHistory: widget.allowRevisionHistory,
                   ),
                 ),
               );
@@ -541,6 +547,9 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
                                                               0,
                                                     nombreCategoria: nombre,
                                                     canUpload: widget.canUpload,
+                                                    allowRevisionHistory:
+                                                        widget
+                                                            .allowRevisionHistory,
                                                   ),
                                                 ),
                                               );

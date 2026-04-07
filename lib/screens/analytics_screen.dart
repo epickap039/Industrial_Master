@@ -202,10 +202,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(
-                      color: Colors.orange.withOpacity(0.2),
+                      color: Colors.orange.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(
-                          color: Colors.orange.withOpacity(0.5)),
+                          color: Colors.orange.withValues(alpha: 0.5)),
                     ),
                     child: Text(
                       '$excludedCount excluidos',
@@ -285,7 +285,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                         style: TextStyle(
                                             fontSize: 10,
                                             color: Colors.blue
-                                                .withOpacity(0.7),
+                                                .withValues(alpha: 0.7),
                                             fontStyle: FontStyle.italic),
                                         overflow: TextOverflow.ellipsis,
                                       ),

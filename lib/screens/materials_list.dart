@@ -253,7 +253,7 @@ class _MaterialsListScreenState extends State<MaterialsListScreen> {
                   final material = filteredList[index];
                   final isEven = index % 2 == 0;
                   return Container(
-                    color: isEven ? Colors.transparent : FluentTheme.of(context).typography.body?.color?.withOpacity(0.04),
+                    color: isEven ? Colors.transparent : FluentTheme.of(context).typography.body?.color?.withValues(alpha: 0.04),
                     padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 6.0),
                     child: Row(
                       children: [

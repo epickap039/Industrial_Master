@@ -1,5 +1,8 @@
 {
   "minutos_plano_ensamble": 15,
   "minutos_pdf": 5,
-  "minutos_por_relacion_unidad": 5
+  "minutos_por_relacion_unidad": 5,
+  "minutos_e_drawings_por_proyecto": 30,
+  "minutos_plano_pieza": 5,
+  "minutos_subir_drive": 10
 }

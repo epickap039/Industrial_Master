@@ -4,11 +4,12 @@ part of 'package:industrial_manager_v15_5/screens/bom_manager.dart';
 /// La construcción principal del árbol, tablas, vista plana y [build] permanecen en la pantalla.
 mixin BomManagerControllerMixin on State<BOMManagerScreen> {
   bool _isLoading = false;
+
   /// POST manuales (estación / ensamble / pieza): deshabilita acciones y muestra progreso.
   bool _manualBomMutating = false;
 
   int? _currentIdCliente;
-  String _currentClientName = '';
+  final String _currentClientName = '';
 
   List<dynamic> _arbol = [];
   dynamic _selectedEnsamble;
@@ -45,12 +46,10 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
           _selectedRevision!['estado'] == 'PENDIENTE');
 
   bool get _esAprobada =>
-      _selectedRevision != null &&
-      _selectedRevision!['estado'] == 'Aprobada';
+      _selectedRevision != null && _selectedRevision!['estado'] == 'Aprobada';
 
   bool get _esObsoleta =>
-      _selectedRevision != null &&
-      _selectedRevision!['estado'] == 'OBSOLETO';
+      _selectedRevision != null && _selectedRevision!['estado'] == 'OBSOLETO';
 
   @override
   void didUpdateWidget(BOMManagerScreen oldWidget) {
@@ -153,7 +152,8 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
             };
           }).toList();
 
-      final int? selectedId = (_selectedRevision?['id_revision'] as num?)?.toInt();
+      final int? selectedId =
+          (_selectedRevision?['id_revision'] as num?)?.toInt();
       dynamic selectedUpdated = _selectedRevision;
       if (selectedId != null) {
         selectedUpdated = revisionesUpdated.firstWhere(
@@ -174,9 +174,10 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     setState(() => _isLoading = true);
     try {
       // v60.0: usa endpoint por version si está disponible
-      final path = _usingVersionMode
-          ? '/api/bom/revisiones/version/$_masterId'
-          : '/api/bom/revisiones/$_masterId';
+      final path =
+          _usingVersionMode
+              ? '/api/bom/revisiones/version/$_masterId'
+              : '/api/bom/revisiones/$_masterId';
       final response = await ApiClient.getUnvalidated(path);
       if (!mounted) return;
       if (response.statusCode == 200) {
@@ -226,19 +227,24 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
   /// Crea una nueva revisión. El nombre "Revisión N" se genera en el backend.
   /// [notas] es texto libre opcional que se registra en el log de auditoría.
   Future<void> _addRevision(String notas) async {
-    final bool hasBorrador = _revisiones.any((r) => r['estado'] == 'Borrador' || r['estado'] == 'PENDIENTE');
+    final bool hasBorrador = _revisiones.any(
+      (r) => r['estado'] == 'Borrador' || r['estado'] == 'PENDIENTE',
+    );
     if (hasBorrador) {
-       _showError('Ya existe una revisión activa. No se puede crear una base nueva.');
-       return;
+      _showError(
+        'Ya existe una revisión activa. No se puede crear una base nueva.',
+      );
+      return;
     }
 
     setState(() => _isLoading = true);
     try {
       final username = await _prefsUsername();
       if (!mounted) return;
-      final path = _usingVersionMode
-          ? '/api/bom/revisiones/version/$_masterId'
-          : '/api/bom/revisiones/$_masterId';
+      final path =
+          _usingVersionMode
+              ? '/api/bom/revisiones/version/$_masterId'
+              : '/api/bom/revisiones/$_masterId';
       final response = await ApiClient.postUnvalidated(
         path,
         headers: {'X-Usuario': username},
@@ -261,68 +267,73 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     String notasValue = '';
     showDialog(
       context: context,
-      builder: (ctx) => ContentDialog(
-        constraints: const BoxConstraints(maxWidth: 440, maxHeight: 300),
-        title: Row(
-          children: [
-            Icon(FluentIcons.add, size: 16, color: _accentColor),
-            const SizedBox(width: 8),
-            const Text('Nueva Revisión de Ingeniería',
-                style: TextStyle(fontSize: 14)),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: _accentColor.withOpacity(0.07),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: _accentColor.withOpacity(0.3)),
-              ),
-              child: Row(
-                children: [
-                  Icon(FluentIcons.info, size: 13, color: _accentColor),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'El nombre se generará automáticamente como "Revisión N".',
-                      style: TextStyle(fontSize: 11, color: _accentColor),
-                    ),
+      builder:
+          (ctx) => ContentDialog(
+            constraints: const BoxConstraints(maxWidth: 440, maxHeight: 300),
+            title: Row(
+              children: [
+                Icon(FluentIcons.add, size: 16, color: _accentColor),
+                const SizedBox(width: 8),
+                const Text(
+                  'Nueva Revisión de Ingeniería',
+                  style: TextStyle(fontSize: 14),
+                ),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: _accentColor.withValues(alpha: 0.07),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: _accentColor.withValues(alpha: 0.3)),
                   ),
-                ],
-              ),
+                  child: Row(
+                    children: [
+                      Icon(FluentIcons.info, size: 13, color: _accentColor),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'El nombre se generará automáticamente como "Revisión N".',
+                          style: TextStyle(fontSize: 11, color: _accentColor),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                InfoLabel(
+                  label: 'Anotaciones / Notas  (opcional)',
+                  child: TextBox(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 10,
+                      horizontal: 12,
+                    ),
+                    placeholder:
+                        'Ej: Cambios en bastidor trasero, revisión por ECR-042...',
+                    maxLines: 3,
+                    onChanged: (v) => notasValue = v,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 14),
-            InfoLabel(
-              label: 'Anotaciones / Notas  (opcional)',
-              child: TextBox(
-                padding: const EdgeInsets.symmetric(
-                    vertical: 10, horizontal: 12),
-                placeholder:
-                    'Ej: Cambios en bastidor trasero, revisión por ECR-042...',
-                maxLines: 3,
-                onChanged: (v) => notasValue = v,
+            actions: [
+              Button(
+                child: const Text('Cancelar'),
+                onPressed: () => Navigator.pop(ctx),
               ),
-            ),
-          ],
-        ),
-        actions: [
-          Button(
-            child: const Text('Cancelar'),
-            onPressed: () => Navigator.pop(ctx),
+              FilledButton(
+                child: const Text('Crear Revisión'),
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _addRevision(notasValue.trim());
+                },
+              ),
+            ],
           ),
-          FilledButton(
-            child: const Text('Crear Revisión'),
-            onPressed: () {
-              Navigator.pop(ctx);
-              _addRevision(notasValue.trim());
-            },
-          ),
-        ],
-      ),
     );
   }
 
@@ -334,15 +345,16 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
         (_selectedRevision!['numero_revision'] ?? '-').toString();
     showDialog(
       context: context,
-      builder: (ctx) => _DiffAuditorDialog(
-        idRevision: idRev,
-        revNum: revNum,
-        accentColor: _accentColor,
-        onConfirm: () {
-          Navigator.pop(ctx);
-          _aprobarRevision();
-        },
-      ),
+      builder:
+          (ctx) => _DiffAuditorDialog(
+            idRevision: idRev,
+            revNum: revNum,
+            accentColor: _accentColor,
+            onConfirm: () {
+              Navigator.pop(ctx);
+              _aprobarRevision();
+            },
+          ),
     );
   }
 
@@ -505,11 +517,9 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
         final bytes = picked.bytes;
         if (bytes != null) {
           final dir = await getTemporaryDirectory();
-          final safe =
-              picked.name.replaceAll(RegExp(r'[<>:"/\\|?*]'), '_');
+          final safe = picked.name.replaceAll(RegExp(r'[<>:"/\\|?*]'), '_');
           final prefix = sumar ? 'bom_sumar_' : 'bom_import_';
-          filePath =
-              '${dir.path}${Platform.pathSeparator}$prefix$safe';
+          filePath = '${dir.path}${Platform.pathSeparator}$prefix$safe';
           await File(filePath).writeAsBytes(bytes, flush: true);
         }
       }
@@ -534,127 +544,140 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
       if (!mounted) return;
 
       final idRev = _selectedRevision['id_revision'];
-      final path = sumar
-          ? '/api/bom/importar_sumar/$idRev'
-          : '/api/bom/importar/$idRev';
+      final path =
+          sumar ? '/api/bom/importar_sumar/$idRev' : '/api/bom/importar/$idRev';
 
       try {
-        final data = await ApiClient.postMultipart(
-          path,
-          files: {'file': uploadFile},
-          headers: {'X-Usuario': username},
-        ) as Map<String, dynamic>;
+        final data =
+            await ApiClient.postMultipart(
+                  path,
+                  files: {'file': uploadFile},
+                  headers: {'X-Usuario': username},
+                )
+                as Map<String, dynamic>;
         if (!mounted) return;
 
         final int importadas = data['insertados'] ?? 0;
-        final int actualizadas = data['actualizados'] is int
-            ? data['actualizados'] as int
-            : int.tryParse('${data['actualizados']}') ?? 0;
+        final int actualizadas =
+            data['actualizados'] is int
+                ? data['actualizados'] as int
+                : int.tryParse('${data['actualizados']}') ?? 0;
         final List<dynamic> erroresRaw = data['errores'] ?? [];
         final List<String> errores =
             erroresRaw.map((e) => e.toString()).toList();
 
-        final String okMsg = sumar
-            ? '✅ Sumar Excel: $importadas líneas nuevas en estructura, '
-                '$actualizadas cantidades actualizadas.'
-            : '✅ Se cargaron $importadas piezas con éxito (reemplazo total).';
+        final String okMsg =
+            sumar
+                ? '✅ Sumar Excel: $importadas líneas nuevas en estructura, '
+                    '$actualizadas cantidades actualizadas.'
+                : '✅ Se cargaron $importadas piezas con éxito (reemplazo total).';
 
         if (errores.isEmpty) {
-          _showError(
-            okMsg,
-            isError: false,
-          );
+          _showError(okMsg, isError: false);
         } else {
-          final String intro = sumar
-              ? '$okMsg\n\n'
-                  'Los siguientes códigos no existen en el catálogo maestro y fueron omitidos:'
-              : 'Se cargaron $importadas piezas con éxito.\n\n'
-                  'Los siguientes códigos no existen en el catálogo maestro y fueron omitidos:';
+          final String intro =
+              sumar
+                  ? '$okMsg\n\n'
+                      'Los siguientes códigos no existen en el catálogo maestro y fueron omitidos:'
+                  : 'Se cargaron $importadas piezas con éxito.\n\n'
+                      'Los siguientes códigos no existen en el catálogo maestro y fueron omitidos:';
 
           showDialog(
             context: context,
-            builder: (dialogCtx) => ContentDialog(
-              constraints: const BoxConstraints(maxWidth: 520, maxHeight: 560),
-              title: Text(sumar ? 'Resumen Sumar Excel' : 'Resumen de Importación'),
-              content: SizedBox(
-                width: 480,
-                height: 360,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(intro),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Omitidos (${errores.length})',
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 6),
-                    Expanded(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          border: Border.all(
-                            color: FluentTheme.of(dialogCtx)
-                                .resources
-                                .dividerStrokeColorDefault,
-                          ),
-                          borderRadius: BorderRadius.circular(6),
+            builder:
+                (dialogCtx) => ContentDialog(
+                  constraints: const BoxConstraints(
+                    maxWidth: 520,
+                    maxHeight: 560,
+                  ),
+                  title: Text(
+                    sumar ? 'Resumen Sumar Excel' : 'Resumen de Importación',
+                  ),
+                  content: SizedBox(
+                    width: 480,
+                    height: 360,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(intro),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Omitidos (${errores.length})',
+                          style: const TextStyle(fontWeight: FontWeight.w600),
                         ),
-                        child: ListView.builder(
-                          padding: const EdgeInsets.symmetric(
-                            vertical: 4,
-                            horizontal: 8,
-                          ),
-                          itemCount: errores.length,
-                          itemBuilder: (context, index) {
-                            return Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 4),
-                              child: SelectableText(
-                                errores[index],
-                                style: FluentTheme.of(context).typography.body,
+                        const SizedBox(height: 6),
+                        Expanded(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color:
+                                    FluentTheme.of(
+                                      dialogCtx,
+                                    ).resources.dividerStrokeColorDefault,
                               ),
-                            );
-                          },
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: ListView.builder(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 4,
+                                horizontal: 8,
+                              ),
+                              itemCount: errores.length,
+                              itemBuilder: (context, index) {
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 4,
+                                  ),
+                                  child: SelectableText(
+                                    errores[index],
+                                    style:
+                                        FluentTheme.of(context).typography.body,
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
                         ),
-                      ),
+                      ],
+                    ),
+                  ),
+                  actions: [
+                    FilledButton(
+                      onPressed: () async {
+                        final prefs = await SharedPreferences.getInstance();
+                        await prefs.setString(
+                          'bom_bridge_excel_path',
+                          resolvedPath,
+                        );
+                        await prefs.setBool('bom_bridge_filter_nuevos', true);
+                        if (!dialogCtx.mounted) return;
+                        Navigator.pop(dialogCtx);
+                        if (!mounted) return;
+                        MainNav.goToPanePopOverlays(
+                          context,
+                          NavPaneId.importarExcel,
+                        );
+                      },
+                      child: const Text('Registrar Piezas Nuevas en Catálogo'),
+                    ),
+                    Button(
+                      onPressed: () {
+                        Clipboard.setData(
+                          ClipboardData(text: errores.join('\n')),
+                        );
+                        _showError(
+                          'Lista copiada al portapapeles',
+                          isError: false,
+                        );
+                      },
+                      child: const Text('Copiar lista'),
+                    ),
+                    Button(
+                      onPressed: () => Navigator.pop(dialogCtx),
+                      child: const Text('Cerrar'),
                     ),
                   ],
                 ),
-              ),
-              actions: [
-                FilledButton(
-                  onPressed: () async {
-                    final prefs = await SharedPreferences.getInstance();
-                    await prefs.setString(
-                      'bom_bridge_excel_path',
-                      resolvedPath,
-                    );
-                    await prefs.setBool('bom_bridge_filter_nuevos', true);
-                    if (!dialogCtx.mounted) return;
-                    Navigator.pop(dialogCtx);
-                    if (!mounted) return;
-                    MainNav.goToPanePopOverlays(
-                      context,
-                      kMainPaneImportarExcel,
-                    );
-                  },
-                  child: const Text('Registrar Piezas Nuevas en Catálogo'),
-                ),
-                Button(
-                  onPressed: () {
-                    Clipboard.setData(ClipboardData(text: errores.join('\n')));
-                    _showError(
-                      'Lista copiada al portapapeles',
-                      isError: false,
-                    );
-                  },
-                  child: const Text('Copiar lista'),
-                ),
-                Button(
-                  onPressed: () => Navigator.pop(dialogCtx),
-                  child: const Text('Cerrar'),
-                ),
-              ],
-            ),
           );
         }
         _fetchArbol();
@@ -738,7 +761,9 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
 
   Future<void> _deleteEstacion(int id) async {
     try {
-      final response = await ApiClient.deleteUnvalidated('/api/bom/estaciones/$id');
+      final response = await ApiClient.deleteUnvalidated(
+        '/api/bom/estaciones/$id',
+      );
       if (!mounted) return;
       if (response.statusCode == 200) {
         if (_selectedEnsamble != null && _arbol.any((est) => est['id'] == id)) {
@@ -783,7 +808,9 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
 
   Future<void> _deleteEnsamble(int id) async {
     try {
-      final response = await ApiClient.deleteUnvalidated('/api/bom/ensambles/$id');
+      final response = await ApiClient.deleteUnvalidated(
+        '/api/bom/ensambles/$id',
+      );
       if (!mounted) return;
       if (response.statusCode == 200) {
         if (_selectedEnsamble != null && _selectedEnsamble['id'] == id) {
@@ -843,7 +870,9 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
 
   Future<void> _deletePieza(int idBom) async {
     try {
-      final response = await ApiClient.deleteUnvalidated('/api/bom/estructura/$idBom');
+      final response = await ApiClient.deleteUnvalidated(
+        '/api/bom/estructura/$idBom',
+      );
       if (!mounted) return;
       if (response.statusCode == 200) {
         if (_vistaPlana) {
@@ -886,7 +915,8 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
         }
       } else {
         final dynamic decoded = response.decodeJsonLenient();
-        final String detail = (decoded is Map ? decoded['detail'] : null) ??
+        final String detail =
+            (decoded is Map ? decoded['detail'] : null) ??
             'Error ${response.statusCode}';
         _showError(detail);
       }
@@ -934,49 +964,51 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     if (_vins.isNotEmpty) {
       showDialog(
         context: context,
-        builder: (ctx) => ContentDialog(
-          constraints: const BoxConstraints(maxWidth: 460, maxHeight: 300),
-          title: Row(
-            children: [
-              Icon(FluentIcons.error_badge, color: Colors.red, size: 18),
-              const SizedBox(width: 8),
-              const Text('Borrado Bloqueado',
-                  style: TextStyle(fontSize: 14)),
-            ],
-          ),
-          content: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.red.withOpacity(0.07),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.red.withOpacity(0.35)),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(FluentIcons.error_badge,
-                    size: 20, color: Colors.red),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'No se puede borrar esta lista.\n\n'
-                    'Tiene ${_vins.length} unidad(es) física(s) '
-                    '(VINs) asignada(s). Primero desvincula las '
-                    'unidades desde "Gestionar VINs" o cancélalas '
-                    'en el sistema.',
-                    style: const TextStyle(fontSize: 13, height: 1.5),
+        builder:
+            (ctx) => ContentDialog(
+              constraints: const BoxConstraints(maxWidth: 460, maxHeight: 300),
+              title: Row(
+                children: [
+                  Icon(FluentIcons.error_badge, color: Colors.red, size: 18),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Borrado Bloqueado',
+                    style: TextStyle(fontSize: 14),
                   ),
+                ],
+              ),
+              content: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.07),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red.withValues(alpha: 0.35)),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(FluentIcons.error_badge, size: 20, color: Colors.red),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'No se puede borrar esta lista.\n\n'
+                        'Tiene ${_vins.length} unidad(es) física(s) '
+                        '(VINs) asignada(s). Primero desvincula las '
+                        'unidades desde "Gestionar VINs" o cancélalas '
+                        'en el sistema.',
+                        style: const TextStyle(fontSize: 13, height: 1.5),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                FilledButton(
+                  child: const Text('Entendido'),
+                  onPressed: () => Navigator.pop(ctx),
                 ),
               ],
             ),
-          ),
-          actions: [
-            FilledButton(
-              child: const Text('Entendido'),
-              onPressed: () => Navigator.pop(ctx),
-            ),
-          ],
-        ),
       );
       return;
     }
@@ -990,44 +1022,59 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     final TextEditingController pwdCtrl = TextEditingController();
     showDialog(
       context: context,
-      builder: (ctx) => ContentDialog(
-        title: const Text('Anular Bloqueo (Admin)'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Esta revisión es un archivo histórico. Ingrese clave admin:', style: TextStyle(fontSize: 13)),
-            const SizedBox(height: 12),
-            PasswordBox(
-              controller: pwdCtrl,
-              placeholder: 'Contraseña maestra...',
-              onSubmitted: (v) {
-                if (v == 'ADMIN_ING_2024') {
-                  Navigator.pop(ctx);
-                  _deleteRevision(password: v, motivo: 'Forzado por Admin Override');
-                } else {
-                  _showError('Contraseña incorrecta');
-                }
-              },
+      builder:
+          (ctx) => ContentDialog(
+            title: const Text('Anular Bloqueo (Admin)'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Esta revisión es un archivo histórico. Ingrese clave admin:',
+                  style: TextStyle(fontSize: 13),
+                ),
+                const SizedBox(height: 12),
+                PasswordBox(
+                  controller: pwdCtrl,
+                  placeholder: 'Contraseña maestra...',
+                  onSubmitted: (v) {
+                    if (v == 'ADMIN_ING_2024') {
+                      Navigator.pop(ctx);
+                      _deleteRevision(
+                        password: v,
+                        motivo: 'Forzado por Admin Override',
+                      );
+                    } else {
+                      _showError('Contraseña incorrecta');
+                    }
+                  },
+                ),
+              ],
             ),
-          ],
-        ),
-        actions: [
-          Button(child: const Text('Cancelar'), onPressed: () => Navigator.pop(ctx)),
-          FilledButton(
-            style: ButtonStyle(backgroundColor: WidgetStateProperty.all(Colors.red)),
-            onPressed: () {
-              if (pwdCtrl.text == 'ADMIN_ING_2024') {
-                Navigator.pop(ctx);
-                _deleteRevision(password: pwdCtrl.text, motivo: 'Forzado por Admin Override');
-              } else {
-                _showError('Contraseña incorrecta');
-              }
-            },
-            child: const Text('Forzar Borrado'),
+            actions: [
+              Button(
+                child: const Text('Cancelar'),
+                onPressed: () => Navigator.pop(ctx),
+              ),
+              FilledButton(
+                style: ButtonStyle(
+                  backgroundColor: WidgetStateProperty.all(Colors.red),
+                ),
+                onPressed: () {
+                  if (pwdCtrl.text == 'ADMIN_ING_2024') {
+                    Navigator.pop(ctx);
+                    _deleteRevision(
+                      password: pwdCtrl.text,
+                      motivo: 'Forzado por Admin Override',
+                    );
+                  } else {
+                    _showError('Contraseña incorrecta');
+                  }
+                },
+                child: const Text('Forzar Borrado'),
+              ),
+            ],
           ),
-        ],
-      ),
     );
   }
 
@@ -1037,10 +1084,14 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     await _ensureRevisionClientContext();
     if (!mounted) return;
 
-    final bool hasBorrador = _revisiones.any((r) => r['estado'] == 'Borrador' || r['estado'] == 'PENDIENTE');
+    final bool hasBorrador = _revisiones.any(
+      (r) => r['estado'] == 'Borrador' || r['estado'] == 'PENDIENTE',
+    );
     if (hasBorrador) {
-       _showError('No se puede crear otra revisión. Ya existe una en edición permanente ("Borrador" / "Pendiente"). Finalízala primero.');
-       return;
+      _showError(
+        'No se puede crear otra revisión. Ya existe una en edición permanente ("Borrador" / "Pendiente"). Finalízala primero.',
+      );
+      return;
     }
 
     final int? idVersion = (_selectedRevision!['id_version'] as num?)?.toInt();
@@ -1054,7 +1105,9 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     // Cargar clientes para poder ofrecer la opción ESPECÍFICO
     List<Map<String, dynamic>> clientes = [];
     try {
-      final resp = await ApiClient.getUnvalidated('/api/proyectos/clientes/$idVersion');
+      final resp = await ApiClient.getUnvalidated(
+        '/api/proyectos/clientes/$idVersion',
+      );
       if (resp.statusCode == 200) {
         clientes = List<Map<String, dynamic>>.from(resp.decodeJson() as List);
       }
@@ -1066,153 +1119,196 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
 
     showDialog(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setD) => ContentDialog(
-          constraints: const BoxConstraints(maxWidth: 520, maxHeight: 560),
-          title: Row(
-            children: [
-              Icon(FluentIcons.build_definition, size: 18, color: _accentColor),
-              const SizedBox(width: 8),
-              const Text('Iniciar Cambio de Ingeniería (ECR)',
-                  style: TextStyle(fontSize: 14)),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Rev. $numRev está APROBADA. Elige cómo aplicar el cambio:',
-                style: const TextStyle(fontSize: 12, color: Color(0xFF616161)),
-              ),
-              const SizedBox(height: 16),
-              // ── Opción GLOBAL ──────────────────────────────────────────
-              RadioButton(
-                checked: tipoCambio == 'GLOBAL',
-                onChanged: (_) => setD(() => tipoCambio = 'GLOBAL'),
-                content: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Cambio Global (Toda la Versión)',
-                        style: TextStyle(fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Crea Rev ${numRev + 1} en la misma versión para todos los '
-                      'clientes vinculados. Ningún cliente es reasignado.',
-                      style: const TextStyle(
-                          fontSize: 11, color: Color(0xFF757575)),
+      builder:
+          (ctx) => StatefulBuilder(
+            builder:
+                (ctx, setD) => ContentDialog(
+                  constraints: const BoxConstraints(
+                    maxWidth: 520,
+                    maxHeight: 560,
+                  ),
+                  title: Row(
+                    children: [
+                      Icon(
+                        FluentIcons.build_definition,
+                        size: 18,
+                        color: _accentColor,
+                      ),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'Iniciar Cambio de Ingeniería (ECR)',
+                        style: TextStyle(fontSize: 14),
+                      ),
+                    ],
+                  ),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Rev. $numRev está APROBADA. Elige cómo aplicar el cambio:',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF616161),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      // ── Opción GLOBAL ──────────────────────────────────────────
+                      RadioButton(
+                        checked: tipoCambio == 'GLOBAL',
+                        onChanged: (_) => setD(() => tipoCambio = 'GLOBAL'),
+                        content: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Cambio Global (Toda la Versión)',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Crea Rev ${numRev + 1} en la misma versión para todos los '
+                              'clientes vinculados. Ningún cliente es reasignado.',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: Color(0xFF757575),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      // ── Opción ESPECÍFICO — siempre visible (PLM v2) ──────────
+                      const SizedBox(height: 14),
+                      RadioButton(
+                        checked: tipoCambio == 'ESPECIFICO',
+                        onChanged: (_) => setD(() => tipoCambio = 'ESPECIFICO'),
+                        content: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Cambio para Cliente(s) Específico(s)',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 2),
+                            const Text(
+                              'Crea una nueva Versión de Ingeniería (V2) y mueve los clientes '
+                              'seleccionados. Los demás mantienen la ingeniería actual.',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Color(0xFF757575),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (tipoCambio == 'ESPECIFICO') ...[
+                        const SizedBox(height: 8),
+                        if (clientes.isNotEmpty)
+                          Container(
+                            constraints: const BoxConstraints(maxHeight: 180),
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: const Color(0xFFBDBDBD),
+                              ),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: ListView(
+                              shrinkWrap: true,
+                              children:
+                                  clientes
+                                      .map(
+                                        (c) => Checkbox(
+                                          checked: selectedClientes.contains(
+                                            c['id'] as int,
+                                          ),
+                                          onChanged:
+                                              (v) => setD(() {
+                                                if (v == true) {
+                                                  selectedClientes.add(
+                                                    c['id'] as int,
+                                                  );
+                                                } else {
+                                                  selectedClientes.remove(
+                                                    c['id'] as int,
+                                                  );
+                                                }
+                                              }),
+                                          content: Text(c['nombre'] as String),
+                                        ),
+                                      )
+                                      .toList(),
+                            ),
+                          )
+                        else
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFF8E1),
+                              border: Border.all(
+                                color: const Color(0xFFF9A825),
+                              ),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              'Esta versión base no tiene clientes. Se creará la nueva versión vacía para asignar clientes posteriormente.',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Color(0xFFE65100),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ],
+                  ),
+                  actions: [
+                    Button(
+                      child: const Text('Cancelar'),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                    FilledButton(
+                      onPressed: () async {
+                        final result = await _ejecutarBranching(
+                          tipoCambio,
+                          selectedClientes.toList(),
+                        );
+                        if (!mounted || result == null) return;
+
+                        Navigator.of(ctx).pop();
+
+                        final idNuevo = result['nuevo_id_revision'];
+                        if (idNuevo == null) {
+                          _showError("Error: API no devolvió ID de revisión.");
+                          return;
+                        }
+
+                        final idVersionNueva = result['id_version_nueva'];
+                        if (idVersionNueva == null) {
+                          _showError("Error: API no devolvió ID de versión.");
+                          return;
+                        }
+
+                        Navigator.of(context).pushReplacement(
+                          FluentPageRoute(
+                            builder:
+                                (_) => BOMManagerScreen(
+                                  idVersion: (idVersionNueva as num).toInt(),
+                                  targetRevisionId: (idNuevo as num).toInt(),
+                                  tractoName: widget.tractoName,
+                                ),
+                          ),
+                        );
+                      },
+                      child: const Text('Crear Rama y Editar'),
                     ),
                   ],
                 ),
-              ),
-              // ── Opción ESPECÍFICO — siempre visible (PLM v2) ──────────
-              const SizedBox(height: 14),
-              RadioButton(
-                checked: tipoCambio == 'ESPECIFICO',
-                onChanged: (_) => setD(() => tipoCambio = 'ESPECIFICO'),
-                content: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Cambio para Cliente(s) Específico(s)',
-                        style: TextStyle(fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 2),
-                    const Text(
-                      'Crea una nueva Versión de Ingeniería (V2) y mueve los clientes '
-                      'seleccionados. Los demás mantienen la ingeniería actual.',
-                      style: TextStyle(fontSize: 11, color: Color(0xFF757575)),
-                    ),
-                  ],
-                ),
-              ),
-              if (tipoCambio == 'ESPECIFICO') ...[
-                const SizedBox(height: 8),
-                if (clientes.isNotEmpty)
-                  Container(
-                    constraints: const BoxConstraints(maxHeight: 180),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: const Color(0xFFBDBDBD)),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: ListView(
-                      shrinkWrap: true,
-                      children: clientes
-                          .map((c) => Checkbox(
-                                checked: selectedClientes.contains(c['id'] as int),
-                                onChanged: (v) => setD(() {
-                                  if (v == true) {
-                                    selectedClientes.add(c['id'] as int);
-                                  } else {
-                                    selectedClientes.remove(c['id'] as int);
-                                  }
-                                }),
-                                content: Text(c['nombre'] as String),
-                              ))
-                          .toList(),
-                    ),
-                  )
-                else
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFFF8E1),
-                      border: Border.all(color: const Color(0xFFF9A825)),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: const Text(
-                      'Esta versión base no tiene clientes. Se creará la nueva versión vacía para asignar clientes posteriormente.',
-                      style: TextStyle(fontSize: 11, color: Color(0xFFE65100)),
-                    ),
-                  ),
-              ],
-            ],
           ),
-          actions: [
-            Button(
-              child: const Text('Cancelar'),
-              onPressed: () => Navigator.pop(ctx),
-            ),
-            FilledButton(
-              onPressed: () async {
-                final result = await _ejecutarBranching(
-                  tipoCambio,
-                  selectedClientes.toList(),
-                );
-                if (!mounted || result == null) return;
-
-                Navigator.of(ctx).pop();
-
-                final idNuevo = result['nuevo_id_revision'];
-                if (idNuevo == null) {
-                  _showError("Error: API no devolvió ID de revisión.");
-                  return;
-                }
-
-                final idVersionNueva = result['id_version_nueva'];
-                if (idVersionNueva == null) {
-                  _showError("Error: API no devolvió ID de versión.");
-                  return;
-                }
-
-                Navigator.of(context).pushReplacement(
-                  FluentPageRoute(
-                    builder: (_) => BOMManagerScreen(
-                      idVersion: (idVersionNueva as num).toInt(),
-                      targetRevisionId: (idNuevo as num).toInt(),
-                      tractoName: widget.tractoName,
-                    ),
-                  ),
-                );
-              },
-              child: const Text('Crear Rama y Editar'),
-            ),
-          ],
-        ),
-      ),
     );
   }
 
   Future<Map<String, dynamic>?> _ejecutarBranching(
-      String tipoCambio, List<int> listaClientes) async {
+    String tipoCambio,
+    List<int> listaClientes,
+  ) async {
     if (_selectedRevision == null) return null;
 
     // 1. Limpieza atómica: invalidar TODOS los datos de la revisión anterior
@@ -1220,11 +1316,11 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     //    IDs fantasma del clon.
     if (mounted) {
       setState(() {
-        _isLoading         = true;
-        _arbol             = [];
-        _selectedEnsamble  = null;
-        _vins              = [];
-        _bomPlana          = [];
+        _isLoading = true;
+        _arbol = [];
+        _selectedEnsamble = null;
+        _vins = [];
+        _bomPlana = [];
       });
     }
 
@@ -1243,7 +1339,7 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
       if (!mounted) return null;
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        final data   = response.decodeJson() as Map<String, dynamic>;
+        final data = response.decodeJson() as Map<String, dynamic>;
         final int nuevoId = data['nuevo_id_revision'] as int;
 
         if (tipoCambio == 'ESPECIFICO') {
@@ -1263,11 +1359,11 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
           if (newRev != null && mounted) {
             // 4. Seleccionar atómicamente y borrar cualquier ensamble previo
             setState(() {
-              _selectedRevision  = newRev;
-              _arbol             = [];
-              _selectedEnsamble  = null;
-              _vins              = [];
-              _bomPlana          = [];
+              _selectedRevision = newRev;
+              _arbol = [];
+              _selectedEnsamble = null;
+              _vins = [];
+              _bomPlana = [];
             });
 
             // 5. Cargar árbol fresco — ahora con los IDs del clon
@@ -1286,7 +1382,8 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
         return data;
       } else {
         final dynamic decoded = response.decodeJsonLenient();
-        final detail = (decoded is Map ? decoded['detail'] : null) ??
+        final detail =
+            (decoded is Map ? decoded['detail'] : null) ??
             'Error desconocido (${response.statusCode})';
         if (mounted) _showError('Error al crear rama: $detail');
       }
@@ -1321,10 +1418,10 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
         //    para que el widget tree no intente renderizar un índice fantasma.
         setState(() {
           _selectedRevision = null;
-          _arbol            = [];
+          _arbol = [];
           _selectedEnsamble = null;
-          _vins             = [];
-          _bomPlana         = [];
+          _vins = [];
+          _bomPlana = [];
         });
         // 2. Esperar la recarga completa — _fetchRevisiones seleccionará la
         //    primera revisión disponible, o dejará _selectedRevision = null.
@@ -1338,8 +1435,9 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
         }
       } else {
         final dynamic decoded = response.decodeJsonLenient();
-        final detail = (decoded is Map ? decoded['detail'] : null)
-            ?? 'Error desconocido (${response.statusCode})';
+        final detail =
+            (decoded is Map ? decoded['detail'] : null) ??
+            'Error desconocido (${response.statusCode})';
         if (mounted) _showError("Error al eliminar: $detail");
       }
     } catch (e) {
@@ -1402,7 +1500,7 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
                         Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
-                            color: Colors.red.withOpacity(0.1),
+                            color: Colors.red.withValues(alpha: 0.1),
                             border: Border.all(color: Colors.red),
                             borderRadius: BorderRadius.circular(6),
                           ),
@@ -1495,10 +1593,7 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
       if (!mounted) return;
       final response = await ApiClient.postUnvalidated(
         '/api/bom/clonar/$idOrigen',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Usuario': username,
-        },
+        headers: {'Content-Type': 'application/json', 'X-Usuario': username},
       );
       if (!mounted) return;
       if (response.statusCode == 200) {
@@ -1529,9 +1624,10 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
   Future<void> _fetchRevisionesYSeleccionar(int targetId) async {
     setState(() => _isLoading = true);
     try {
-      final path = _usingVersionMode
-          ? '/api/bom/revisiones/version/$_masterId'
-          : '/api/bom/revisiones/$_masterId';
+      final path =
+          _usingVersionMode
+              ? '/api/bom/revisiones/version/$_masterId'
+              : '/api/bom/revisiones/$_masterId';
       final response = await ApiClient.getUnvalidated(path);
       if (!mounted) return;
       if (response.statusCode == 200) {
@@ -1540,8 +1636,7 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
           _revisiones = response.decodeJson();
           _selectedRevision = _revisiones.firstWhere(
             (r) => r['id_revision'] == targetId,
-            orElse: () =>
-                _revisiones.isNotEmpty ? _revisiones.last : null,
+            orElse: () => _revisiones.isNotEmpty ? _revisiones.last : null,
           );
         });
         _fetchArbol();
@@ -1597,15 +1692,14 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     // === TAREA 2: Leer usuario real para el header ===
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
-    final username = prefs.getString('username')?.trim().isNotEmpty == true
-        ? prefs.getString('username')!.trim()
-        : 'Operador';
+    final username =
+        prefs.getString('username')?.trim().isNotEmpty == true
+            ? prefs.getString('username')!.trim()
+            : 'Operador';
     try {
       final response = await ApiClient.postUnvalidated(
         '/api/bom/revisiones/${_selectedRevision['id_revision']}/vins',
-        headers: {
-          'X-Usuario': username,
-        },
+        headers: {'X-Usuario': username},
         body: {'vin': vin},
       );
       if (!mounted) return;
@@ -1623,16 +1717,14 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     // === TAREA 2: Leer usuario real para el header ===
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
-    final username = prefs.getString('username')?.trim().isNotEmpty == true
-        ? prefs.getString('username')!.trim()
-        : 'Operador';
+    final username =
+        prefs.getString('username')?.trim().isNotEmpty == true
+            ? prefs.getString('username')!.trim()
+            : 'Operador';
     try {
       final response = await ApiClient.deleteUnvalidated(
         '/api/bom/vins/$idUnidad',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Usuario': username,
-        },
+        headers: {'Content-Type': 'application/json', 'X-Usuario': username},
       );
       if (!mounted) return;
       if (response.statusCode == 200) {
@@ -1682,7 +1774,10 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 TextBox(
-                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 12,
+                    horizontal: 16,
+                  ),
                   placeholder: 'Nombre...',
                   onChanged: (v) => inputValue = v,
                 ),
@@ -1715,7 +1810,10 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
         final decoded = res.decodeJson();
         if (decoded is List) {
           materialesOficiales =
-              decoded.map((e) => e.toString()).where((s) => s.isNotEmpty).toList();
+              decoded
+                  .map((e) => e.toString())
+                  .where((s) => s.isNotEmpty)
+                  .toList();
         }
       }
     } catch (_) {}
@@ -1766,10 +1864,10 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
             final bool? inCat = estado['inCatalog'] as bool?;
             final String checked = estado['checkedCodigo'] as String;
             final String codeNow = codigoCtrl.text.trim();
-            final bool stateApplies =
-                checked.isNotEmpty && checked == codeNow;
+            final bool stateApplies = checked.isNotEmpty && checked == codeNow;
             final String matTrim = matSuggestCtrl.text.trim();
-            final bool matNoHomologado = matTrim.isNotEmpty &&
+            final bool matNoHomologado =
+                matTrim.isNotEmpty &&
                 !_materialHomologado(matTrim, materialesOficiales);
 
             return ContentDialog(
@@ -1814,10 +1912,10 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
                               'Comprobando catálogo…',
                               style: TextStyle(
                                 fontSize: 11,
-                                color: FluentTheme.of(context)
-                                    .typography
-                                    .caption
-                                    ?.color,
+                                color:
+                                    FluentTheme.of(
+                                      context,
+                                    ).typography.caption?.color,
                               ),
                             ),
                           ],
@@ -1864,22 +1962,24 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
                                   controller: matSuggestCtrl,
                                   placeholder:
                                       'Buscar en lista oficial o escribir…',
-                                  items: materialesOficiales
-                                      .map(
-                                        (e) => AutoSuggestBoxItem<String>(
-                                          value: e,
-                                          label: e,
-                                          child: Tooltip(
-                                            message: e,
-                                            child: Text(
-                                              e,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
+                                  items:
+                                      materialesOficiales
+                                          .map(
+                                            (e) => AutoSuggestBoxItem<String>(
+                                              value: e,
+                                              label: e,
+                                              child: Tooltip(
+                                                message: e,
+                                                child: Text(
+                                                  e,
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                ),
+                                              ),
                                             ),
-                                          ),
-                                        ),
-                                      )
-                                      .toList(),
+                                          )
+                                          .toList(),
                                   onSelected: (_) => setD(() {}),
                                   onChanged: (_, __) => setD(() {}),
                                 ),
@@ -1903,20 +2003,23 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
                         InfoLabel(
                           label: 'Proceso primario (obligatorio)',
                           child: ComboBox<String?>(
-                            placeholder: const Text('Seleccione de la lista oficial'),
+                            placeholder: const Text(
+                              'Seleccione de la lista oficial',
+                            ),
                             value: procPrimario,
                             isExpanded: true,
-                            items: _procesosOficialesAlta
-                                .map(
-                                  (e) => ComboBoxItem<String?>(
-                                    value: e,
-                                    child: Text(
-                                      e,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                )
-                                .toList(),
+                            items:
+                                _procesosOficialesAlta
+                                    .map(
+                                      (e) => ComboBoxItem<String?>(
+                                        value: e,
+                                        child: Text(
+                                          e,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    )
+                                    .toList(),
                             onChanged: (v) => setD(() => procPrimario = v),
                           ),
                         ),
@@ -2042,10 +2145,8 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
                       _showError('Cantidad inválida.');
                       return;
                     }
-                    final String checkedNow =
-                        estado['checkedCodigo'] as String;
-                    final bool? inCatalogNow =
-                        estado['inCatalog'] as bool?;
+                    final String checkedNow = estado['checkedCodigo'] as String;
+                    final bool? inCatalogNow = estado['inCatalog'] as bool?;
                     final bool appliesNow =
                         checkedNow.isNotEmpty && checkedNow == code;
                     if (inCatalogNow == null || !appliesNow) {
@@ -2112,7 +2213,7 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
               ),
               FilledButton(
                 style: ButtonStyle(
-                  backgroundColor: ButtonState.all(Colors.red),
+                  backgroundColor: WidgetStateProperty.all(Colors.red),
                 ),
                 child: const Text('Eliminar'),
                 onPressed: () {
@@ -2145,7 +2246,10 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
                         children: [
                           Expanded(
                             child: TextBox(
-                              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 12,
+                                horizontal: 16,
+                              ),
                               placeholder: "Nuevo VIN...",
                               onChanged: (v) => newVin = v,
                             ),
@@ -2232,7 +2336,10 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 TextBox(
-                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 12,
+                    horizontal: 16,
+                  ),
                   controller: TextEditingController(text: notasTemp),
                   maxLines: 5,
                   placeholder: "Escribe notas aquí...",
@@ -2267,66 +2374,67 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
 
     showDialog(
       context: context,
-      builder: (ctx) => ContentDialog(
-        constraints: const BoxConstraints(maxWidth: 440, maxHeight: 280),
-        title: Row(
-          children: [
-            Icon(FluentIcons.copy, size: 18, color: _accentColor),
-            const SizedBox(width: 8),
-            const Text("Clonar Lista de Materiales"),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              "¿Deseas clonar esta Lista de Materiales?",
-              style: const TextStyle(fontWeight: FontWeight.w600),
+      builder:
+          (ctx) => ContentDialog(
+            constraints: const BoxConstraints(maxWidth: 440, maxHeight: 280),
+            title: Row(
+              children: [
+                Icon(FluentIcons.copy, size: 18, color: _accentColor),
+                const SizedBox(width: 8),
+                const Text("Clonar Lista de Materiales"),
+              ],
             ),
-            const SizedBox(height: 6),
-            Text(
-              "Se creará una copia exacta de $revLabel en estado Borrador, "
-              "con todas sus estaciones, ensambles y piezas.",
-              style: const TextStyle(fontSize: 12),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: _accentColor.withOpacity(0.07),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: _accentColor.withOpacity(0.3)),
-              ),
-              child: Row(
-                children: [
-                  Icon(FluentIcons.info, size: 14, color: _accentColor),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      "La nueva revisión se seleccionará automáticamente al finalizar.",
-                      style: TextStyle(fontSize: 11, color: _accentColor),
-                    ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "¿Deseas clonar esta Lista de Materiales?",
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  "Se creará una copia exacta de $revLabel en estado Borrador, "
+                  "con todas sus estaciones, ensambles y piezas.",
+                  style: const TextStyle(fontSize: 12),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: _accentColor.withValues(alpha: 0.07),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: _accentColor.withValues(alpha: 0.3)),
                   ),
-                ],
-              ),
+                  child: Row(
+                    children: [
+                      Icon(FluentIcons.info, size: 14, color: _accentColor),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          "La nueva revisión se seleccionará automáticamente al finalizar.",
+                          style: TextStyle(fontSize: 11, color: _accentColor),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-        actions: [
-          Button(
-            child: const Text("Cancelar"),
-            onPressed: () => Navigator.pop(ctx),
+            actions: [
+              Button(
+                child: const Text("Cancelar"),
+                onPressed: () => Navigator.pop(ctx),
+              ),
+              FilledButton(
+                child: const Text("Clonar Ahora"),
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _clonarBOM();
+                },
+              ),
+            ],
           ),
-          FilledButton(
-            child: const Text("Clonar Ahora"),
-            onPressed: () {
-              Navigator.pop(ctx);
-              _clonarBOM();
-            },
-          ),
-        ],
-      ),
     );
   }
 
@@ -2363,22 +2471,23 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
 
   /// Devuelve true si la pieza debe omitirse del auditor de planos.
   bool _esPiezaSinPlano(Map<String, dynamic> row) {
-    final String procesos =
-        (row['procesos'] as String? ?? '').toUpperCase();
-    final String material =
-        (row['material'] as String? ?? '').toUpperCase();
+    final String procesos = (row['procesos'] as String? ?? '').toUpperCase();
+    final String material = (row['material'] as String? ?? '').toUpperCase();
     final String combinado = '$procesos|$material';
     return _procesosExcluidos.any((kw) => combinado.contains(kw));
   }
 
   Future<void> _buscarPlanos() async {
-    final List<String> codigos = _bomPlana
-        .where((r) => (r['nivel'] as num).toInt() == 3)
-        .where((r) => !_esPiezaSinPlano(r))   // excluir corte recto, sierra, comercial
-        .map<String>((r) => r['codigo_pieza']?.toString() ?? '')
-        .where((c) => c.isNotEmpty)
-        .toSet()
-        .toList();
+    final List<String> codigos =
+        _bomPlana
+            .where((r) => (r['nivel'] as num).toInt() == 3)
+            .where(
+              (r) => !_esPiezaSinPlano(r),
+            ) // excluir corte recto, sierra, comercial
+            .map<String>((r) => r['codigo_pieza']?.toString() ?? '')
+            .where((c) => c.isNotEmpty)
+            .toSet()
+            .toList();
 
     if (codigos.isEmpty) {
       _showError("No hay piezas (Nivel 3) en la Vista Plana para auditar.");
@@ -2386,9 +2495,10 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
     }
 
     // Pedir al usuario que elija la carpeta con los planos DXF/PDF
-    final String? selectedDirectory = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: 'Selecciona la carpeta de Planos DXF/PDF',
-    );
+    final String? selectedDirectory = await FilePicker.platform
+        .getDirectoryPath(
+          dialogTitle: 'Selecciona la carpeta de Planos DXF/PDF',
+        );
     if (selectedDirectory == null) return; // canceló el selector
     if (!mounted) return;
 
@@ -2399,10 +2509,7 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
       final response = await ApiClient.postUnvalidated(
         '/api/bom/buscar_planos',
         headers: {'X-Usuario': username},
-        body: {
-          'codigos': codigos,
-          'ruta_base': selectedDirectory,
-        },
+        body: {'codigos': codigos, 'ruta_base': selectedDirectory},
       );
       if (!mounted) return;
       if (response.statusCode == 200) {
@@ -2427,10 +2534,9 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
       context: context,
       builder: (ctx) {
         final typography = FluentTheme.of(ctx).typography;
-        final Color bodyColor =
-            typography.body?.color ?? Colors.black;
+        final Color bodyColor = typography.body?.color ?? Colors.black;
         final Color labelColor =
-            typography.caption?.color ?? bodyColor.withOpacity(0.65);
+            typography.caption?.color ?? bodyColor.withValues(alpha: 0.65);
 
         return ContentDialog(
           constraints: const BoxConstraints(maxWidth: 560, maxHeight: 640),
@@ -2450,24 +2556,30 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 8),
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
                     decoration: BoxDecoration(
-                      color: Colors.orange.withOpacity(0.12),
+                      color: Colors.orange.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: Colors.orange.withOpacity(0.5)),
+                      border: Border.all(color: Colors.orange.withValues(alpha: 0.5)),
                     ),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(FluentIcons.warning,
-                            size: 14, color: Colors.orange),
+                        Icon(
+                          FluentIcons.warning,
+                          size: 14,
+                          color: Colors.orange,
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             advertencia,
                             style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.orange.darker),
+                              fontSize: 12,
+                              color: Colors.orange.darker,
+                            ),
                           ),
                         ),
                       ],
@@ -2478,9 +2590,11 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
                 // Resumen
                 Container(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 8),
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   decoration: BoxDecoration(
-                    color: _accentColor.withOpacity(0.08),
+                    color: _accentColor.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Row(
@@ -2511,83 +2625,106 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
                   const SizedBox(height: 14),
                   Row(
                     children: [
-                      const Icon(FluentIcons.check_mark,
-                          size: 14, color: Color(0xFF2E7D32)),
+                      const Icon(
+                        FluentIcons.check_mark,
+                        size: 14,
+                        color: Color(0xFF2E7D32),
+                      ),
                       const SizedBox(width: 6),
-                      Text("ENCONTRADOS (${encontrados.length})",
-                          style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
-                              color: Color(0xFF2E7D32))),
+                      Text(
+                        "ENCONTRADOS (${encontrados.length})",
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                          color: Color(0xFF2E7D32),
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 4),
-                  ...encontrados.map((e) => Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 2),
-                        child: Row(
-                          children: [
-                            const SizedBox(width: 20),
-                            Expanded(
-                              flex: 2,
-                              child: Text(
-                                e['codigo']?.toString() ?? '',
-                                style: TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 12,
-                                    color: bodyColor),
+                  ...encontrados.map(
+                    (e) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Row(
+                        children: [
+                          const SizedBox(width: 20),
+                          Expanded(
+                            flex: 2,
+                            child: Text(
+                              e['codigo']?.toString() ?? '',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 12,
+                                color: bodyColor,
                               ),
                             ),
-                            Expanded(
-                              flex: 3,
-                              child: Text(
-                                e['archivo']?.toString() ?? '',
-                                style: const TextStyle(
-                                    fontSize: 11,
-                                    color: Color(0xFF388E3C)),
-                                overflow: TextOverflow.ellipsis,
+                          ),
+                          Expanded(
+                            flex: 3,
+                            child: Text(
+                              e['archivo']?.toString() ?? '',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: Color(0xFF388E3C),
                               ),
+                              overflow: TextOverflow.ellipsis,
                             ),
-                          ],
-                        ),
-                      )),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ],
                 if (faltantes.isNotEmpty) ...[
                   const SizedBox(height: 14),
                   Row(
                     children: [
-                      Icon(FluentIcons.error_badge,
-                          size: 14, color: Colors.red),
+                      Icon(
+                        FluentIcons.error_badge,
+                        size: 14,
+                        color: Colors.red,
+                      ),
                       const SizedBox(width: 6),
-                      Text("FALTANTES (${faltantes.length})",
-                          style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
-                              color: Colors.red)),
+                      Text(
+                        "FALTANTES (${faltantes.length})",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                          color: Colors.red,
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 4),
                   Wrap(
                     spacing: 6,
                     runSpacing: 4,
-                    children: faltantes
-                        .map((c) => Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 3),
-                              decoration: BoxDecoration(
-                                color: Colors.red.withOpacity(0.12),
-                                borderRadius: BorderRadius.circular(4),
-                                border: Border.all(
-                                    color: Colors.red.withOpacity(0.4)),
-                              ),
-                              child: Text(
-                                c.toString(),
-                                style: TextStyle(
+                    children:
+                        faltantes
+                            .map(
+                              (c) => Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.red.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(
+                                    color: Colors.red.withValues(alpha: 0.4),
+                                  ),
+                                ),
+                                child: Text(
+                                  c.toString(),
+                                  style: TextStyle(
                                     fontSize: 11,
                                     color: Colors.red.darker,
-                                    fontWeight: FontWeight.w600),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
                               ),
-                            ))
-                        .toList(),
+                            )
+                            .toList(),
                   ),
                 ],
               ],
@@ -2611,12 +2748,12 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
         Text(
           valor,
           style: TextStyle(
-              fontSize: 22, fontWeight: FontWeight.bold, color: color),
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
         ),
-        Text(
-          label,
-          style: TextStyle(fontSize: 11, color: labelColor),
-        ),
+        Text(label, style: TextStyle(fontSize: 11, color: labelColor)),
       ],
     );
   }

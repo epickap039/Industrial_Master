@@ -65,6 +65,7 @@ class CrearManualPayload(BaseModel):
     categoria: str = Field(..., min_length=1, max_length=200)
     checklist: List[ChecklistItemPayload] = Field(default_factory=list)
     minutos_estimados: int = 0
+    sin_tiempo_estimado: bool = False
     imagen_base64: Optional[str] = Field(
         default=None,
         description="Imagen en Base64 (sin prefijo data:); se guarda en Meta_JSON.",
@@ -193,6 +194,14 @@ def _audit_estado_tabla_existe(cur: Any) -> bool:
         """
     )
     return cur.fetchone() is not None
+
+
+def _audit_id_tarea_col(cur: Any) -> Optional[str]:
+    """FK hacia tarea en auditoría (variantes Id_Tarea / ID_Tarea)."""
+    if not _audit_estado_tabla_existe(cur):
+        return None
+    cols = _get_cols(cur, "Tbl_Gestor_Tarea_Estado_Auditoria")
+    return _pick(cols, "ID_Tarea", "Id_Tarea", "Tarea_ID", "id_tarea")
 
 
 def _insertar_fila_auditoria_estado(
@@ -428,6 +437,55 @@ def _dt_iso(v: Any) -> Optional[str]:
     return str(v)
 
 
+def _coalesce_fecha_cierre_desde_fila(m: Dict[str, Any]) -> Any:
+    """
+    Primera fecha no nula entre columnas de cierre o ultima modificacion.
+    Evita que si Fecha_Cierre existe en la tabla pero esta NULL, el API
+    devuelva fecha_cierre vacio aunque Ultima_Modificacion u otra columna si tenga valor.
+    """
+    priority = [
+        "Fecha_Cierre",
+        "Fecha_Completado",
+        "Fecha_Finalizacion",
+        "Fecha_Fin",
+        "Fecha_Terminado",
+        "Ultima_Modificacion",
+        "Fecha_Modificacion",
+        "Fecha_Actualizacion",
+        "UpdatedAt",
+    ]
+    by_lower = {str(k).lower(): k for k in m.keys()}
+    for name in priority:
+        k = by_lower.get(name.lower())
+        if not k:
+            continue
+        v = m.get(k)
+        if v is None:
+            continue
+        s = str(v).strip()
+        if not s or s.lower() == "none":
+            continue
+        return v
+    return None
+
+
+def _fecha_cierre_desde_meta(raw_meta: Any) -> Any:
+    """fecha_cierre / fecha_fin guardadas en Meta_JSON (cancelacion, etc.)."""
+    if raw_meta is None:
+        return None
+    try:
+        parsed = json.loads(raw_meta) if isinstance(raw_meta, str) else raw_meta
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    for k in ("fecha_cierre", "fecha_fin", "Fecha_Cierre", "fecha_completado"):
+        x = parsed.get(k)
+        if x is not None and str(x).strip() and str(x).lower() != "none":
+            return x
+    return None
+
+
 def _as_bool_cell(v: Any) -> bool:
     if v is None:
         return False
@@ -492,7 +550,7 @@ def crear_tarea(
             "estado": _pick(t_cols, "Estado", "Status"),
             "progreso": _pick(t_cols, "Porcentaje_Progreso", "Progreso"),
             "usuario": _pick(t_cols, "Usuario_Creador", "Usuario"),
-            "minutos": _pick(t_cols, "Minutos_Estimados", "Tiempo_Estimado_Min"),
+            "minutos": _pick(t_cols, "Duracion_Minutos", "Tiempo_Total_Estimado", "Minutos_Estimados", "Tiempo_Estimado_Min"),
             "meta": _pick(t_cols, "Meta_JSON", "Datos_JSON", "Contexto_JSON"),
             "titulo_cambio": _pick(t_cols, "Titulo_Cambio"),
             "usuario_asignado": _pick(
@@ -505,7 +563,7 @@ def crear_tarea(
         }
         map_check = {
             "nombre": _pick(c_cols, "Nombre_Item", "Item", "Descripcion"),
-            "minutos": _pick(c_cols, "Minutos_Estimados", "Tiempo_Estimado_Min"),
+            "minutos": _pick(c_cols, "Tiempo_Estimado", "Minutos_Estimados", "Tiempo_Estimado_Min"),
             "completado": _pick(c_cols, "Completado", "Hecho", "Status"),
             "orden": _pick(c_cols, "Orden", "Sort"),
             "grupo_col": _pick(
@@ -674,7 +732,7 @@ def crear_tarea_manual(
             "estado": _pick(t_cols, "Estado", "Status"),
             "progreso": _pick(t_cols, "Porcentaje_Progreso", "Progreso"),
             "usuario": _pick(t_cols, "Usuario_Creador", "Usuario"),
-            "minutos": _pick(t_cols, "Minutos_Estimados", "Tiempo_Estimado_Min"),
+            "minutos": _pick(t_cols, "Duracion_Minutos", "Tiempo_Total_Estimado", "Minutos_Estimados", "Tiempo_Estimado_Min"),
             "meta": _pick(t_cols, "Meta_JSON", "Datos_JSON", "Contexto_JSON"),
             "titulo_cambio": _pick(t_cols, "Titulo_Cambio"),
             "usuario_asignado": _pick(
@@ -687,7 +745,7 @@ def crear_tarea_manual(
         }
         map_check = {
             "nombre": _pick(c_cols, "Nombre_Item", "Item", "Descripcion"),
-            "minutos": _pick(c_cols, "Minutos_Estimados", "Tiempo_Estimado_Min"),
+            "minutos": _pick(c_cols, "Tiempo_Estimado", "Minutos_Estimados", "Tiempo_Estimado_Min"),
             "completado": _pick(c_cols, "Completado", "Hecho", "Status"),
             "orden": _pick(c_cols, "Orden", "Sort"),
             "grupo_col": _pick(
@@ -732,13 +790,19 @@ def crear_tarea_manual(
             insert_vals.append(usr)
         if map_task["minutos"]:
             insert_cols.append(map_task["minutos"])
-            insert_vals.append(int(payload.minutos_estimados or 0))
+            minutos_val = 0 if payload.sin_tiempo_estimado else int(payload.minutos_estimados or 0)
+            insert_vals.append(minutos_val)
         if map_task["meta"]:
             meta_dict: Dict[str, Any] = {
                 "categoria": payload.categoria.strip(),
                 "_origen_crear_api": "MANUAL",
                 "source_type": "Manual",
             }
+            desc_m = (payload.descripcion or "").strip()
+            if desc_m:
+                meta_dict["descripcion"] = desc_m
+            if payload.sin_tiempo_estimado:
+                meta_dict["sin_tiempo_estimado"] = True
             img = (payload.imagen_base64 or "").strip()
             if img:
                 meta_dict["imagen_adjunta_base64"] = img
@@ -764,6 +828,14 @@ def crear_tarea_manual(
         if col_ca and ua and col_ca != col_ua:
             insert_cols.append(col_ca)
             insert_vals.append(ua)
+
+        # MEJORA INTEGRAL v15.5: Agregar Hora_Inicio
+        col_hora_inicio = _pick(t_cols, "Hora_Inicio", "HoraInicio", "Hora_Creacion")
+        if col_hora_inicio:
+            # Registrar hora actual en formato TIME (HH:MM:SS)
+            hora_actual = datetime.now(timezone.utc).strftime("%H:%M:%S")
+            insert_cols.append(col_hora_inicio)
+            insert_vals.append(hora_actual)
 
         if not insert_cols:
             raise HTTPException(status_code=500, detail="No se pudo mapear columnas para insertar tarea")
@@ -1012,6 +1084,33 @@ def actualizar_estado_tarea(
             if t_reason:
                 set_parts.append(f"{t_reason} = ?")
                 set_vals.append(None)
+            if "terminad" in nuevo_lower and "terminad" not in str(estado_ant or "").lower():
+                _append_fecha_cierre_update(t_cols, set_parts, set_vals)
+
+                # MEJORA INTEGRAL v15.5: Agregar Hora_Fin cuando se completa
+                col_hora_fin = _pick(t_cols, "Hora_Fin", "HoraFin", "Hora_Cierre")
+                if col_hora_fin:
+                    hora_actual = datetime.now(timezone.utc).strftime("%H:%M:%S")
+                    set_parts.append(f"{col_hora_fin} = ?")
+                    set_vals.append(hora_actual)
+
+                # Calcular duración en minutos
+                col_duracion = _pick(t_cols, "Duracion_Minutos", "DuracionMinutos", "Minutos_Duracion")
+                if col_duracion:
+                    # Obtener Hora_Inicio
+                    col_hora_inicio = _pick(t_cols, "Hora_Inicio", "HoraInicio", "Hora_Creacion")
+                    if col_hora_inicio and col_hora_inicio in m:
+                        hora_inicio_str = str(m.get(col_hora_inicio) or "")
+                        if hora_inicio_str:
+                            try:
+                                # Parsear horas HH:MM:SS
+                                h_inicio = datetime.strptime(hora_inicio_str.split('.')[0], "%H:%M:%S")
+                                h_fin = datetime.now(timezone.utc)
+                                duracion_minutos = int((h_fin - h_inicio.replace(hour=h_fin.hour, minute=h_fin.minute, second=h_fin.second)).total_seconds() / 60)
+                                set_parts.append(f"{col_duracion} = ?")
+                                set_vals.append(max(0, duracion_minutos))
+                            except Exception:
+                                pass  # Si no se puede calcular, no agregar
 
         set_vals.append(id_tarea)
         cur.execute(
@@ -1065,6 +1164,33 @@ def _fila_es_tarea_manual(m: Dict[str, Any], t_source_type: Optional[str], t_tip
         if v == "MANUAL":
             return True
     return False
+
+
+def _append_fecha_cierre_update(
+    t_cols: List[str],
+    set_parts: List[str],
+    set_vals: List[Any],
+) -> None:
+    """Escribe fecha de cierre (o columna equivalente) para bitácora / GET lista."""
+    t_fc = _pick(
+        t_cols,
+        "Fecha_Cierre",
+        "Fecha_Completado",
+        "Fecha_Finalizacion",
+        "Fecha_Fin",
+        "Fecha_Terminado",
+    )
+    if not t_fc:
+        t_fc = _pick(
+            t_cols,
+            "Ultima_Modificacion",
+            "Fecha_Modificacion",
+            "Fecha_Actualizacion",
+            "UpdatedAt",
+        )
+    if t_fc:
+        set_parts.append(f"{t_fc} = ?")
+        set_vals.append(datetime.now(timezone.utc))
 
 
 @router.put("/api/tareas/finalizar_manual/{id_tarea}")
@@ -1127,6 +1253,7 @@ def finalizar_manual(
             set_vals.append(100)
         set_parts.append(f"{t_estado} = ?")
         set_vals.append("Terminado")
+        _append_fecha_cierre_update(t_cols, set_parts, set_vals)
         set_vals.append(id_tarea)
         cur.execute(
             f"UPDATE Tbl_Gestor_Tareas SET {', '.join(set_parts)} WHERE {t_pk} = ?",
@@ -1214,9 +1341,14 @@ def listar_tareas():
             t_cols,
             "Fecha_Inicio_Ciclo",
             "Fecha_Inicio",
-            "FechaCreacion",
+        )
+        t_fecha_creacion = _pick(
+            t_cols,
             "Fecha_Creacion",
+            "FechaCreacion",
             "CreatedAt",
+            "Fecha_Creado",
+            "Fecha_Alta",
         )
         t_fecha_cierre = _pick(
             t_cols,
@@ -1239,6 +1371,8 @@ def listar_tareas():
             "Usuario_Modifico",
             "Usuario_Ultima_Modificacion",
         )
+        t_descripcion = _pick(t_cols, "Descripcion", "Detalle", "Descripcion_Tarea")
+        t_minutos_est = _pick(t_cols, "Duracion_Minutos", "Tiempo_Total_Estimado", "Minutos_Estimados", "Tiempo_Estimado_Min")
 
         order_sql = f"ORDER BY {t_pk} DESC"
         if t_priority:
@@ -1301,12 +1435,20 @@ def listar_tareas():
             src_val = _norm_cell(m.get(t_source_type)) if t_source_type else None
             critico_val = _as_bool_cell(m.get(t_critico)) if t_critico else False
 
+            fc_raw = _coalesce_fecha_cierre_desde_fila(m)
+            if fc_raw is None and t_meta:
+                fc_raw = _fecha_cierre_desde_meta(m.get(t_meta))
+
             tasks.append(
                 {
                     "id_tarea": task_id,
                     "tipo": tipo_val,
                     "titulo": titulo_para_api,
                     "titulo_cambio": titulo_cambio_s,
+                    "descripcion": _norm_cell(m.get(t_descripcion)) if t_descripcion else None,
+                    "minutos_estimados": _int_or_none(m.get(t_minutos_est))
+                    if t_minutos_est
+                    else None,
                     "Usuario_Asignado": usuario_asignado_val,
                     "usuario_asignado": usuario_asignado_val,
                     "CurrentAssignee": ca_cell,
@@ -1319,7 +1461,8 @@ def listar_tareas():
                     "pause_reason_id": _int_or_none(m.get(t_pause_reason)) if t_pause_reason else None,
                     "critico": critico_val,
                     "fecha_inicio_ciclo": _dt_iso(m.get(t_fecha_ciclo)) if t_fecha_ciclo else None,
-                    "fecha_cierre": _dt_iso(m.get(t_fecha_cierre)) if t_fecha_cierre else None,
+                    "fecha_creacion": _dt_iso(m.get(t_fecha_creacion)) if t_fecha_creacion else None,
+                    "fecha_cierre": _dt_iso(fc_raw),
                     "usuario_completado": _norm_cell(m.get(t_usuario_completado))
                     if t_usuario_completado
                     else None,
@@ -1379,6 +1522,19 @@ def marcar_check(
             raise HTTPException(status_code=404, detail="Check sin tarea padre")
         id_tarea = int(row[0])
 
+        prev_prog = 0
+        if t_progreso:
+            cur.execute(
+                f"SELECT {t_progreso} FROM Tbl_Gestor_Tareas WHERE {t_pk} = ?",
+                (id_tarea,),
+            )
+            pr = cur.fetchone()
+            if pr and pr[0] is not None:
+                try:
+                    prev_prog = int(pr[0])
+                except (TypeError, ValueError):
+                    prev_prog = 0
+
         if t_estado:
             cur.execute(
                 f"SELECT {t_estado} FROM Tbl_Gestor_Tareas WHERE {t_pk} = ?",
@@ -1420,6 +1576,8 @@ def marcar_check(
         if t_estado:
             set_parts.append(f"{t_estado} = ?")
             vals.append(_estado_desde_progreso(progress))
+        if progress >= 100 and prev_prog < 100:
+            _append_fecha_cierre_update(t_cols, set_parts, vals)
         if set_parts:
             vals.append(id_tarea)
             cur.execute(
@@ -1613,27 +1771,59 @@ def limpiar_historial(
         t_progreso = _pick(t_cols, "Porcentaje_Progreso", "Progreso")
         t_estado = _pick(t_cols, "Estado", "Status", "Estado_Tarea")
 
-        # Seleccionar tareas a borrar
-        cur.execute(f"SELECT {t_pk} FROM Tbl_Gestor_Tareas WHERE CAST({t_progreso} AS INT) >= 100 OR {t_estado} = 'Cancelado' OR {t_estado} = 'Terminado'")
+        if not t_progreso or not t_estado:
+            raise HTTPException(status_code=500, detail="No se pudo mapear progreso/estado para limpiar historial")
+
+        # Seleccionar tareas a borrar (TRY_CAST evita error si la columna no es numérica)
+        cur.execute(
+            f"""
+            SELECT [{t_pk}] FROM dbo.Tbl_Gestor_Tareas
+            WHERE COALESCE(TRY_CAST([{t_progreso}] AS INT), 0) >= 100
+               OR [{t_estado}] = N'Cancelado'
+               OR [{t_estado}] = N'Terminado'
+            """
+        )
         rows = cur.fetchall()
         if not rows:
             return {"status": "ok", "message": "No hay tareas en historial para limpiar", "borradas": 0}
 
         ids_a_borrar = [row[0] for row in rows]
-        id_str = ",".join(str(i) for i in ids_a_borrar)
+        placeholders = ",".join("?" * len(ids_a_borrar))
+        params = tuple(ids_a_borrar)
 
-        # Borrar checks
-        cur.execute(f"DELETE FROM Tbl_Gestor_Checklist WHERE {c_fk_tarea} IN ({id_str})")
-        
-        # Borrar tareas
-        cur.execute(f"DELETE FROM Tbl_Gestor_Tareas WHERE {t_pk} IN ({id_str})")
-        
-        # Borrar auditoria
-        if _audit_estado_tabla_existe(cur):
-            cur.execute(f"DELETE FROM Tbl_Gestor_Tarea_Estado_Auditoria WHERE ID_Tarea IN ({id_str})")
+        try:
+            conn.autocommit = False
+        except Exception:
+            pass
 
+        # Transacción única: hijos primero (FK), luego tarea padre.
+        # 1) Checklist
+        cur.execute(
+            f"DELETE FROM dbo.Tbl_Gestor_Checklist WHERE [{c_fk_tarea}] IN ({placeholders})",
+            params,
+        )
+        # 2) Auditoría de estados (columna FK según esquema)
+        audit_fk = _audit_id_tarea_col(cur)
+        if audit_fk:
+            cur.execute(
+                f"DELETE FROM dbo.Tbl_Gestor_Tarea_Estado_Auditoria WHERE [{audit_fk}] IN ({placeholders})",
+                params,
+            )
+        # 3) Tareas
+        cur.execute(
+            f"DELETE FROM dbo.Tbl_Gestor_Tareas WHERE [{t_pk}] IN ({placeholders})",
+            params,
+        )
+
+        registrar_log_global(
+            cur,
+            "GESTOR_TAREAS",
+            "LIMPIAR_HISTORIAL",
+            "",
+            f"borradas={len(ids_a_borrar)}",
+            usr,
+        )
         conn.commit()
-        registrar_log_global(usr, "INFO", f"LIMPIAR HISTORIAL: borradas {len(ids_a_borrar)} tareas.")
         return {"status": "ok", "borradas": len(ids_a_borrar)}
     except Exception as e:
         conn.rollback()

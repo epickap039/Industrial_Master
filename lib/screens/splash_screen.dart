@@ -71,7 +71,7 @@ class _SplashScreenState extends State<SplashScreen> {
                   Container(
                     height: 2,
                     width: 100 * value,
-                    color: Colors.blue.withOpacity(0.8),
+                    color: Colors.blue.withValues(alpha: 0.8),
                   ),
                 ],
               ),

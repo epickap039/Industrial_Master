@@ -5,9 +5,14 @@ import 'ayudas_menu_screen.dart';
 
 /// Contenedor con [Navigator] interno para el flujo Ayudas (menú → categoría → visor).
 class AyudasVisualesNav extends StatelessWidget {
-  const AyudasVisualesNav({super.key, required this.canUpload});
+  const AyudasVisualesNav({
+    super.key,
+    required this.canUpload,
+    this.allowRevisionHistory = true,
+  });
 
   final bool canUpload;
+  final bool allowRevisionHistory;
 
   @override
   Widget build(BuildContext context) {
@@ -15,7 +20,10 @@ class AyudasVisualesNav extends StatelessWidget {
       onGenerateRoute: (RouteSettings settings) {
         return material.MaterialPageRoute<void>(
           settings: settings,
-          builder: (_) => AyudasMenuScreen(canUpload: canUpload),
+          builder: (_) => AyudasMenuScreen(
+            canUpload: canUpload,
+            allowRevisionHistory: allowRevisionHistory,
+          ),
         );
       },
     );

@@ -94,10 +94,18 @@ class CmdInboxStore {
   CmdInboxStore._();
   static final CmdInboxStore instance = CmdInboxStore._();
 
+  Future<String> _prefsKeyForCurrentUser() async {
+    final prefs = await SharedPreferences.getInstance();
+    final user = (prefs.getString('username') ?? '').trim().toLowerCase();
+    if (user.isEmpty) return _kPrefsKey;
+    return '${_kPrefsKey}_$user';
+  }
+
   Future<List<CmdInboxEntry>> loadAll() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_kPrefsKey);
+      final key = await _prefsKeyForCurrentUser();
+      final raw = prefs.getString(key);
       if (raw == null || raw.isEmpty) {
         return [];
       }
@@ -124,11 +132,12 @@ class CmdInboxStore {
   Future<void> _save(List<CmdInboxEntry> items) async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      final key = await _prefsKeyForCurrentUser();
       while (items.length > _kMaxItems) {
         items.removeLast();
       }
       await prefs.setString(
-        _kPrefsKey,
+        key,
         json.encode(items.map((e) => e.toJson()).toList()),
       );
     } catch (_) {}
@@ -200,6 +209,7 @@ class CmdInboxStore {
 
   Future<void> clearAll() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_kPrefsKey);
+    final key = await _prefsKeyForCurrentUser();
+    await prefs.remove(key);
   }
 }

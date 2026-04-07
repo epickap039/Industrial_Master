@@ -14,6 +14,10 @@ bool _tieneMetaUtil(Map<String, dynamic> task) {
   return true;
 }
 
+bool _tieneDetalleInfo(Map<String, dynamic> task) {
+  return descripcionMision(task).isNotEmpty || _tieneMetaUtil(task);
+}
+
 class DirectiveMissionCard extends StatefulWidget {
   const DirectiveMissionCard({
     super.key,
@@ -47,11 +51,17 @@ class DirectiveMissionCard extends StatefulWidget {
   final Set<int> checkEnProceso;
   final bool isDark;
   final bool vistaCompacta;
-  final Future<void> Function(int idTarea, Map<String, dynamic> check, bool? v) onToggleCheck;
-  final Future<void> Function(int idTarea, List<Map<String, dynamic>> grupo, bool hecho)?
-      onToggleGrupo;
+  final Future<void> Function(int idTarea, Map<String, dynamic> check, bool? v)
+  onToggleCheck;
+  final Future<void> Function(
+    int idTarea,
+    List<Map<String, dynamic>> grupo,
+    bool hecho,
+  )?
+  onToggleGrupo;
   final Future<void> Function(int idTarea)? onAbrirDialogoPrioridad;
-  final Future<List<Map<String, dynamic>>> Function(int idTarea)? onCargarBitacora;
+  final Future<List<Map<String, dynamic>>> Function(int idTarea)?
+  onCargarBitacora;
   final VoidCallback? onCancel;
   final VoidCallback? onPause;
   final VoidCallback? onResume;
@@ -109,16 +119,24 @@ class _DirectiveMissionCardState extends State<DirectiveMissionCard> {
     final r = t['priority_rank'] ?? t['PriorityRank'];
     final n = r is int ? r : int.tryParse('$r');
     final pRank = (n != null) ? n + 1 : 0;
-    
-    material.Color andonBar = const material.Color(0xFF90A4AE);
-    if (pRank == 1) andonBar = const material.Color(0xFFE53935);
-    else if (pRank == 2) andonBar = const material.Color(0xFFFF9800);
-    else if (pRank == 3) andonBar = const material.Color(0xFF2979FF);
 
-    final bg = widget.isDark ? const material.Color(0xFF2C2C32) : const material.Color(0xFFF0F0F3);
+    material.Color andonBar = const material.Color(0xFF90A4AE);
+    if (pRank == 1) {
+      andonBar = const material.Color(0xFFE53935);
+    } else if (pRank == 2)
+      andonBar = const material.Color(0xFFFF9800);
+    else if (pRank == 3)
+      andonBar = const material.Color(0xFF2979FF);
+
+    final bg =
+        widget.isDark
+            ? const material.Color(0xFF2C2C32)
+            : const material.Color(0xFFF0F0F3);
     final fg = widget.isDark ? material.Colors.white : material.Colors.black87;
 
-    final String asignado = '${t['usuario_asignado'] ?? t['Usuario_Asignado'] ?? 'Sin asignar'}'.trim();
+    final String asignado =
+        '${t['usuario_asignado'] ?? t['Usuario_Asignado'] ?? 'Sin asignar'}'
+            .trim();
 
     return material.Card(
       elevation: 2,
@@ -126,21 +144,28 @@ class _DirectiveMissionCardState extends State<DirectiveMissionCard> {
       color: bg,
       shape: material.RoundedRectangleBorder(
         borderRadius: material.BorderRadius.circular(8),
-        side: material.BorderSide(color: andonBar.withValues(alpha: 0.55), width: 1.0),
+        side: material.BorderSide(
+          color: andonBar.withValues(alpha: 0.55),
+          width: 1.0,
+        ),
       ),
       clipBehavior: material.Clip.antiAlias,
       child: material.InkWell(
         onTap: () => setState(() => _expanded = true),
         child: material.DecoratedBox(
           decoration: material.BoxDecoration(
-            border: material.Border(left: material.BorderSide(width: 6.0, color: andonBar)),
+            border: material.Border(
+              left: material.BorderSide(width: 6.0, color: andonBar),
+            ),
           ),
           child: material.Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             child: material.Row(
               children: [
                 material.Icon(
-                  esManualSource(t) ? FluentIcons.page_list : FluentIcons.bullseye_target,
+                  esManualSource(t)
+                      ? FluentIcons.page_list
+                      : FluentIcons.bullseye_target,
                   color: andonBar,
                   size: 16,
                 ),
@@ -192,7 +217,6 @@ class _DirectiveMissionCardState extends State<DirectiveMissionCard> {
 
 class _DirectiveMissionCardInternal extends StatelessWidget {
   const _DirectiveMissionCardInternal({
-    super.key,
     required this.task,
     required this.canControl,
     this.permitirChecklist = true,
@@ -222,22 +246,33 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
   final bool vistaMisionesActivas;
   final Set<int> checkEnProceso;
   final bool isDark;
-  final Future<void> Function(int idTarea, Map<String, dynamic> check, bool? v) onToggleCheck;
-  final Future<void> Function(int idTarea, List<Map<String, dynamic>> grupo, bool hecho)?
-      onToggleGrupo;
+  final Future<void> Function(int idTarea, Map<String, dynamic> check, bool? v)
+  onToggleCheck;
+  final Future<void> Function(
+    int idTarea,
+    List<Map<String, dynamic>> grupo,
+    bool hecho,
+  )?
+  onToggleGrupo;
+
   /// Diálogo de prioridad (1–3) y suspensión opcional; solo misiones activas con control.
   final Future<void> Function(int idTarea)? onAbrirDialogoPrioridad;
+
   /// Historial: eventos desde `Tbl_Gestor_Tarea_Estado_Auditoria`.
-  final Future<List<Map<String, dynamic>>> Function(int idTarea)? onCargarBitacora;
+  final Future<List<Map<String, dynamic>>> Function(int idTarea)?
+  onCargarBitacora;
   final VoidCallback? onCancel;
   final VoidCallback? onPause;
   final VoidCallback? onResume;
   final VoidCallback? onShowMeta;
+
   /// Cierre express para tareas con origen manual (progreso 100 %, estado Terminado).
   final VoidCallback? onFinalizarManual;
+
   /// Pestaña historial: resalta cancelaciones y motivo.
   final bool vistaHistorial;
   final bool vistaCompacta;
+
   /// Tarjeta tipo lobby (icono, título, barra gruesa) para misión activa en grid.
   final bool lobbyStyle;
   final int? lobbyIndex;
@@ -290,17 +325,22 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final idTareaRaw = task['id_tarea'];
-    final idTarea = idTareaRaw is int ? idTareaRaw : int.tryParse('$idTareaRaw') ?? 0;
+    final idTarea =
+        idTareaRaw is int ? idTareaRaw : int.tryParse('$idTareaRaw') ?? 0;
     final p = int.tryParse('${task['porcentaje_progreso'] ?? 0}') ?? 0;
-    final checks = (task['checklist'] as List<dynamic>? ?? [])
-        .map((e) => Map<String, dynamic>.from(e as Map))
-        .toList();
+    final checks =
+        (task['checklist'] as List<dynamic>? ?? [])
+            .map((e) => Map<String, dynamic>.from(e as Map))
+            .toList();
     final titulo = tituloMision(task);
     final asignado = asignadoMision(task);
     final stroke = _colorSemaforo();
     final andonBar = _colorAndonPrioridad();
     final cancelada = esCancelada(task);
     final pausada = esPausada(task);
+    final criticaTarjeta =
+        esCritica(task) && !cancelada && vistaMisionesActivas;
+    final descCard = descripcionMision(task);
     final motivo = cancelada ? motivoCancelacion(task) : null;
     final showMotivo = cancelada && motivo != null && motivo.isNotEmpty;
     final showMotivoInline = showMotivo && !(vistaHistorial && cancelada);
@@ -311,6 +351,29 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
     final ucHist = vistaHistorial ? usuarioCompletoHistorialLegible(task) : '';
 
     final bg = isDark ? const Color(0xFF2C2C32) : const Color(0xFFF0F0F3);
+    final lobbySurface = BoxDecoration(
+      gradient:
+          criticaTarjeta
+              ? LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors:
+                    isDark
+                        ? const [
+                          Color(0xFF3E2723),
+                          Color(0xFF4E342E),
+                          Color(0xFF1B1B1F),
+                        ]
+                        : const [
+                          Color(0xFFFFF8E1),
+                          Color(0xFFFFECB3),
+                          Color(0xFFFFCDD2),
+                        ],
+              )
+              : null,
+      color: criticaTarjeta ? null : bg,
+      border: Border(left: BorderSide(width: 8.0, color: andonBar)),
+    );
     final fg = isDark ? const Color(0xFFECEFF1) : const Color(0xFF1B1B1B);
     final fgSec = isDark ? const Color(0xFFB0BEC5) : const Color(0xFF616161);
 
@@ -325,17 +388,18 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
       barColor = const material.Color(0xFFB0BEC5);
     }
 
-    final tieneMeta = _tieneMetaUtil(task);
+    final tieneDetalleInfo = _tieneDetalleInfo(task);
     final tieneImagenAdjunta = imagenAdjuntaBase64Tarea(task) != null;
     final tiempoTxt = tiempoEstimadoEtiqueta(task);
-    final totalMeta = totalMinutosPresupuestoMeta(task);
+    final totalMeta = totalMinutosPresupuestoCombinado(task);
 
     final presupuestoBlock = Tooltip(
-      message: totalMeta != null
-          ? 'Tiempo restante estimado = total simulado ($totalMeta min) × (1 − progreso/100). '
-              'Origen: total_minutos en Meta_JSON (Radar).'
-          : 'Las misiones Radar guardan total_minutos al crear la tarea; '
-              'las manuales no tienen esta simulación.',
+      message:
+          totalMeta != null
+              ? 'Tiempo restante estimado = presupuesto ($totalMeta min) × (1 − progreso/100). '
+                  'Radar: total_minutos en meta; manual: minutos al crear o checklist.'
+              : 'Defina minutos estimados al crear la misión manual, marque «No aplica» si no aplica, '
+                  'o use Radar para simulación con total_minutos.',
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4),
         child: Text(
@@ -356,10 +420,10 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
       runSpacing: 6,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        if (onShowMeta != null && tieneMeta)
+        if (onShowMeta != null && tieneDetalleInfo)
           Tooltip(
             message:
-                'Detalle tecnico (JSON): trazabilidad de Radar, estimaciones y datos guardados en SQL. Opcional para direccion.',
+                'Nombre, descripción al crear la misión y, si aplica, datos técnicos (Radar / auditoría).',
             child: IconButton(
               icon: const Icon(FluentIcons.info, size: 16),
               onPressed: onShowMeta,
@@ -386,7 +450,11 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
               onPressed: () => onAbrirDialogoPrioridad!(idTarea),
             ),
           ),
-        if (vistaMisionesActivas && canControl && !cancelada && !pausada && p < 100)
+        if (vistaMisionesActivas &&
+            canControl &&
+            !cancelada &&
+            !pausada &&
+            p < 100)
           FilledButton(
             style: ButtonStyle(
               backgroundColor: WidgetStateProperty.all(const Color(0xFFFFA000)),
@@ -395,10 +463,7 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
             child: const Text('Pausar'),
           ),
         if (vistaMisionesActivas && canControl && pausada && p < 100)
-          FilledButton(
-            onPressed: onResume,
-            child: const Text('Reanudar'),
-          ),
+          FilledButton(onPressed: onResume, child: const Text('Reanudar')),
         if (esManualSource(task) &&
             canControl &&
             !cancelada &&
@@ -431,15 +496,16 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
       permitirChecklist && canControl && !pausada,
     );
 
-    final Widget? bitacoraHistorial = vistaHistorial && onCargarBitacora != null && idTarea > 0
-        ? BitacoraHistorialExpansion(
-            idTarea: idTarea,
-            onLoad: onCargarBitacora!,
-            fg: fg,
-            fgSec: fgSec,
-            isDark: isDark,
-          )
-        : null;
+    final Widget? bitacoraHistorial =
+        vistaHistorial && onCargarBitacora != null && idTarea > 0
+            ? BitacoraHistorialExpansion(
+              idTarea: idTarea,
+              onLoad: onCargarBitacora!,
+              fg: fg,
+              fgSec: fgSec,
+              isDark: isDark,
+            )
+            : null;
 
     final footerRow = Row(
       children: [
@@ -459,7 +525,9 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
           ),
         ),
         Icon(
-          esManualSource(task) ? FluentIcons.page_list : FluentIcons.bullseye_target,
+          esManualSource(task)
+              ? FluentIcons.page_list
+              : FluentIcons.bullseye_target,
           size: 15,
           color: fgSec,
         ),
@@ -475,15 +543,16 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
       ],
     );
 
-
     if (lobbyStyle && vistaMisionesActivas) {
       final idx = lobbyIndex ?? 0;
       final n = lobbyCount ?? 1;
       final iconData =
-          esManualSource(task) ? FluentIcons.page_list : FluentIcons.bullseye_target;
+          esManualSource(task)
+              ? FluentIcons.page_list
+              : FluentIcons.bullseye_target;
       return material.Card(
         elevation: 4,
-        color: bg,
+        color: material.Colors.transparent,
         shadowColor: stroke.withValues(alpha: 0.4),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
@@ -492,177 +561,216 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
         clipBehavior: Clip.antiAlias,
         // No usar Row+stretch aquí: en Wrap/SingleChildScrollView la altura es ∞ y falla el layout.
         child: DecoratedBox(
-          decoration: BoxDecoration(
-            border: Border(
-              left: BorderSide(width: 8.0, color: andonBar),
-            ),
-          ),
+          decoration: lobbySurface,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             mainAxisSize: MainAxisSize.min,
             children: [
-                  if (showMotivoHistorialBanner)
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-                      color: isDark
+              if (showMotivoHistorialBanner)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                  color:
+                      isDark
                           ? const Color(0xFF4A1C1C)
                           : const Color(0xFFFFEBEE),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Motivo de cancelación',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color:
+                              isDark
+                                  ? const Color(0xFFFFCDD2)
+                                  : const Color(0xFFB71C1C),
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        motivoCancelacionTxt,
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w600,
+                          height: 1.35,
+                          color:
+                              isDark
+                                  ? const Color(0xFFFFE0E0)
+                                  : const Color(0xFF3E2723),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 10, 10),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (onReorderByDelta != null)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 4),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(FluentIcons.sort_up, size: 15),
+                              onPressed:
+                                  idx > 0
+                                      ? () => onReorderByDelta!(idx, -1)
+                                      : null,
+                            ),
+                            IconButton(
+                              icon: const Icon(FluentIcons.sort_down, size: 15),
+                              onPressed:
+                                  idx < n - 1
+                                      ? () => onReorderByDelta!(idx, 1)
+                                      : null,
+                            ),
+                          ],
+                        ),
+                      ),
+                    Container(
+                      width: 50,
+                      height: 50,
+                      decoration: BoxDecoration(
+                        color: stroke.withValues(alpha: 0.22),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Icon(iconData, color: stroke, size: 28),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            'Motivo de cancelación',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                              color: isDark
-                                  ? const Color(0xFFFFCDD2)
-                                  : const Color(0xFFB71C1C),
-                              letterSpacing: 0.3,
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  titulo,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 16,
+                                    color: fg,
+                                    height: 1.15,
+                                  ),
+                                  maxLines: 3,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              if (criticaTarjeta) ...[
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFB71C1C),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: const Text(
+                                    'CRÍTICO',
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w900,
+                                      color: Color(0xFFFFEBEE),
+                                      letterSpacing: 0.6,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                              ],
+                              _pill(context, _pillEstado(), stroke),
+                            ],
+                          ),
+                          if (showMotivoInline) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              'Motivo: $motivo',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFFFF8A80),
+                                height: 1.2,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                          const SizedBox(height: 12),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: material.LinearProgressIndicator(
+                              value: (p / 100).clamp(0.0, 1.0),
+                              minHeight: 10,
+                              color: barColor,
+                              backgroundColor:
+                                  isDark
+                                      ? const material.Color(0xFF1E1E22)
+                                      : const material.Color(0xFFE0E0E0),
                             ),
                           ),
-                          const SizedBox(height: 6),
+                          const SizedBox(height: 5),
                           Text(
-                            motivoCancelacionTxt,
+                            cancelada
+                                ? 'Progreso: $p% (Cancelada)'
+                                : 'Progreso: $p%',
                             style: TextStyle(
-                              fontSize: 13.5,
+                              fontSize: 12,
+                              color: fgSec,
                               fontWeight: FontWeight.w600,
-                              height: 1.35,
-                              color: isDark
-                                  ? const Color(0xFFFFE0E0)
-                                  : const Color(0xFF3E2723),
                             ),
                           ),
+                          if (descCard.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              descCard,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: fgSec,
+                                height: 1.25,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
                         ],
                       ),
                     ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 12, 10, 10),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (onReorderByDelta != null)
-                          Padding(
-                            padding: const EdgeInsets.only(right: 4),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  icon: const Icon(FluentIcons.sort_up, size: 15),
-                                  onPressed:
-                                      idx > 0 ? () => onReorderByDelta!(idx, -1) : null,
-                                ),
-                                IconButton(
-                                  icon: const Icon(FluentIcons.sort_down, size: 15),
-                                  onPressed: idx < n - 1
-                                      ? () => onReorderByDelta!(idx, 1)
-                                      : null,
-                                ),
-                              ],
-                            ),
-                          ),
-                        Container(
-                          width: 50,
-                          height: 50,
-                          decoration: BoxDecoration(
-                            color: stroke.withValues(alpha: 0.22),
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: Icon(iconData, color: stroke, size: 28),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      titulo,
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w800,
-                                        fontSize: 16,
-                                        color: fg,
-                                        height: 1.15,
-                                      ),
-                                      maxLines: 3,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  _pill(context, _pillEstado(), stroke),
-                                ],
-                              ),
-                              if (showMotivoInline) ...[
-                                const SizedBox(height: 6),
-                                Text(
-                                  'Motivo: $motivo',
-                                  style: const TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                    color: Color(0xFFFF8A80),
-                                    height: 1.2,
-                                  ),
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                              const SizedBox(height: 12),
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
-                                child: material.LinearProgressIndicator(
-                                  value: (p / 100).clamp(0.0, 1.0),
-                                  minHeight: 10,
-                                  color: barColor,
-                                  backgroundColor: isDark
-                                      ? const material.Color(0xFF1E1E22)
-                                      : const material.Color(0xFFE0E0E0),
-                                ),
-                              ),
-                              const SizedBox(height: 5),
-                              Text(
-                                cancelada
-                                    ? 'Progreso: $p% (Cancelada)'
-                                    : 'Progreso: $p%',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: fgSec,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        presupuestoBlock,
-                        const SizedBox(height: 10),
-                        actionWrap,
-                        const SizedBox(height: 8),
-                        checklistTile,
-                        if (bitacoraHistorial != null) ...[
-                          const SizedBox(height: 6),
-                          bitacoraHistorial,
-                        ],
-                        const Divider(),
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 6),
-                          child: footerRow,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    presupuestoBlock,
+                    const SizedBox(height: 10),
+                    actionWrap,
+                    const SizedBox(height: 8),
+                    checklistTile,
+                    if (bitacoraHistorial != null) ...[
+                      const SizedBox(height: 6),
+                      bitacoraHistorial,
+                    ],
+                    const Divider(),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: footerRow,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -675,13 +783,36 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
           Container(width: 8, color: andonBar),
           Expanded(
             child: material.Material(
-              color: bg,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
+              color: material.Colors.transparent,
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient:
+                      criticaTarjeta
+                          ? LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors:
+                                isDark
+                                    ? const [
+                                      Color(0xFF3E2723),
+                                      Color(0xFF4E342E),
+                                      Color(0xFF1B1B1F),
+                                    ]
+                                    : const [
+                                      Color(0xFFFFF8E1),
+                                      Color(0xFFFFECB3),
+                                      Color(0xFFFFCDD2),
+                                    ],
+                          )
+                          : null,
+                  color: criticaTarjeta ? null : bg,
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
                       if (showMotivoHistorialBanner)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 10),
@@ -689,9 +820,10 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
                             width: double.infinity,
                             padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
                             decoration: BoxDecoration(
-                              color: isDark
-                                  ? const Color(0xFF4A1C1C)
-                                  : const Color(0xFFFFEBEE),
+                              color:
+                                  isDark
+                                      ? const Color(0xFF4A1C1C)
+                                      : const Color(0xFFFFEBEE),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Column(
@@ -702,9 +834,10 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
                                   style: TextStyle(
                                     fontSize: 10,
                                     fontWeight: FontWeight.w800,
-                                    color: isDark
-                                        ? const Color(0xFFFFCDD2)
-                                        : const Color(0xFFB71C1C),
+                                    color:
+                                        isDark
+                                            ? const Color(0xFFFFCDD2)
+                                            : const Color(0xFFB71C1C),
                                   ),
                                 ),
                                 const SizedBox(height: 4),
@@ -714,9 +847,10 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
                                     fontSize: 12.5,
                                     fontWeight: FontWeight.w600,
                                     height: 1.3,
-                                    color: isDark
-                                        ? const Color(0xFFFFE0E0)
-                                        : const Color(0xFF3E2723),
+                                    color:
+                                        isDark
+                                            ? const Color(0xFFFFE0E0)
+                                            : const Color(0xFF3E2723),
                                   ),
                                 ),
                               ],
@@ -759,11 +893,36 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
                               ],
                             ),
                           ),
+                          if (criticaTarjeta) ...[
+                            Container(
+                              margin: const EdgeInsets.only(right: 4),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 5,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFB71C1C),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Text(
+                                'CRÍTICO',
+                                style: TextStyle(
+                                  fontSize: 8,
+                                  fontWeight: FontWeight.w900,
+                                  color: Color(0xFFFFEBEE),
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ),
+                          ],
                           _pill(context, _pillEstado(), stroke),
                         ],
                       ),
                       const SizedBox(height: 6),
-                      Align(alignment: Alignment.center, child: presupuestoBlock),
+                      Align(
+                        alignment: Alignment.center,
+                        child: presupuestoBlock,
+                      ),
                       const SizedBox(height: 6),
                       ClipRRect(
                         borderRadius: BorderRadius.circular(6),
@@ -771,17 +930,35 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
                           value: (p / 100).clamp(0.0, 1.0),
                           minHeight: 6,
                           color: barColor,
-                          backgroundColor: isDark
-                              ? const material.Color(0xFF1E1E22)
-                              : const material.Color(0xFFE0E0E0),
+                          backgroundColor:
+                              isDark
+                                  ? const material.Color(0xFF1E1E22)
+                                  : const material.Color(0xFFE0E0E0),
                         ),
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        cancelada ? 'Progreso: $p% (Cancelada)' : 'Progreso: $p%',
+                        cancelada
+                            ? 'Progreso: $p% (Cancelada)'
+                            : 'Progreso: $p%',
                         style: TextStyle(fontSize: 11, color: fgSec),
                       ),
-                      if (vistaHistorial && (fcHist.isNotEmpty || ucHist.isNotEmpty)) ...[
+                      if (descCard.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          descCard,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: fgSec,
+                            height: 1.2,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                      if (vistaHistorial &&
+                          (fcHist.isNotEmpty || ucHist.isNotEmpty)) ...[
                         const SizedBox(height: 8),
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -829,6 +1006,7 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
                 ),
               ),
             ),
+          ),
         ],
       ),
     );
@@ -845,31 +1023,32 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
     bool puedeEditar,
   ) {
     final agrupados = entregablesAgrupadosDesdeMeta(task);
-    final body = checks.isEmpty
-        ? <Widget>[
-            Text(
-              'Sin items en checklist.',
-              style: TextStyle(color: fgSec, fontSize: 12),
-            ),
-          ]
-        : (agrupados != null && agrupados.isNotEmpty)
+    final body =
+        checks.isEmpty
+            ? <Widget>[
+              Text(
+                'Sin items en checklist.',
+                style: TextStyle(color: fgSec, fontSize: 12),
+              ),
+            ]
+            : (agrupados != null && agrupados.isNotEmpty)
             ? _checklistWidgetsFromMeta(
-                idTarea,
-                checks,
-                agrupados,
-                fg: fg,
-                fgMuted: fgSec,
-                isDark: isDark,
-                puedeEditar: puedeEditar,
-              )
+              idTarea,
+              checks,
+              agrupados,
+              fg: fg,
+              fgMuted: fgSec,
+              isDark: isDark,
+              puedeEditar: puedeEditar,
+            )
             : _checklistWidgets(
-                idTarea,
-                checks,
-                fg: fg,
-                fgMuted: fgSec,
-                isDark: isDark,
-                puedeEditar: puedeEditar,
-              );
+              idTarea,
+              checks,
+              fg: fg,
+              fgMuted: fgSec,
+              isDark: isDark,
+              puedeEditar: puedeEditar,
+            );
     return MissionChecklistScrollPane(
       title: 'Checklist (${checks.length})',
       fg: fg,
@@ -924,12 +1103,7 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
         for (final c in list)
           Padding(
             padding: const EdgeInsets.only(left: 8, bottom: 6),
-            child: _filaCheck(
-              idTarea,
-              c,
-              puedeEditar,
-              fgMuted,
-            ),
+            child: _filaCheck(idTarea, c, puedeEditar, fgMuted),
           ),
       ];
 
@@ -1052,7 +1226,9 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
       final matched = <Map<String, dynamic>>[];
       for (final t in itemsTpl) {
         if (t is! Map) continue;
-        final tpl = Map<String, dynamic>.from(t.map((k, v) => MapEntry('$k', v)));
+        final tpl = Map<String, dynamic>.from(
+          t.map((k, v) => MapEntry('$k', v)),
+        );
         final c = _matchCheckToSimTemplate(checks, usedIds, gtRaw, tpl);
         if (c != null) {
           final id = idCheckDe(c);
@@ -1073,7 +1249,9 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
         final matched2 = <Map<String, dynamic>>[];
         for (final t in itemsTpl) {
           if (t is! Map) continue;
-          final tpl = Map<String, dynamic>.from(t.map((k, v) => MapEntry('$k', v)));
+          final tpl = Map<String, dynamic>.from(
+            t.map((k, v) => MapEntry('$k', v)),
+          );
           final c = _matchCheckByNombreOnly(checks, usedIds, tpl);
           if (c != null) {
             final id = idCheckDe(c);
@@ -1098,12 +1276,7 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
         for (final c in matched)
           Padding(
             padding: const EdgeInsets.only(left: 8, bottom: 6),
-            child: _filaCheck(
-              idTarea,
-              c,
-              puedeEditar,
-              fgMuted,
-            ),
+            child: _filaCheck(idTarea, c, puedeEditar, fgMuted),
           ),
       ];
 
@@ -1146,12 +1319,11 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
       gi++;
     }
 
-    final orphans = checks
-        .where((c) {
+    final orphans =
+        checks.where((c) {
           final id = idCheckDe(c);
           return id == null || !usedIds.contains(id);
-        })
-        .toList();
+        }).toList();
     if (orphans.isNotEmpty) {
       if (out.isNotEmpty) {
         out.add(const SizedBox(height: 22));
@@ -1188,11 +1360,12 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
       children: [
         material.Checkbox(
           value: done,
-          onChanged: ok
-              ? (bool? v) {
-                  if (v != null) onToggleCheck(idTarea, c, v);
-                }
-              : null,
+          onChanged:
+              ok
+                  ? (bool? v) {
+                    if (v != null) onToggleCheck(idTarea, c, v);
+                  }
+                  : null,
         ),
         Expanded(
           child: Padding(
@@ -1251,10 +1424,12 @@ class MissionChecklistScrollPane extends StatefulWidget {
   final List<Widget> scrollChildren;
 
   @override
-  State<MissionChecklistScrollPane> createState() => _MissionChecklistScrollPaneState();
+  State<MissionChecklistScrollPane> createState() =>
+      _MissionChecklistScrollPaneState();
 }
 
-class _MissionChecklistScrollPaneState extends State<MissionChecklistScrollPane> {
+class _MissionChecklistScrollPaneState
+    extends State<MissionChecklistScrollPane> {
   final material.ScrollController _sc = material.ScrollController();
 
   @override
@@ -1319,10 +1494,12 @@ class BitacoraHistorialExpansion extends StatefulWidget {
   final bool isDark;
 
   @override
-  State<BitacoraHistorialExpansion> createState() => _BitacoraHistorialExpansionState();
+  State<BitacoraHistorialExpansion> createState() =>
+      _BitacoraHistorialExpansionState();
 }
 
-class _BitacoraHistorialExpansionState extends State<BitacoraHistorialExpansion> {
+class _BitacoraHistorialExpansionState
+    extends State<BitacoraHistorialExpansion> {
   bool _cargando = false;
   bool _pidio = false;
   List<Map<String, dynamic>> _items = [];
@@ -1386,7 +1563,10 @@ class _BitacoraHistorialExpansionState extends State<BitacoraHistorialExpansion>
                 padding: const EdgeInsets.all(8),
                 child: Text(
                   _err!,
-                  style: const TextStyle(color: Color(0xFFE53935), fontSize: 12),
+                  style: const TextStyle(
+                    color: Color(0xFFE53935),
+                    fontSize: 12,
+                  ),
                 ),
               )
             else if (_items.isEmpty)
@@ -1440,7 +1620,10 @@ class _BitacoraHistorialExpansionState extends State<BitacoraHistorialExpansion>
 
 /// Resultado de [showAsignarPrioridadMissionDialog].
 class PrioridadMisionDialogResult {
-  PrioridadMisionDialogResult({required this.nivel, required this.suspenderOtras});
+  PrioridadMisionDialogResult({
+    required this.nivel,
+    required this.suspenderOtras,
+  });
 
   /// 1 = Crítico, 2 = Alta, 3 = Normal (UI).
   final int nivel;
@@ -1468,7 +1651,8 @@ class _PrioridadMisionDialogContent extends StatefulWidget {
       _PrioridadMisionDialogContentState();
 }
 
-class _PrioridadMisionDialogContentState extends State<_PrioridadMisionDialogContent> {
+class _PrioridadMisionDialogContentState
+    extends State<_PrioridadMisionDialogContent> {
   late int _sel;
   bool _suspender = false;
 
@@ -1554,7 +1738,10 @@ class _PrioridadMisionDialogContentState extends State<_PrioridadMisionDialogCon
           onPressed: () {
             Navigator.pop(
               context,
-              PrioridadMisionDialogResult(nivel: _sel, suspenderOtras: _suspender),
+              PrioridadMisionDialogResult(
+                nivel: _sel,
+                suspenderOtras: _suspender,
+              ),
             );
           },
           child: const Text('Aplicar'),
@@ -1564,7 +1751,10 @@ class _PrioridadMisionDialogContentState extends State<_PrioridadMisionDialogCon
   }
 }
 
-void mostrarImagenAdjuntaMision(BuildContext context, Map<String, dynamic> task) {
+void mostrarImagenAdjuntaMision(
+  BuildContext context,
+  Map<String, dynamic> task,
+) {
   final b64 = imagenAdjuntaBase64Tarea(task);
   if (b64 == null || b64.isEmpty) return;
   Uint8List bytes;
@@ -1573,41 +1763,48 @@ void mostrarImagenAdjuntaMision(BuildContext context, Map<String, dynamic> task)
   } catch (_) {
     displayInfoBar(
       context,
-      builder: (c, close) => InfoBar(
-        title: const Text('Imagen'),
-        content: const Text('No se pudo decodificar la imagen adjunta.'),
-        severity: InfoBarSeverity.warning,
-        action: IconButton(icon: const Icon(FluentIcons.clear), onPressed: close),
-      ),
+      builder:
+          (c, close) => InfoBar(
+            title: const Text('Imagen'),
+            content: const Text('No se pudo decodificar la imagen adjunta.'),
+            severity: InfoBarSeverity.warning,
+            action: IconButton(
+              icon: const Icon(FluentIcons.clear),
+              onPressed: close,
+            ),
+          ),
     );
     return;
   }
   showDialog<void>(
     context: context,
-    builder: (ctx) => ContentDialog(
-      title: const Text('Imagen adjunta'),
-      constraints: const BoxConstraints(maxWidth: 640, maxHeight: 560),
-      content: SizedBox(
-        width: 560,
-        height: 440,
-        child: material.InteractiveViewer(
-          minScale: 0.5,
-          maxScale: 4,
-          child: Center(
-            child: material.Image.memory(
-              bytes,
-              fit: BoxFit.contain,
-              errorBuilder: (_, __, ___) => const Text('No se pudo mostrar la imagen'),
+    builder:
+        (ctx) => ContentDialog(
+          title: const Text('Imagen adjunta'),
+          constraints: const BoxConstraints(maxWidth: 640, maxHeight: 560),
+          content: SizedBox(
+            width: 560,
+            height: 440,
+            child: material.InteractiveViewer(
+              minScale: 0.5,
+              maxScale: 4,
+              child: Center(
+                child: material.Image.memory(
+                  bytes,
+                  fit: BoxFit.contain,
+                  errorBuilder:
+                      (_, __, ___) =>
+                          const Text('No se pudo mostrar la imagen'),
+                ),
+              ),
             ),
           ),
+          actions: [
+            Button(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cerrar'),
+            ),
+          ],
         ),
-      ),
-      actions: [
-        Button(
-          onPressed: () => Navigator.pop(ctx),
-          child: const Text('Cerrar'),
-        ),
-      ],
-    ),
   );
 }

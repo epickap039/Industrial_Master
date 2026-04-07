@@ -24,6 +24,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from database import get_db_connection, _int_from_count_row
 from models import *
+from .bom import _purge_version_physical, _purge_tipo_physical
 
 router = APIRouter()
 

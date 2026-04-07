@@ -4,7 +4,7 @@ import '../services/api_client.dart';
 import '../widgets/compact_page_header.dart';
 
 class ProjectManagementScreen extends StatefulWidget {
-  const ProjectManagementScreen({Key? key}) : super(key: key);
+  const ProjectManagementScreen({super.key});
 
   @override
   _ProjectManagementScreenState createState() =>
@@ -71,14 +71,28 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   }
 
   Future<void> _deleteTracto(int id) async {
+    final confirmed = await _showConfirmDialog(
+      '¿Eliminar Tracto/Proyecto?',
+      'Selecciona un tracto para continuar.',
+      requiresPassword: true,
+    );
+    if (!confirmed) return;
+
     try {
-      final response =
-          await ApiClient.deleteUnvalidated('/api/proyectos/tractos/$id');
+      setState(() => _isLoading = true);
+      final response = await ApiClient.deleteUnvalidated(
+        '/api/proyectos/tractos/$id',
+      );
       if (response.statusCode == 200) {
+        _showSuccess('Tracto eliminado correctamente');
         _fetchTractos();
+      } else {
+        _showError("Error: ${response.statusCode}");
       }
     } catch (e) {
       _showError("Error al eliminar: $e");
+    } finally {
+      setState(() => _isLoading = false);
     }
   }
 
@@ -86,8 +100,9 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   Future<void> _fetchTipos(int idTracto) async {
     setState(() => _isLoading = true);
     try {
-      final response =
-          await ApiClient.getUnvalidated('/api/proyectos/tipos/$idTracto');
+      final response = await ApiClient.getUnvalidated(
+        '/api/proyectos/tipos/$idTracto',
+      );
       if (response.statusCode == 200) {
         setState(() {
           _tipos = response.decodeJson();
@@ -110,10 +125,7 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
     try {
       final response = await ApiClient.postUnvalidated(
         '/api/proyectos/tipos',
-        body: {
-          'id_tracto': _selectedTracto['id'],
-          'nombre': nombre,
-        },
+        body: {'id_tracto': _selectedTracto['id'], 'nombre': nombre},
       );
       if (response.statusCode == 200) {
         _fetchTipos(_selectedTracto['id']);
@@ -126,14 +138,28 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   }
 
   Future<void> _deleteTipo(int id) async {
+    final confirmed = await _showConfirmDialog(
+      '¿Eliminar Tipo de Proyecto?',
+      'Esta acción es irreversible. Todos los datos asociados se perderán.',
+      requiresPassword: true,
+    );
+    if (!confirmed) return;
+
     try {
-      final response =
-          await ApiClient.deleteUnvalidated('/api/proyectos/tipos/$id');
+      setState(() => _isLoading = true);
+      final response = await ApiClient.deleteUnvalidated(
+        '/api/proyectos/tipos/$id',
+      );
       if (response.statusCode == 200) {
+        _showSuccess('Tipo eliminado correctamente');
         _fetchTipos(_selectedTracto['id']);
+      } else {
+        _showError("Error: ${response.statusCode}");
       }
     } catch (e) {
       _showError("Error al eliminar: $e");
+    } finally {
+      setState(() => _isLoading = false);
     }
   }
 
@@ -141,8 +167,9 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   Future<void> _fetchVersiones(int idTipo) async {
     setState(() => _isLoading = true);
     try {
-      final response =
-          await ApiClient.getUnvalidated('/api/proyectos/versiones/$idTipo');
+      final response = await ApiClient.getUnvalidated(
+        '/api/proyectos/versiones/$idTipo',
+      );
       if (response.statusCode == 200) {
         setState(() {
           _versiones = response.decodeJson();
@@ -176,14 +203,27 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   }
 
   Future<void> _deleteVersion(int id) async {
+    final confirmed = await _showConfirmDialog(
+      '¿Eliminar Versión?',
+      'Se eliminarán todos los clientes y BOMs asociados.',
+    );
+    if (!confirmed) return;
+
     try {
-      final response =
-          await ApiClient.deleteUnvalidated('/api/proyectos/versiones/$id');
+      setState(() => _isLoading = true);
+      final response = await ApiClient.deleteUnvalidated(
+        '/api/proyectos/versiones/$id',
+      );
       if (response.statusCode == 200) {
+        _showSuccess('Versión eliminada correctamente');
         _fetchVersiones(_selectedTipo['id']);
+      } else {
+        _showError("Error: ${response.statusCode}");
       }
     } catch (e) {
       _showError("Error al eliminar: $e");
+    } finally {
+      setState(() => _isLoading = false);
     }
   }
 
@@ -191,8 +231,9 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   Future<void> _fetchClientes(int idVersion) async {
     setState(() => _isLoading = true);
     try {
-      final response =
-          await ApiClient.getUnvalidated('/api/proyectos/clientes/$idVersion');
+      final response = await ApiClient.getUnvalidated(
+        '/api/proyectos/clientes/$idVersion',
+      );
       if (response.statusCode == 200) {
         setState(() {
           _clientes = response.decodeJson();
@@ -211,10 +252,7 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
     try {
       final response = await ApiClient.postUnvalidated(
         '/api/proyectos/clientes',
-        body: {
-          'id_version': _selectedVersion['id'],
-          'nombre': nombre,
-        },
+        body: {'id_version': _selectedVersion['id'], 'nombre': nombre},
       );
       if (response.statusCode == 200) {
         _fetchClientes(_selectedVersion['id']);
@@ -227,14 +265,27 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   }
 
   Future<void> _deleteCliente(int id) async {
+    final confirmed = await _showConfirmDialog(
+      '¿Eliminar Cliente?',
+      'Se eliminarán los datos de configuración asociados.',
+    );
+    if (!confirmed) return;
+
     try {
-      final response =
-          await ApiClient.deleteUnvalidated('/api/proyectos/clientes/$id');
+      setState(() => _isLoading = true);
+      final response = await ApiClient.deleteUnvalidated(
+        '/api/proyectos/clientes/$id',
+      );
       if (response.statusCode == 200) {
+        _showSuccess('Cliente eliminado correctamente');
         _fetchClientes(_selectedVersion['id']);
+      } else {
+        _showError("Error: ${response.statusCode}");
       }
     } catch (e) {
       _showError("Error al eliminar: $e");
+    } finally {
+      setState(() => _isLoading = false);
     }
   }
 
@@ -250,6 +301,135 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
         );
       },
     );
+  }
+
+  void _showSuccess(String message) {
+    displayInfoBar(
+      context,
+      builder: (context, close) {
+        return InfoBar(
+          title: const Text('✓ Éxito'),
+          content: Text(message),
+          severity: InfoBarSeverity.success,
+          onClose: close,
+        );
+      },
+    );
+  }
+
+  Future<bool> _showConfirmDialog(
+    String title,
+    String content, {
+    bool requiresPassword = false,
+  }) async {
+    String password = "";
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder:
+          (context) => ContentDialog(
+            constraints: const BoxConstraints(maxWidth: 520, maxHeight: 420),
+            title: Row(
+              children: [
+                const Icon(
+                  FluentIcons.lock,
+                  color: Color.fromARGB(255, 255, 152, 0),
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Expanded(child: Text(title, overflow: TextOverflow.ellipsis)),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(content, style: const TextStyle(fontSize: 13)),
+                  if (requiresPassword) ...[
+                    const SizedBox(height: 16),
+                    const Divider(),
+                    const SizedBox(height: 12),
+                    const Text(
+                      '🚨 ACCIÓN CRÍTICA - DATOS IRRECUPERABLES',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: Color.fromARGB(255, 244, 67, 54),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Se eliminarán permanentemente:',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Color.fromARGB(26, 244, 67, 54),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(
+                          color: Color.fromARGB(50, 244, 67, 54),
+                        ),
+                      ),
+                      child: const Text(
+                        '• Versiones y clientes\n• BOMs y revisiones\n• TODOS los datos asociados',
+                        style: TextStyle(fontSize: 10),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Ingresa contraseña para confirmar:',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    TextBox(
+                      placeholder: 'Contraseña',
+                      obscureText: true,
+                      onChanged: (value) => password = value,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              Button(
+                child: const Text('Cancelar'),
+                onPressed: () => Navigator.pop(context, false),
+              ),
+              FilledButton(
+                child: Text(requiresPassword ? '🔓 Confirmar' : '✓ Eliminar'),
+                onPressed: () {
+                  if (requiresPassword) {
+                    if (password == 'ADMIN_ING_2024') {
+                      Navigator.pop(context, true);
+                    } else {
+                      Navigator.pop(context, false);
+                    }
+                  } else {
+                    Navigator.pop(context, true);
+                  }
+                },
+              ),
+            ],
+          ),
+    );
+
+    if (requiresPassword &&
+        result == false &&
+        password.isNotEmpty &&
+        password != 'ADMIN_ING_2024') {
+      _showError('Contraseña incorrecta');
+    }
+
+    return result ?? false;
   }
 
   void _showAddDialog(String title, Function(String) onSave) {
@@ -311,13 +491,13 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
               decoration: BoxDecoration(
                 color:
                     isEnabled
-                        ? Colors.blue.withOpacity(0.05)
+                        ? Colors.blue.withValues(alpha: 0.05)
                         : Colors.grey[200],
                 borderRadius: const BorderRadius.vertical(
                   top: Radius.circular(8),
                 ),
                 border: Border(
-                  bottom: BorderSide(color: Colors.grey.withOpacity(0.1)),
+                  bottom: BorderSide(color: Colors.grey.withValues(alpha: 0.1)),
                 ),
               ),
               child: Row(
@@ -329,14 +509,19 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
                       style: TextStyle(
                         fontWeight: FontWeight.w700,
                         fontSize: 13,
-                        color: isEnabled
-                            ? Colors.blue
-                            : (FluentTheme.of(context).typography.body?.color ??
-                                    (MediaQuery.of(context).platformBrightness ==
-                                            Brightness.dark
-                                        ? Colors.white
-                                        : Colors.black))
-                                .withOpacity(0.4),
+                        color:
+                            isEnabled
+                                ? Colors.blue
+                                : (FluentTheme.of(
+                                          context,
+                                        ).typography.body?.color ??
+                                        (MediaQuery.of(
+                                                  context,
+                                                ).platformBrightness ==
+                                                Brightness.dark
+                                            ? Colors.white
+                                            : Colors.black))
+                                    .withValues(alpha: 0.4),
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -359,10 +544,10 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
                             "Sin elementos",
                             style: TextStyle(
                               fontSize: 13,
-                              color: FluentTheme.of(context)
-                                      .typography.body
-                                      ?.color
-                                      ?.withOpacity(0.5) ??
+                              color:
+                                  FluentTheme.of(
+                                    context,
+                                  ).typography.body?.color?.withValues(alpha: 0.5) ??
                                   Colors.grey,
                             ),
                           ),
@@ -380,7 +565,7 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
                                 borderRadius: BorderRadius.circular(4),
                                 color:
                                     isSelected
-                                        ? Colors.blue.withOpacity(0.15)
+                                        ? Colors.blue.withValues(alpha: 0.15)
                                         : null,
                               ),
                               child: ListTile(
@@ -398,7 +583,7 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
                                 trailing: IconButton(
                                   icon: Icon(
                                     FluentIcons.delete,
-                                    color: Colors.red.withOpacity(0.6),
+                                    color: Colors.red.withValues(alpha: 0.6),
                                     size: 12,
                                   ),
                                   onPressed: () => onDelete(item['id']),
@@ -450,7 +635,11 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
                       setState(() => _selectedTracto = item);
                       _fetchTipos(item['id']);
                     },
-                    onAdd: () => _showAddDialog("Nuevo Tracto / Proyecto", _addTracto),
+                    onAdd:
+                        () => _showAddDialog(
+                          "Nuevo Tracto / Proyecto",
+                          _addTracto,
+                        ),
                     onDelete: _deleteTracto,
                   ),
                   const SizedBox(width: 16),

@@ -270,3 +270,31 @@ class ScanCADPayload(BaseModel):
 class CollectRequest(BaseModel):
     source_folder: str
     solo_faltantes: bool = False
+
+
+# ============================================================================
+# USUARIO - COLOR ASSIGNMENT
+# ============================================================================
+
+class UsuarioColorUpdate(BaseModel):
+    """Payload para actualizar el color de un usuario."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    color_hex: str = Field(
+        ...,
+        pattern=r'^#[0-9A-Fa-f]{6}$',
+        description="Color hexadecimal (ej: #FF8C00)",
+        examples=["#FF8C00", "#4ECDC4", "#FF6B6B"]
+    )
+
+
+class UsuarioColorResponse(BaseModel):
+    """Respuesta con información de color del usuario."""
+
+    model_config = ConfigDict(populate_by_name=True, from_attributes=True)
+
+    usuario_login: str = Field(..., alias="usuarioLogin")
+    color_hex: str = Field(..., alias="colorHex")
+
+
