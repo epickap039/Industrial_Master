@@ -2054,15 +2054,20 @@ def crear_tarea_desde_transcripcion(
 def voz_disponible():
     """
     Retorna si el servidor tiene faster-whisper instalado y listo.
-    El cliente puede consultar este endpoint antes de ofrecer grabación de voz.
+    Hace un import dinamico para detectar instalaciones posteriores al arranque.
     """
-    from voice_to_json_converter import WHISPER_AVAILABLE
+    disponible = False
+    try:
+        from faster_whisper import WhisperModel as _  # noqa: F401
+        disponible = True
+    except ImportError:
+        disponible = False
     return {
-        "whisper_disponible": WHISPER_AVAILABLE,
+        "whisper_disponible": disponible,
         "mensaje": (
-            "Transcripción de audio lista."
-            if WHISPER_AVAILABLE
-            else "faster-whisper no instalado. Solo se admite transcripción de texto (POST /api/tareas/voz/procesar)."
+            "Transcripcion de audio lista."
+            if disponible
+            else "faster-whisper no instalado. Solo se admite transcripcion de texto."
         ),
     }
 
