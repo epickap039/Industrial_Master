@@ -12,6 +12,16 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from audit_service import registrar_log_global
 from database import get_db_connection
 from user_context import resolve_actor_user
+from voice_to_json_converter import (
+    convertir_transcripcion_a_json,
+    extraer_usuario,
+    extraer_area,
+    extraer_pieza,
+    inicializar_whisper_gpu,
+    transcribir_audio,
+    validar_json_tarea,
+)
+from models import TranscripcionVozPayload, ArchivoAudioPayload, TareaDesdeVozResponse
 
 router = APIRouter()
 
@@ -1830,3 +1840,300 @@ def limpiar_historial(
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
+
+
+# ============================================================================
+# NUEVOS ENDPOINTS - TRANSCRIPCIÓN DE VOZ A TAREA (v15.5)
+# ============================================================================
+
+@router.post("/api/tareas/voz/procesar")
+def procesar_transcripcion_voz(
+    payload: TranscripcionVozPayload,
+    authorization: Optional[str] = Header(None),
+    x_usuario: Optional[str] = Header(None, alias="X-Usuario"),
+):
+    """
+    Procesa transcripción de voz (texto) y retorna JSON listo para insertar.
+
+    Endpoint: POST /api/tareas/voz/procesar
+
+    Entrada:
+        - transcripcion: Texto de la transcripción
+        - minutos_base: Minutos base para cálculos (default 30)
+        - incluir_metadata: Si agregar timestamps (default True)
+
+    Retorna:
+        - JSON con campos de tarea
+        - Entidades detectadas (área, pieza)
+        - Transcripción original
+    """
+    usr = resolve_actor_user(authorization, x_usuario)
+
+    try:
+        # Convertir transcripción a JSON
+        json_tarea = convertir_transcripcion_a_json(
+            payload.transcripcion,
+            minutos_base=payload.minutos_base,
+            incluir_metadata=payload.incluir_metadata,
+        )
+
+        # Validar estructura
+        valido, error = validar_json_tarea(json_tarea)
+        if not valido:
+            raise HTTPException(status_code=422, detail=f"JSON inválido: {error}")
+
+        # Construir respuesta con entidades detectadas
+        respuesta = TareaDesdeVozResponse(
+            titulo=json_tarea["titulo"],
+            descripcion=json_tarea["descripcion"],
+            usuario_asignado=json_tarea["usuario_asignado"],
+            minutos_estimados=json_tarea["minutos_estimados"],
+            priority_rank=json_tarea["priority_rank"],
+            tipo_tarea=json_tarea["tipo_tarea"],
+            source_type=json_tarea["source_type"],
+            meta_json=json_tarea["meta_json"],
+            transcripcion_procesada=payload.transcripcion,
+            entidades_detectadas={
+                "area": extraer_area(payload.transcripcion),
+                "pieza": extraer_pieza(payload.transcripcion),
+                "usuario_detectado": extraer_usuario(payload.transcripcion),
+            },
+        )
+
+        registrar_log_global(
+            None,
+            "GESTOR_TAREAS",
+            "VOZ_PROCESAR",
+            f"titulo={json_tarea['titulo']}",
+            f"prioridad={json_tarea['priority_rank']}",
+            usr,
+        )
+
+        return respuesta.model_dump()
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/tareas/voz/crear-desde-transcripcion")
+def crear_tarea_desde_transcripcion(
+    payload: TranscripcionVozPayload,
+    authorization: Optional[str] = Header(None),
+    x_usuario: Optional[str] = Header(None, alias="X-Usuario"),
+):
+    """
+    Transcribe voz → JSON → Crea tarea en Tbl_Gestor_Tareas en un paso.
+
+    Este endpoint combina:
+    1. Procesamiento de transcripción → JSON
+    2. Inserción en BD (como si fuera CrearManualPayload)
+
+    Retorna: ID de tarea creada
+    """
+    usr = resolve_actor_user(authorization, x_usuario)
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    try:
+        # Paso 1: Procesar transcripción
+        json_tarea = convertir_transcripcion_a_json(
+            payload.transcripcion,
+            minutos_base=payload.minutos_base,
+            incluir_metadata=payload.incluir_metadata,
+        )
+
+        valido, error = validar_json_tarea(json_tarea)
+        if not valido:
+            raise HTTPException(status_code=422, detail=f"JSON inválido: {error}")
+
+        # Paso 2: Obtener columnas de BD
+        t_cols = _get_cols(cur, "Tbl_Gestor_Tareas")
+        if not t_cols:
+            raise HTTPException(status_code=500, detail="Tabla Tbl_Gestor_Tareas no disponible")
+
+        # Mapear columnas
+        map_task = {
+            "tipo": _pick_tipo_tarea_col(t_cols),
+            "titulo": _pick(t_cols, "Titulo", "Nombre_Tarea"),
+            "descripcion": _pick(t_cols, "Descripcion", "Detalle"),
+            "estado": _pick(t_cols, "Estado", "Status"),
+            "usuario": _pick(t_cols, "Usuario_Creador", "Usuario"),
+            "minutos": _pick(t_cols, "Duracion_Minutos", "Tiempo_Estimado_Min", "Minutos_Estimados"),
+            "meta": _pick(t_cols, "Meta_JSON", "Datos_JSON"),
+            "usuario_asignado": _pick_assignee_col(t_cols),
+            "priority_rank": _pick(t_cols, "Priority_Rank", "Prioridad", "PriorityRank"),
+            "source_type": _pick(t_cols, "Source_Type", "Tipo_Origen"),
+        }
+
+        # Paso 3: Construir INSERT
+        insert_cols = []
+        insert_vals = []
+
+        if map_task["tipo"]:
+            insert_cols.append(map_task["tipo"])
+            insert_vals.append("MANUAL")
+        if map_task["titulo"]:
+            insert_cols.append(map_task["titulo"])
+            insert_vals.append(json_tarea["titulo"])
+        if map_task["descripcion"]:
+            insert_cols.append(map_task["descripcion"])
+            insert_vals.append(json_tarea["descripcion"])
+        if map_task["estado"]:
+            insert_cols.append(map_task["estado"])
+            insert_vals.append("Pendiente")
+        if map_task["usuario"]:
+            insert_cols.append(map_task["usuario"])
+            insert_vals.append(usr)
+        if map_task["minutos"]:
+            insert_cols.append(map_task["minutos"])
+            insert_vals.append(json_tarea["minutos_estimados"])
+        if map_task["meta"]:
+            insert_cols.append(map_task["meta"])
+            insert_vals.append(json_tarea["meta_json"])
+        if map_task["priority_rank"]:
+            insert_cols.append(map_task["priority_rank"])
+            insert_vals.append(json_tarea["priority_rank"])
+        if map_task["source_type"]:
+            insert_cols.append(map_task["source_type"])
+            insert_vals.append("VOZ_LOCAL")
+
+        # INSERT
+        cols_str = ", ".join([f"[{c}]" for c in insert_cols])
+        placeholders = ", ".join(["?" for _ in insert_vals])
+
+        insert_sql = f"INSERT INTO dbo.Tbl_Gestor_Tareas ({cols_str}) OUTPUT INSERTED." + (
+            _pk_like(t_cols, "tarea") or "ID_Tarea"
+        ) + " VALUES (" + placeholders + ")"
+
+        cur.execute(insert_sql, tuple(insert_vals))
+        result = cur.fetchone()
+        id_tarea_creada = result[0] if result else None
+
+        # POST-INSERT: Asignar usuario si es diferente a "PENDIENTE"
+        if json_tarea["usuario_asignado"] != "PENDIENTE" and map_task["usuario_asignado"]:
+            _apply_source_and_assignee_post_insert(
+                cur,
+                t_cols,
+                id_tarea_creada,
+                json_tarea["usuario_asignado"],
+                "VOZ_LOCAL",
+            )
+
+        registrar_log_global(
+            cur,
+            "GESTOR_TAREAS",
+            "VOZ_CREAR",
+            f"id={id_tarea_creada}, titulo={json_tarea['titulo']}",
+            f"prioridad={json_tarea['priority_rank']}, usuario={json_tarea['usuario_asignado']}",
+            usr,
+        )
+
+        conn.commit()
+
+        return {
+            "status": "ok",
+            "id_tarea": id_tarea_creada,
+            "titulo": json_tarea["titulo"],
+            "usuario_asignado": json_tarea["usuario_asignado"],
+            "priority_rank": json_tarea["priority_rank"],
+            "message": f"Tarea creada desde transcripción VOZ # {id_tarea_creada}",
+        }
+
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.get("/api/tareas/voz/disponible")
+def voz_disponible():
+    """
+    Retorna si el servidor tiene faster-whisper instalado y listo.
+    El cliente puede consultar este endpoint antes de ofrecer grabación de voz.
+    """
+    from voice_to_json_converter import WHISPER_AVAILABLE
+    return {
+        "whisper_disponible": WHISPER_AVAILABLE,
+        "mensaje": (
+            "Transcripción de audio lista."
+            if WHISPER_AVAILABLE
+            else "faster-whisper no instalado. Solo se admite transcripción de texto (POST /api/tareas/voz/procesar)."
+        ),
+    }
+
+
+@router.post("/api/tareas/voz/transcribir-audio")
+def transcribir_archivo_audio(
+    payload: ArchivoAudioPayload,
+    authorization: Optional[str] = Header(None),
+    x_usuario: Optional[str] = Header(None, alias="X-Usuario"),
+):
+    """
+    Transcribe archivo de audio (.mp3, .wav, .m4a) usando Whisper en GPU.
+
+    IMPORTANTE: Requiere faster-whisper instalado (pip install faster-whisper).
+    Si no está disponible retorna 503 con detalle claro.
+
+    Endpoint: POST /api/tareas/voz/transcribir-audio
+
+    Entrada:
+        - ruta_archivo: Ruta local al archivo de audio (accesible desde el servidor)
+        - idioma: Código ISO (default "es")
+        - minutos_base: Minutos base para estimación (default 30)
+
+    Retorna:
+        - transcripcion: texto completo
+        - json_tarea: objeto listo para insertar en Tbl_Gestor_Tareas
+    """
+    usr = resolve_actor_user(authorization, x_usuario)
+
+    try:
+        # Verificar disponibilidad antes de intentar cargar el modelo.
+        whisper_ok = inicializar_whisper_gpu()
+        if not whisper_ok:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "faster-whisper no disponible en este servidor. "
+                    "Instala: pip install faster-whisper. "
+                    "Usa POST /api/tareas/voz/procesar para enviar texto directamente."
+                ),
+            )
+
+        # Transcribir archivo (debe ser accesible desde el servidor)
+        transcripcion = transcribir_audio(payload.ruta_archivo, idioma=payload.idioma)
+        if not transcripcion:
+            raise HTTPException(
+                status_code=400,
+                detail="Transcripción vacía o error al leer el archivo de audio.",
+            )
+
+        json_tarea = convertir_transcripcion_a_json(
+            transcripcion,
+            minutos_base=payload.minutos_base,
+            incluir_metadata=True,
+        )
+
+        registrar_log_global(
+            None,
+            "GESTOR_TAREAS",
+            "VOZ_TRANSCRIBIR",
+            f"archivo={payload.ruta_archivo}",
+            f"idioma={payload.idioma}, caracteres={len(transcripcion)}",
+            usr,
+        )
+
+        return {
+            "status": "ok",
+            "transcripcion": transcripcion,
+            "json_tarea": json_tarea,
+            "caracteres": len(transcripcion),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

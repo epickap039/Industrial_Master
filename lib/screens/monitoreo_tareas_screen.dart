@@ -6,9 +6,10 @@ import 'package:flutter/material.dart' as material;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/api_client.dart';
+import '../services/audio_recording_service.dart';
 import '../services/notification_inbox_service.dart';
 import '../widgets/bitacora_calendario_panel.dart';
-import '../widgets/compact_page_header.dart';
+import '../widgets/voice_task_confirmation_dialog.dart';
 import 'monitoreo/widgets/directive_mission_card.dart';
 import 'monitoreo/widgets/manual_mission_form_dialog.dart';
 import 'monitoreo/widgets/mission_meta_sheet.dart';
@@ -45,6 +46,12 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
       material.ScrollController();
   late final material.TabController _tabController;
 
+  /// Estado de grabación de audio para voz
+  bool _isRecordingAudio = false;
+  bool _isProcessingAudio = false;
+  /// null = sin verificar, true = disponible, false = no disponible
+  bool? _vozWhisperDisponible;
+
   @override
   void initState() {
     super.initState();
@@ -56,6 +63,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
     });
     _initSesion();
     _cargar();
+    _verificarVozDisponible();
 
     // Auto-refresco cada 30 s para recibir notificaciones
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
@@ -841,113 +849,566 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return material.Material(
-      child: ScaffoldPage(
-        header: CompactPageHeader(
-          title: Row(
-            children: [
-              Icon(
-                _esModoSoloLectura
-                    ? FluentIcons.lock
-                    : FluentIcons.org,
-                size: 24,
-                color: FluentTheme.of(context).accentColor,
+  /// ─────────────────── GRABACION DE AUDIO POR VOZ ─────────────────────────
+
+  Future<void> _verificarVozDisponible() async {
+    try {
+      final resp = await ApiClient.get('/api/tareas/voz/disponible');
+      if (mounted) {
+        setState(() {
+          _vozWhisperDisponible =
+              (resp is Map) && (resp['whisper_disponible'] == true);
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _vozWhisperDisponible = false);
+    }
+  }
+
+  /// Iniciar/detener grabación de audio para crear tarea por voz
+  /// ✅ Incluye manejo de permisos dinámicos
+  /// ✅ DEBUG: Muestra ContentDialog con información de error si falla
+  Future<void> _toggleAudioRecording() async {
+    // Si sabemos que Whisper no está disponible, redirigir al formulario manual.
+    if (_vozWhisperDisponible == false) {
+      if (mounted) {
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => ContentDialog(
+            title: const Row(
+              children: [
+                Icon(FluentIcons.microphone, color: material.Colors.orange),
+                SizedBox(width: 8),
+                Text('Voz no disponible'),
+              ],
+            ),
+            content: const Text(
+              'El servidor no tiene el motor de transcripción de audio instalado '
+              '(faster-whisper).\n\n'
+              'Puedes crear la tarea manualmente con el formulario, '
+              'o pedir al administrador que ejecute:\n\n'
+              'pip install faster-whisper',
+            ),
+            actions: [
+              Button(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cerrar'),
               ),
-              const SizedBox(width: 12),
-              Text(
-                _esModoSoloLectura
-                    ? 'Centro de Comando (Lectura)'
-                    : 'Centro de Comando Directivo',
+              FilledButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _abrirAltaManual();
+                },
+                child: const Text('Crear tarea manual'),
               ),
-              if (_esModoSoloLectura)
-                Container(
-                  margin: const EdgeInsets.only(left: 12),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
+            ],
+          ),
+        );
+      }
+      return;
+    }
+
+    try {
+      if (_isRecordingAudio) {
+        // Detener grabación
+        setState(() => _isRecordingAudio = false);
+
+        final audioPath = await audioRecordingService.stopRecording();
+        if (audioPath != null) {
+          // Procesar el audio
+          await _procesarAudioGrabado(audioPath);
+        } else {
+          if (mounted) {
+            displayInfoBar(
+              context,
+              builder: (c, close) => InfoBar(
+                title: const Text('Error'),
+                content: const Text('No se pudo grabar el audio.'),
+                severity: InfoBarSeverity.error,
+                action: IconButton(
+                  icon: const Icon(FluentIcons.clear),
+                  onPressed: close,
+                ),
+              ),
+            );
+          }
+        }
+      } else {
+        // Iniciar grabación
+        // Primero, verificar permisos
+        final micPermission =
+            await audioRecordingService.requestMicrophonePermission();
+
+        if (!micPermission) {
+          if (mounted) {
+            final errorMsg = audioRecordingService.lastError ??
+                'No se pudieron otorgar permisos de micrófono.';
+            displayInfoBar(
+              context,
+              builder: (c, close) => InfoBar(
+                title: const Text('Permiso Denegado'),
+                content: Text(errorMsg),
+                severity: InfoBarSeverity.error,
+                action: IconButton(
+                  icon: const Icon(FluentIcons.clear),
+                  onPressed: close,
+                ),
+              ),
+            );
+          }
+          return;
+        }
+
+        // Intentar iniciar grabación
+        final ok = await audioRecordingService.startRecording();
+        if (ok) {
+          setState(() => _isRecordingAudio = true);
+        } else {
+          // 🛠️ DEBUGGING PROFUNDO: Mostrar dialog con información detallada
+          if (mounted) {
+            final debugInfo = audioRecordingService.debugInfo;
+
+            // Si hay información de debugging, mostrar dialog detallado
+            if (debugInfo != null) {
+              await showDialog<void>(
+                context: context,
+                builder: (ctx) => ContentDialog(
+                  title: Row(
+                    children: [
+                      const Icon(FluentIcons.report_alert,
+                          color: material.Colors.red),
+                      const SizedBox(width: 8),
+                      const Text('🛠️ DEBUG ERROR GRABACIÓN'),
+                    ],
                   ),
-                  decoration: BoxDecoration(
-                    color: material.Colors.orange.shade100,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    'Solo Lectura',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: material.Colors.orange.shade800,
+                  content: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // 📂 Ruta intentada
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: material.Colors.grey.shade100,
+                            border: Border.all(
+                              color: material.Colors.grey.shade300,
+                            ),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: SelectableText(
+                            'Ruta:\n${debugInfo.attemptedPath}',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontFamily: 'monospace',
+                              color: material.Colors.black87,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+
+                        // ⚠️ Mensaje exacto del error
+                        Text(
+                          'Mensaje de Error:',
+                          style: FluentTheme.of(context).typography.subtitle,
+                        ),
+                        const SizedBox(height: 6),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: material.Colors.red.shade50,
+                            border: Border.all(
+                              color: material.Colors.red.shade300,
+                            ),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: SelectableText(
+                            debugInfo.errorMessage,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: material.Colors.red,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+
+                        // 🕐 Stack trace (primeras 5 líneas)
+                        Text(
+                          'StackTrace (primeras 5 líneas):',
+                          style: FluentTheme.of(context).typography.subtitle,
+                        ),
+                        const SizedBox(height: 6),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: material.Colors.orange.shade50,
+                            border: Border.all(
+                              color: material.Colors.orange.shade300,
+                            ),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: SelectableText(
+                            debugInfo.stackTraceLines.join('\n'),
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontFamily: 'monospace',
+                              color: material.Colors.orange,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+
+                        // 📝 Recomendaciones
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: material.Colors.blue.shade50,
+                            border: Border.all(
+                              color: material.Colors.blue.shade300,
+                            ),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '💡 Recomendaciones:',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: material.Colors.blue.shade700,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              const SelectableText(
+                                '1. Verificar permisos en configuración del dispositivo\n'
+                                '2. Asegurate que la carpeta /data/local/tmp existe\n'
+                                '3. Revisar logcat: adb logcat | grep AudioRecording\n'
+                                '4. Probar modo debug: cargar archivo de audio',
+                                style: TextStyle(fontSize: 11),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
+                  actions: [
+                    Button(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('Cerrar'),
+                    ),
+                  ],
                 ),
-            ],
-          ),
-          commandBar: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ToggleSwitch(
-                checked: _vistaCompacta,
-                onChanged: (v) => setState(() => _vistaCompacta = v),
-                content: const Text('Vista Compacta'),
-              ),
-              const SizedBox(width: 12),
-              if (_puedeControlarMisiones && _tabController.index == 1) ...[
-                IconButton(
-                  icon: Icon(
-                    FluentIcons.delete,
-                    color: material.Colors.red.shade400,
+              );
+            } else {
+              // Si no hay info de debugging, mostrar error simple
+              displayInfoBar(
+                context,
+                builder: (c, close) => InfoBar(
+                  title: const Text('Error al Grabar'),
+                  content: Text(audioRecordingService.lastError ??
+                      'Error desconocido'),
+                  severity: InfoBarSeverity.error,
+                  action: IconButton(
+                    icon: const Icon(FluentIcons.clear),
+                    onPressed: close,
                   ),
-                  onPressed: _dialogoLimpiarHistorial,
                 ),
-                const SizedBox(width: 8),
-              ],
-              material.Tooltip(
-                message: _loading ? 'Cargando...' : 'Actualizar',
-                child: IconButton(
-                  icon: const Icon(FluentIcons.refresh),
-                  onPressed: _loading ? null : _cargar,
-                ),
-              ),
-              const SizedBox(width: 4),
-              material.Tooltip(
-                message: 'Guía de operaciones',
-                child: IconButton(
-                  icon: const Icon(FluentIcons.info),
-                  onPressed: _mostrarGuiaOperaciones,
-                ),
-              ),
-            ],
-          ),
-        ),
-        content: Column(
-          children: [
-            material.TabBar(
-              controller: _tabController,
-              tabs: [
-                material.Tab(
-                  text:
-                      _esModoSoloLectura
-                          ? 'Misiones activas (lectura)'
-                          : 'Misiones activas',
-                ),
-                const material.Tab(text: 'Historial (100 % / Canceladas)'),
-                const material.Tab(text: 'Alta manual'),
-              ],
+              );
+            }
+          }
+          setState(() => _isRecordingAudio = false);
+        }
+      }
+    } catch (e) {
+      debugPrint('[Audio] Error crítico en _toggleAudioRecording: $e');
+      setState(() => _isRecordingAudio = false);
+    }
+  }
+
+  /// Procesar audio grabado y enviar al backend
+  /// Incluye manejo de lista de operarios y modo debug
+  Future<void> _procesarAudioGrabado(String audioPath) async {
+    try {
+      setState(() => _isProcessingAudio = true);
+
+      // Mostrar loading
+      if (mounted) {
+        displayInfoBar(
+          context,
+          builder: (c, close) => InfoBar(
+            title: const Text('Procesando'),
+            content: const Text('Transcribiendo audio...'),
+            severity: InfoBarSeverity.info,
+            action: IconButton(
+              icon: const Icon(FluentIcons.clear),
+              onPressed: close,
             ),
-            const SizedBox(height: 12),
-            Expanded(
-              child: material.TabBarView(
-                controller: _tabController,
-                children: [
-                  _MonitoreoTabKeepAlive(child: _tabActivas()),
-                  _MonitoreoTabKeepAlive(child: _tabHistorial()),
-                  _MonitoreoTabKeepAlive(child: _tabAltaManual()),
+          ),
+        );
+      }
+
+      // PASO 1: Transcribir archivo de audio a texto (usando /api/tareas/voz/transcribir-audio).
+      // Si el servidor no tiene faster-whisper instalado devuelve 503; lo manejamos limpiamente.
+      Map<String, dynamic>? transcripcionResponse;
+      try {
+        transcripcionResponse = (await ApiClient.post(
+          '/api/tareas/voz/transcribir-audio',
+          body: {
+            'ruta_archivo': audioPath,
+            'idioma': 'es',
+            'minutos_base': 30,
+          },
+        )) as Map<String, dynamic>?;
+      } on ApiException catch (apiEx) {
+        if (apiEx.statusCode == 503) {
+          if (mounted) setState(() => _vozWhisperDisponible = false);
+          if (mounted) {
+            await showDialog<void>(
+              context: context,
+              builder: (ctx) => ContentDialog(
+                title: const Row(
+                  children: [
+                    Icon(FluentIcons.microphone, color: material.Colors.orange),
+                    SizedBox(width: 8),
+                    Text('Transcripción no disponible'),
+                  ],
+                ),
+                content: const Text(
+                  'El servidor no tiene faster-whisper instalado.\n\n'
+                  'El audio no puede transcribirse automáticamente.\n'
+                  'Puedes crear la tarea manualmente.',
+                ),
+                actions: [
+                  Button(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Cerrar'),
+                  ),
+                  FilledButton(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      _abrirAltaManual();
+                    },
+                    child: const Text('Crear tarea manual'),
+                  ),
                 ],
               ),
+            );
+          }
+          return;
+        }
+        rethrow;
+      }
+
+      if (transcripcionResponse == null) {
+        throw Exception('No hay respuesta del servidor');
+      }
+
+      // Extraer transcripción
+      final transcripcion = transcripcionResponse['transcripcion'] ?? '';
+      if (transcripcion.isEmpty) {
+        throw Exception('Transcripción vacía del servidor');
+      }
+
+      debugPrint('[AudioProcessing] Transcripción obtenida: $transcripcion');
+
+      // PASO 2: Procesar transcripción a JSON de tarea
+      final response = await ApiClient.post(
+        '/api/tareas/voz/procesar',
+        body: {
+          'transcripcion': transcripcion,
+          'minutos_base': 30,
+          'incluir_metadata': true,
+        },
+      );
+
+      if (response == null) {
+        if (mounted) {
+          displayInfoBar(
+            context,
+            builder: (c, close) => InfoBar(
+              title: const Text('Error'),
+              content: const Text('No hay respuesta del servidor al procesar transcripción'),
+              severity: InfoBarSeverity.error,
+              action: IconButton(
+                icon: const Icon(FluentIcons.clear),
+                onPressed: close,
+              ),
             ),
-          ],
-        ),
+          );
+        }
+        return;
+      }
+
+      debugPrint('[AudioProcessing] Respuesta del servidor: ${response.toString()}');
+      print('[DEBUG] Response body completo: ${response.toString()}');
+
+      if (mounted && response != null) {
+        final taskData = Map<String, dynamic>.from(response);
+
+        // Obtener lista de operarios para selector obligatorio
+        final operarios = _obtenerListaOperarios();
+
+        // Mostrar dialog de confirmación con selector de usuario
+        if (mounted) {
+          await showVoiceTaskConfirmation(
+            context,
+            taskData: taskData,
+            operarios: operarios,
+            onConfirm: (confirmedData) async {
+              // Confirmado: crear la tarea
+              try {
+                final response = await ApiClient.post(
+                  '/api/tareas/crear_manual',
+                  body: {
+                    'titulo': confirmedData['titulo'],
+                    'descripcion': confirmedData['descripcion'] ?? '',
+                    'responsable': confirmedData['usuario_asignado'],
+                    'categoria': 'VOZ_LOCAL',
+                    'minutos_estimados':
+                        confirmedData['minutos_estimados'] ?? 30,
+                  },
+                );
+
+                if (mounted) {
+                  displayInfoBar(
+                    context,
+                    builder: (c, close) => InfoBar(
+                      title: const Text('Tarea Creada'),
+                      content: const Text('La tarea fue creada exitosamente.'),
+                      severity: InfoBarSeverity.success,
+                      action: IconButton(
+                        icon: const Icon(FluentIcons.clear),
+                        onPressed: close,
+                      ),
+                    ),
+                  );
+                  await _cargar();
+                }
+              } catch (e) {
+                if (mounted) {
+                  displayInfoBar(
+                    context,
+                    builder: (c, close) => InfoBar(
+                      title: const Text('Error'),
+                      content: Text('Error al crear tarea: $e'),
+                      severity: InfoBarSeverity.error,
+                      action: IconButton(
+                        icon: const Icon(FluentIcons.clear),
+                        onPressed: close,
+                      ),
+                    ),
+                  );
+                }
+              }
+            },
+            onEdit: (editedData) {
+              // Abrir formulario manual con datos precargados
+              _abrirAltaManual();
+            },
+            onLoadAudioFile: (filePath) async {
+              // Modo debug: cargar archivo de audio manualmente
+              debugPrint('[Audio] Cargando archivo de audio en modo debug: $filePath');
+              final loadedPath =
+                  await audioRecordingService.loadAudioFileDebug(filePath);
+              if (loadedPath != null && mounted) {
+                displayInfoBar(
+                  context,
+                  builder: (c, close) => InfoBar(
+                    title: const Text('Audio Cargado'),
+                    content: const Text('Archivo cargado exitosamente.'),
+                    severity: InfoBarSeverity.success,
+                    action: IconButton(
+                      icon: const Icon(FluentIcons.clear),
+                      onPressed: close,
+                    ),
+                  ),
+                );
+                // Reprocesar con el nuevo archivo
+                await _procesarAudioGrabado(loadedPath);
+              }
+            },
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('[Audio] Error procesando: $e');
+      if (mounted) {
+        displayInfoBar(
+          context,
+          builder: (c, close) => InfoBar(
+            title: const Text('Error'),
+            content: Text('Error: $e'),
+            severity: InfoBarSeverity.error,
+            action: IconButton(
+              icon: const Icon(FluentIcons.clear),
+              onPressed: close,
+            ),
+          ),
+        );
+      }
+    } finally {
+      setState(() => _isProcessingAudio = false);
+    }
+  }
+
+  /// Obtener lista de operarios actuales desde las tareas
+  List<String> _obtenerListaOperarios() {
+    // Extraer lista única de usuarios asignados del estado actual
+    // Esta es una aproximación - idealmente vendría del backend
+    final operarios = <String>{};
+    // Por ahora, retornar lista vacía para que el dialog muestre solamente dropdown
+    // En producción, cargaría desde backend
+    return ['Juan', 'María', 'Carlos', 'Pedro', 'Ana'].toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return material.Scaffold(
+      floatingActionButton: _puedeControlarMisiones
+          ? material.FloatingActionButton(
+              onPressed: _isProcessingAudio ? null : _toggleAudioRecording,
+              backgroundColor: _isRecordingAudio
+                  ? material.Colors.red.shade500
+                  : FluentTheme.of(context).accentColor,
+              tooltip: _isRecordingAudio ? 'Detener grabación' : 'Grabar tarea por voz',
+              child: Icon(
+                _isRecordingAudio
+                    ? FluentIcons.stop
+                    : FluentIcons.microphone,
+                color: material.Colors.white,
+                size: 24,
+              ),
+            )
+          : null,
+      floatingActionButtonLocation:
+          material.FloatingActionButtonLocation.startFloat,
+      body: Column(
+        children: [
+          material.TabBar(
+            controller: _tabController,
+            tabs: [
+              material.Tab(
+                text: _esModoSoloLectura
+                    ? 'Misiones activas (lectura)'
+                    : 'Misiones activas',
+              ),
+              const material.Tab(text: 'Historial (100 % / Canceladas)'),
+              const material.Tab(text: 'Alta manual'),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Expanded(
+            child: material.TabBarView(
+              controller: _tabController,
+              children: [
+                _MonitoreoTabKeepAlive(child: _tabActivas()),
+                _MonitoreoTabKeepAlive(child: _tabHistorial()),
+                _MonitoreoTabKeepAlive(child: _tabAltaManual()),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1166,13 +1627,40 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
             i,
     };
 
-    return material.Scrollbar(
-      controller: _activasScrollController,
-      thumbVisibility: true,
-      child: material.ListView(
-        controller: _activasScrollController,
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 32),
-        children: [
+    return Column(
+      children: [
+        // HEADER con botón minimizar
+        Container(
+          color: FluentTheme.of(context).cardColor,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Misiones Activas (${_activasOrdenadas.length})',
+                style: FluentTheme.of(context).typography.subtitle,
+              ),
+              material.Tooltip(
+                message: _vistaCompacta ? 'Expandir tarjetas' : 'Minimizar tarjetas',
+                child: material.IconButton(
+                  icon: Icon(
+                    _vistaCompacta ? material.Icons.unfold_more : material.Icons.unfold_less,
+                    color: FluentTheme.of(context).accentColor,
+                  ),
+                  onPressed: () => setState(() => _vistaCompacta = !_vistaCompacta),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: material.Scrollbar(
+            controller: _activasScrollController,
+            thumbVisibility: true,
+            child: material.ListView(
+              controller: _activasScrollController,
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 32),
+              children: [
           _cargaDisponibilidadResumen(),
           for (final lane in lanes)
             _SwimlaneRow(
@@ -1201,8 +1689,11 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
                 return _tarjetaActivaLobby(gIdx, t, dark);
               },
             ),
-        ],
-      ),
+            ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
