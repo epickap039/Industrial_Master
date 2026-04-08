@@ -862,48 +862,12 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
         });
       }
     } catch (_) {
-      if (mounted) setState(() => _vozWhisperDisponible = false);
+      // Si no se puede verificar, dejamos null para no bloquear el boton
     }
   }
 
   /// Iniciar/detener grabacion de audio para crear tarea por voz.
   Future<void> _toggleAudioRecording() async {
-    // Si sabemos que Whisper no esta disponible, abrir formulario manual.
-    if (_vozWhisperDisponible == false) {
-      if (mounted) {
-        await showDialog<void>(
-          context: context,
-          builder: (ctx) => ContentDialog(
-            title: const Row(
-              children: [
-                Icon(FluentIcons.microphone, color: material.Colors.orange),
-                SizedBox(width: 8),
-                Text('Voz no disponible'),
-              ],
-            ),
-            content: const Text(
-              'El servidor no tiene faster-whisper instalado.\n\n'
-              'Puedes crear la tarea manualmente con el formulario.',
-            ),
-            actions: [
-              Button(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Cerrar'),
-              ),
-              FilledButton(
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  _abrirAltaManual();
-                },
-                child: const Text('Crear tarea manual'),
-              ),
-            ],
-          ),
-        );
-      }
-      return;
-    }
-
     try {
       if (_isRecordingAudio) {
         // Detener y procesar
@@ -999,7 +963,6 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
         )) as Map<String, dynamic>?;
       } on ApiException catch (apiEx) {
         if (apiEx.statusCode == 503) {
-          if (mounted) setState(() => _vozWhisperDisponible = false);
           if (mounted) {
             await showDialog<void>(
               context: context,
