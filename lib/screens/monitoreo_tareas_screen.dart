@@ -866,11 +866,9 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
     }
   }
 
-  /// Iniciar/detener grabación de audio para crear tarea por voz
-  /// ✅ Incluye manejo de permisos dinámicos
-  /// ✅ DEBUG: Muestra ContentDialog con información de error si falla
+  /// Iniciar/detener grabacion de audio para crear tarea por voz.
   Future<void> _toggleAudioRecording() async {
-    // Si sabemos que Whisper no está disponible, redirigir al formulario manual.
+    // Si sabemos que Whisper no esta disponible, abrir formulario manual.
     if (_vozWhisperDisponible == false) {
       if (mounted) {
         await showDialog<void>(
@@ -884,11 +882,8 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
               ],
             ),
             content: const Text(
-              'El servidor no tiene el motor de transcripción de audio instalado '
-              '(faster-whisper).\n\n'
-              'Puedes crear la tarea manualmente con el formulario, '
-              'o pedir al administrador que ejecute:\n\n'
-              'pip install faster-whisper',
+              'El servidor no tiene faster-whisper instalado.\n\n'
+              'Puedes crear la tarea manualmente con el formulario.',
             ),
             actions: [
               Button(
@@ -911,12 +906,10 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
 
     try {
       if (_isRecordingAudio) {
-        // Detener grabación
+        // Detener y procesar
         setState(() => _isRecordingAudio = false);
-
         final audioPath = await audioRecordingService.stopRecording();
         if (audioPath != null) {
-          // Procesar el audio
           await _procesarAudioGrabado(audioPath);
         } else {
           if (mounted) {
@@ -924,7 +917,9 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
               context,
               builder: (c, close) => InfoBar(
                 title: const Text('Error'),
-                content: const Text('No se pudo grabar el audio.'),
+                content: Text(
+                  audioRecordingService.lastError ?? 'No se pudo grabar el audio.',
+                ),
                 severity: InfoBarSeverity.error,
                 action: IconButton(
                   icon: const Icon(FluentIcons.clear),
@@ -935,20 +930,19 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
           }
         }
       } else {
-        // Iniciar grabación
-        // Primero, verificar permisos
-        final micPermission =
-            await audioRecordingService.requestMicrophonePermission();
-
-        if (!micPermission) {
+        // Iniciar grabacion
+        final ok = await audioRecordingService.startRecording();
+        if (ok) {
+          setState(() => _isRecordingAudio = true);
+        } else {
           if (mounted) {
-            final errorMsg = audioRecordingService.lastError ??
-                'No se pudieron otorgar permisos de micrófono.';
             displayInfoBar(
               context,
               builder: (c, close) => InfoBar(
-                title: const Text('Permiso Denegado'),
-                content: Text(errorMsg),
+                title: const Text('No se pudo iniciar'),
+                content: Text(
+                  audioRecordingService.lastError ?? 'Verifica el permiso de microfono.',
+                ),
                 severity: InfoBarSeverity.error,
                 action: IconButton(
                   icon: const Icon(FluentIcons.clear),
@@ -957,172 +951,11 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
               ),
             );
           }
-          return;
-        }
-
-        // Intentar iniciar grabación
-        final ok = await audioRecordingService.startRecording();
-        if (ok) {
-          setState(() => _isRecordingAudio = true);
-        } else {
-          // 🛠️ DEBUGGING PROFUNDO: Mostrar dialog con información detallada
-          if (mounted) {
-            final debugInfo = audioRecordingService.debugInfo;
-
-            // Si hay información de debugging, mostrar dialog detallado
-            if (debugInfo != null) {
-              await showDialog<void>(
-                context: context,
-                builder: (ctx) => ContentDialog(
-                  title: Row(
-                    children: [
-                      const Icon(FluentIcons.report_alert,
-                          color: material.Colors.red),
-                      const SizedBox(width: 8),
-                      const Text('🛠️ DEBUG ERROR GRABACIÓN'),
-                    ],
-                  ),
-                  content: SingleChildScrollView(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // 📂 Ruta intentada
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: material.Colors.grey.shade100,
-                            border: Border.all(
-                              color: material.Colors.grey.shade300,
-                            ),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: SelectableText(
-                            'Ruta:\n${debugInfo.attemptedPath}',
-                            style: const TextStyle(
-                              fontSize: 11,
-                              fontFamily: 'monospace',
-                              color: material.Colors.black87,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-
-                        // ⚠️ Mensaje exacto del error
-                        Text(
-                          'Mensaje de Error:',
-                          style: FluentTheme.of(context).typography.subtitle,
-                        ),
-                        const SizedBox(height: 6),
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: material.Colors.red.shade50,
-                            border: Border.all(
-                              color: material.Colors.red.shade300,
-                            ),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: SelectableText(
-                            debugInfo.errorMessage,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: material.Colors.red,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-
-                        // 🕐 Stack trace (primeras 5 líneas)
-                        Text(
-                          'StackTrace (primeras 5 líneas):',
-                          style: FluentTheme.of(context).typography.subtitle,
-                        ),
-                        const SizedBox(height: 6),
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: material.Colors.orange.shade50,
-                            border: Border.all(
-                              color: material.Colors.orange.shade300,
-                            ),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: SelectableText(
-                            debugInfo.stackTraceLines.join('\n'),
-                            style: const TextStyle(
-                              fontSize: 10,
-                              fontFamily: 'monospace',
-                              color: material.Colors.orange,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-
-                        // 📝 Recomendaciones
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: material.Colors.blue.shade50,
-                            border: Border.all(
-                              color: material.Colors.blue.shade300,
-                            ),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '💡 Recomendaciones:',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  color: material.Colors.blue.shade700,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              const SelectableText(
-                                '1. Verificar permisos en configuración del dispositivo\n'
-                                '2. Asegurate que la carpeta /data/local/tmp existe\n'
-                                '3. Revisar logcat: adb logcat | grep AudioRecording\n'
-                                '4. Probar modo debug: cargar archivo de audio',
-                                style: TextStyle(fontSize: 11),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  actions: [
-                    Button(
-                      onPressed: () => Navigator.pop(ctx),
-                      child: const Text('Cerrar'),
-                    ),
-                  ],
-                ),
-              );
-            } else {
-              // Si no hay info de debugging, mostrar error simple
-              displayInfoBar(
-                context,
-                builder: (c, close) => InfoBar(
-                  title: const Text('Error al Grabar'),
-                  content: Text(audioRecordingService.lastError ??
-                      'Error desconocido'),
-                  severity: InfoBarSeverity.error,
-                  action: IconButton(
-                    icon: const Icon(FluentIcons.clear),
-                    onPressed: close,
-                  ),
-                ),
-              );
-            }
-          }
           setState(() => _isRecordingAudio = false);
         }
       }
     } catch (e) {
-      debugPrint('[Audio] Error crítico en _toggleAudioRecording: $e');
+      debugPrint('[Audio] Error en _toggleAudioRecording: $e');
       setState(() => _isRecordingAudio = false);
     }
   }
@@ -1311,26 +1144,8 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
               _abrirAltaManual();
             },
             onLoadAudioFile: (filePath) async {
-              // Modo debug: cargar archivo de audio manualmente
-              debugPrint('[Audio] Cargando archivo de audio en modo debug: $filePath');
-              final loadedPath =
-                  await audioRecordingService.loadAudioFileDebug(filePath);
-              if (loadedPath != null && mounted) {
-                displayInfoBar(
-                  context,
-                  builder: (c, close) => InfoBar(
-                    title: const Text('Audio Cargado'),
-                    content: const Text('Archivo cargado exitosamente.'),
-                    severity: InfoBarSeverity.success,
-                    action: IconButton(
-                      icon: const Icon(FluentIcons.clear),
-                      onPressed: close,
-                    ),
-                  ),
-                );
-                // Reprocesar con el nuevo archivo
-                await _procesarAudioGrabado(loadedPath);
-              }
+              debugPrint('[Audio] Procesando archivo de audio: $filePath');
+              await _procesarAudioGrabado(filePath);
             },
           );
         }
