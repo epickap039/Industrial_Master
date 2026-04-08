@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import pyodbc
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from audit_service import registrar_log_global
@@ -2137,3 +2139,100 @@ def transcribir_archivo_audio(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/tareas/voz/transcribir-audio-upload")
+async def transcribir_audio_upload(
+    audio: UploadFile = File(...),
+    idioma: str = Form(default="es"),
+    minutos_base: int = Form(default=30),
+    authorization: Optional[str] = Header(None),
+    x_usuario: Optional[str] = Header(None, alias="X-Usuario"),
+):
+    """
+    Transcribe un archivo de audio enviado como multipart/form-data.
+
+    Acepta .m4a, .mp3, .wav, .ogg, .webm desde cualquier cliente (Android, iOS, web).
+    No requiere que el cliente y el servidor compartan sistema de archivos.
+
+    Campos multipart:
+        - audio  (file)     : binario del archivo de audio
+        - idioma (string)   : código ISO del idioma, default "es"
+        - minutos_base (int): minutos base para estimación, default 30
+
+    Retorna el mismo esquema que /api/tareas/voz/transcribir-audio:
+        { status, transcripcion, json_tarea, caracteres }
+    """
+    usr = resolve_actor_user(authorization, x_usuario)
+
+    whisper_ok = inicializar_whisper_gpu()
+    if not whisper_ok:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "faster-whisper no disponible en este servidor. "
+                "Instala: pip install faster-whisper"
+            ),
+        )
+
+    # Detectar extensión desde el nombre original del archivo subido
+    original_name = audio.filename or "audio.m4a"
+    ext = os.path.splitext(original_name)[-1].lower() or ".m4a"
+    allowed = {".m4a", ".mp3", ".wav", ".ogg", ".webm", ".flac", ".aac"}
+    if ext not in allowed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Formato de audio no soportado: {ext}. Usa: {', '.join(sorted(allowed))}",
+        )
+
+    tmp_path: Optional[str] = None
+    try:
+        # Guardar bytes en archivo temporal para que Whisper pueda leerlos
+        data = await audio.read()
+        if not data:
+            raise HTTPException(status_code=400, detail="El archivo de audio está vacío.")
+
+        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+            tmp.write(data)
+            tmp_path = tmp.name
+
+        transcripcion = transcribir_audio(tmp_path, idioma=idioma)
+        if not transcripcion:
+            raise HTTPException(
+                status_code=400,
+                detail="Transcripción vacía. Verifica que el audio tenga habla audible.",
+            )
+
+        json_tarea = convertir_transcripcion_a_json(
+            transcripcion,
+            minutos_base=minutos_base,
+            incluir_metadata=True,
+        )
+
+        registrar_log_global(
+            None,
+            "GESTOR_TAREAS",
+            "VOZ_UPLOAD_TRANSCRIBIR",
+            f"archivo={original_name}",
+            f"idioma={idioma}, bytes={len(data)}, caracteres={len(transcripcion)}",
+            usr,
+        )
+
+        return {
+            "status": "ok",
+            "transcripcion": transcripcion,
+            "json_tarea": json_tarea,
+            "caracteres": len(transcripcion),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # Limpiar archivo temporal siempre
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass

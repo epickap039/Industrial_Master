@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/material.dart' as material;
@@ -1148,17 +1149,20 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
         );
       }
 
-      // PASO 1: Transcribir archivo de audio a texto (usando /api/tareas/voz/transcribir-audio).
-      // Si el servidor no tiene faster-whisper instalado devuelve 503; lo manejamos limpiamente.
+      // PASO 1: Subir el archivo de audio al servidor (multipart) y transcribirlo.
+      // Usar el endpoint de upload para que funcione desde Android/iOS sin
+      // necesidad de compartir sistema de archivos con el servidor.
       Map<String, dynamic>? transcripcionResponse;
       try {
-        transcripcionResponse = (await ApiClient.post(
-          '/api/tareas/voz/transcribir-audio',
-          body: {
-            'ruta_archivo': audioPath,
-            'idioma': 'es',
-            'minutos_base': 30,
-          },
+        final audioFile = File(audioPath);
+        if (!await audioFile.exists()) {
+          throw Exception('El archivo de audio no se encontró en: $audioPath');
+        }
+        final fileName = audioPath.split('/').last.split('\\').last;
+        transcripcionResponse = (await ApiClient.postMultipart(
+          '/api/tareas/voz/transcribir-audio-upload',
+          fields: {'idioma': 'es', 'minutos_base': '30'},
+          files: {'audio': await ApiClient.fileField('audio', audioPath, filename: fileName)},
         )) as Map<String, dynamic>?;
       } on ApiException catch (apiEx) {
         if (apiEx.statusCode == 503) {
