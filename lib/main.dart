@@ -11,6 +11,7 @@ import 'screens/login.dart';
 import 'package:pasteboard/pasteboard.dart';
 import 'package:flutter/services.dart';
 import 'theme/app_themes.dart';
+import 'theme/ui_tokens.dart';
 import 'screens/splash_screen.dart';
 import 'config/app_config.dart';
 import 'services/api_client.dart';
@@ -50,6 +51,7 @@ class _MyAppState extends State<MyApp> {
           ? _simulatedRoleOverride!
           : _userRole;
   int? targetRevisionId;
+  NavPaneId? _requestedPaneId;
   final List<AutoSuggestBoxItem<dynamic>> _searchItems = [];
 
   /// Barra ancha por defecto; el botón permite colapsar a modo íconos.
@@ -396,7 +398,12 @@ class _MyAppState extends State<MyApp> {
     );
   }
 
-  void _handleNavigation(int index, BuildContext navContext, {int? id}) async {
+  void _handleNavigation(
+    int index,
+    BuildContext navContext, {
+    int? id,
+    NavPaneId? paneId,
+  }) async {
     FocusManager.instance.primaryFocus?.unfocus();
     // Solo persistir revisión objetivo cuando el flujo la envía (p. ej. VIN → BOM).
     // Si el usuario elige una pestaña manualmente, limpiar para no reabrir el gestor al volver al mapa.
@@ -406,10 +413,13 @@ class _MyAppState extends State<MyApp> {
       targetRevisionId = null;
     }
 
-    setState(() => topIndex = index);
+    setState(() {
+      topIndex = index;
+      _requestedPaneId = paneId;
+    });
     final ar = MainNav.currentRole;
     final pane = navPaneAtIndex(index, ar);
-    if (pane == NavPaneId.importarExcel) {
+    if (pane == NavPaneId.importarExcel || paneId == NavPaneId.importarExcel) {
       ArbitrationBridge.notifyConsumePending();
     }
   }
@@ -423,9 +433,7 @@ class _MyAppState extends State<MyApp> {
     return ListenableBuilder(
       listenable: appTheme,
       builder: (context, child) {
-        final isDarkTheme = appTheme.currentTheme.brightness == Brightness.dark;
-        final paneBg =
-            isDarkTheme ? const Color(0xFF252B36) : const Color(0xFFE3E6EB);
+        final paneBg = shellNavChromeBackground(appTheme.currentTheme);
         final paneIsDark = paneBg.computeLuminance() < 0.45;
         final navChromeFg =
             paneIsDark ? const Color(0xFFF1F5F9) : const Color(0xFF15202B);
@@ -456,6 +464,15 @@ class _MyAppState extends State<MyApp> {
                         data: NavigationPaneThemeData(
                           backgroundColor: paneBg,
                           overlayBackgroundColor: paneBg,
+                          tileColor: WidgetStateProperty.resolveWith((states) {
+                            if (states.isPressed) {
+                              return navChromeFg.withValues(alpha: 0.14);
+                            }
+                            if (states.isHovered) {
+                              return navChromeFg.withValues(alpha: 0.09);
+                            }
+                            return const Color(0x00000000);
+                          }),
                           itemHeaderTextStyle:
                               appTheme.currentTheme.typography.bodyStrong
                                   ?.copyWith(color: navChromeMuted),
@@ -490,6 +507,7 @@ class _MyAppState extends State<MyApp> {
                         ),
                         child: NavigationView(
                           appBar: NavigationAppBar(
+                            height: 42,
                             backgroundColor: paneBg,
                             title: Builder(
                               builder: (appBarCtx) {
@@ -506,11 +524,11 @@ class _MyAppState extends State<MyApp> {
                             leading: IconTheme(
                               data: IconThemeData(
                                 color: navChromeFg,
-                                size: 20,
+                                size: 18,
                               ),
                               child: Padding(
                                 padding: const EdgeInsetsDirectional.only(
-                                  start: 8.0,
+                                  start: 6.0,
                                 ),
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
@@ -542,7 +560,7 @@ class _MyAppState extends State<MyApp> {
                                     const Padding(
                                       padding:
                                           EdgeInsetsDirectional.only(start: 4),
-                                      child: Icon(FluentIcons.factory),
+                                      child: Icon(FluentIcons.factory, size: 16),
                                     ),
                                   ],
                                 ),
@@ -551,7 +569,7 @@ class _MyAppState extends State<MyApp> {
                             actions: IconTheme(
                               data: IconThemeData(
                                 color: navChromeFg,
-                                size: 20,
+                                size: 18,
                               ),
                               child: DefaultTextStyle.merge(
                                 style: TextStyle(color: navChromeFg),
@@ -572,7 +590,21 @@ class _MyAppState extends State<MyApp> {
                                         },
                                       ),
                                       const SizedBox(width: 12),
-                                      const _AppBarNotificationInbox(),
+                                      _AppBarNotificationInbox(
+                                        onOpenMonitoring: () {
+                                          final idx = navIndexForPane(
+                                            NavPaneId.centroMonitoreo,
+                                            MainNav.currentRole,
+                                          );
+                                          if (idx >= 0) {
+                                            _handleNavigation(
+                                              idx,
+                                              navContext,
+                                              paneId: NavPaneId.centroMonitoreo,
+                                            );
+                                          }
+                                        },
+                                      ),
                                       const SizedBox(width: 8),
                                       const NetworkStatusIndicator(),
                                       const SizedBox(width: 8),
@@ -589,12 +621,21 @@ class _MyAppState extends State<MyApp> {
                           pane: buildIndustrialNavigationPane(
                           selected: topIndex,
                           onPaneChanged:
-                              (index) => _handleNavigation(index, navContext),
+                              (index) => _handleNavigation(
+                                index,
+                                navContext,
+                                paneId: null,
+                              ),
                           onItemPressed:
-                              (index) => _handleNavigation(index, navContext),
+                              (index) => _handleNavigation(
+                                index,
+                                navContext,
+                                paneId: null,
+                              ),
                           displayMode: _navPaneDisplayMode,
                           toggleable: false,
                           targetRevisionId: targetRevisionId,
+                          requestedPaneId: _requestedPaneId,
                           onNavigatePane: (id, {revisionId}) {
                             final idx = navIndexForPane(
                               id,
@@ -605,6 +646,7 @@ class _MyAppState extends State<MyApp> {
                                 idx,
                                 navContext,
                                 id: revisionId,
+                                paneId: id,
                               );
                             }
                           },
@@ -627,7 +669,9 @@ class _MyAppState extends State<MyApp> {
 
 /// Campana de buzón (misiones asignadas) visible en toda la app desde la barra superior.
 class _AppBarNotificationInbox extends StatefulWidget {
-  const _AppBarNotificationInbox();
+  const _AppBarNotificationInbox({required this.onOpenMonitoring});
+
+  final VoidCallback onOpenMonitoring;
 
   @override
   State<_AppBarNotificationInbox> createState() =>
@@ -666,6 +710,7 @@ class _AppBarNotificationInboxState extends State<_AppBarNotificationInbox> {
     await showNotificationInboxDialog(
       context,
       onChanged: () => unawaited(_refresh()),
+      onOpenMonitoring: widget.onOpenMonitoring,
     );
     if (mounted) await _refresh();
   }

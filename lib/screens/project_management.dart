@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'bom_manager.dart';
 import '../services/api_client.dart';
+import '../theme/ui_tokens.dart';
 import '../widgets/compact_page_header.dart';
 
 class ProjectManagementScreen extends StatefulWidget {
@@ -594,6 +595,7 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final palette = uiSurfacePaletteOf(context);
     return ScaffoldPage(
       padding: const EdgeInsets.only(top: 8),
       header: CompactPageHeader(
@@ -602,9 +604,11 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
           style: FluentTheme.of(context).typography.title,
         ),
       ),
-      content: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
+      content: Container(
+        color: palette.surfaceBase,
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
@@ -698,6 +702,7 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
               ),
             ),
           ],
+          ),
         ),
       ),
     );

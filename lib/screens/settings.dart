@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../config/app_config.dart';
 import '../services/api_client.dart';
 import '../services/app_role.dart';
+import '../theme/ui_tokens.dart';
 import '../widgets/compact_page_header.dart';
 import 'configuracion_usuarios_screen.dart';
 
@@ -195,6 +196,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
+    final palette = uiSurfacePaletteOf(context);
     final role = parseAppRole(_userRole);
     final canManageUsers =
         role == AppRole.administrador || role == AppRole.desarrollador;
@@ -221,9 +223,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
           style: FluentTheme.of(context).typography.title,
         ),
       ),
-      content: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
+      content: Container(
+        color: palette.surfaceBase,
+        child: ListView(
+          padding: const EdgeInsets.all(20),
+          children: [
           // 1. DIAGNÓSTICO DE RED
           Expander(
             header: Text(
@@ -344,7 +348,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ],
-        ],
+          ],
+        ),
       ),
     );
   }

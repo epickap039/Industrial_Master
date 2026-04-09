@@ -606,6 +606,7 @@ class _VINDossierScreenState extends State<VINDossierScreen>
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    final palette = uiSurfacePaletteOf(context);
     return ScaffoldPage(
       padding: const EdgeInsets.only(top: 8),
       header: CompactPageHeader(
@@ -614,9 +615,11 @@ class _VINDossierScreenState extends State<VINDossierScreen>
           style: FluentTheme.of(context).typography.title,
         ),
       ),
-      content: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
+      content: Container(
+        color: palette.surfaceBase,
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
@@ -677,7 +680,7 @@ class _VINDossierScreenState extends State<VINDossierScreen>
                                     borderRadius: BorderRadius.circular(4),
                                     color:
                                         isSelected
-                                            ? Colors.blue.withValues(alpha: 0.1)
+                                            ? palette.actionInfo.withValues(alpha: 0.16)
                                             : null,
                                   ),
                                   child: ListTile(
@@ -1183,6 +1186,7 @@ class _VINDossierScreenState extends State<VINDossierScreen>
               ),
             ),
           ],
+          ),
         ),
       ),
     );

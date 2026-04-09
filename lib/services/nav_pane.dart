@@ -2,6 +2,10 @@ import 'app_role.dart';
 
 enum NavPaneId {
   lobby,
+  operacionHub,
+  ingenieriaHub,
+  seguimientoHub,
+  datosHub,
   catalogoMaestro,
   materialesOficiales,
   escanerCad,
@@ -22,6 +26,24 @@ enum NavPaneId {
 
 bool _shows(NavPaneId id, AppRole r) => switch (id) {
       NavPaneId.lobby => r.showsNavLobby,
+      NavPaneId.operacionHub =>
+        r.showsNavAyudas ||
+        r.showsNavMateriales ||
+        r.showsNavRadar ||
+        r.showsNavMonitoreo,
+      NavPaneId.ingenieriaHub =>
+        r.showsNavGestionProyectos ||
+        r.showsNavVin ||
+        r.showsNavMateriales ||
+        r.showsNavCadScanner ||
+        r.showsNavImportarExcel ||
+        r.showsNavAuditor ||
+        r.showsNavEstandarizacion ||
+        r.showsNavHistorialCambios,
+      NavPaneId.seguimientoHub =>
+        r.showsNavHistorialCambios || r.showsNavQa,
+      NavPaneId.datosHub =>
+        r.showsNavCatalogo || r.showsNavAnalytics || r.showsNavMrp,
       NavPaneId.catalogoMaestro => r.showsNavCatalogo,
       NavPaneId.materialesOficiales => r.showsNavMateriales,
       NavPaneId.escanerCad => r.showsNavCadScanner,
@@ -42,30 +64,43 @@ bool _shows(NavPaneId id, AppRole r) => switch (id) {
 
 const List<NavPaneId> kNavPaneOrder = [
   NavPaneId.lobby,
-  NavPaneId.catalogoMaestro,
-  NavPaneId.materialesOficiales,
-  NavPaneId.escanerCad,
-  NavPaneId.importarExcel,
-  NavPaneId.auditorArchivos,
-  NavPaneId.estandarizacion,
-  NavPaneId.gestionProyectos,
-  NavPaneId.mapaIngenieria,
-  NavPaneId.expedientesVin,
-  NavPaneId.historialCambios,
-  NavPaneId.ayudasVisuales,
-  NavPaneId.dashboardAnalytics,
-  NavPaneId.centroQa,
-  NavPaneId.radarImpacto,
-  NavPaneId.requerimientosMrp,
+  NavPaneId.operacionHub,
+  NavPaneId.ingenieriaHub,
+  NavPaneId.seguimientoHub,
+  NavPaneId.datosHub,
   NavPaneId.centroMonitoreo,
+  NavPaneId.mapaIngenieria,
 ];
 
 List<NavPaneId> visibleNavPanes(AppRole r) =>
     kNavPaneOrder.where((id) => _shows(id, r)).toList(growable: false);
 
+NavPaneId _ownerSectionFor(NavPaneId id) {
+  return switch (id) {
+    NavPaneId.ayudasVisuales ||
+    NavPaneId.materialesOficiales ||
+    NavPaneId.radarImpacto ||
+    NavPaneId.centroMonitoreo => NavPaneId.operacionHub,
+    NavPaneId.gestionProyectos ||
+    NavPaneId.expedientesVin ||
+    NavPaneId.escanerCad ||
+    NavPaneId.importarExcel ||
+    NavPaneId.auditorArchivos ||
+    NavPaneId.estandarizacion => NavPaneId.ingenieriaHub,
+    NavPaneId.historialCambios || NavPaneId.centroQa => NavPaneId.seguimientoHub,
+    NavPaneId.catalogoMaestro ||
+    NavPaneId.dashboardAnalytics ||
+    NavPaneId.requerimientosMrp => NavPaneId.datosHub,
+    _ => id,
+  };
+}
+
 int navIndexForPane(NavPaneId id, AppRole r) {
   final v = visibleNavPanes(r);
-  return v.indexOf(id);
+  final direct = v.indexOf(id);
+  if (direct >= 0) return direct;
+  final owner = _ownerSectionFor(id);
+  return v.indexOf(owner);
 }
 
 NavPaneId? navPaneAtIndex(int index, AppRole r) {

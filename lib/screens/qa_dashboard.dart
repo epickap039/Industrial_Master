@@ -110,11 +110,11 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
     );
   }
 
-  Color _gravedadColor(dynamic rep) {
-    if (rep['gravedad'] == 'Crítico') return Colors.red;
-    if (rep['gravedad'] == 'Visual') return Colors.orange;
-    if (rep['gravedad'] == 'Sugerencia') return Colors.blue;
-    return Colors.grey;
+  Color _gravedadColor(dynamic rep, UiSurfacePalette palette) {
+    if (rep['gravedad'] == 'Crítico') return palette.actionDanger;
+    if (rep['gravedad'] == 'Visual') return palette.actionEdit;
+    if (rep['gravedad'] == 'Sugerencia') return palette.actionInfo;
+    return palette.textSecondary;
   }
 
   Uint8List? _decodeCaptura(dynamic b64) {
@@ -127,6 +127,7 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
   }
 
   Widget _buildDetailPanel() {
+    final palette = uiSurfacePaletteOf(context);
     if (_selectedReport == null) {
       return Center(
         child: Column(
@@ -135,14 +136,14 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
             Icon(
               FluentIcons.touch_pointer,
               size: 64,
-              color: Colors.grey.withValues(alpha: 0.5),
+              color: palette.textSecondary.withValues(alpha: 0.6),
             ),
             const SizedBox(height: 16),
             Text(
               'Selecciona un reporte en la lista de la derecha',
               style: TextStyle(
                 fontSize: 18,
-                color: Colors.grey.withValues(alpha: 0.9),
+                color: palette.textSecondary,
               ),
             ),
           ],
@@ -152,7 +153,7 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
 
     final rep = _selectedReport as Map;
     final bytes = _decodeCaptura(rep['captura_base64']);
-    final gravedadColor = _gravedadColor(rep);
+    final gravedadColor = _gravedadColor(rep, palette);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 12, 16),
@@ -165,10 +166,10 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
             child: Container(
               width: double.infinity,
               decoration: BoxDecoration(
-                color: FluentTheme.of(context).cardColor,
+                color: palette.surfaceCard,
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(
-                  color: FluentTheme.of(context).resources.dividerStrokeColorDefault,
+                  color: palette.borderSubtle,
                 ),
               ),
               clipBehavior: Clip.antiAlias,
@@ -192,7 +193,7 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
                           Icon(
                             FluentIcons.photo2,
                             size: 72,
-                            color: Colors.grey.withValues(alpha: 0.45),
+                            color: palette.textSecondary.withValues(alpha: 0.55),
                           ),
                           const SizedBox(height: 12),
                           const Text(
@@ -230,7 +231,7 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
                           children: [
                             _chip(
                               rep['modulo']?.toString() ?? 'General',
-                              FluentTheme.of(context).typography.body?.color,
+                              palette.textPrimary,
                             ),
                             _chip(
                               rep['gravedad']?.toString().toUpperCase() ?? 'N/A',
@@ -293,7 +294,7 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
                     style: TextStyle(
                       fontSize: 15,
                       fontStyle: FontStyle.italic,
-                      color: Colors.orange,
+                      color: palette.actionEdit,
                     ),
                   ),
                 ],
@@ -306,10 +307,12 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
   }
 
   Widget _chip(String text, Color? fg, {Color? background}) {
+    final palette = uiSurfacePaletteOf(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: background ?? Colors.grey.withValues(alpha: 0.18),
+        color: background ?? palette.surfaceElevated,
+        border: Border.all(color: palette.borderSubtle.withValues(alpha: 0.9)),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
@@ -324,12 +327,13 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
   }
 
   Widget _buildMasterList() {
+    final palette = uiSurfacePaletteOf(context);
     return Container(
       decoration: BoxDecoration(
-        color: FluentTheme.of(context).micaBackgroundColor.withValues(alpha: 0.35),
+        color: palette.surfaceBase,
         border: Border(
           left: BorderSide(
-            color: FluentTheme.of(context).resources.dividerStrokeColorDefault,
+            color: palette.borderSubtle,
           ),
         ),
       ),
@@ -341,7 +345,7 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
           final selected =
               _selectedReport != null && _selectedReport['id'] == rep['id'];
           final thumb = _decodeCaptura(rep['captura_base64']);
-          final gravedadColor = _gravedadColor(rep);
+          final gravedadColor = _gravedadColor(rep, palette);
 
           return Padding(
             padding: const EdgeInsets.only(bottom: 8),
@@ -349,7 +353,7 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
               padding: const EdgeInsets.all(10),
               backgroundColor: selected
                   ? FluentTheme.of(context).accentColor.withValues(alpha: 0.12)
-                  : null,
+                  : palette.surfaceCard,
               child: GestureDetector(
                 onTap: () => setState(() => _selectedReport = rep),
                 behavior: HitTestBehavior.opaque,
@@ -375,12 +379,15 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
                             width: 56,
                             height: 56,
                             decoration: BoxDecoration(
-                              color: Colors.grey.withValues(alpha: 0.2),
+                              color: palette.surfaceElevated,
+                              border: Border.all(
+                                color: palette.borderSubtle.withValues(alpha: 0.9),
+                              ),
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Icon(
                               FluentIcons.photo2,
-                              color: Colors.grey.withValues(alpha: 0.5),
+                              color: palette.textSecondary.withValues(alpha: 0.6),
                             ),
                           ),
                         const SizedBox(width: 10),
@@ -428,7 +435,7 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
                                 rep['modulo'] ?? 'General',
                                 style: TextStyle(
                                   fontSize: 11,
-                                  color: Colors.grey.withValues(alpha: 0.95),
+                                  color: palette.textSecondary,
                                 ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -453,7 +460,7 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
                           rep['fecha'] ?? '',
                           style: TextStyle(
                             fontSize: 11,
-                            color: Colors.grey.withValues(alpha: 0.9),
+                            color: palette.textSecondary,
                           ),
                         ),
                         Tooltip(
@@ -511,6 +518,7 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final palette = uiSurfacePaletteOf(context);
     return ScaffoldPage(
       padding: const EdgeInsets.only(top: 8),
       header: CompactPageHeader(
@@ -539,39 +547,43 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
           ],
         ),
       ),
-      content:
-          _isLoading
-              ? const Center(child: ProgressRing())
-              : _reportes.isEmpty
-              ? Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      FluentIcons.party_leader,
-                      size: 80,
-                      color: Colors.green,
-                    ),
-                    const SizedBox(height: 20),
-                    const Text(
-                      "¡Bandeja limpia! No hay reportes de QA pendientes.",
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w600,
+      content: Container(
+        color: palette.surfaceBase,
+        child:
+            _isLoading
+                ? const Center(child: ProgressRing())
+                : _reportes.isEmpty
+                ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        FluentIcons.party_leader,
+                        size: 80,
+                        color: const Color(0xFF22C55E),
                       ),
-                    ),
+                      const SizedBox(height: 20),
+                      Text(
+                        "¡Bandeja limpia! No hay reportes de QA pendientes.",
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w600,
+                          color: palette.textPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+                : Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Detalle ~70% (izquierda): imagen grande + texto
+                    Expanded(flex: 7, child: _buildDetailPanel()),
+                    // Maestro ~30% (derecha): lista compacta
+                    Expanded(flex: 3, child: _buildMasterList()),
                   ],
                 ),
-              )
-              : Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // Detalle ~70% (izquierda): imagen grande + texto
-                  Expanded(flex: 7, child: _buildDetailPanel()),
-                  // Maestro ~30% (derecha): lista compacta
-                  Expanded(flex: 3, child: _buildMasterList()),
-                ],
-              ),
+      ),
     );
   }
 }

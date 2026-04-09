@@ -31,157 +31,221 @@ NavigationPane buildIndustrialNavigationPane({
   bool toggleable = false,
   required int? targetRevisionId,
   required void Function(NavPaneId id, {int? revisionId}) onNavigatePane,
+  required NavPaneId? requestedPaneId,
   required String userRole,
   required VoidCallback onThemeTap,
   required VoidCallback onBugTap,
 }) {
-  final ar = parseAppRole(userRole);
-  final bool useCollapsibleSections =
-      ar == AppRole.administrador ||
-      ar == AppRole.desarrollador ||
-      ar == AppRole.ingenieriaMetodos;
+  Widget paneBody(Widget child) => _PaneBodyViewport(child: child);
 
-  final PaneItem? lobby = ar.showsNavLobby
-      ? PaneItem(
-          icon: const Icon(FluentIcons.home),
-          title: const Text('Lobby Principal'),
-          body: LobbyScreen(
+  final ar = parseAppRole(userRole);
+  final operacionModules = <_SectionModule>[
+    if (ar.showsNavAyudas)
+      _SectionModule(
+        id: NavPaneId.ayudasVisuales,
+        title: 'Ayudas visuales',
+        icon: FluentIcons.page_list,
+        body: ConstrainedAppBody(
+          child: AyudasVisualesNav(
+            canUpload: ar.ayudasCanUpload,
+            allowRevisionHistory: ar.ayudasShowRevisionHistory,
+          ),
+        ),
+      ),
+    if (ar.showsNavMateriales)
+      const _SectionModule(
+        id: NavPaneId.materialesOficiales,
+        title: 'Materiales oficiales',
+        icon: FluentIcons.set_action,
+        body: MaterialsListScreen(),
+      ),
+    if (ar.showsNavRadar)
+      const _SectionModule(
+        id: NavPaneId.radarImpacto,
+        title: 'Radar de impacto',
+        icon: FluentIcons.build_issue,
+        body: ImpactRadarScreen(),
+      ),
+    if (ar.showsNavMonitoreo)
+      _SectionModule(
+        id: NavPaneId.centroMonitoreo,
+        title: 'Centro de monitoreo',
+        icon: FluentIcons.activity_feed,
+        body: MonitoreoTareasScreen(effectiveRole: userRole),
+      ),
+  ];
+
+  final ingenieriaModules = <_SectionModule>[
+    if (ar.showsNavGestionProyectos)
+      const _SectionModule(
+        id: NavPaneId.gestionProyectos,
+        title: 'Gestión de proyectos',
+        icon: FluentIcons.fabric_folder,
+        body: ProjectManagementScreen(),
+      ),
+    if (ar.showsNavVin)
+      _SectionModule(
+        id: NavPaneId.expedientesVin,
+        title: 'Expedientes VIN',
+        icon: FluentIcons.car,
+        body: VINDossierScreen(
+          onNavigateToBOM: (id) =>
+              onNavigatePane(NavPaneId.mapaIngenieria, revisionId: id),
+        ),
+      ),
+    if (ar.showsNavCadScanner)
+      const _SectionModule(
+        id: NavPaneId.escanerCad,
+        title: 'Escáner CAD',
+        icon: FluentIcons.cube_shape,
+        body: CADScannerScreen(),
+      ),
+    if (ar.showsNavImportarExcel)
+      const _SectionModule(
+        id: NavPaneId.importarExcel,
+        title: 'Importar Excel',
+        icon: FluentIcons.cloud,
+        body: ArbitrationScreen(),
+      ),
+    if (ar.showsNavAuditor)
+      const _SectionModule(
+        id: NavPaneId.auditorArchivos,
+        title: 'Auditor de archivos',
+        icon: FluentIcons.check_list,
+        body: AuditorScreen(),
+      ),
+    if (ar.showsNavEstandarizacion)
+      _SectionModule(
+        id: NavPaneId.estandarizacion,
+        title: 'Estandarización',
+        icon: FluentIcons.filter,
+        body: ConstrainedAppBody(
+          child: StandardizationScreen(),
+        ),
+      ),
+  ];
+
+  final seguimientoModules = <_SectionModule>[
+    if (ar.showsNavHistorialCambios)
+      const _SectionModule(
+        id: NavPaneId.historialCambios,
+        title: 'Historial de cambios',
+        icon: FluentIcons.history,
+        body: HistoryScreen(),
+      ),
+    if (ar.showsNavQa)
+      const _SectionModule(
+        id: NavPaneId.centroQa,
+        title: 'Centro de QA',
+        icon: FluentIcons.tablet,
+        body: ConstrainedAppBody(
+          child: QADashboardScreen(),
+        ),
+      ),
+  ];
+
+  final datosModules = <_SectionModule>[
+    if (ar.showsNavCatalogo)
+      _SectionModule(
+        id: NavPaneId.catalogoMaestro,
+        title: 'Catálogo maestro',
+        icon: FluentIcons.database,
+        body: CatalogScreen(effectiveRole: userRole),
+      ),
+    if (ar.showsNavAnalytics)
+      const _SectionModule(
+        id: NavPaneId.dashboardAnalytics,
+        title: 'Dashboard analytics',
+        icon: FluentIcons.pie_single,
+        body: ConstrainedAppBody(
+          child: AnalyticsScreen(),
+        ),
+      ),
+    if (ar.showsNavMrp)
+      const _SectionModule(
+        id: NavPaneId.requerimientosMrp,
+        title: 'Requerimientos (MRP)',
+        icon: FluentIcons.shopping_cart,
+        body: MRPScreen(),
+      ),
+  ];
+
+  final items = <NavigationPaneItem>[
+    if (ar.showsNavLobby)
+      PaneItem(
+        icon: const Icon(FluentIcons.home),
+        title: const Text('Lobby principal'),
+        body: paneBody(
+          LobbyScreen(
             effectiveRole: userRole,
             isAdmin: ar.isAdminRail,
             onNavigatePane: onNavigatePane,
           ),
-        )
-      : null;
-  final PaneItem? catalogo = ar.showsNavCatalogo
-      ? PaneItem(
-          icon: const Icon(FluentIcons.database),
-          title: const Text('Catálogo Maestro'),
-          body: CatalogScreen(effectiveRole: userRole),
-        )
-      : null;
-  final PaneItem? materiales = ar.showsNavMateriales
-      ? PaneItem(
-          icon: const Icon(FluentIcons.set_action),
-          title: const Text('Materiales Oficiales'),
-          body: const MaterialsListScreen(),
-        )
-      : null;
-  final PaneItem? cad = ar.showsNavCadScanner
-      ? PaneItem(
-          icon: const Icon(FluentIcons.cube_shape),
-          title: const Text('Escáner CAD 3D/2D'),
-          body: const CADScannerScreen(),
-        )
-      : null;
-  final PaneItem? excel = ar.showsNavImportarExcel
-      ? PaneItem(
-          icon: const Icon(FluentIcons.cloud),
-          title: const Text('Importar Excel'),
-          body: const ArbitrationScreen(),
-        )
-      : null;
-  final PaneItem? auditor = ar.showsNavAuditor
-      ? PaneItem(
-          icon: const Icon(FluentIcons.check_list),
-          title: const Text('Auditor de Archivos'),
-          body: const AuditorScreen(),
-        )
-      : null;
-  final PaneItem? estandar = ar.showsNavEstandarizacion
-      ? PaneItem(
-          icon: const Icon(FluentIcons.filter),
-          title: const Text('Estandarización'),
-          body: ConstrainedAppBody(
-            child: StandardizationScreen(),
+        ),
+      ),
+    if (operacionModules.isNotEmpty)
+      PaneItem(
+        icon: const Icon(FluentIcons.page_list),
+        title: const Text('Operación diaria'),
+        body: paneBody(
+          _SectionHubScreen(
+            sectionTitle: 'Operación diaria',
+            modules: operacionModules,
+            requestedPaneId: requestedPaneId,
           ),
-        )
-      : null;
-
-  final PaneItem? proyectos = ar.showsNavGestionProyectos
-      ? PaneItem(
-          icon: const Icon(FluentIcons.fabric_folder),
-          title: const Text('Gestión de Proyectos'),
-          body: const ProjectManagementScreen(),
-        )
-      : null;
-  final PaneItem? mapa = ar.showsNavMapaIngenieria
-      ? PaneItem(
-          icon: const Icon(FluentIcons.map_layers),
-          title: const Text('Mapa de Ingeniería'),
-          body: EngineeringMapScreen(
-            targetRevisionId: targetRevisionId,
+        ),
+      ),
+    if (ingenieriaModules.isNotEmpty)
+      PaneItem(
+        icon: const Icon(FluentIcons.developer_tools),
+        title: const Text('Ingeniería y cambios'),
+        body: paneBody(
+          _SectionHubScreen(
+            sectionTitle: 'Ingeniería y cambios',
+            modules: ingenieriaModules,
+            requestedPaneId: requestedPaneId,
           ),
-        )
-      : null;
-  final PaneItem? vin = ar.showsNavVin
-      ? PaneItem(
-          icon: const Icon(FluentIcons.car),
-          title: const Text('Expedientes VIN'),
-          body: VINDossierScreen(
-            onNavigateToBOM: (id) =>
-                onNavigatePane(NavPaneId.mapaIngenieria, revisionId: id),
+        ),
+      ),
+    if (seguimientoModules.isNotEmpty)
+      PaneItem(
+        icon: const Icon(FluentIcons.health),
+        title: const Text('Seguimiento e incidentes'),
+        body: paneBody(
+          _SectionHubScreen(
+            sectionTitle: 'Seguimiento e incidentes',
+            modules: seguimientoModules,
+            requestedPaneId: requestedPaneId,
           ),
-        )
-      : null;
-  final PaneItem? historial = ar.showsNavHistorialCambios
-      ? PaneItem(
-          icon: const Icon(FluentIcons.history),
-          title: const Text('Historial de Cambios'),
-          body: const HistoryScreen(),
-        )
-      : null;
-  final PaneItem? ayudas = ar.showsNavAyudas
-      ? PaneItem(
-          icon: const Icon(FluentIcons.page_list),
-          title: const Text('Ayudas visuales'),
-          body: ConstrainedAppBody(
-            child: AyudasVisualesNav(
-              canUpload: ar.ayudasCanUpload,
-              allowRevisionHistory: ar.ayudasShowRevisionHistory,
-            ),
+        ),
+      ),
+    if (datosModules.isNotEmpty)
+      PaneItem(
+        icon: const Icon(FluentIcons.database),
+        title: const Text('Datos y catálogos'),
+        body: paneBody(
+          _SectionHubScreen(
+            sectionTitle: 'Datos y catálogos',
+            modules: datosModules,
+            requestedPaneId: requestedPaneId,
           ),
-        )
-      : null;
-
-  final PaneItem? analytics = ar.showsNavAnalytics
-      ? PaneItem(
-          icon: const Icon(FluentIcons.pie_single),
-          title: const Text('Dashboard Analytics'),
-          body: const ConstrainedAppBody(
-            child: AnalyticsScreen(),
-          ),
-        )
-      : null;
-  final PaneItem? qa = ar.showsNavQa
-      ? PaneItem(
-          icon: const Icon(FluentIcons.tablet),
-          title: const Text('Centro de QA'),
-          body: const ConstrainedAppBody(
-            child: QADashboardScreen(),
-          ),
-        )
-      : null;
-  final PaneItem? radar = ar.showsNavRadar
-      ? PaneItem(
-          icon: const Icon(FluentIcons.build_issue),
-          title: const Text('Radar de Impacto'),
-          body: const ImpactRadarScreen(),
-        )
-      : null;
-  final PaneItem? mrp = ar.showsNavMrp
-      ? PaneItem(
-          icon: const Icon(FluentIcons.shopping_cart),
-          title: const Text('Requerimientos (MRP)'),
-          body: const MRPScreen(),
-        )
-      : null;
-  final PaneItem? monitoreo = ar.showsNavMonitoreo
-      ? PaneItem(
-          icon: const Icon(FluentIcons.activity_feed),
-          title: const Text('Centro de Monitoreo'),
-          body: MonitoreoTareasScreen(effectiveRole: userRole),
-        )
-      : null;
+        ),
+      ),
+    if (ar.showsNavMonitoreo)
+      PaneItem(
+        icon: const Icon(FluentIcons.activity_feed),
+        title: const Text('Centro de monitoreo'),
+        body: paneBody(
+          MonitoreoTareasScreen(effectiveRole: userRole),
+        ),
+      ),
+    if (ar.showsNavMapaIngenieria)
+      PaneItem(
+        icon: const Icon(FluentIcons.map_layers),
+        title: const Text('Mapa de ingeniería'),
+        body: paneBody(EngineeringMapScreen(targetRevisionId: targetRevisionId)),
+      ),
+  ];
 
   return NavigationPane(
     selected: selected,
@@ -190,28 +254,7 @@ NavigationPane buildIndustrialNavigationPane({
     displayMode: displayMode,
     toggleable: toggleable,
     size: const NavigationPaneSize(openWidth: 256),
-    items: _buildNavItems(
-      // En compacto evitamos PaneItemExpander (bug de overflow/flyout en fluent_ui 4.11.5).
-      useCollapsibleSections:
-          useCollapsibleSections && displayMode != PaneDisplayMode.compact,
-      lobby: lobby,
-      catalogo: catalogo,
-      materiales: materiales,
-      cad: cad,
-      excel: excel,
-      auditor: auditor,
-      estandar: estandar,
-      proyectos: proyectos,
-      mapa: mapa,
-      vin: vin,
-      historial: historial,
-      ayudas: ayudas,
-      analytics: analytics,
-      qa: qa,
-      radar: radar,
-      mrp: mrp,
-      monitoreo: monitoreo,
-    ),
+    items: items,
     footerItems: [
       PaneItemAction(
         icon: const Icon(FluentIcons.color),
@@ -227,73 +270,196 @@ NavigationPane buildIndustrialNavigationPane({
         PaneItem(
           icon: const Icon(FluentIcons.settings),
           title: const Text('Configuración'),
-          body: const ConstrainedAppBody(
-            child: SettingsScreen(),
+          body: paneBody(
+            const ConstrainedAppBody(
+              child: SettingsScreen(),
+            ),
           ),
         ),
     ],
   );
 }
 
-List<NavigationPaneItem> _buildNavItems({
-  required bool useCollapsibleSections,
-  required PaneItem? lobby,
-  required PaneItem? catalogo,
-  required PaneItem? materiales,
-  required PaneItem? cad,
-  required PaneItem? excel,
-  required PaneItem? auditor,
-  required PaneItem? estandar,
-  required PaneItem? proyectos,
-  required PaneItem? mapa,
-  required PaneItem? vin,
-  required PaneItem? historial,
-  required PaneItem? ayudas,
-  required PaneItem? analytics,
-  required PaneItem? qa,
-  required PaneItem? radar,
-  required PaneItem? mrp,
-  required PaneItem? monitoreo,
-}) {
-  final out = <NavigationPaneItem>[];
-  List<PaneItem> collect(List<PaneItem?> paneItems) {
-    return paneItems.whereType<PaneItem>().toList();
+class _SectionModule {
+  const _SectionModule({
+    required this.id,
+    required this.title,
+    required this.icon,
+    required this.body,
+  });
+
+  final NavPaneId id;
+  final String title;
+  final IconData icon;
+  final Widget body;
+}
+
+class _SectionHubScreen extends StatefulWidget {
+  const _SectionHubScreen({
+    required this.sectionTitle,
+    required this.modules,
+    required this.requestedPaneId,
+  });
+
+  final String sectionTitle;
+  final List<_SectionModule> modules;
+  final NavPaneId? requestedPaneId;
+
+  @override
+  State<_SectionHubScreen> createState() => _SectionHubScreenState();
+}
+
+class _SectionHubScreenState extends State<_SectionHubScreen> {
+  int _selected = 0;
+  int? _hoveredIdx;
+
+  @override
+  void initState() {
+    super.initState();
+    _applyRequested();
   }
 
-  void section(String title, IconData icon, List<PaneItem?> paneItems) {
-    final list = collect(paneItems);
-    if (list.isEmpty) return;
-    if (useCollapsibleSections) {
-      out.add(
-        PaneItemExpander(
-          icon: Icon(icon),
-          title: Text(title),
-          body: list.first.body,
-          items: list,
-        ),
-      );
-      return;
+  @override
+  void didUpdateWidget(covariant _SectionHubScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.requestedPaneId != widget.requestedPaneId ||
+        oldWidget.modules.length != widget.modules.length) {
+      _applyRequested();
     }
-    out.add(PaneItemHeader(header: Text(title)));
-    out.addAll(list);
   }
 
-  if (lobby != null) out.add(lobby);
-  if (mapa != null) out.add(mapa);
+  void _applyRequested() {
+    final req = widget.requestedPaneId;
+    if (req == null) return;
+    final idx = widget.modules.indexWhere((m) => m.id == req);
+    if (idx >= 0) {
+      _selected = idx;
+    }
+  }
 
-  section('Operacion diaria', FluentIcons.page_list, [ayudas, radar, monitoreo]);
-  section('Ingenieria y cambios', FluentIcons.developer_tools, [
-    proyectos,
-    vin,
-    materiales,
-    cad,
-    excel,
-    auditor,
-    estandar,
-  ]);
-  section('Seguimiento e incidentes', FluentIcons.health, [historial, qa]);
-  section('Datos y catalogos', FluentIcons.database, [catalogo, analytics, mrp]);
-  return out;
+  @override
+  Widget build(BuildContext context) {
+    final theme = FluentTheme.of(context);
+    final selectedIdx =
+        _selected.clamp(0, widget.modules.isEmpty ? 0 : widget.modules.length - 1);
+    final hubChrome = shellNavChromeBackground(theme);
+    final hubDivider = theme.brightness == Brightness.dark
+        ? const Color(0xFF2A3140)
+        : theme.resources.controlStrokeColorDefault.withValues(alpha: 0.55);
+    const hubTabShape = WidgetStatePropertyAll<RoundedRectangleBorder>(
+      RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+    );
+    final selectedStyle = ButtonStyle(
+      padding: const WidgetStatePropertyAll(
+        EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      ),
+      shape: hubTabShape,
+      backgroundColor: WidgetStatePropertyAll(
+        theme.accentColor.withValues(alpha: 0.22),
+      ),
+      foregroundColor: WidgetStatePropertyAll(theme.accentColor),
+    );
+    final compactStyle = ButtonStyle(
+      padding: const WidgetStatePropertyAll(
+        EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      ),
+      shape: hubTabShape,
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        DecoratedBox(
+          decoration: BoxDecoration(
+            color: hubChrome,
+            border: Border(
+              bottom: BorderSide(color: hubDivider, width: 1),
+            ),
+          ),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(
+              horizontal: UiTokens.pageHPadding,
+              vertical: 6,
+            ),
+            child: Row(
+              children: [
+                for (var i = 0; i < widget.modules.length; i++) ...[
+                  if (i > 0) const SizedBox(width: 4),
+                  MouseRegion(
+                    onEnter: (_) => setState(() => _hoveredIdx = i),
+                    onExit: (_) {
+                      if (_hoveredIdx == i) setState(() => _hoveredIdx = null);
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 130),
+                      curve: Curves.easeOut,
+                      transform:
+                          _hoveredIdx == i && i != selectedIdx
+                              ? (Matrix4.identity()..translate(0.0, -1.0))
+                              : Matrix4.identity(),
+                      decoration: BoxDecoration(
+                        boxShadow:
+                            _hoveredIdx == i && i != selectedIdx
+                                ? [
+                                  BoxShadow(
+                                    color:
+                                        theme.brightness == Brightness.dark
+                                            ? const Color(0x33000000)
+                                            : const Color(0x1F0F172A),
+                                    blurRadius: 5,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ]
+                                : null,
+                      ),
+                      child: Button(
+                        style: i == selectedIdx ? selectedStyle : compactStyle,
+                        onPressed: () => setState(() => _selected = i),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(widget.modules[i].icon, size: 13),
+                            const SizedBox(width: 5),
+                            Text(
+                              widget.modules[i].title,
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        Expanded(
+          child: IndexedStack(
+            index: selectedIdx,
+            children: widget.modules.map((m) => m.body).toList(),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PaneBodyViewport extends StatelessWidget {
+  const _PaneBodyViewport({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
+    final spacing = bottomInset > 0 ? bottomInset + 12 : 18.0;
+    return Padding(
+      padding: EdgeInsets.only(bottom: spacing),
+      child: child,
+    );
+  }
 }
 
 /// Borde + banner cuando el admin simula otro rol (ver [MainNav] en main.dart).
@@ -384,6 +550,9 @@ class RoleSimulationAppBarControls extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final role = parseAppRole(realRoleRaw);
+    final screenW = MediaQuery.sizeOf(context).width;
+    final comboWidth = screenW < 900 ? 118.0 : (screenW < 1150 ? 138.0 : 160.0);
+    final showRoleIcon = screenW >= 840;
     // Mostrar selector solo a Administrador y Desarrollador
     if (role != AppRole.administrador && role != AppRole.desarrollador) {
       return const SizedBox.shrink();
@@ -392,7 +561,7 @@ class RoleSimulationAppBarControls extends StatelessWidget {
         ? kRealSentinel
         : simulatedRole!;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
         color: simulatedRole != null && simulatedRole!.isNotEmpty
             ? FluentTheme.of(context).accentColor.withValues(alpha: 0.1)
@@ -410,14 +579,15 @@ class RoleSimulationAppBarControls extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Icon(
-            FluentIcons.people,
-            size: 13,
-            color: FluentTheme.of(context).accentColor,
-          ),
-          const SizedBox(width: 6),
+          if (showRoleIcon)
+            Icon(
+              FluentIcons.people,
+              size: 12,
+              color: FluentTheme.of(context).accentColor,
+            ),
+          if (showRoleIcon) const SizedBox(width: 5),
           SizedBox(
-            width: 160,
+            width: comboWidth,
             child: Align(
               alignment: Alignment.centerLeft,
               child: ComboBox<String>(
@@ -425,30 +595,35 @@ class RoleSimulationAppBarControls extends StatelessWidget {
                 items: [
                   ComboBoxItem(
                     value: kRealSentinel,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          FluentIcons.accept,
-                          size: 11,
-                          color: FluentTheme.of(context).accentColor,
-                        ),
-                        const SizedBox(width: 4),
-                        const Text('Mi rol', style: TextStyle(fontSize: 10.5)),
-                      ],
+                    child: const Text(
+                      'Mi rol',
+                      style: TextStyle(fontSize: 10),
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                   const ComboBoxItem(
                     value: 'CALIDAD',
-                    child: Text('Calidad', style: TextStyle(fontSize: 10.5)),
+                    child: Text(
+                      'Calidad',
+                      style: TextStyle(fontSize: 10),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                   const ComboBoxItem(
                     value: 'PRODUCCION',
-                    child: Text('Producción', style: TextStyle(fontSize: 10.5)),
+                    child: Text(
+                      'Producción',
+                      style: TextStyle(fontSize: 10),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                   const ComboBoxItem(
                     value: 'INGENIERIA_METODOS',
-                    child: Text('Ingeniería', style: TextStyle(fontSize: 10.5)),
+                    child: Text(
+                      'Ingeniería',
+                      style: TextStyle(fontSize: 10),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ],
                 onChanged: (nv) {

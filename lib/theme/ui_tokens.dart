@@ -18,6 +18,108 @@ EdgeInsets pagePadding() => const EdgeInsets.fromLTRB(
   20,
 );
 
+/// Fondo del rail + [NavigationAppBar]. En modo oscuro, más oscuro que el
+/// scaffold para un aspecto tipo “modo noche” clásico.
+Color shellNavChromeBackground(FluentThemeData theme) {
+  final base = theme.micaBackgroundColor;
+  if (theme.brightness == Brightness.dark) {
+    // Shell oscuro real: negro/azul marino profundo.
+    final nearBlack = Color.alphaBlend(
+      const Color(0xFF02060F).withValues(alpha: 0.72),
+      base,
+    );
+    return Color.alphaBlend(
+      const Color(0xFF0A1730).withValues(alpha: 0.28),
+      nearBlack,
+    );
+  }
+  return Color.alphaBlend(
+    const Color(0xFF000000).withValues(alpha: 0.1),
+    base,
+  );
+}
+
+/// Token palette shared across operational screens.
+class UiSurfacePalette {
+  const UiSurfacePalette({
+    required this.surfaceBase,
+    required this.surfaceCard,
+    required this.surfaceElevated,
+    required this.borderSubtle,
+    required this.textPrimary,
+    required this.textSecondary,
+    required this.tableStripe,
+    required this.actionInfo,
+    required this.actionEdit,
+    required this.actionLink,
+    required this.actionCopy,
+    required this.actionDanger,
+  });
+
+  final Color surfaceBase;
+  final Color surfaceCard;
+  final Color surfaceElevated;
+  final Color borderSubtle;
+  final Color textPrimary;
+  final Color textSecondary;
+  final Color tableStripe;
+  final Color actionInfo;
+  final Color actionEdit;
+  final Color actionLink;
+  final Color actionCopy;
+  final Color actionDanger;
+}
+
+UiSurfacePalette uiSurfacePaletteOf(BuildContext context) {
+  final theme = FluentTheme.of(context);
+  final dark = theme.brightness == Brightness.dark;
+  final body = theme.typography.body?.color ??
+      (dark ? const Color(0xFFE5E7EB) : const Color(0xFF1F2937));
+  final caption = theme.typography.caption?.color ??
+      (dark ? const Color(0xFF9CA3AF) : const Color(0xFF64748B));
+
+  if (dark) {
+    return UiSurfacePalette(
+      surfaceBase: Color.alphaBlend(
+        const Color(0xFF000000).withValues(alpha: 0.14),
+        theme.scaffoldBackgroundColor,
+      ),
+      surfaceCard: Color.alphaBlend(
+        const Color(0xFF000000).withValues(alpha: 0.16),
+        theme.cardColor,
+      ),
+      surfaceElevated: Color.alphaBlend(
+        const Color(0xFF000000).withValues(alpha: 0.08),
+        theme.cardColor,
+      ),
+      borderSubtle: const Color(0xFF2D3543),
+      textPrimary: body,
+      textSecondary: caption,
+      tableStripe: Colors.white.withValues(alpha: 0.025),
+      actionInfo: theme.accentColor,
+      actionEdit: const Color(0xFFFFB347),
+      actionLink: const Color(0xFF2EC4B6),
+      actionCopy: const Color(0xFFB388FF),
+      actionDanger: const Color(0xFFFF6B6B),
+    );
+  }
+
+  return UiSurfacePalette(
+    surfaceBase: const Color(0xFFF2F5FA),
+    surfaceCard: const Color(0xFFF8FAFD),
+    surfaceElevated: const Color(0xFFFFFFFF),
+    borderSubtle: const Color(0xFFD3DCE8),
+    textPrimary: body,
+    textSecondary: caption,
+    tableStripe: const Color(0xFFF0F4F9),
+    actionInfo: const Color(0xFF2563EB),
+    actionEdit: const Color(0xFFB45309),
+    actionLink: const Color(0xFF0F766E),
+    actionCopy: const Color(0xFF6B21A8),
+    actionDanger: const Color(0xFFB91C1C),
+  );
+}
+
 BoxDecoration elevatedCardDecoration(FluentThemeData theme) {
   final dark = theme.brightness == Brightness.dark;
   final cardSurfaceA =

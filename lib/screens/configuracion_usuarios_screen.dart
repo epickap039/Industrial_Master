@@ -1,9 +1,14 @@
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/material.dart' as material;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/api_client.dart';
 import '../services/app_role.dart';
+import '../services/user_avatar_service.dart';
 import '../widgets/compact_page_header.dart';
 
 /// Alta y listado sobre `Tbl_Usuarios` (`GET/POST/DELETE /api/usuarios/*`).
@@ -21,21 +26,28 @@ class _ConfiguracionUsuariosScreenState extends State<ConfiguracionUsuariosScree
   List<Map<String, dynamic>> _lista = [];
   final _usuario = TextEditingController();
   final _password = TextEditingController();
-  String _rol = 'USER';
+  String _rol = 'CALIDAD';
+  String _genero = 'N';
+  Uint8List? _avatarNuevoUsuario;
   bool _enviando = false;
   String _currentUsername = '';
   AppRole _currentRole = AppRole.userLegacy;
 
   static const List<String> _roles = [
     'ADMINISTRADOR',
+    'DESARROLLADOR',
     'CALIDAD',
     'PRODUCCION',
     'INGENIERIA_METODOS',
     'GESTION',
     'COMPRAS',
     'DIRECCION',
-    'USER',
-    'QA',
+  ];
+
+  static const List<Map<String, String>> _generos = [
+    {'value': 'F', 'label': 'Femenino'},
+    {'value': 'M', 'label': 'Masculino'},
+    {'value': 'N', 'label': 'Prefiero no especificar'},
   ];
 
   @override
@@ -77,6 +89,23 @@ class _ConfiguracionUsuariosScreenState extends State<ConfiguracionUsuariosScree
     if (mounted) setState(() => _loading = false);
   }
 
+  Future<void> _pickAvatarNuevoUsuario() async {
+    final picked = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      withData: true,
+      allowMultiple: false,
+    );
+    if (picked == null || picked.files.isEmpty) return;
+    Uint8List? bytes = picked.files.single.bytes;
+    final path = picked.files.single.path;
+    if (bytes == null && path != null && path.isNotEmpty) {
+      bytes = await File(path).readAsBytes();
+    }
+    if (bytes == null || bytes.isEmpty) return;
+    if (!mounted) return;
+    setState(() => _avatarNuevoUsuario = bytes);
+  }
+
   Future<void> _crear() async {
     final u = _usuario.text.trim();
     final p = _password.text;
@@ -94,16 +123,26 @@ class _ConfiguracionUsuariosScreenState extends State<ConfiguracionUsuariosScree
     }
     setState(() => _enviando = true);
     try {
-      await ApiClient.post(
-        '/api/usuarios/crear',
-        body: {
-          'username': u,
-          'password': p,
-          'rol': _rol,
-        },
-      );
+      final baseBody = <String, dynamic>{
+        'username': u,
+        'password': p,
+        'rol': _rol,
+      };
+      try {
+        await ApiClient.post(
+          '/api/usuarios/crear',
+          body: {...baseBody, 'genero': _genero},
+        );
+      } catch (_) {
+        // Compatibilidad con backends que aún no aceptan "genero".
+        await ApiClient.post('/api/usuarios/crear', body: baseBody);
+      }
       if (!mounted) return;
+      if (_avatarNuevoUsuario != null && _avatarNuevoUsuario!.isNotEmpty) {
+        await UserAvatarService.instance.saveAvatarForUser(u, _avatarNuevoUsuario!);
+      }
       _password.clear();
+      _avatarNuevoUsuario = null;
       displayInfoBar(
         context,
         builder: (c, close) => InfoBar(
@@ -222,11 +261,30 @@ class _ConfiguracionUsuariosScreenState extends State<ConfiguracionUsuariosScree
   String _rolParaCombo(String? raw) {
     final x = (raw ?? '').trim().toUpperCase();
     if (x == 'ADMIN') return 'ADMINISTRADOR';
+    if (x == 'USER' || x == 'QA') return 'CALIDAD';
     for (final e in _roles) {
       if (e == x) return e;
     }
     if (x.contains('INGENIERIA')) return 'INGENIERIA_METODOS';
-    return _roles.contains(x) ? x : 'USER';
+    return _roles.contains(x) ? x : 'CALIDAD';
+  }
+
+  String _generoParaCombo(String? raw) {
+    final x = (raw ?? '').trim().toUpperCase();
+    if (x == 'F' || x == 'FEMENINO' || x == 'MUJER' || x == 'FEMALE') {
+      return 'F';
+    }
+    if (x == 'M' || x == 'MASCULINO' || x == 'HOMBRE' || x == 'MALE') {
+      return 'M';
+    }
+    return 'N';
+  }
+
+  String _generoLabel(String raw) {
+    final v = _generoParaCombo(raw);
+    if (v == 'F') return 'Femenino';
+    if (v == 'M') return 'Masculino';
+    return 'No especificado';
   }
 
   Future<void> _abrirEditarRol(Map<String, dynamic> u) async {
@@ -241,13 +299,16 @@ class _ConfiguracionUsuariosScreenState extends State<ConfiguracionUsuariosScree
     }
 
     var rolSel = _rolParaCombo('${u['rol']}');
-    final nuevo = await showDialog<String>(
+    var generoSel = _generoParaCombo(
+      '${u['genero'] ?? u['Genero'] ?? u['sexo'] ?? u['Sexo'] ?? ''}',
+    );
+    final nuevo = await showDialog<Map<String, String>>(
       context: context,
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setLocal) {
             return ContentDialog(
-              title: const Text('Editar rol y permisos'),
+              title: const Text('Editar rol y perfil'),
               content: SizedBox(
                 width: 360,
                 child: Column(
@@ -273,9 +334,26 @@ class _ConfiguracionUsuariosScreenState extends State<ConfiguracionUsuariosScree
                         onChanged: (v) => setLocal(() => rolSel = v ?? rolSel),
                       ),
                     ),
+                    const SizedBox(height: 10),
+                    InfoLabel(
+                      label: 'Género (saludo)',
+                      child: ComboBox<String>(
+                        value: generoSel,
+                        items: const [
+                          ComboBoxItem(value: 'F', child: Text('Femenino')),
+                          ComboBoxItem(value: 'M', child: Text('Masculino')),
+                          ComboBoxItem(
+                            value: 'N',
+                            child: Text('Prefiero no especificar'),
+                          ),
+                        ],
+                        onChanged:
+                            (v) => setLocal(() => generoSel = v ?? generoSel),
+                      ),
+                    ),
                     const SizedBox(height: 8),
                     Text(
-                      'El rol define qué pantallas y acciones puede usar el usuario.',
+                      'Rol define accesos. Género se usa para el saludo en el Lobby.',
                       style: TextStyle(
                         fontSize: 12,
                         color: FluentTheme.of(context)
@@ -294,7 +372,11 @@ class _ConfiguracionUsuariosScreenState extends State<ConfiguracionUsuariosScree
                 ),
                 FilledButton(
                   child: const Text('Guardar'),
-                  onPressed: () => Navigator.of(ctx).pop(rolSel),
+                  onPressed:
+                      () => Navigator.of(ctx).pop({
+                        'rol': rolSel,
+                        'genero': generoSel,
+                      }),
                 ),
               ],
             );
@@ -303,17 +385,50 @@ class _ConfiguracionUsuariosScreenState extends State<ConfiguracionUsuariosScree
       },
     );
     if (nuevo == null || !mounted) return;
+    final rolNuevo = (nuevo['rol'] ?? rolSel).trim();
+    final generoNuevo = (nuevo['genero'] ?? generoSel).trim();
+    final rolActual = _rolParaCombo('${u['rol']}');
+    final generoActual = _generoParaCombo(
+      '${u['genero'] ?? u['Genero'] ?? u['sexo'] ?? u['Sexo'] ?? ''}',
+    );
+
     try {
-      await ApiClient.put(
-        '/api/usuarios/$idInt/rol',
-        body: {'rol': nuevo},
-      );
+      if (rolNuevo != rolActual) {
+        await ApiClient.put(
+          '/api/usuarios/$idInt/rol',
+          body: {'rol': rolNuevo},
+        );
+      }
+
+      var generoActualizado = false;
+      if (generoNuevo != generoActual) {
+        try {
+          await ApiClient.put(
+            '/api/usuarios/$idInt/genero',
+            body: {'genero': generoNuevo},
+          );
+          generoActualizado = true;
+        } catch (_) {
+          try {
+            await ApiClient.put(
+              '/api/usuarios/$idInt',
+              body: {'genero': generoNuevo},
+            );
+            generoActualizado = true;
+          } catch (_) {}
+        }
+      }
+
       if (!mounted) return;
       displayInfoBar(
         context,
         builder: (c, close) => InfoBar(
-          title: const Text('Rol actualizado'),
-          content: Text('Usuario $login → $nuevo'),
+          title: const Text('Usuario actualizado'),
+          content: Text(
+            generoNuevo != generoActual && !generoActualizado
+                ? 'Rol: $rolNuevo. Género no se pudo guardar con este backend.'
+                : 'Usuario $login → Rol: $rolNuevo · Género: ${_generoLabel(generoNuevo)}',
+          ),
           severity: InfoBarSeverity.success,
           onClose: close,
         ),
@@ -428,6 +543,7 @@ class _ConfiguracionUsuariosScreenState extends State<ConfiguracionUsuariosScree
                             child: TextBox(
                               controller: _usuario,
                               placeholder: 'Único, sin espacios',
+                              onChanged: (_) => setState(() {}),
                             ),
                           ),
                         ),
@@ -457,7 +573,61 @@ class _ConfiguracionUsuariosScreenState extends State<ConfiguracionUsuariosScree
                                   .toList(),
                               onChanged: _enviando
                                   ? null
-                                  : (v) => setState(() => _rol = v ?? 'USER'),
+                                  : (v) => setState(() => _rol = v ?? 'CALIDAD'),
+                            ),
+                          ),
+                        ),
+                        material.SizedBox(
+                          width: 260,
+                          child: InfoLabel(
+                            label: 'Género (saludo)',
+                            child: ComboBox<String>(
+                              value: _genero,
+                              items: _generos
+                                  .map(
+                                    (g) => ComboBoxItem(
+                                      value: g['value'],
+                                      child: material.Text(g['label'] ?? g['value'] ?? ''),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged: _enviando
+                                  ? null
+                                  : (v) => setState(() => _genero = v ?? 'N'),
+                            ),
+                          ),
+                        ),
+                        material.SizedBox(
+                          width: 340,
+                          child: InfoLabel(
+                            label: 'Foto de perfil',
+                            child: Row(
+                              children: [
+                                _AvatarCirclePreview(
+                                  bytes: _avatarNuevoUsuario,
+                                  fallbackLabel: _usuario.text.trim().isEmpty
+                                      ? 'U'
+                                      : _usuario.text.trim(),
+                                  size: 44,
+                                ),
+                                const SizedBox(width: 10),
+                                Button(
+                                  onPressed:
+                                      _enviando ? null : _pickAvatarNuevoUsuario,
+                                  child: const Text('Subir foto'),
+                                ),
+                                const SizedBox(width: 8),
+                                if (_avatarNuevoUsuario != null)
+                                  IconButton(
+                                    icon: const Icon(FluentIcons.clear, size: 14),
+                                    onPressed:
+                                        _enviando
+                                            ? null
+                                            : () => setState(
+                                              () => _avatarNuevoUsuario = null,
+                                            ),
+                                  ),
+                              ],
                             ),
                           ),
                         ),
@@ -564,21 +734,9 @@ class _ConfiguracionUsuariosScreenState extends State<ConfiguracionUsuariosScree
                           ),
                           child: material.Row(
                             children: [
-                              // Avatar
-                              material.Container(
-                                width: 48,
-                                height: 48,
-                                decoration: material.BoxDecoration(
-                                  color: FluentTheme.of(context).accentColor.withValues(alpha: 0.2),
-                                  borderRadius: material.BorderRadius.circular(10),
-                                ),
-                                child: material.Center(
-                                  child: material.Icon(
-                                    FluentIcons.contact,
-                                    size: 24,
-                                    color: FluentTheme.of(context).accentColor,
-                                  ),
-                                ),
+                              _AvatarCell(
+                                username: username,
+                                canEdit: _puedeGestionarUsuarios,
                               ),
                               const material.SizedBox(width: 16),
                               // Información del usuario
@@ -700,6 +858,136 @@ class _ColorCell extends StatefulWidget {
 
   @override
   State<_ColorCell> createState() => _ColorCellState();
+}
+
+class _AvatarCell extends StatefulWidget {
+  const _AvatarCell({
+    required this.username,
+    required this.canEdit,
+  });
+
+  final String username;
+  final bool canEdit;
+
+  @override
+  State<_AvatarCell> createState() => _AvatarCellState();
+}
+
+class _AvatarCellState extends State<_AvatarCell> {
+  Uint8List? _bytes;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final b = await UserAvatarService.instance.loadAvatarForUser(widget.username);
+    if (!mounted) return;
+    setState(() {
+      _bytes = b;
+      _loading = false;
+    });
+  }
+
+  Future<void> _pickAndSave() async {
+    if (!widget.canEdit) return;
+    final picked = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      withData: true,
+      allowMultiple: false,
+    );
+    if (picked == null || picked.files.isEmpty) return;
+    Uint8List? bytes = picked.files.single.bytes;
+    final path = picked.files.single.path;
+    if (bytes == null && path != null && path.isNotEmpty) {
+      bytes = await File(path).readAsBytes();
+    }
+    if (bytes == null || bytes.isEmpty) return;
+    await UserAvatarService.instance.saveAvatarForUser(widget.username, bytes);
+    if (!mounted) return;
+    setState(() => _bytes = bytes);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const SizedBox(
+        width: 48,
+        height: 48,
+        child: ProgressRing(strokeWidth: 2),
+      );
+    }
+    return material.Tooltip(
+      message: widget.canEdit ? 'Click para cambiar foto' : 'Foto de perfil',
+      child: material.InkWell(
+        onTap: widget.canEdit ? _pickAndSave : null,
+        borderRadius: material.BorderRadius.circular(10),
+        child: _AvatarCirclePreview(
+          bytes: _bytes,
+          fallbackLabel: widget.username,
+          size: 48,
+        ),
+      ),
+    );
+  }
+}
+
+class _AvatarCirclePreview extends StatelessWidget {
+  const _AvatarCirclePreview({
+    required this.bytes,
+    required this.fallbackLabel,
+    required this.size,
+  });
+
+  final Uint8List? bytes;
+  final String fallbackLabel;
+  final double size;
+
+  String _initials() {
+    final parts = fallbackLabel
+        .split(RegExp(r'[\s._-]+'))
+        .where((e) => e.trim().isNotEmpty)
+        .map((e) => e.trim())
+        .toList();
+    if (parts.isEmpty) return 'U';
+    if (parts.length == 1) {
+      final p = parts.first.toUpperCase();
+      return p.length >= 2 ? p.substring(0, 2) : p;
+    }
+    return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: FluentTheme.of(context).inactiveColor.withValues(alpha: 0.45),
+          width: 1.6,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: bytes != null
+          ? Image.memory(bytes!, fit: BoxFit.cover)
+          : Container(
+              color: FluentTheme.of(context).accentColor.withValues(alpha: 0.22),
+              alignment: Alignment.center,
+              child: Text(
+                _initials(),
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: FluentTheme.of(context).accentColor,
+                ),
+              ),
+            ),
+    );
+  }
 }
 
 class _ColorCellState extends State<_ColorCell> {

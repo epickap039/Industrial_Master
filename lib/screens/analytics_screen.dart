@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import '../services/api_client.dart';
+import '../theme/ui_tokens.dart';
 import '../widgets/compact_page_header.dart';
 
 int _analyticsInt(dynamic v) {
@@ -321,6 +322,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = FluentTheme.of(context).brightness == Brightness.dark;
+    final palette = uiSurfacePaletteOf(context);
 
     return ScaffoldPage(
       padding: const EdgeInsets.only(top: 8),
@@ -369,7 +371,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                         FluentIcons.filter,
                         size: 14,
                         color: _excludedRevisionIds.isNotEmpty
-                            ? Colors.orange
+                            ? palette.actionEdit
                             : null,
                       ),
                       const SizedBox(width: 6),
@@ -380,7 +382,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                         style: TextStyle(
                           fontSize: 12,
                           color: _excludedRevisionIds.isNotEmpty
-                              ? Colors.orange
+                              ? palette.actionEdit
                               : null,
                           fontWeight: _excludedRevisionIds.isNotEmpty
                               ? FontWeight.bold
@@ -398,7 +400,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           ],
         ),
       ),
-      content: _buildContent(isDark),
+      content: Container(
+        color: palette.surfaceBase,
+        child: _buildContent(isDark),
+      ),
     );
   }
 

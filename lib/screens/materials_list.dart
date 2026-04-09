@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import '../services/api_client.dart';
+import '../theme/ui_tokens.dart';
 import '../widgets/compact_page_header.dart';
 
 class MaterialsListScreen extends StatefulWidget {
@@ -191,6 +192,7 @@ class _MaterialsListScreenState extends State<MaterialsListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final palette = uiSurfacePaletteOf(context);
     // Filtrado de la lista
     final filteredList =
         _descripcionesOficiales
@@ -219,8 +221,10 @@ class _MaterialsListScreenState extends State<MaterialsListScreen> {
           ),
         ),
       ),
-      content: Column(
-        children: [
+      content: Container(
+        color: palette.surfaceBase,
+        child: Column(
+          children: [
           // Barra de Búsqueda
           Padding(
             padding: const EdgeInsets.symmetric(
@@ -253,7 +257,7 @@ class _MaterialsListScreenState extends State<MaterialsListScreen> {
                   final material = filteredList[index];
                   final isEven = index % 2 == 0;
                   return Container(
-                    color: isEven ? Colors.transparent : FluentTheme.of(context).typography.body?.color?.withValues(alpha: 0.04),
+                    color: isEven ? Colors.transparent : palette.tableStripe,
                     padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 6.0),
                     child: Row(
                       children: [
@@ -285,7 +289,7 @@ class _MaterialsListScreenState extends State<MaterialsListScreen> {
                           icon: const Icon(FluentIcons.delete),
                           style: ButtonStyle(
                             foregroundColor: WidgetStateProperty.all(
-                              Colors.red,
+                              palette.actionDanger,
                             ),
                           ),
                           onPressed: () {
@@ -306,7 +310,7 @@ class _MaterialsListScreenState extends State<MaterialsListScreen> {
                                         style: ButtonStyle(
                                           backgroundColor:
                                               WidgetStateProperty.all(
-                                                Colors.red,
+                                                palette.actionDanger,
                                               ),
                                         ),
                                         child: const Text("Eliminar"),
@@ -333,7 +337,8 @@ class _MaterialsListScreenState extends State<MaterialsListScreen> {
             },
               ),
             ),
-        ],
+          ],
+        ),
       ),
     );
   }

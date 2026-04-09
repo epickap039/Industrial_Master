@@ -114,18 +114,28 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
 
   List<Widget> _buildTree() {
     final filterLow = _filter.toLowerCase();
+    final palette = uiSurfacePaletteOf(context);
     final primaryColor = FluentTheme.of(context).accentColor;
-    final bodyColor =
-        FluentTheme.of(context).typography.body?.color ??
-        const Color(0xFF000000);
-    final dividerColor =
-        FluentTheme.of(context).resources.dividerStrokeColorDefault ??
-        bodyColor.withValues(alpha: 0.1);
+    final bodyColor = palette.textPrimary;
+    final dividerColor = palette.borderSubtle;
+    final cardColor = palette.surfaceCard;
 
     if (_groupByClient) {
-      return _buildByClient(filterLow, primaryColor, bodyColor, dividerColor);
+      return _buildByClient(
+        filterLow,
+        primaryColor,
+        bodyColor,
+        dividerColor,
+        cardColor,
+      );
     } else {
-      return _buildByProject(filterLow, primaryColor, bodyColor, dividerColor);
+      return _buildByProject(
+        filterLow,
+        primaryColor,
+        bodyColor,
+        dividerColor,
+        cardColor,
+      );
     }
   }
 
@@ -230,8 +240,8 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
     Color primaryColor,
     Color bodyColor,
     Color dividerColor,
+    Color cardColor,
   ) {
-    final cardColor = FluentTheme.of(context).cardColor;
     return _arbol
         .map<Widget>((tracto) {
           final tractoNombre = tracto['nombre'] as String;
@@ -427,8 +437,8 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
     Color primaryColor,
     Color bodyColor,
     Color dividerColor,
+    Color cardColor,
   ) {
-    final cardColor = FluentTheme.of(context).cardColor;
     Map<String, Map<String, Map<String, Map<String, List<dynamic>>>>>
     hierarchy = {};
 
@@ -597,6 +607,7 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final palette = uiSurfacePaletteOf(context);
     return ScaffoldPage(
       padding: const EdgeInsets.only(top: 8),
       header: CompactPageHeader(
@@ -653,52 +664,51 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
           ],
         ),
       ),
-      content:
-          _isLoading
-              ? const Center(child: ProgressRing())
-              : _arbol.isEmpty
-              ? Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
+      content: Container(
+        color: palette.surfaceBase,
+        child:
+            _isLoading
+                ? const Center(child: ProgressRing())
+                : _arbol.isEmpty
+                ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        FluentIcons.map_layers,
+                        size: 48,
+                        color: palette.textSecondary.withValues(alpha: 0.65),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'No se encontraron datos de ingeniería.',
+                        style: fluentSecondaryTextStyle(context),
+                      ),
+                    ],
+                  ),
+                )
+                : Column(
                   children: [
-                    Icon(
-                      FluentIcons.map_layers,
-                      size: 48,
-                      color:
-                          (FluentTheme.of(
-                                context,
-                              ).typography.body?.color?.withValues(alpha: 0.3) ??
-                              Colors.grey),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'No se encontraron datos de ingeniería.',
-                      style: fluentSecondaryTextStyle(context),
-                    ),
-                  ],
-                ),
-              )
-              : Column(
-                children: [
-                  Expanded(
-                    child: InteractiveViewer(
-                      transformationController: _transformationController,
-                      constrained: false,
-                      minScale: 0.5,
-                      maxScale: 2.0,
-                      boundaryMargin: const EdgeInsets.all(double.infinity),
-                      child: Padding(
-                        padding: const EdgeInsets.all(40.0),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: _buildTree(),
+                    Expanded(
+                      child: InteractiveViewer(
+                        transformationController: _transformationController,
+                        constrained: false,
+                        minScale: 0.5,
+                        maxScale: 2.0,
+                        boundaryMargin: const EdgeInsets.all(double.infinity),
+                        child: Padding(
+                          padding: const EdgeInsets.all(40.0),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: _buildTree(),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                ),
+      ),
     );
   }
 }

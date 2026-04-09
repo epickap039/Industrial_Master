@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -9,8 +10,10 @@ import '../config/app_config.dart';
 import '../services/api_client.dart';
 import '../services/app_role.dart';
 import '../services/nav_pane.dart';
+import '../services/notification_inbox_service.dart';
 import '../theme/page_title_style.dart';
 import '../theme/ui_tokens.dart';
+import 'monitoreo/widgets/notification_inbox_panel.dart';
 import 'ayudas_visuales/ayudas_api_models.dart';
 
 String _roleLabel(AppRole r) {
@@ -60,6 +63,7 @@ class LobbyScreen extends StatefulWidget {
 class _LobbyScreenState extends State<LobbyScreen> {
   String _userName = 'Cargando...';
   String _userRole = '';
+  String _userGender = '';
 
   // KPIs /api/dashboard/kpi
   int totalLineasBom = 0;
@@ -82,6 +86,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
   List<Map<String, dynamic>> _ultimasPiezasCatalogo = [];
   List<_AyudaCategoriaStat> _ayudasPorCategoria = [];
   int _totalArchivosAyudas = 0;
+  int _notificacionesNoLeidas = 0;
+  List<CmdInboxEntry> _notificacionesPreview = [];
 
   @override
   void initState() {
@@ -107,25 +113,165 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
   Future<void> _loadUser() async {
     final prefs = await SharedPreferences.getInstance();
+    final prefUsername = (prefs.getString('username') ?? '').trim();
+    final prefDisplayName = (prefs.getString('display_name') ?? '').trim();
+    final prefGender = (prefs.getString('user_gender') ?? '').trim();
+    final userId = prefs.getInt('user_id');
     if (mounted) {
       setState(() {
-        _userName = prefs.getString('username') ?? 'Usuario';
+        _userName = prefDisplayName.isNotEmpty
+            ? prefDisplayName
+            : (prefUsername.isNotEmpty ? prefUsername : 'Usuario');
+        _userGender = prefGender;
         _userRole = widget.effectiveRole;
       });
     }
+    // Sincroniza el nombre visible con el perfil real (si se cambió en backend).
+    try {
+      final raw = await ApiClient.get('/api/usuarios/all');
+      if (raw is! List) return;
+      Map<String, dynamic>? matched;
+      for (final e in raw) {
+        if (e is! Map) continue;
+        final m = Map<String, dynamic>.from(e.map((k, v) => MapEntry('$k', v)));
+        final rowId = int.tryParse('${m['id'] ?? m['Id'] ?? ''}');
+        final rowLogin = '${m['username'] ?? m['Usuario'] ?? ''}'.trim();
+        if (userId != null && userId > 0 && rowId == userId) {
+          matched = m;
+          break;
+        }
+        if (matched == null &&
+            prefUsername.isNotEmpty &&
+            rowLogin.toLowerCase() == prefUsername.toLowerCase()) {
+          matched = m;
+        }
+      }
+      if (matched == null) return;
+      final displayName = _displayNameFromUserRow(matched);
+      final newLogin = '${matched['username'] ?? matched['Usuario'] ?? ''}'.trim();
+      if (displayName.isNotEmpty && mounted) {
+        setState(() => _userName = displayName);
+      }
+      if (displayName.isNotEmpty) {
+        await prefs.setString('display_name', displayName);
+      }
+      final gender = _genderFromUserRow(matched);
+      if (gender.isNotEmpty) {
+        await prefs.setString('user_gender', gender);
+        if (mounted) {
+          setState(() => _userGender = gender);
+        }
+      }
+      if (newLogin.isNotEmpty && newLogin != prefUsername) {
+        await prefs.setString('username', newLogin);
+      }
+    } catch (_) {}
+  }
+
+  String _displayNameFromUserRow(Map<String, dynamic> row) {
+    final keys = <String>[
+      'nombre',
+      'Nombre',
+      'nombre_completo',
+      'Nombre_Completo',
+      'display_name',
+      'full_name',
+      'username',
+      'Usuario',
+    ];
+    for (final k in keys) {
+      final v = row[k];
+      final s = v == null ? '' : v.toString().trim();
+      if (s.isNotEmpty) return s;
+    }
+    return 'Usuario';
+  }
+
+  String _genderFromUserRow(Map<String, dynamic> row) {
+    final keys = <String>[
+      'genero',
+      'Genero',
+      'género',
+      'Género',
+      'sexo',
+      'Sexo',
+      'gender',
+      'Gender',
+    ];
+    for (final k in keys) {
+      final v = row[k];
+      final s = v == null ? '' : v.toString().trim().toLowerCase();
+      if (s.isNotEmpty) return s;
+    }
+    return '';
+  }
+
+  String _welcomeWord() {
+    final g = _userGender.trim().toLowerCase();
+    if (g == 'f' ||
+        g == 'femenino' ||
+        g == 'mujer' ||
+        g == 'female') {
+      return 'Bienvenida';
+    }
+    if (g == 'm' || g == 'masculino' || g == 'hombre' || g == 'male') {
+      return 'Bienvenido';
+    }
+    final names = _userName
+        .split(RegExp(r'\s+|[_\-\.]'))
+        .where((e) => e.trim().isNotEmpty)
+        .map((e) => e.trim().toLowerCase())
+        .toList();
+    if (names.isNotEmpty && names.first.endsWith('a')) {
+      return 'Bienvenida';
+    }
+    return 'Bienvenido(a)';
   }
 
   Future<void> _fetchAll() async {
     final ar = parseAppRole(_userRole);
     if (ar.showsLobbyOperativoAyudasCatalogo) {
       await _fetchLobbyOperativoAyudasCatalogo();
+      await _fetchInboxPreview();
       return;
     }
     await Future.wait([
       _fetchKpis(),
       _fetchOperationalStats(),
       _fetchAyudasVisualesStats(),
+      _fetchInboxPreview(),
     ]);
+  }
+
+  Future<void> _fetchInboxPreview() async {
+    try {
+      final all = await CmdInboxStore.instance.loadAll();
+      final unread = all.where((n) => !n.leido).length;
+      if (!mounted) return;
+      setState(() {
+        _notificacionesNoLeidas = unread;
+        _notificacionesPreview = all.take(3).toList();
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _notificacionesNoLeidas = 0;
+        _notificacionesPreview = const [];
+      });
+    }
+  }
+
+  Future<void> _openInboxFromLobby() async {
+    await showNotificationInboxDialog(
+      context,
+      onChanged: () {
+        _fetchInboxPreview();
+      },
+      onOpenMonitoring: () {
+        widget.onNavigatePane(NavPaneId.centroMonitoreo);
+      },
+    );
+    if (mounted) await _fetchInboxPreview();
   }
 
   DateTime? _parseCatalogDate(dynamic v) {
@@ -138,16 +284,59 @@ class _LobbyScreenState extends State<LobbyScreen> {
   }
 
   int _comparePiezasRecientes(Map<String, dynamic> a, Map<String, dynamic> b) {
-    DateTime? da = _parseCatalogDate(a['Fecha_Creacion']);
-    da ??= _parseCatalogDate(a['Ultima_Actualizacion']);
-    DateTime? db = _parseCatalogDate(b['Fecha_Creacion']);
-    db ??= _parseCatalogDate(b['Ultima_Actualizacion']);
+    final da = _catalogLastUpdate(a);
+    final db = _catalogLastUpdate(b);
     if (da != null && db != null) return db.compareTo(da);
     if (da != null) return -1;
     if (db != null) return 1;
     final ca = '${a['Codigo_Pieza'] ?? a['Codigo'] ?? ''}';
     final cb = '${b['Codigo_Pieza'] ?? b['Codigo'] ?? ''}';
     return cb.compareTo(ca);
+  }
+
+  DateTime? _catalogLastUpdate(Map<String, dynamic> row) {
+    return _parseCatalogDate(row['Ultima_Actualizacion']) ??
+        _parseCatalogDate(row['Fecha_Modificacion']) ??
+        _parseCatalogDate(row['Fecha_Actualizacion']) ??
+        _parseCatalogDate(row['Fecha_Creacion']);
+  }
+
+  String _catalogMaterial(Map<String, dynamic> row) {
+    final keys = <String>[
+      'Material',
+      'Material_Oficial',
+      'Descripcion_Material',
+      'Descripción_Material',
+      'Descripcion',
+    ];
+    for (final k in keys) {
+      final v = row[k];
+      final s = v == null ? '' : v.toString().trim();
+      if (s.isNotEmpty && s != '-') return s;
+    }
+    return 'Sin material';
+  }
+
+  int _ayudaCategoriaId(Map<String, dynamic> cm) {
+    final raw =
+        cm['ID_Categoria'] ??
+        cm['id_categoria'] ??
+        cm['Id_Categoria'] ??
+        cm['id'] ??
+        cm['Id'];
+    if (raw is int) return raw;
+    return int.tryParse('$raw') ?? 0;
+  }
+
+  String _ayudaCategoriaNombre(Map<String, dynamic> cm, int id) {
+    final raw =
+        cm['Nombre_Categoria'] ??
+        cm['nombre_categoria'] ??
+        cm['Categoria'] ??
+        cm['categoria'] ??
+        cm['nombre'];
+    final name = '${raw ?? ''}'.trim();
+    return name.isEmpty ? 'Categoría $id' : name;
   }
 
   Future<void> _fetchLobbyOperativoAyudasCatalogo() async {
@@ -186,21 +375,23 @@ class _LobbyScreenState extends State<LobbyScreen> {
         final cm = Map<String, dynamic>.from(
           c.map((k, v) => MapEntry('$k', v)),
         );
-        final id = int.tryParse(
-          '${cm['id_categoria'] ?? cm['Id_Categoria'] ?? ''}',
-        );
-        if (id == null || id <= 0) continue;
-        final nombre =
-            '${cm['nombre_categoria'] ?? cm['Nombre_Categoria'] ?? 'Categoría'}'
-                .trim();
-        final data = await ApiClient.get('/api/ayudas/lista/$id');
-        final docList = data is List ? data : <dynamic>[];
+        final id = _ayudaCategoriaId(cm);
+        if (id <= 0) continue;
+        final nombre = _ayudaCategoriaNombre(cm, id);
+        List<dynamic> docList = const [];
+        try {
+          final data = await ApiClient.get('/api/ayudas/lista/$id');
+          docList = data is List ? data : <dynamic>[];
+        } catch (_) {
+          // Una categoría puntual no debe romper el resumen del Lobby.
+          docList = const [];
+        }
         final n = docList.length;
         totalArch += n;
         stats.add(
           _AyudaCategoriaStat(
             id: id,
-            nombre: nombre.isEmpty ? 'Categoría $id' : nombre,
+            nombre: nombre,
             count: n,
           ),
         );
@@ -210,8 +401,13 @@ class _LobbyScreenState extends State<LobbyScreen> {
             row.map((k, v) => MapEntry('$k', v)),
           );
           final d = _safeAyudaDate(m);
-          if (d != null && (latestDate == null || d.isAfter(latestDate))) {
-            latestDate = d;
+          if (d != null) {
+            if (latestDate == null || d.isAfter(latestDate)) {
+              latestDate = d;
+              latest = m;
+            }
+          } else if (latest == null) {
+            // Fallback: mostrar al menos un documento si viene sin fecha parseable.
             latest = m;
           }
         }
@@ -242,7 +438,13 @@ class _LobbyScreenState extends State<LobbyScreen> {
   DateTime? _safeAyudaDate(Map<String, dynamic> m) {
     final raw = ayudasFechaSubida(m);
     if (raw == null) return null;
-    return DateTime.tryParse(raw.toString());
+    if (raw is DateTime) return raw;
+    final s = raw.toString().trim();
+    if (s.isEmpty || s == '-') return null;
+    return DateTime.tryParse(s) ??
+        DateTime.tryParse(s.replaceFirst(' ', 'T')) ??
+        DateFormat('dd/MM/yyyy HH:mm').tryParse(s) ??
+        DateFormat('yyyy-MM-dd HH:mm').tryParse(s);
   }
 
   Future<void> _fetchAyudasVisualesStats() async {
@@ -257,20 +459,28 @@ class _LobbyScreenState extends State<LobbyScreen> {
         final cm = Map<String, dynamic>.from(
           c.map((k, v) => MapEntry('$k', v)),
         );
-        final id = int.tryParse(
-          '${cm['id_categoria'] ?? cm['Id_Categoria'] ?? ''}',
-        );
-        if (id == null || id <= 0) continue;
-        final data = await ApiClient.get('/api/ayudas/lista/$id');
-        final list = data is List ? data : <dynamic>[];
+        final id = _ayudaCategoriaId(cm);
+        if (id <= 0) continue;
+        List<dynamic> list = const [];
+        try {
+          final data = await ApiClient.get('/api/ayudas/lista/$id');
+          list = data is List ? data : <dynamic>[];
+        } catch (_) {
+          // Ignorar categoría con error y continuar con las demás.
+          list = const [];
+        }
         for (final row in list) {
           if (row is! Map) continue;
           final m = Map<String, dynamic>.from(
             row.map((k, v) => MapEntry('$k', v)),
           );
           final d = _safeAyudaDate(m);
-          if (d != null && (latestDate == null || d.isAfter(latestDate))) {
-            latestDate = d;
+          if (d != null) {
+            if (latestDate == null || d.isAfter(latestDate)) {
+              latestDate = d;
+              latest = m;
+            }
+          } else if (latest == null) {
             latest = m;
           }
         }
@@ -378,6 +588,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
+    final palette = uiSurfacePaletteOf(context);
     final dark = theme.brightness == Brightness.dark;
     final loading = _cargandoLobby;
     final rolLabel = _roleLabel(parseAppRole(_userRole));
@@ -393,7 +604,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Bienvenido, $_userName',
+              '${_welcomeWord()}, $_userName',
               style: pageTitleTextStyle(context, fontSize: 32).copyWith(
                 fontWeight: FontWeight.w800,
                 color: theme.typography.title?.color,
@@ -425,17 +636,16 @@ class _LobbyScreenState extends State<LobbyScreen> {
         ),
       ),
       content: Container(
-        decoration:
-            dark
-                ? const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [Color(0xFF11192A), Color(0xFF1A1F34), Color(0xFF171D2B)],
-                    stops: [0.0, 0.55, 1.0],
-                  ),
-                )
-                : null,
+        decoration: dark
+            ? const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF11192A), Color(0xFF1A1F34), Color(0xFF171D2B)],
+                  stops: [0.0, 0.55, 1.0],
+                ),
+              )
+            : BoxDecoration(color: palette.surfaceBase),
         child: SingleChildScrollView(
           padding: pagePadding(),
           child: Column(
@@ -493,6 +703,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     _ayudasSpotlightCard(theme),
+                    const SizedBox(height: 16),
+                    _notificationsSummaryCard(theme),
                     const SizedBox(height: 16),
                     LayoutBuilder(
                       builder: (context, c) {
@@ -664,6 +876,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
       children: [
         _ayudasSpotlightCardOperativo(theme),
         const SizedBox(height: 16),
+        _notificationsSummaryCard(theme),
+        const SizedBox(height: 16),
         LayoutBuilder(
           builder: (context, c) {
             final wide = c.maxWidth > 960;
@@ -825,7 +1039,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
           ),
           const SizedBox(height: 4),
           Text(
-            'Las 5 entradas más recientes según Fecha de creación o última actualización.',
+            'Top 5 por última modificación. Vista rápida: Código de pieza, material y fecha.',
             style: TextStyle(
               fontSize: 12,
               color: theme.typography.caption?.color,
@@ -843,11 +1057,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
               final row = _ultimasPiezasCatalogo[i];
               final cod =
                   '${row['Codigo_Pieza'] ?? row['Codigo'] ?? ''}'.trim();
-              final desc = '${row['Descripcion'] ?? '-'}'.trim();
-              final fecha = _fmtDateTime(
-                _parseCatalogDate(row['Fecha_Creacion']) ??
-                    _parseCatalogDate(row['Ultima_Actualizacion']),
-              );
+              final material = _catalogMaterial(row);
+              final fecha = _fmtDateTime(_catalogLastUpdate(row));
               return Padding(
                 padding: EdgeInsets.only(
                   bottom: i == _ultimasPiezasCatalogo.length - 1 ? 0 : 10,
@@ -900,9 +1111,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        desc.isEmpty || desc == '-'
-                            ? 'Sin descripción'
-                            : _etiquetaCorta(desc, 120),
+                        'Material: ${_etiquetaCorta(material, 120)}',
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -1377,40 +1586,104 @@ class _LobbyScreenState extends State<LobbyScreen> {
   }
 
   Widget _buildQuickActions(FluentThemeData theme) {
-    final cards = <Widget>[
-      _quickActionCard(
-        theme: theme,
-        icon: FluentIcons.database,
-        title: 'Catálogo Maestro',
-        subtitle: 'Consulta piezas y procesos',
-        detail: 'Búsqueda por código, revisiones y rutas.',
-        onTap: () => widget.onNavigatePane(NavPaneId.catalogoMaestro),
-      ),
-      _quickActionCard(
-        theme: theme,
-        icon: FluentIcons.page_list,
-        title: 'Ayudas visuales',
-        subtitle: 'Accede rápido a documentos',
-        detail: 'PDFs por categoría y subida reciente.',
-        onTap: () => widget.onNavigatePane(NavPaneId.ayudasVisuales),
-      ),
-      _quickActionCard(
-        theme: theme,
-        icon: FluentIcons.build_issue,
-        title: 'Radar de impacto',
-        subtitle: 'Evalúa impacto y asigna tareas',
-        detail: 'Cambios en BOM y misiones del centro.',
-        onTap: () => widget.onNavigatePane(NavPaneId.radarImpacto),
-      ),
-      _quickActionCard(
-        theme: theme,
-        icon: FluentIcons.fabric_folder,
-        title: 'Gestión de proyectos',
-        subtitle: 'Versiones y trazabilidad',
-        detail: 'Tractos, tipos, versiones y clientes.',
-        onTap: () => widget.onNavigatePane(NavPaneId.gestionProyectos),
-      ),
-    ];
+    final role = parseAppRole(_userRole);
+    final isEngineeringLobby =
+        role == AppRole.ingenieriaMetodos ||
+        role == AppRole.desarrollador ||
+        role == AppRole.administrador;
+    final cards = isEngineeringLobby
+        ? <Widget>[
+            _quickActionCard(
+              theme: theme,
+              icon: FluentIcons.cube_shape,
+              title: 'Escáner CAD',
+              subtitle: 'Escaneo y validación rápida',
+              detail: 'Punto de entrada para carga/normalización de piezas.',
+              onTap: () => widget.onNavigatePane(NavPaneId.escanerCad),
+            ),
+            _quickActionCard(
+              theme: theme,
+              icon: FluentIcons.database,
+              title: 'Catálogo Maestro',
+              subtitle: 'Consulta código y material',
+              detail: 'Validación inmediata de código, material y revisiones.',
+              onTap: () => widget.onNavigatePane(NavPaneId.catalogoMaestro),
+            ),
+            _quickActionCard(
+              theme: theme,
+              icon: FluentIcons.map_layers,
+              title: 'Mapa de ingeniería',
+              subtitle: 'Navega la estructura del producto',
+              detail: 'Tracto, tipo, versión y revisión desde una sola vista.',
+              onTap: () => widget.onNavigatePane(NavPaneId.mapaIngenieria),
+            ),
+            _quickActionCard(
+              theme: theme,
+              icon: FluentIcons.fabric_folder,
+              title: 'Gestión de proyectos',
+              subtitle: 'Versiones y trazabilidad',
+              detail: 'Control de tractos, tipos, versiones y clientes.',
+              onTap: () => widget.onNavigatePane(NavPaneId.gestionProyectos),
+            ),
+            _quickActionCard(
+              theme: theme,
+              icon: FluentIcons.cloud,
+              title: 'Importar Excel',
+              subtitle: 'Carga masiva de cambios',
+              detail: 'Entrada rápida para actualización operativa del catálogo.',
+              onTap: () => widget.onNavigatePane(NavPaneId.importarExcel),
+            ),
+            _quickActionCard(
+              theme: theme,
+              icon: FluentIcons.page_list,
+              title: 'Ayudas visuales',
+              subtitle: 'Consulta de instructivos',
+              detail: 'Acceso directo a PDFs por categoría y revisión.',
+              onTap: () => widget.onNavigatePane(NavPaneId.ayudasVisuales),
+            ),
+          ]
+        : <Widget>[
+            _quickActionCard(
+              theme: theme,
+              icon: FluentIcons.database,
+              title: 'Catálogo Maestro',
+              subtitle: 'Consulta piezas y procesos',
+              detail: 'Búsqueda por código, revisiones y rutas.',
+              onTap: () => widget.onNavigatePane(NavPaneId.catalogoMaestro),
+            ),
+            _quickActionCard(
+              theme: theme,
+              icon: FluentIcons.page_list,
+              title: 'Ayudas visuales',
+              subtitle: 'Accede rápido a documentos',
+              detail: 'PDFs por categoría y subida reciente.',
+              onTap: () => widget.onNavigatePane(NavPaneId.ayudasVisuales),
+            ),
+            _quickActionCard(
+              theme: theme,
+              icon: FluentIcons.build_issue,
+              title: 'Radar de impacto',
+              subtitle: 'Evalúa impacto y asigna tareas',
+              detail: 'Cambios en BOM y misiones del centro.',
+              onTap: () => widget.onNavigatePane(NavPaneId.radarImpacto),
+            ),
+            _quickActionCard(
+              theme: theme,
+              icon: FluentIcons.fabric_folder,
+              title: 'Gestión de proyectos',
+              subtitle: 'Versiones y trazabilidad',
+              detail: 'Tractos, tipos, versiones y clientes.',
+              onTap: () => widget.onNavigatePane(NavPaneId.gestionProyectos),
+            ),
+            _quickActionCard(
+              theme: theme,
+              icon: FluentIcons.set_action,
+              title: 'Materiales oficiales',
+              subtitle: 'Consulta y copia descripciones',
+              detail: 'Uso diario para estandarizar nombres de material.',
+              onTap: () => widget.onNavigatePane(NavPaneId.materialesOficiales),
+            ),
+          ];
     return Container(
       padding: const EdgeInsets.all(UiTokens.cardPadding - 2),
       decoration: elevatedCardDecoration(theme),
@@ -1428,28 +1701,121 @@ class _LobbyScreenState extends State<LobbyScreen> {
           const SizedBox(height: 8),
           LayoutBuilder(
             builder: (context, c) {
-              final wide = c.maxWidth > 920;
-              if (wide) {
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(child: cards[0]),
-                    const SizedBox(width: 12),
-                    Expanded(child: cards[1]),
-                    const SizedBox(width: 12),
-                    Expanded(child: cards[2]),
-                    const SizedBox(width: 12),
-                    Expanded(child: cards[3]),
-                  ],
-                );
-              }
+              final estimatedPerCard = c.maxWidth > 1400 ? 250.0 : 230.0;
+              final columns =
+                  (c.maxWidth / estimatedPerCard).floor().clamp(1, 5);
+              final cardWidth =
+                  ((c.maxWidth - ((columns - 1) * 10)) / columns).clamp(
+                    215.0,
+                    280.0,
+                  );
               return Wrap(
                 spacing: 10,
                 runSpacing: 10,
-                children: cards,
+                children: [
+                  for (final card in cards)
+                    SizedBox(
+                      width: cardWidth,
+                      child: card,
+                    ),
+                ],
               );
             },
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _notificationsSummaryCard(FluentThemeData theme) {
+    final empty = _notificacionesPreview.isEmpty;
+    return Container(
+      padding: const EdgeInsets.all(UiTokens.cardPadding + 2),
+      decoration: elevatedCardDecoration(theme),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Notificaciones',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF1565C0),
+                  ),
+                ),
+              ),
+              FilledButton(
+                onPressed: _openInboxFromLobby,
+                child: const Text('Abrir buzón'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Pendientes: $_notificacionesNoLeidas',
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+              color: theme.typography.body?.color?.withValues(alpha: 0.92),
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (empty)
+            Text(
+              'No hay notificaciones recientes.',
+              style: TextStyle(color: theme.typography.caption?.color),
+            )
+          else
+            ..._notificacionesPreview.map((n) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: n.leido
+                        ? theme.resources.subtleFillColorSecondary
+                        : theme.accentColor.withValues(alpha: 0.09),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: theme.resources.controlStrokeColorDefault
+                          .withValues(alpha: 0.6),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        FluentIcons.ringer,
+                        size: 14,
+                        color: n.leido ? theme.typography.caption?.color : theme.accentColor,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '${n.title} · ${n.body}',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12.2, height: 1.25),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        _fmtDateTime(n.fecha),
+                        style: TextStyle(
+                          fontSize: 10.5,
+                          color: theme.typography.caption?.color,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
         ],
       ),
     );
@@ -1464,48 +1830,45 @@ class _LobbyScreenState extends State<LobbyScreen> {
     required VoidCallback onTap,
   }) {
     final cap = theme.typography.caption?.color?.withValues(alpha: 0.82);
-    return SizedBox(
-      width: 232,
-      child: Button(
-        style: roundedFilledButtonStyle(),
-        onPressed: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(icon, size: 20),
-              const SizedBox(height: 8),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 14,
-                ),
+    return Button(
+      style: roundedFilledButtonStyle(),
+      onPressed: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 20),
+            const SizedBox(height: 8),
+            Text(
+              title,
+              style: const TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 14,
               ),
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                style: TextStyle(
-                  fontSize: 12.5,
-                  height: 1.25,
-                  fontWeight: FontWeight.w600,
-                  color: theme.typography.body?.color?.withValues(alpha: 0.9),
-                ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              style: TextStyle(
+                fontSize: 12.5,
+                height: 1.25,
+                fontWeight: FontWeight.w600,
+                color: theme.typography.body?.color?.withValues(alpha: 0.9),
               ),
-              const SizedBox(height: 4),
-              Text(
-                detail,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 11,
-                  height: 1.2,
-                  color: cap,
-                ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              detail,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                height: 1.2,
+                color: cap,
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

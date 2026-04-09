@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config/app_config.dart';
 import '../services/api_client.dart';
+import '../theme/ui_tokens.dart';
 import '../widgets/compact_page_header.dart';
 
 class CADScannerScreen extends StatefulWidget {
@@ -832,6 +833,7 @@ End Sub''';
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    final palette = uiSurfacePaletteOf(context);
     final bool isScanning =
         _status == 'scanning' || _status == 'generating_excel';
     final bool isProcessing = _procesarStatus == 'processing';
@@ -847,12 +849,15 @@ End Sub''';
         ),
       ),
       children: [
-        Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1000),
-            child: Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: Column(
+        Container(
+          width: double.infinity,
+          color: palette.surfaceBase,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1000),
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // Panel de Acción (Flujo Paso a Paso)
@@ -1635,6 +1640,7 @@ End Sub''';
                     ),
                   ),
                 ],
+                ),
               ),
             ),
           ),

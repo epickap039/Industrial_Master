@@ -10,6 +10,7 @@ import '../widgets/conflict_dialog.dart';
 import '../services/api_client.dart';
 import '../services/arbitration_bridge.dart';
 import '../theme/page_title_style.dart';
+import '../theme/ui_tokens.dart';
 
 class ArbitrationScreen extends StatefulWidget {
   const ArbitrationScreen({super.key});
@@ -725,6 +726,7 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
+    final palette = uiSurfacePaletteOf(context);
 
     // ESTADO VACIO
     if (_conflicts.isEmpty && _totalProcessed == 0 && !_isLoading) {
@@ -740,7 +742,7 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
           ),
         ),
         content: ColoredBox(
-          color: theme.scaffoldBackgroundColor,
+          color: palette.surfaceBase,
           child: Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -850,7 +852,7 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
         ),
       ),
       content: ColoredBox(
-        color: theme.scaffoldBackgroundColor,
+        color: palette.surfaceBase,
         child: SelectionArea(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,

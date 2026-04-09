@@ -1,3 +1,8 @@
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart' as material;
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl.dart';
@@ -31,6 +36,16 @@ IconData _obtenerIcono(String? codigo) {
       return material.Icons.info;
     default:
       return material.Icons.folder_copy_outlined;
+  }
+}
+
+Uint8List? _decodeIconPng(dynamic raw) {
+  final s = raw == null ? '' : raw.toString().trim();
+  if (s.isEmpty) return null;
+  try {
+    return base64Decode(s);
+  } catch (_) {
+    return null;
   }
 }
 
@@ -293,6 +308,8 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
   Future<void> _dialogoNuevaCategoria() async {
     final nombreCtrl = TextEditingController();
     final iconoCtrl = TextEditingController();
+    Uint8List? iconoPngBytes;
+    String? iconoPngB64;
     try {
       await showDialog<void>(
         context: context,
@@ -312,6 +329,50 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
                 TextBox(
                   controller: iconoCtrl,
                   placeholder: 'mecanico, electrico…',
+                ),
+                const SizedBox(height: 12),
+                const Text('Ícono PNG (opcional)'),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Container(
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: FluentTheme.of(context).inactiveColor,
+                        ),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: iconoPngBytes == null
+                          ? const Icon(FluentIcons.picture, size: 14)
+                          : Image.memory(iconoPngBytes!, fit: BoxFit.cover),
+                    ),
+                    const SizedBox(width: 8),
+                    Button(
+                      child: const Text('Seleccionar PNG'),
+                      onPressed: () async {
+                        final r = await FilePicker.platform.pickFiles(
+                          type: FileType.custom,
+                          allowMultiple: false,
+                          allowedExtensions: ['png'],
+                          withData: true,
+                        );
+                        if (r == null || r.files.isEmpty) return;
+                        Uint8List? bytes = r.files.single.bytes;
+                        final path = r.files.single.path;
+                        if (bytes == null && path != null && path.isNotEmpty) {
+                          bytes = await File(path).readAsBytes();
+                        }
+                        if (bytes == null || bytes.isEmpty) return;
+                        final b64 = base64Encode(bytes);
+                        iconoPngBytes = bytes;
+                        iconoPngB64 = b64;
+                        (ctx as Element).markNeedsBuild();
+                      },
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -344,6 +405,8 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
                       body: {
                         'nombre': n,
                         'icono': iconoCtrl.text.trim(),
+                        if (iconoPngB64 != null && iconoPngB64!.isNotEmpty)
+                          'icono_png_base64': iconoPngB64,
                       },
                       headers: {'X-Usuario': user},
                     );
@@ -530,9 +593,14 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
                                                   .toString();
                                           final icono =
                                               row['Icono_Codigo']?.toString();
+                                          final iconoPng = _decodeIconPng(
+                                            row['Icono_Png_Base64'] ??
+                                                row['icono_png_base64'],
+                                          );
                                           return _CategoriaTile(
                                             titulo: nombre,
                                             icon: _obtenerIcono(icono),
+                                            iconPng: iconoPng,
                                             isCyberpunk: isCyberpunk,
                                             onTap: () {
                                               Navigator.of(context).push(
@@ -588,12 +656,14 @@ class _CategoriaTile extends StatelessWidget {
   const _CategoriaTile({
     required this.titulo,
     required this.icon,
+    required this.iconPng,
     required this.isCyberpunk,
     required this.onTap,
   });
 
   final String titulo;
   final IconData icon;
+  final Uint8List? iconPng;
   final bool isCyberpunk;
   final VoidCallback onTap;
 
@@ -629,11 +699,23 @@ class _CategoriaTile extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
-                icon,
-                size: 56.0,
-                color: iconColor,
-              ),
+              if (iconPng != null)
+                Container(
+                  width: 58,
+                  height: 58,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: iconColor.withValues(alpha: 0.4)),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Image.memory(iconPng!, fit: BoxFit.cover),
+                )
+              else
+                Icon(
+                  icon,
+                  size: 56.0,
+                  color: iconColor,
+                ),
               const SizedBox(height: 12),
               Text(
                 titulo,

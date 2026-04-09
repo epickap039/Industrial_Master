@@ -6,6 +6,7 @@ const String _kPrefsKey = 'cmd_notification_inbox_v1';
 const int _kMaxItems = 200;
 
 const String kMissionAssignedType = 'mission_assigned';
+const String kMissionReminderType = 'mission_reminder';
 
 class CmdInboxEntry {
   CmdInboxEntry._(
@@ -16,6 +17,9 @@ class CmdInboxEntry {
     this.fecha,
     this.idTarea,
     this.leido,
+    this.lastReminderAt,
+    this.assignedUser,
+    this.priorityRank,
   );
 
   final String id;
@@ -25,6 +29,9 @@ class CmdInboxEntry {
   final DateTime fecha;
   final int? idTarea;
   bool leido;
+  DateTime? lastReminderAt;
+  final String assignedUser;
+  final int priorityRank;
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -34,6 +41,9 @@ class CmdInboxEntry {
         'createdAt': fecha.toIso8601String(),
         'idTarea': idTarea,
         'read': leido,
+        'lastReminderAt': lastReminderAt?.toIso8601String(),
+        'assignedUser': assignedUser,
+        'priorityRank': priorityRank,
       };
 
   static CmdInboxEntry fromJson(Map<String, dynamic> m) {
@@ -86,7 +96,38 @@ class CmdInboxEntry {
       when = parsed;
     }
 
-    return CmdInboxEntry._(sid, stype, stitle, sbody, when, idTarea, visto);
+    DateTime? lastReminderAt;
+    final Object? lra = m['lastReminderAt'];
+    if (lra != null) {
+      lastReminderAt = DateTime.tryParse(lra.toString());
+    }
+
+    String assignedUser = '';
+    final Object? au = m['assignedUser'];
+    if (au != null) {
+      assignedUser = au.toString().trim();
+    }
+
+    int priorityRank = 2;
+    final Object? pr = m['priorityRank'];
+    if (pr is int) {
+      priorityRank = pr;
+    } else if (pr != null) {
+      priorityRank = int.tryParse(pr.toString()) ?? 2;
+    }
+
+    return CmdInboxEntry._(
+      sid,
+      stype,
+      stitle,
+      sbody,
+      when,
+      idTarea,
+      visto,
+      lastReminderAt,
+      assignedUser,
+      priorityRank,
+    );
   }
 }
 
@@ -161,6 +202,8 @@ class CmdInboxStore {
   Future<bool> addMissionAssigned({
     required int idTarea,
     required String titulo,
+    String assignedUser = '',
+    int priorityRank = 2,
   }) async {
     if (await hasMissionNotification(idTarea)) {
       return false;
@@ -177,10 +220,89 @@ class CmdInboxStore {
       DateTime.now(),
       idTarea,
       false,
+      DateTime.now(),
+      assignedUser.trim(),
+      priorityRank,
     );
     all.insert(0, n);
     await _save(all);
     return true;
+  }
+
+  String _tituloTarea(Map<String, dynamic> t) {
+    final raw = '${t['titulo'] ?? t['Titulo'] ?? ''}'.trim();
+    if (raw.isNotEmpty) return raw;
+    return 'Mision pendiente';
+  }
+
+  String _responsableDe(Map<String, dynamic> t) {
+    return '${t['usuario_asignado'] ?? t['Usuario_Asignado'] ?? ''}'.trim();
+  }
+
+  int _priorityRankDe(Map<String, dynamic> t) {
+    final raw = t['priority_rank'] ?? t['PriorityRank'];
+    final n = raw is int ? raw : int.tryParse('$raw');
+    if (n == null) return 2;
+    return n.clamp(0, 2);
+  }
+
+  /// Crea recordatorios automáticos para misiones pendientes:
+  /// - cada 4h si la notificación base sigue sin leer
+  /// - cada 24h si ya se leyó pero la misión aún no se atiende/cierra
+  Future<List<CmdInboxEntry>> addDueMissionReminders(
+    List<Map<String, dynamic>> pendingTasks,
+  ) async {
+    if (pendingTasks.isEmpty) return const [];
+    final byId = <int, Map<String, dynamic>>{};
+    for (final t in pendingTasks) {
+      final rawId = t['id_tarea'] ?? t['Id_Tarea'] ?? t['id'];
+      final id = rawId is int ? rawId : int.tryParse('$rawId');
+      if (id == null || id <= 0) continue;
+      byId[id] = t;
+    }
+    if (byId.isEmpty) return const [];
+
+    final all = await loadAll();
+    final created = <CmdInboxEntry>[];
+    final now = DateTime.now();
+    var mutated = false;
+
+    for (final n in all) {
+      if (n.tipo != kMissionAssignedType || n.idTarea == null) continue;
+      final taskId = n.idTarea!;
+      final task = byId[taskId];
+      if (task == null) continue;
+
+      final base = n.lastReminderAt ?? n.fecha;
+      final interval =
+          n.leido ? const Duration(hours: 24) : const Duration(hours: 4);
+      if (now.difference(base) < interval) continue;
+
+      final titulo = _tituloTarea(task);
+      final reminder = CmdInboxEntry._(
+        'r_${taskId}_${now.millisecondsSinceEpoch}',
+        kMissionReminderType,
+        n.leido
+            ? 'Recordatorio diario de mision pendiente'
+            : 'Recordatorio: mision asignada sin leer',
+        '#$taskId — $titulo',
+        now,
+        taskId,
+        false,
+        now,
+        _responsableDe(task),
+        _priorityRankDe(task),
+      );
+      created.add(reminder);
+      all.insert(0, reminder);
+      n.lastReminderAt = now;
+      mutated = true;
+    }
+
+    if (mutated) {
+      await _save(all);
+    }
+    return created;
   }
 
   Future<void> markRead(String id) async {

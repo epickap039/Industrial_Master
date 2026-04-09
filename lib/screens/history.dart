@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
 import '../services/api_client.dart';
+import '../theme/ui_tokens.dart';
 import '../widgets/compact_page_header.dart';
 
 class HistoryScreen extends StatefulWidget {
@@ -197,6 +198,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     dynamic newData,
     BuildContext context,
   ) {
+    final palette = uiSurfacePaletteOf(context);
     // 1. LÓGICA DE PARSEO INTELIGENTE
     Map<String, dynamic>? tryParseJson(dynamic data) {
       if (data == null) return null;
@@ -233,9 +235,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
         final oldVal = safeOld[key]?.toString() ?? 'N/A';
         final newVal = safeNew[key]?.toString() ?? 'N/A';
         // === TAREA 3: Colores explícitos independientes de TextTheme ===
-        final isDark = FluentTheme.of(context).brightness == Brightness.dark;
-        final labelColor =
-            isDark ? Colors.white.withValues(alpha: 0.7) : const Color(0xFF444444);
+        final labelColor = palette.textSecondary;
 
         if (oldVal != newVal) {
           changes.add(
@@ -252,18 +252,18 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 Text(
                   oldVal,
                   style: TextStyle(
-                    color: Colors.red,
+                    color: palette.actionDanger,
                     decoration: TextDecoration.lineThrough,
                   ),
                 ),
                 Text(
                   ' ➔ ',
                   style: TextStyle(
-                    color: isDark ? Colors.grey : Colors.grey[100],
+                    color: palette.textSecondary.withValues(alpha: 0.75),
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                Text(newVal, style: TextStyle(color: Colors.green)),
+                Text(newVal, style: const TextStyle(color: Color(0xFF22C55E))),
               ],
             ),
           );
@@ -284,9 +284,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     } else {
       // 2B. CONSTRUCCIÓN VISUAL (TEXTO SIMPLE)
       // === TAREA 3: Colores explícitos para modo oscuro ===
-      final isDark = FluentTheme.of(context).brightness == Brightness.dark;
-      final labelColor =
-          isDark ? Colors.white.withValues(alpha: 0.7) : const Color(0xFF555555);
+      final labelColor = palette.textSecondary;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -304,7 +302,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 Expanded(
                   child: Text(
                     oldData.toString(),
-                    style: TextStyle(color: Colors.red),
+                    style: TextStyle(color: palette.actionDanger),
                   ),
                 ),
               ],
@@ -324,7 +322,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 Expanded(
                   child: Text(
                     newData.toString(),
-                    style: TextStyle(color: Colors.green),
+                    style: const TextStyle(color: Color(0xFF22C55E)),
                   ),
                 ),
               ],
@@ -376,6 +374,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   Widget _buildStandardView() {
+    final palette = uiSurfacePaletteOf(context);
     return ListView.builder(
       controller: _scrollController,
       itemCount: _registros.length + (_isLoadingMore ? 1 : 0),
@@ -390,6 +389,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
         return Card(
           margin: const EdgeInsets.only(bottom: 10),
+          backgroundColor: palette.surfaceCard,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -399,10 +399,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     item['fecha'] ?? 'Sin fecha',
                     style: TextStyle(
                       fontSize: 12,
-                      color:
-                          FluentTheme.of(context).brightness == Brightness.dark
-                              ? Colors.white.withValues(alpha: 0.54)
-                              : const Color(0xFF666666),
+                      color: palette.textSecondary,
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -412,11 +409,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
-                        color:
-                            FluentTheme.of(context).brightness ==
-                                    Brightness.dark
-                                ? Colors.white
-                                : Colors.black.withValues(alpha: 0.87),
+                        color: palette.textPrimary,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -428,13 +421,15 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       vertical: 4,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.orange.withValues(alpha: 0.2),
+                      color: _getActionColor(
+                        item['accion']?.toString() ?? '',
+                      ).withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
                       item['accion'] ?? 'ACCIÓN',
                       style: TextStyle(
-                        color: Colors.orange,
+                        color: _getActionColor(item['accion']?.toString() ?? ''),
                         fontWeight: FontWeight.bold,
                         fontSize: 12,
                       ),
@@ -450,10 +445,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
-                  color:
-                      FluentTheme.of(context).brightness == Brightness.dark
-                          ? Colors.white
-                          : Colors.black,
+                  color: palette.textPrimary,
                 ),
               ),
               const SizedBox(height: 8),
@@ -461,10 +453,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color:
-                      FluentTheme.of(context).brightness == Brightness.dark
-                          ? Colors.black.withValues(alpha: 0.2)
-                          : Colors.grey[20],
+                  color: palette.surfaceElevated,
+                  border: Border.all(color: palette.borderSubtle),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: _buildDiffView(
@@ -481,6 +471,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   Widget _buildTimelineView() {
+    final palette = uiSurfacePaletteOf(context);
     final lineColor = _timelineLineColor(context);
 
     return ListView.builder(
@@ -499,11 +490,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
         final isLast = index == _registros.length - 1;
         final accion = item['accion']?.toString() ?? '';
         final nodeColor = _getTimelineNodeColor(accion);
-        final isDark = FluentTheme.of(context).brightness == Brightness.dark;
-        final metaColor =
-            isDark ? Colors.white.withValues(alpha: 0.54) : const Color(0xFF666666);
-        final titleColor =
-            isDark ? Colors.white : Colors.black.withValues(alpha: 0.87);
+        final metaColor = palette.textSecondary;
+        final titleColor = palette.textPrimary;
 
         return Padding(
           padding: const EdgeInsets.only(bottom: 12),
@@ -540,10 +528,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                               shape: BoxShape.circle,
                               color: nodeColor,
                               border: Border.all(
-                                color:
-                                    isDark
-                                        ? Colors.white.withValues(alpha: 0.35)
-                                        : Colors.black.withValues(alpha: 0.2),
+                                color: palette.borderSubtle,
                                 width: 1,
                               ),
                             ),
@@ -563,6 +548,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 ),
                 Expanded(
                   child: Card(
+                    backgroundColor: palette.surfaceCard,
                     child: Padding(
                       padding: const EdgeInsets.all(16),
                       child: Column(
@@ -612,10 +598,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                             width: double.infinity,
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
-                              color:
-                                  isDark
-                                      ? Colors.black.withValues(alpha: 0.2)
-                                      : Colors.grey[20],
+                              color: palette.surfaceElevated,
+                              border: Border.all(color: palette.borderSubtle),
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: _buildDiffView(
@@ -719,6 +703,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final palette = uiSurfacePaletteOf(context);
     return ScaffoldPage(
       padding: const EdgeInsets.only(top: 8),
       header: CompactPageHeader(
@@ -727,7 +712,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
           style: FluentTheme.of(context).typography.title,
         ),
       ),
-      content: Padding(
+      content: Container(
+        color: palette.surfaceBase,
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [

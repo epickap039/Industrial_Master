@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import '../services/api_client.dart';
 import '../theme/page_title_style.dart';
+import '../theme/ui_tokens.dart';
 
 class StandardizationScreen extends StatefulWidget {
   const StandardizationScreen({super.key});
@@ -297,6 +298,7 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
+    final palette = uiSurfacePaletteOf(context);
     final captionColor = theme.typography.caption?.color;
     final successGreen =
         theme.brightness == Brightness.dark
@@ -316,9 +318,11 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
           ).copyWith(color: FluentTheme.of(context).typography.title?.color),
         ),
       ),
-      content: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-        child: Column(
+      content: Container(
+        color: palette.surfaceBase,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+          child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
@@ -534,6 +538,7 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
                       ),
             ),
           ],
+          ),
         ),
       ),
     );

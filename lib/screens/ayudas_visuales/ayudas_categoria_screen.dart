@@ -94,9 +94,10 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
   Future<void> _dialogoNuevoDocumento() async {
     final tituloCtrl = TextEditingController();
     final subcategoriaCtrl = TextEditingController();
-    final revCtrl = TextEditingController(text: 'A');
+    final revCtrl = TextEditingController();
     final vinCtrl = TextEditingController();
     final nuevoTagCtrl = TextEditingController();
+    String suggestedConsec = '';
     String? pathPdf;
     final poolTags = <String>{..._kSeedTags, ..._tagsEnCategoria};
     for (final d in _docs) {
@@ -105,6 +106,17 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
     final tagsOrdenados = poolTags.toList()
       ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     final seleccionTags = <String>{};
+
+    try {
+      final raw = await ApiClient.get('/api/ayudas/consecutivo/siguiente');
+      if (raw is Map) {
+        final s = '${raw['sugerido'] ?? ''}'.trim();
+        if (s.isNotEmpty) {
+          suggestedConsec = s;
+          revCtrl.text = s;
+        }
+      }
+    } catch (_) {}
 
     await showDialog<void>(
       context: context,
@@ -161,8 +173,24 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
                       style: material.TextStyle(
                         color: material.Theme.of(context).textTheme.bodyLarge?.color,
                       ),
-                      decoration: _inputDec(context, 'Numero de revision'),
+                      decoration: _inputDec(
+                        context,
+                        'Consecutivo único',
+                        hint: suggestedConsec.isEmpty
+                            ? 'Ej: AV-000123'
+                            : 'Sugerido: $suggestedConsec',
+                      ),
                     ),
+                    if (suggestedConsec.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'Sugerencia actual: $suggestedConsec',
+                        style: material.TextStyle(
+                          fontSize: 12,
+                          color: material.Theme.of(context).hintColor,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     material.Align(
                       alignment: AlignmentDirectional.centerStart,
@@ -267,7 +295,8 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
               child: const Text('Subir'),
               onPressed: () async {
                 final t = tituloCtrl.text.trim();
-                if (t.isEmpty || pathPdf == null) return;
+                final consec = revCtrl.text.trim();
+                if (t.isEmpty || pathPdf == null || consec.isEmpty) return;
                 final prefs = await SharedPreferences.getInstance();
                 final user = prefs.getString('username')?.trim() ?? 'Operador';
                 if (!mounted) return;
@@ -283,7 +312,8 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
                   final fields = <String, String>{
                     'id_categoria': '${widget.idCategoria}',
                     'titulo': t,
-                    'numero_revision': revCtrl.text.trim(),
+                    'numero_revision': consec,
+                    'consecutivo': consec,
                     'usuario': user,
                   };
                   if (subcategoriaCtrl.text.trim().isNotEmpty) {

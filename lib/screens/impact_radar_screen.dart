@@ -1295,6 +1295,7 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final palette = uiSurfacePaletteOf(context);
     return ScaffoldPage(
       padding: const EdgeInsets.only(top: 8),
       header: CompactPageHeader(
@@ -1310,10 +1311,12 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
           ],
         ),
       ),
-      content: Stack(
-        fit: StackFit.expand,
-        clipBehavior: Clip.none,
-        children: [
+      content: Container(
+        color: palette.surfaceBase,
+        child: Stack(
+          fit: StackFit.expand,
+          clipBehavior: Clip.none,
+          children: [
           Positioned.fill(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1339,7 +1342,8 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
               ],
             ),
           ),
-        ],
+          ],
+        ),
       ),
     );
   }

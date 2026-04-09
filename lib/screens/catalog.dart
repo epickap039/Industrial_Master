@@ -1310,6 +1310,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final palette = uiSurfacePaletteOf(context);
     return ScaffoldPage(
       padding: EdgeInsets.zero,
       header: CompactPageHeader(
@@ -1325,7 +1326,10 @@ class _CatalogScreenState extends State<CatalogScreen> {
       ),
       bottomBar: Container(
         padding: const EdgeInsets.all(10),
-        child: Text('Registros: ${_filteredData.length} / ${_allData.length}'),
+        child: Text(
+          'Registros: ${_filteredData.length} / ${_allData.length}',
+          style: TextStyle(color: palette.textSecondary),
+        ),
       ),
     );
   }
@@ -1445,13 +1449,17 @@ class _CatalogScreenState extends State<CatalogScreen> {
   }
 
   Widget _buildContent() {
+    final palette = uiSurfacePaletteOf(context);
     if (_isLoading) return const Center(child: ProgressRing());
     if (_errorMessage != null) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            SelectableText(_errorMessage!, style: TextStyle(color: Colors.red)),
+            SelectableText(
+              _errorMessage!,
+              style: TextStyle(color: palette.actionDanger),
+            ),
             const SizedBox(height: 10),
             IconButton(
               icon: const Icon(FluentIcons.copy),
@@ -1478,7 +1486,21 @@ class _CatalogScreenState extends State<CatalogScreen> {
     return Padding(
       padding: const EdgeInsets.all(8.0),
       child: Container(
-        decoration: elevatedCardDecoration(FluentTheme.of(context)),
+        decoration: BoxDecoration(
+          color: palette.surfaceCard,
+          borderRadius: BorderRadius.circular(UiTokens.cardRadius),
+          border: Border.all(color: palette.borderSubtle),
+          boxShadow: [
+            BoxShadow(
+              color:
+                  FluentTheme.of(context).brightness == Brightness.dark
+                      ? Colors.black.withValues(alpha: 0.22)
+                      : Colors.black.withValues(alpha: 0.06),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
         padding: const EdgeInsets.all(8.0),
         child: LayoutBuilder(
           builder: (context, constraints) {
@@ -1656,6 +1678,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
     List<String> activeCols,
     double actionsWidth,
   ) {
+    final palette = uiSurfacePaletteOf(context);
     final hasLink =
         row['Link_Drive'] != null &&
         row['Link_Drive'].toString().isNotEmpty &&
@@ -1663,7 +1686,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
 
     return Container(
       color:
-          index % 2 == 0 ? Colors.transparent : Colors.black.withValues(alpha: 0.03),
+          index % 2 == 0 ? Colors.transparent : palette.tableStripe,
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         children: [
@@ -1678,7 +1701,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                     icon: Icon(
                       FluentIcons.info,
                       size: 14,
-                      color: Colors.blue,
+                      color: palette.actionInfo,
                     ), // BLUE
                     onPressed: () => _showInfoDetails(row),
                   ),
@@ -1690,7 +1713,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                       icon: Icon(
                         FluentIcons.edit,
                         size: 14,
-                        color: Colors.orange,
+                        color: palette.actionEdit,
                       ), // NARANJA VIBRANTE
                       onPressed: () => _showEditDialog(row),
                     ),
@@ -1703,7 +1726,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                       icon: Icon(
                         FluentIcons.cloud,
                         size: 14,
-                        color: Colors.teal,
+                        color: palette.actionLink,
                       ), // TEAL (VERDE PASTEL VIBRANTE)
                       onPressed:
                           () => _launchDriveLink(row['Link_Drive']?.toString()),
@@ -1718,7 +1741,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                     icon: Icon(
                       FluentIcons.copy,
                       size: 14,
-                      color: Colors.magenta,
+                      color: palette.actionCopy,
                     ), // MAGENTA/MORADO PARA RESALTAR
                     onPressed: () {
                       final codigoCopiar =
@@ -1747,7 +1770,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                       icon: Icon(
                         FluentIcons.delete,
                         size: 14,
-                        color: Colors.red,
+                        color: palette.actionDanger,
                       ),
                       onPressed:
                           () => _deleteMaterial(

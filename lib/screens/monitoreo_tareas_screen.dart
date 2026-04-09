@@ -33,6 +33,9 @@ class MonitoreoTareasScreen extends StatefulWidget {
 
 class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
     with SingleTickerProviderStateMixin {
+  static const String _kFiltroTodos = '__ALL__';
+  static const String _kFiltroMisTareas = '__MINE__';
+
   bool _loading = true;
   bool _vistaCompacta = false;
   List<Map<String, dynamic>> _tareas = [];
@@ -43,6 +46,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
   String _currentUserName = '';
   final Set<int> _checkEnProceso = {};
   final Set<int> _seenTaskIds = {};
+  String _filtroUsuario = _kFiltroTodos;
   Timer? _refreshTimer;
   final material.ScrollController _activasScrollController =
       material.ScrollController();
@@ -213,47 +217,52 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
       }
       final list = data.whereType<Map<String, dynamic>>().toList();
 
-      // Notificaciones: buzón persistente + InfoBar si es nueva misión para el usuario
-      if (_seenTaskIds.isNotEmpty) {
-        for (final t in list) {
-          final idRaw = t['id_tarea'];
-          final id = idRaw is int ? idRaw : int.tryParse('$idRaw');
-          if (id != null && !_seenTaskIds.contains(id)) {
-            final asignado =
-                '${t['usuario_asignado'] ?? t['Usuario_Asignado'] ?? ''}'
-                    .trim();
-            final soyYo =
-                asignado.isNotEmpty &&
-                _currentUserName.isNotEmpty &&
-                asignado.toLowerCase() == _currentUserName.toLowerCase();
+      // Notificaciones: buzón persistente + InfoBar cuando se detecta una misión
+      // del usuario (incluye primera carga para no perder asignaciones previas).
+      final primeraLectura = _seenTaskIds.isEmpty;
+      for (final t in list) {
+        final idRaw = t['id_tarea'];
+        final id = idRaw is int ? idRaw : int.tryParse('$idRaw');
+        if (id == null) continue;
+        final esNueva = !_seenTaskIds.contains(id);
+        if (!primeraLectura && !esNueva) continue;
 
-            if (soyYo && mounted) {
-              try {
-                final titulo = '${t['titulo'] ?? ''}';
-                final agregada = await CmdInboxStore.instance
-                    .addMissionAssigned(idTarea: id, titulo: titulo);
-                if (agregada) {
-                  if (mounted) {
-                    displayInfoBar(
-                      context,
-                      builder:
-                          (c, close) => InfoBar(
-                            title: const Text('Nueva Misión Asignada'),
-                            content: Text(
-                              'ID: #$id - $titulo · Guardado en el buzón',
-                            ),
-                            severity: InfoBarSeverity.info,
-                            action: IconButton(
-                              icon: const Icon(FluentIcons.clear),
-                              onPressed: close,
-                            ),
-                          ),
-                    );
-                  }
-                }
-              } catch (_) {}
+        final asignado =
+            '${t['usuario_asignado'] ?? t['Usuario_Asignado'] ?? ''}'.trim();
+        final soyYo =
+            asignado.isNotEmpty &&
+            _currentUserName.isNotEmpty &&
+            asignado.toLowerCase() == _currentUserName.toLowerCase();
+
+        if (soyYo && mounted) {
+          try {
+            final titulo = '${t['titulo'] ?? ''}';
+            final prRaw = t['priority_rank'] ?? t['PriorityRank'];
+            final pr = prRaw is int ? prRaw : int.tryParse('$prRaw') ?? 2;
+            final agregada = await CmdInboxStore.instance.addMissionAssigned(
+              idTarea: id,
+              titulo: titulo,
+              assignedUser: asignado,
+              priorityRank: pr.clamp(0, 2),
+            );
+            if (agregada) {
+              if (!primeraLectura && mounted) {
+                displayInfoBar(
+                  context,
+                  builder:
+                      (c, close) => InfoBar(
+                        title: const Text('Nueva Misión Asignada'),
+                        content: Text('ID: #$id - $titulo · Guardado en el buzón'),
+                        severity: InfoBarSeverity.info,
+                        action: IconButton(
+                          icon: const Icon(FluentIcons.clear),
+                          onPressed: close,
+                        ),
+                      ),
+                );
+              }
             }
-          }
+          } catch (_) {}
         }
       }
 
@@ -262,6 +271,46 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
         final idRaw = t['id_tarea'];
         final id = idRaw is int ? idRaw : int.tryParse('$idRaw');
         if (id != null) _seenTaskIds.add(id);
+      }
+
+      // Recordatorios automáticos:
+      // - cada 4h si la notificación base sigue sin leer
+      // - cada 24h si ya se leyó pero la misión sigue pendiente
+      if (_currentUserName.isNotEmpty) {
+        final pendientesMias = <Map<String, dynamic>>[];
+        for (final t in list) {
+          if (!_esActivaTab(t)) continue;
+          final asignado =
+              '${t['usuario_asignado'] ?? t['Usuario_Asignado'] ?? ''}'.trim();
+          if (asignado.isEmpty) continue;
+          if (asignado.toLowerCase() == _currentUserName.toLowerCase()) {
+            pendientesMias.add(t);
+          }
+        }
+        if (pendientesMias.isNotEmpty) {
+          final reminders = await CmdInboxStore.instance.addDueMissionReminders(
+            pendientesMias,
+          );
+          if (reminders.isNotEmpty && mounted) {
+            displayInfoBar(
+              context,
+              builder:
+                  (c, close) => InfoBar(
+                    title: const Text('Recordatorio de misión'),
+                    content: Text(
+                      reminders.length == 1
+                          ? 'Tiene 1 misión pendiente por atender.'
+                          : 'Tiene ${reminders.length} misiones pendientes por atender.',
+                    ),
+                    severity: InfoBarSeverity.warning,
+                    action: IconButton(
+                      icon: const Icon(FluentIcons.clear),
+                      onPressed: close,
+                    ),
+                  ),
+            );
+          }
+        }
       }
 
       final activas =
@@ -1135,7 +1184,9 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
 
   @override
   Widget build(BuildContext context) {
+    final palette = uiSurfacePaletteOf(context);
     return material.Scaffold(
+      backgroundColor: palette.surfaceBase,
       floatingActionButton: _puedeControlarMisiones
           ? material.FloatingActionButton(
               heroTag: 'monitoreo_grabacion_voz',
@@ -1166,9 +1217,9 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
             ),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(UiTokens.cardRadius),
-              color: FluentTheme.of(context).cardColor,
+              color: palette.surfaceCard,
               border: Border.all(
-                color: FluentTheme.of(context).resources.controlStrokeColorDefault,
+                color: palette.borderSubtle,
               ),
             ),
             child: material.TabBar(
@@ -1205,7 +1256,8 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
   static const String _kSinAsignar = 'Misiones Sin Asignar';
 
   /// Agrupa las misiones activas en filas por usuario asignado.
-  /// El lane de "Sin Asignar" sale siempre primero.
+  /// Prioridad de orden:
+  /// 1) Mis tareas (usuario logueado), 2) Sin asignar, 3) resto alfabético.
   List<MapEntry<String, List<Map<String, dynamic>>>> _agruparPorUsuario() {
     final Map<String, List<Map<String, dynamic>>> byUser = {};
     for (final t in _activasOrdenadas) {
@@ -1213,8 +1265,13 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
       final key = (us == 'Sin asignar' || us.isEmpty) ? _kSinAsignar : us;
       byUser.putIfAbsent(key, () => []).add(t);
     }
+    final me = _currentUserName.trim().toLowerCase();
     final entries =
         byUser.entries.toList()..sort((a, b) {
+          final aIsMe = me.isNotEmpty && a.key.trim().toLowerCase() == me;
+          final bIsMe = me.isNotEmpty && b.key.trim().toLowerCase() == me;
+          if (aIsMe && !bIsMe) return -1;
+          if (!aIsMe && bIsMe) return 1;
           if (a.key == _kSinAsignar) return -1;
           if (b.key == _kSinAsignar) return 1;
           return a.key.toLowerCase().compareTo(b.key.toLowerCase());
@@ -1253,6 +1310,36 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+
+  List<String> _usuariosActivosOrdenados() {
+    final users = _activasOrdenadas
+        .map((t) => asignadoMision(t))
+        .where((u) => u != 'Sin asignar' && u.trim().isNotEmpty)
+        .toSet()
+        .toList();
+    users.sort((a, b) {
+      final me = _currentUserName.trim().toLowerCase();
+      final aMe = me.isNotEmpty && a.trim().toLowerCase() == me;
+      final bMe = me.isNotEmpty && b.trim().toLowerCase() == me;
+      if (aMe && !bMe) return -1;
+      if (!aMe && bMe) return 1;
+      return a.toLowerCase().compareTo(b.toLowerCase());
+    });
+    return users;
+  }
+
+  List<Map<String, dynamic>> _activasFiltradas() {
+    if (_filtroUsuario == _kFiltroTodos) return _activasOrdenadas;
+    final me = _currentUserName.trim().toLowerCase();
+    if (_filtroUsuario == _kFiltroMisTareas && me.isNotEmpty) {
+      return _activasOrdenadas
+          .where((t) => asignadoMision(t).trim().toLowerCase() == me)
+          .toList();
+    }
+    return _activasOrdenadas
+        .where((t) => asignadoMision(t) == _filtroUsuario)
+        .toList();
+  }
 
   Widget _tarjetaActivaLobby(
     int globalIndex,
@@ -1403,7 +1490,8 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
       );
     }
     final dark = _isDark(context);
-    final lanes = _agruparPorUsuario();
+    final usuariosActivos = _usuariosActivosOrdenados();
+    final activasMostradas = _activasFiltradas();
 
     // Construir índice global → posición en _activasOrdenadas para reorder
     final Map<int, int> idToGlobalIndex = {
@@ -1424,7 +1512,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'Misiones Activas (${_activasOrdenadas.length})',
+                'Misiones Activas (${activasMostradas.length}/${_activasOrdenadas.length})',
                 style: FluentTheme.of(context).typography.subtitle,
               ),
               material.Tooltip(
@@ -1440,6 +1528,39 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
             ],
           ),
         ),
+        Container(
+          padding: const EdgeInsets.fromLTRB(10, 4, 10, 2),
+          alignment: Alignment.centerLeft,
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _usuarioFilterChip(
+                  label: 'Todos',
+                  selected: _filtroUsuario == _kFiltroTodos,
+                  onTap: () => setState(() => _filtroUsuario = _kFiltroTodos),
+                ),
+                const SizedBox(width: 6),
+                _usuarioFilterChip(
+                  label: 'Mis tareas',
+                  selected: _filtroUsuario == _kFiltroMisTareas,
+                  onTap:
+                      () => setState(() => _filtroUsuario = _kFiltroMisTareas),
+                ),
+                for (final u in usuariosActivos) ...[
+                  const SizedBox(width: 6),
+                  _usuarioFilterChip(
+                    label: u,
+                    selected: _filtroUsuario == u,
+                    avatarColor: _avatarColor(u),
+                    initials: _iniciales(u),
+                    onTap: () => setState(() => _filtroUsuario = u),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
         Expanded(
           child: material.Scrollbar(
             controller: _activasScrollController,
@@ -1448,39 +1569,125 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
               controller: _activasScrollController,
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 32),
               children: [
-          _cargaDisponibilidadResumen(),
-          for (final lane in lanes)
-            _SwimlaneRow(
-              key: ValueKey('lane_${lane.key}'),
-              usuario: lane.key,
-              tareas: lane.value,
-              colapsada: _swimlanesColapsadas.contains(lane.key),
-              onToggleColapso:
-                  () => setState(() {
-                    if (_swimlanesColapsadas.contains(lane.key)) {
-                      _swimlanesColapsadas.remove(lane.key);
-                    } else {
-                      _swimlanesColapsadas.add(lane.key);
-                    }
-                  }),
-              avatarColor: _avatarColor(lane.key),
-              iniciales: _iniciales(lane.key),
-              dark: dark,
-              idToGlobalIndex: idToGlobalIndex,
-              cardBuilder: (t) {
-                final gIdx =
-                    idToGlobalIndex[t['id_tarea'] is int
-                        ? t['id_tarea'] as int
-                        : int.tryParse('${t['id_tarea']}') ?? -1] ??
-                    0;
-                return _tarjetaActivaLobby(gIdx, t, dark);
-              },
-            ),
+                _cargaDisponibilidadResumen(),
+                if (activasMostradas.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 24),
+                    child: Center(
+                      child: Text(
+                        'No hay misiones para este filtro.',
+                        style: TextStyle(
+                          color: FluentTheme.of(context)
+                              .typography
+                              .body
+                              ?.color
+                              ?.withValues(alpha: 0.8),
+                        ),
+                      ),
+                    ),
+                  )
+                else
+                  LayoutBuilder(
+                    builder: (context, c) {
+                      final maxW = c.maxWidth;
+                      final target = _vistaCompacta ? 320.0 : 360.0;
+                      final columns =
+                          (maxW / target).floor().clamp(1, _vistaCompacta ? 4 : 3);
+                      final gap = 10.0;
+                      final cardW =
+                          ((maxW - ((columns - 1) * gap)) / columns).clamp(
+                        290.0,
+                        _vistaCompacta ? 340.0 : 390.0,
+                      );
+                      return Wrap(
+                        spacing: gap,
+                        runSpacing: gap,
+                        children: [
+                          for (final t in activasMostradas)
+                            SizedBox(
+                              width: cardW,
+                              child: RepaintBoundary(
+                                key: ValueKey('flt_mission_${t['id_tarea']}'),
+                                child: _tarjetaActivaLobby(
+                                  idToGlobalIndex[t['id_tarea'] is int
+                                          ? t['id_tarea'] as int
+                                          : int.tryParse('${t['id_tarea']}') ?? -1] ??
+                                      0,
+                                  t,
+                                  dark,
+                                ),
+                              ),
+                            ),
+                        ],
+                      );
+                    },
+                  ),
             ],
             ),
           ),
         ),
       ],
+    );
+  }
+
+  Widget _usuarioFilterChip({
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+    material.Color? avatarColor,
+    String? initials,
+  }) {
+    final theme = FluentTheme.of(context);
+    final baseBorder = theme.resources.controlStrokeColorDefault.withValues(
+      alpha: 0.45,
+    );
+    final selColor = theme.accentColor;
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 140),
+        curve: Curves.easeOut,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        decoration: BoxDecoration(
+          color: selected ? selColor.withValues(alpha: 0.18) : theme.cardColor,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: selected ? selColor.withValues(alpha: 0.6) : baseBorder,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (avatarColor != null && initials != null) ...[
+              Container(
+                width: 18,
+                height: 18,
+                decoration: BoxDecoration(
+                  color: avatarColor,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  initials,
+                  style: const TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+            ],
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1732,81 +1939,91 @@ class _SwimlaneRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final headerBg =
-        dark
-            ? const material.Color(0xFF1E1E2E)
-            : const material.Color(0xFFECEFF1);
     final borderColor = avatarColor.withValues(alpha: 0.45);
     final countBadgeBg = avatarColor.withValues(alpha: 0.18);
+    final titleColor = dark ? material.Colors.white : material.Colors.black87;
 
     final header = material.InkWell(
       onTap: onToggleColapso,
-      borderRadius: material.BorderRadius.circular(14),
-      child: material.Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: material.BoxDecoration(
-          color: headerBg,
-          borderRadius: material.BorderRadius.circular(14),
-          border: material.Border.all(color: borderColor, width: 1.5),
-        ),
+      borderRadius: material.BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
         child: material.Row(
           children: [
+            // Cabecera tipo "nota" (sin barra horizontal completa)
             material.Container(
-              width: 34,
-              height: 34,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               decoration: material.BoxDecoration(
-                color: avatarColor.withValues(alpha: 0.92),
-                borderRadius: material.BorderRadius.circular(8),
-                border: material.Border.all(
-                  color: material.Colors.white.withValues(alpha: 0.35),
-                  width: 1,
-                ),
+                color:
+                    dark
+                        ? const material.Color(0xFF1E1E2E)
+                        : const material.Color(0xFFF3F4F6),
+                borderRadius: material.BorderRadius.circular(12),
+                border: material.Border.all(color: borderColor, width: 1.2),
               ),
-              alignment: Alignment.center,
-              child: material.Text(
-                iniciales,
-                style: const material.TextStyle(
-                  color: material.Colors.white,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 13,
-                ),
+              child: material.Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  material.Container(
+                    width: 30,
+                    height: 30,
+                    decoration: material.BoxDecoration(
+                      color: avatarColor.withValues(alpha: 0.92),
+                      borderRadius: material.BorderRadius.circular(8),
+                      border: material.Border.all(
+                        color: material.Colors.white.withValues(alpha: 0.35),
+                        width: 1,
+                      ),
+                    ),
+                    alignment: Alignment.center,
+                    child: material.Text(
+                      iniciales,
+                      style: const material.TextStyle(
+                        color: material.Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 280),
+                    child: material.Text(
+                      usuario,
+                      style: material.TextStyle(
+                        fontSize: 15.5,
+                        fontWeight: FontWeight.w700,
+                        color: titleColor,
+                        letterSpacing: 0.15,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  material.Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: material.BoxDecoration(
+                      color: countBadgeBg,
+                      borderRadius: material.BorderRadius.circular(20),
+                      border: material.Border.all(color: borderColor),
+                    ),
+                    child: material.Text(
+                      '${tareas.length}',
+                      style: material.TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                        color: avatarColor,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(width: 14),
-            // Nombre del usuario
-            Expanded(
-              child: material.Text(
-                usuario,
-                style: material.TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                  color: dark ? material.Colors.white : material.Colors.black87,
-                  letterSpacing: 0.2,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            const SizedBox(width: 10),
-            // Badge con cantidad de misiones
-            material.Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: material.BoxDecoration(
-                color: countBadgeBg,
-                borderRadius: material.BorderRadius.circular(20),
-                border: material.Border.all(color: borderColor),
-              ),
-              child: material.Text(
-                '${tareas.length} misión${tareas.length == 1 ? '' : 'es'}',
-                style: material.TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: avatarColor,
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            // Chevron animado
+            const SizedBox(width: 8),
             material.AnimatedRotation(
               turns: colapsada ? -0.25 : 0,
               duration: const Duration(milliseconds: 220),

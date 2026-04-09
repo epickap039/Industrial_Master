@@ -306,6 +306,7 @@ class _MRPScreenState extends State<MRPScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final palette = uiSurfacePaletteOf(context);
     final hasResults =
         _mrpData.isNotEmpty || _comercialesData.isNotEmpty || _orphanData.isNotEmpty;
 
@@ -384,7 +385,7 @@ class _MRPScreenState extends State<MRPScreen> {
                                 Icon(
                                   FluentIcons.people,
                                   size: 11,
-                                  color: Colors.blue.withValues(alpha: 0.65),
+                                  color: palette.actionInfo.withValues(alpha: 0.75),
                                 ),
                                 const SizedBox(width: 4),
                                 Flexible(
@@ -393,7 +394,7 @@ class _MRPScreenState extends State<MRPScreen> {
                                     style: TextStyle(
                                       fontSize: 11,
                                       fontStyle: FontStyle.italic,
-                                      color: Colors.blue.withValues(alpha: 0.75),
+                                      color: palette.actionInfo.withValues(alpha: 0.82),
                                     ),
                                     overflow: TextOverflow.ellipsis,
                                     maxLines: 1,
@@ -408,14 +409,17 @@ class _MRPScreenState extends State<MRPScreen> {
             Tooltip(
               message: "Exportar a Excel",
               child: IconButton(
-                icon: Icon(FluentIcons.excel_logo, color: Colors.green),
+                icon: const Icon(FluentIcons.excel_logo, color: Color(0xFF22C55E)),
                 onPressed: hasResults ? _exportToExcel : null,
               ),
             ),
           ],
         ),
       ),
-      content: _buildContent(),
+      content: Container(
+        color: palette.surfaceBase,
+        child: _buildContent(),
+      ),
     );
   }
 

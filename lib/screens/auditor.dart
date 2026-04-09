@@ -249,6 +249,7 @@ class _AuditorScreenState extends State<AuditorScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final palette = uiSurfacePaletteOf(context);
     return ScaffoldPage(
       padding: const EdgeInsets.only(top: 8),
       header: CompactPageHeader(
@@ -257,9 +258,11 @@ class _AuditorScreenState extends State<AuditorScreen> {
           style: FluentTheme.of(context).typography.title,
         ),
       ),
-      content: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
+      content: Container(
+        color: palette.surfaceBase,
+        child: Padding(
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // PANEL SUPERIOR
@@ -270,7 +273,7 @@ class _AuditorScreenState extends State<AuditorScreen> {
                     Icon(
                       FluentIcons.excel_document,
                       size: 40,
-                      color: Colors.green,
+                      color: const Color(0xFF22C55E),
                     ),
                     const SizedBox(height: 10),
                     const Text(
@@ -296,7 +299,9 @@ class _AuditorScreenState extends State<AuditorScreen> {
                           icon: const Icon(FluentIcons.folder_open),
                           onPressed: _openFile,
                           style: ButtonStyle(
-                            foregroundColor: WidgetStateProperty.all(Colors.blue),
+                            foregroundColor: WidgetStateProperty.all(
+                              palette.actionInfo,
+                            ),
                           ),
                         ),
                         const SizedBox(width: 20),
@@ -347,7 +352,9 @@ class _AuditorScreenState extends State<AuditorScreen> {
                     FilledButton(
                       onPressed: _autoCorrect,
                       style: ButtonStyle(
-                        backgroundColor: WidgetStateProperty.all(Colors.blue),
+                        backgroundColor: WidgetStateProperty.all(
+                          palette.actionInfo,
+                        ),
                       ),
                       child: const Row(
                         children: [
@@ -361,6 +368,7 @@ class _AuditorScreenState extends State<AuditorScreen> {
                 ),
               ),
           ],
+          ),
         ),
       ),
     );
@@ -386,7 +394,7 @@ class _AuditorScreenState extends State<AuditorScreen> {
             Icon(
               FluentIcons.check_mark,
               size: 64,
-              color: Colors.successPrimaryColor,
+              color: const Color(0xFF22C55E),
             ),
             const SizedBox(height: 10),
             Text(
@@ -394,7 +402,7 @@ class _AuditorScreenState extends State<AuditorScreen> {
               style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
-                color: Colors.successPrimaryColor,
+                color: const Color(0xFF22C55E),
               ),
             ),
             const Text('Todos los campos analizados coinciden con la BD.'),

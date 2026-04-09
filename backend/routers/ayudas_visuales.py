@@ -13,6 +13,7 @@ Archivos físicos: Z:\\Ayudas_Visuales\\<NombreCategoria_Sanitizado>\\
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -37,6 +38,7 @@ AYUDAS_RAIZ = r"Z:\Ayudas_Visuales"
 class CategoriaCreatePayload(BaseModel):
     nombre: str = Field(..., min_length=1)
     icono: str = ""
+    icono_png_base64: Optional[str] = None
 
 class EditarSubcategoriaPayload(BaseModel):
     id_categoria: int
@@ -62,6 +64,36 @@ def _row_to_dict(cursor, row) -> Dict[str, Any]:
         else:
             out[c] = v
     return out
+
+def _has_column(cur: Any, table_name: str, column_name: str) -> bool:
+    cur.execute(
+        """
+        SELECT 1
+        FROM sys.columns
+        WHERE object_id = OBJECT_ID(?) AND name = ?
+        """,
+        (table_name, column_name),
+    )
+    return cur.fetchone() is not None
+
+def _normalize_consecutivo(raw: str) -> str:
+    return re.sub(r"\s+", "", (raw or "").strip()).upper()
+
+def _next_consecutivo_from_values(values: List[str]) -> str:
+    max_n = 0
+    for v in values:
+        s = (v or "").strip().upper()
+        if not s:
+            continue
+        m = re.search(r"(\d+)$", s)
+        if m:
+            try:
+                n = int(m.group(1))
+                if n > max_n:
+                    max_n = n
+            except ValueError:
+                continue
+    return f"AV-{max_n + 1:06d}"
 
 
 def _normalize_tags_json(raw: Optional[str]) -> Optional[str]:
@@ -116,14 +148,25 @@ def list_categorias_activas():
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        cur.execute(
-            """
-            SELECT ID_Categoria, Nombre_Categoria, Activo, Icono_Codigo
-            FROM Tbl_Ayudas_Categorias
-            WHERE Activo = 1
-            ORDER BY Nombre_Categoria
-            """
-        )
+        has_png = _has_column(cur, "dbo.Tbl_Ayudas_Categorias", "Icono_Png_Base64")
+        if has_png:
+            cur.execute(
+                """
+                SELECT ID_Categoria, Nombre_Categoria, Activo, Icono_Codigo, Icono_Png_Base64
+                FROM Tbl_Ayudas_Categorias
+                WHERE Activo = 1
+                ORDER BY Nombre_Categoria
+                """
+            )
+        else:
+            cur.execute(
+                """
+                SELECT ID_Categoria, Nombre_Categoria, Activo, Icono_Codigo
+                FROM Tbl_Ayudas_Categorias
+                WHERE Activo = 1
+                ORDER BY Nombre_Categoria
+                """
+            )
         rows = cur.fetchall()
         return [_row_to_dict(cur, r) for r in rows]
     except Exception as e:
@@ -140,21 +183,40 @@ def crear_categoria(
 ):
     nombre = (payload.nombre or "").strip()
     icono = (payload.icono or "").strip()
+    icono_png = (payload.icono_png_base64 or "").strip()
     if not nombre:
         raise HTTPException(status_code=400, detail="nombre es obligatorio")
+    if icono_png:
+        try:
+            raw = base64.b64decode(icono_png, validate=True)
+        except Exception:
+            raise HTTPException(status_code=400, detail="icono_png_base64 inválido")
+        if len(raw) > 512 * 1024:
+            raise HTTPException(status_code=400, detail="Ícono PNG excede 512KB")
 
     usr = resolve_actor_user(authorization, x_usuario)
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        cur.execute(
-            """
-            INSERT INTO Tbl_Ayudas_Categorias (Nombre_Categoria, Icono_Codigo, Activo)
-            OUTPUT INSERTED.ID_Categoria
-            VALUES (?, ?, 1)
-            """,
-            (nombre, icono or None),
-        )
+        has_png_col = _has_column(cur, "dbo.Tbl_Ayudas_Categorias", "Icono_Png_Base64")
+        if has_png_col:
+            cur.execute(
+                """
+                INSERT INTO Tbl_Ayudas_Categorias (Nombre_Categoria, Icono_Codigo, Icono_Png_Base64, Activo)
+                OUTPUT INSERTED.ID_Categoria
+                VALUES (?, ?, ?, 1)
+                """,
+                (nombre, icono or None, icono_png or None),
+            )
+        else:
+            cur.execute(
+                """
+                INSERT INTO Tbl_Ayudas_Categorias (Nombre_Categoria, Icono_Codigo, Activo)
+                OUTPUT INSERTED.ID_Categoria
+                VALUES (?, ?, 1)
+                """,
+                (nombre, icono or None),
+            )
         new_id = int(cur.fetchone()[0])
         detalle = f"id={new_id};nombre={nombre};icono={icono or '-'}"
         registrar_log_global(cur, "AYUDAS", "CREAR_CATEGORIA_AYUDAS", "", detalle, usr)
@@ -185,29 +247,56 @@ def lista_documentos_categoria(id_categoria: int):
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        cur.execute(
-            """
-            SELECT
-                m.Id_Ayuda,
-                m.Id_Categoria,
-                m.Titulo_Documento,
-                m.Subcategoria,
-                m.VIN,
-                m.Tags,
-                r.Id_Revision,
-                r.Numero_Revision,
-                r.Fecha_Subida,
-                r.Es_Vigente,
-                r.Ruta_PDF,
-                r.Usuario_Subida
-            FROM Tbl_Ayudas_Maestro m
-            INNER JOIN Tbl_Ayudas_Revisiones r
-                ON r.Id_Ayuda = m.Id_Ayuda AND r.Es_Vigente = 1
-            WHERE m.Id_Categoria = ?
-            ORDER BY m.Titulo_Documento
-            """,
-            (id_categoria,),
-        )
+        has_consec = _has_column(cur, "dbo.Tbl_Ayudas_Revisiones", "Consecutivo_Unico")
+        if has_consec:
+            cur.execute(
+                """
+                SELECT
+                    m.Id_Ayuda,
+                    m.Id_Categoria,
+                    m.Titulo_Documento,
+                    m.Subcategoria,
+                    m.VIN,
+                    m.Tags,
+                    r.Id_Revision,
+                    r.Numero_Revision,
+                    r.Consecutivo_Unico,
+                    r.Fecha_Subida,
+                    r.Es_Vigente,
+                    r.Ruta_PDF,
+                    r.Usuario_Subida
+                FROM Tbl_Ayudas_Maestro m
+                INNER JOIN Tbl_Ayudas_Revisiones r
+                    ON r.Id_Ayuda = m.Id_Ayuda AND r.Es_Vigente = 1
+                WHERE m.Id_Categoria = ?
+                ORDER BY m.Titulo_Documento
+                """,
+                (id_categoria,),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT
+                    m.Id_Ayuda,
+                    m.Id_Categoria,
+                    m.Titulo_Documento,
+                    m.Subcategoria,
+                    m.VIN,
+                    m.Tags,
+                    r.Id_Revision,
+                    r.Numero_Revision,
+                    r.Fecha_Subida,
+                    r.Es_Vigente,
+                    r.Ruta_PDF,
+                    r.Usuario_Subida
+                FROM Tbl_Ayudas_Maestro m
+                INNER JOIN Tbl_Ayudas_Revisiones r
+                    ON r.Id_Ayuda = m.Id_Ayuda AND r.Es_Vigente = 1
+                WHERE m.Id_Categoria = ?
+                ORDER BY m.Titulo_Documento
+                """,
+                (id_categoria,),
+            )
         rows = cur.fetchall()
         return [_row_to_dict(cur, r) for r in rows]
     except Exception as e:
@@ -221,22 +310,42 @@ def historial_revisiones(id_ayuda: int):
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        cur.execute(
-            """
-            SELECT
-                Id_Revision,
-                Id_Ayuda,
-                Numero_Revision,
-                Ruta_PDF,
-                Fecha_Subida,
-                Es_Vigente,
-                Usuario_Subida
-            FROM Tbl_Ayudas_Revisiones
-            WHERE Id_Ayuda = ?
-            ORDER BY Fecha_Subida DESC
-            """,
-            (id_ayuda,),
-        )
+        has_consec = _has_column(cur, "dbo.Tbl_Ayudas_Revisiones", "Consecutivo_Unico")
+        if has_consec:
+            cur.execute(
+                """
+                SELECT
+                    Id_Revision,
+                    Id_Ayuda,
+                    Numero_Revision,
+                    Consecutivo_Unico,
+                    Ruta_PDF,
+                    Fecha_Subida,
+                    Es_Vigente,
+                    Usuario_Subida
+                FROM Tbl_Ayudas_Revisiones
+                WHERE Id_Ayuda = ?
+                ORDER BY Fecha_Subida DESC
+                """,
+                (id_ayuda,),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT
+                    Id_Revision,
+                    Id_Ayuda,
+                    Numero_Revision,
+                    Ruta_PDF,
+                    Fecha_Subida,
+                    Es_Vigente,
+                    Usuario_Subida
+                FROM Tbl_Ayudas_Revisiones
+                WHERE Id_Ayuda = ?
+                ORDER BY Fecha_Subida DESC
+                """,
+                (id_ayuda,),
+            )
         rows = cur.fetchall()
         return [_row_to_dict(cur, r) for r in rows]
     except Exception as e:
@@ -448,6 +557,7 @@ async def subir_revision_pdf(
     titulo: Optional[str] = Form(None),
     subcategoria: Optional[str] = Form(None),
     numero_revision: str = Form(...),
+    consecutivo: Optional[str] = Form(None),
     usuario: str = Form(...),
     vin: Optional[str] = Form(None),
     tags: Optional[str] = Form(None),
@@ -470,12 +580,43 @@ async def subir_revision_pdf(
 
     tags_json = _normalize_tags_json(tags)
 
+    consec_raw = (consecutivo or "").strip() or (numero_revision or "").strip()
+    consec_norm = _normalize_consecutivo(consec_raw)
+    if not consec_norm:
+        raise HTTPException(status_code=400, detail="Consecutivo único es obligatorio")
+
     conn = get_db_connection()
     cur = conn.cursor()
     try:
         id_ayuda_int: Optional[int] = None
         id_cat_int: Optional[int] = None
         nombre_categoria: str = ""
+
+        has_consec_col = _has_column(cur, "dbo.Tbl_Ayudas_Revisiones", "Consecutivo_Unico")
+        if has_consec_col:
+            cur.execute(
+                """
+                SELECT TOP 1 Id_Revision
+                FROM Tbl_Ayudas_Revisiones
+                WHERE UPPER(REPLACE(LTRIM(RTRIM(ISNULL(Consecutivo_Unico, ''))), ' ', '')) = ?
+                """,
+                (consec_norm,),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT TOP 1 Id_Revision
+                FROM Tbl_Ayudas_Revisiones
+                WHERE UPPER(REPLACE(LTRIM(RTRIM(ISNULL(Numero_Revision, ''))), ' ', '')) = ?
+                """,
+                (consec_norm,),
+            )
+        dup = cur.fetchone()
+        if dup:
+            raise HTTPException(
+                status_code=409,
+                detail=f"El consecutivo '{consec_raw}' ya existe. Debe ser único.",
+            )
 
         if raw_ayuda and raw_ayuda not in ("0", "null", "None"):
             id_ayuda_int = int(raw_ayuda)
@@ -547,7 +688,7 @@ async def subir_revision_pdf(
         carpeta = os.path.join(AYUDAS_RAIZ, _sanitize_folder_name(nombre_categoria))
         os.makedirs(carpeta, exist_ok=True)
 
-        safe_rev = re.sub(r'[^\w.\-]', "_", (numero_revision or "").strip()) or "rev"
+        safe_rev = re.sub(r'[^\w.\-]', "_", consec_norm) or "rev"
         fname = f"{id_ayuda_int}_{safe_rev}_{uuid.uuid4().hex[:8]}.pdf"
         dest_path = os.path.join(carpeta, fname)
 
@@ -565,19 +706,37 @@ async def subir_revision_pdf(
         )
 
         ahora_subida = datetime.now()
-        cur.execute(
-            """
-            INSERT INTO Tbl_Ayudas_Revisiones
-                (Id_Ayuda, Numero_Revision, Ruta_PDF, Fecha_Subida, Es_Vigente, Usuario_Subida)
-            OUTPUT INSERTED.Id_Revision
-            VALUES (?, ?, ?, ?, 1, ?)
-            """,
-            (id_ayuda_int, numero_revision.strip(), dest_path, ahora_subida, usuario_limpio),
-        )
+        if has_consec_col:
+            cur.execute(
+                """
+                INSERT INTO Tbl_Ayudas_Revisiones
+                    (Id_Ayuda, Numero_Revision, Consecutivo_Unico, Ruta_PDF, Fecha_Subida, Es_Vigente, Usuario_Subida)
+                OUTPUT INSERTED.Id_Revision
+                VALUES (?, ?, ?, ?, ?, 1, ?)
+                """,
+                (
+                    id_ayuda_int,
+                    numero_revision.strip(),
+                    consec_norm,
+                    dest_path,
+                    ahora_subida,
+                    usuario_limpio,
+                ),
+            )
+        else:
+            cur.execute(
+                """
+                INSERT INTO Tbl_Ayudas_Revisiones
+                    (Id_Ayuda, Numero_Revision, Ruta_PDF, Fecha_Subida, Es_Vigente, Usuario_Subida)
+                OUTPUT INSERTED.Id_Revision
+                VALUES (?, ?, ?, ?, 1, ?)
+                """,
+                (id_ayuda_int, consec_norm, dest_path, ahora_subida, usuario_limpio),
+            )
         new_id = int(cur.fetchone()[0])
 
         log_nuevo = (
-            f"id_rev={new_id};num={numero_revision.strip()};"
+            f"id_rev={new_id};num={numero_revision.strip()};consec={consec_norm};"
             f"subcat={subcategoria_raw or '-'};vin={vin_raw or '-'};"
             f"ruta={os.path.basename(dest_path)}"
         )
@@ -596,6 +755,7 @@ async def subir_revision_pdf(
             "ok": True,
             "id_ayuda": id_ayuda_int,
             "id_revision": new_id,
+            "consecutivo": consec_norm,
             "ruta": dest_path,
         }
     except HTTPException:
@@ -603,6 +763,35 @@ async def subir_revision_pdf(
         raise
     except Exception as e:
         conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+@router.get("/api/ayudas/consecutivo/siguiente")
+def sugerir_consecutivo_siguiente():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        has_consec = _has_column(cur, "dbo.Tbl_Ayudas_Revisiones", "Consecutivo_Unico")
+        if has_consec:
+            cur.execute(
+                """
+                SELECT Consecutivo_Unico
+                FROM Tbl_Ayudas_Revisiones
+                WHERE Consecutivo_Unico IS NOT NULL AND LTRIM(RTRIM(Consecutivo_Unico)) <> ''
+                """
+            )
+        else:
+            cur.execute(
+                """
+                SELECT Numero_Revision
+                FROM Tbl_Ayudas_Revisiones
+                WHERE Numero_Revision IS NOT NULL AND LTRIM(RTRIM(Numero_Revision)) <> ''
+                """
+            )
+        vals = [str(r[0] or "").strip() for r in cur.fetchall()]
+        return {"sugerido": _next_consecutivo_from_values(vals)}
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
