@@ -298,17 +298,6 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
               ),
               material.TextButton(
                 onPressed: () async {
-                  if (passCtrl.text != kAyudasDeletePassword) {
-                    displayInfoBar(context, builder: (c, close) {
-                      return InfoBar(
-                        title: const Text('Error'),
-                        content: const Text('Contraseña incorrecta'),
-                        severity: InfoBarSeverity.error,
-                        onClose: close,
-                      );
-                    });
-                    return;
-                  }
                   Navigator.pop(dCtx);
                   try {
                     final prefs = await SharedPreferences.getInstance();
@@ -316,7 +305,10 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
                         prefs.getString('username')?.trim() ?? 'Operador';
                     await ApiClient.delete(
                       '/api/ayudas/revision/$idRevision',
-                      headers: {'X-Usuario': user},
+                      headers: {
+                        'X-Usuario': user,
+                        ApiClient.adminMasterPasswordHeader: passCtrl.text,
+                      },
                     );
                     await _cargarHistorial();
                     if (!mounted) return;

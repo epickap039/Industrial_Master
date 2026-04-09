@@ -22,6 +22,7 @@ from fastapi import APIRouter, BackgroundTasks, File, Form, Header, HTTPExceptio
 from fastapi.responses import StreamingResponse
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
+from admin_master_password import assert_admin_master_password_matches
 from database import get_db_connection, _int_from_count_row
 from models import *
 from .bom import _purge_version_physical, _purge_tipo_physical
@@ -57,7 +58,13 @@ def add_tracto(payload: TractoPayload):
         conn.close()
 
 @router.delete("/api/proyectos/tractos/{id_tracto}")
-def delete_tracto(id_tracto: int):
+def delete_tracto(
+    id_tracto: int,
+    x_admin_master_password: Optional[str] = Header(
+        None, alias="X-Admin-Master-Password"
+    ),
+):
+    assert_admin_master_password_matches(x_admin_master_password)
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -99,8 +106,14 @@ def add_tipo(payload: TipoProyectoPayload):
         conn.close()
 
 @router.delete("/api/proyectos/tipos/{id_tipo}")
-def delete_tipo(id_tipo: int):
+def delete_tipo(
+    id_tipo: int,
+    x_admin_master_password: Optional[str] = Header(
+        None, alias="X-Admin-Master-Password"
+    ),
+):
     """Borrado físico: elimina todas las versiones/BOM del tipo y luego el tipo (tractos intactos)."""
+    assert_admin_master_password_matches(x_admin_master_password)
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -152,8 +165,14 @@ def add_version(payload: VersionPayload):
         conn.close()
 
 @router.delete("/api/proyectos/versiones/{id_version}")
-def delete_version(id_version: int):
+def delete_version(
+    id_version: int,
+    x_admin_master_password: Optional[str] = Header(
+        None, alias="X-Admin-Master-Password"
+    ),
+):
     """Borrado físico: elimina revisiones BOM (cascada), clientes de la versión y la versión."""
+    assert_admin_master_password_matches(x_admin_master_password)
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -205,7 +224,13 @@ def add_cliente(payload: ClientePayload):
         conn.close()
 
 @router.delete("/api/proyectos/clientes/{id_cliente}")
-def delete_cliente(id_cliente: int):
+def delete_cliente(
+    id_cliente: int,
+    x_admin_master_password: Optional[str] = Header(
+        None, alias="X-Admin-Master-Password"
+    ),
+):
+    assert_admin_master_password_matches(x_admin_master_password)
     conn = get_db_connection()
     cursor = conn.cursor()
     try:

@@ -20,8 +20,6 @@ abstract final class AyudasJsonKeys {
   static const tags = 'Tags';
 }
 
-const String kAyudasDeletePassword = 'ADMIN_ING_2024';
-
 dynamic _firstKey(Map<String, dynamic> m, List<String> keys) {
   for (final k in keys) {
     if (m.containsKey(k) && m[k] != null) return m[k];

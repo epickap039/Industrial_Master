@@ -1038,15 +1038,11 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
                   controller: pwdCtrl,
                   placeholder: 'Contraseña maestra...',
                   onSubmitted: (v) {
-                    if (v == 'ADMIN_ING_2024') {
-                      Navigator.pop(ctx);
-                      _deleteRevision(
-                        password: v,
-                        motivo: 'Forzado por Admin Override',
-                      );
-                    } else {
-                      _showError('Contraseña incorrecta');
-                    }
+                    Navigator.pop(ctx);
+                    _deleteRevision(
+                      password: v,
+                      motivo: 'Forzado por Admin Override',
+                    );
                   },
                 ),
               ],
@@ -1061,15 +1057,11 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
                   backgroundColor: WidgetStateProperty.all(Colors.red),
                 ),
                 onPressed: () {
-                  if (pwdCtrl.text == 'ADMIN_ING_2024') {
-                    Navigator.pop(ctx);
-                    _deleteRevision(
-                      password: pwdCtrl.text,
-                      motivo: 'Forzado por Admin Override',
-                    );
-                  } else {
-                    _showError('Contraseña incorrecta');
-                  }
+                  Navigator.pop(ctx);
+                  _deleteRevision(
+                    password: pwdCtrl.text,
+                    motivo: 'Forzado por Admin Override',
+                  );
                 },
                 child: const Text('Forzar Borrado'),
               ),

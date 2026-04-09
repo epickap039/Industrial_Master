@@ -6,8 +6,6 @@ import '../services/api_client.dart';
 import '../services/app_role.dart';
 import '../widgets/compact_page_header.dart';
 
-const String _kDeletePassword = 'ADMIN_ING_2024';
-
 /// Alta y listado sobre `Tbl_Usuarios` (`GET/POST/DELETE /api/usuarios/*`).
 class ConfiguracionUsuariosScreen extends StatefulWidget {
   const ConfiguracionUsuariosScreen({super.key});
@@ -19,6 +17,7 @@ class ConfiguracionUsuariosScreen extends StatefulWidget {
 
 class _ConfiguracionUsuariosScreenState extends State<ConfiguracionUsuariosScreen> {
   bool _loading = true;
+  bool _roleResolved = false;
   List<Map<String, dynamic>> _lista = [];
   final _usuario = TextEditingController();
   final _password = TextEditingController();
@@ -52,6 +51,7 @@ class _ConfiguracionUsuariosScreenState extends State<ConfiguracionUsuariosScree
     setState(() {
       _currentUsername = (prefs.getString('username') ?? '').trim();
       _currentRole = parseAppRole(prefs.getString('rol'));
+      _roleResolved = true;
     });
   }
 
@@ -180,14 +180,12 @@ class _ConfiguracionUsuariosScreenState extends State<ConfiguracionUsuariosScree
       builder: (ctx) => _EliminarUsuarioDialog(
         username: login,
         onConfirmar: (password) async {
-          if (password != _kDeletePassword) {
-            Navigator.of(ctx).pop();
-            _snackError('Contraseña incorrecta.');
-            return;
-          }
           Navigator.of(ctx).pop();
           try {
-            await ApiClient.delete('/api/usuarios/$idInt');
+            await ApiClient.delete(
+              '/api/usuarios/$idInt',
+              headers: {ApiClient.adminMasterPasswordHeader: password},
+            );
             if (!mounted) return;
             displayInfoBar(
               context,
@@ -217,16 +215,162 @@ class _ConfiguracionUsuariosScreenState extends State<ConfiguracionUsuariosScree
     );
   }
 
-  bool get _puedeEliminarOtros =>
-      _currentRole == AppRole.administrador;
+  bool get _puedeGestionarUsuarios =>
+      _currentRole == AppRole.administrador ||
+      _currentRole == AppRole.desarrollador;
+
+  String _rolParaCombo(String? raw) {
+    final x = (raw ?? '').trim().toUpperCase();
+    if (x == 'ADMIN') return 'ADMINISTRADOR';
+    for (final e in _roles) {
+      if (e == x) return e;
+    }
+    if (x.contains('INGENIERIA')) return 'INGENIERIA_METODOS';
+    return _roles.contains(x) ? x : 'USER';
+  }
+
+  Future<void> _abrirEditarRol(Map<String, dynamic> u) async {
+    final id = u['id'];
+    final login = '${u['username'] ?? ''}'.trim();
+    if (id == null || login.isEmpty) return;
+    final idInt = id is int ? id : int.tryParse('$id');
+    if (idInt == null) return;
+    if (login.toLowerCase() == _currentUsername.toLowerCase()) {
+      _snackError('No puede cambiar el rol de su propia cuenta aquí.');
+      return;
+    }
+
+    var rolSel = _rolParaCombo('${u['rol']}');
+    final nuevo = await showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setLocal) {
+            return ContentDialog(
+              title: const Text('Editar rol y permisos'),
+              content: SizedBox(
+                width: 360,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      login,
+                      style: FluentTheme.of(context).typography.subtitle,
+                    ),
+                    const SizedBox(height: 12),
+                    InfoLabel(
+                      label: 'Rol en el sistema',
+                      child: ComboBox<String>(
+                        value: rolSel,
+                        items: [
+                          for (final e in _roles)
+                            ComboBoxItem(
+                              value: e,
+                              child: Text(e),
+                            ),
+                        ],
+                        onChanged: (v) => setLocal(() => rolSel = v ?? rolSel),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'El rol define qué pantallas y acciones puede usar el usuario.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: FluentTheme.of(context)
+                            .typography
+                            .caption
+                            ?.color,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                Button(
+                  child: const Text('Cancelar'),
+                  onPressed: () => Navigator.of(ctx).pop(),
+                ),
+                FilledButton(
+                  child: const Text('Guardar'),
+                  onPressed: () => Navigator.of(ctx).pop(rolSel),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    if (nuevo == null || !mounted) return;
+    try {
+      await ApiClient.put(
+        '/api/usuarios/$idInt/rol',
+        body: {'rol': nuevo},
+      );
+      if (!mounted) return;
+      displayInfoBar(
+        context,
+        builder: (c, close) => InfoBar(
+          title: const Text('Rol actualizado'),
+          content: Text('Usuario $login → $nuevo'),
+          severity: InfoBarSeverity.success,
+          onClose: close,
+        ),
+      );
+      await _cargar();
+    } catch (e) {
+      if (mounted) {
+        displayInfoBar(
+          context,
+          builder: (c, close) => InfoBar(
+            title: const Text('Error'),
+            content: Text('$e'),
+            severity: InfoBarSeverity.error,
+            onClose: close,
+          ),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Center(child: ProgressRing());
+    if (!_roleResolved || _loading) {
+      return const ScaffoldPage(content: Center(child: ProgressRing()));
+    }
+
+    if (!_puedeGestionarUsuarios) {
+      return ScaffoldPage(
+        header: CompactPageHeader(
+          leading: Padding(
+            padding: const EdgeInsetsDirectional.only(end: 4),
+            child: IconButton(
+              icon: const Icon(FluentIcons.back, size: 18),
+              onPressed: () => Navigator.maybePop(context),
+            ),
+          ),
+          title: const Text('Gestión de Usuarios'),
+        ),
+        content: Center(
+          child: Text(
+            'No tiene permiso para gestionar usuarios.',
+            style: FluentTheme.of(context).typography.body,
+          ),
+        ),
+      );
+    }
 
     return material.ScaffoldMessenger(
       child: ScaffoldPage(
         header: CompactPageHeader(
+          leading: Padding(
+            padding: const EdgeInsetsDirectional.only(end: 4),
+            child: IconButton(
+              icon: const Icon(FluentIcons.back, size: 18),
+              onPressed: () => Navigator.maybePop(context),
+            ),
+          ),
           title: Row(
             children: [
               Icon(FluentIcons.people, size: 28, color: FluentTheme.of(context).accentColor),
@@ -489,15 +633,34 @@ class _ConfiguracionUsuariosScreenState extends State<ConfiguracionUsuariosScree
                                 ),
                               ),
                               const material.SizedBox(width: 16),
-                              // Acciones
-                              if (_puedeEliminarOtros && !isCurrentUser)
-                                material.IconButton(
-                                  icon: const material.Icon(
-                                    material.Icons.delete_outline,
-                                    color: material.Colors.red,
-                                    size: 20,
-                                  ),
-                                  onPressed: () => _abrirEliminar(u),
+                              // Acciones: editar rol / borrar (misma política que backend)
+                              if (_puedeGestionarUsuarios && !isCurrentUser)
+                                material.Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Tooltip(
+                                      message: 'Editar rol y permisos',
+                                      child: IconButton(
+                                        icon: Icon(
+                                          FluentIcons.edit,
+                                          size: 18,
+                                          color: FluentTheme.of(context).accentColor,
+                                        ),
+                                        onPressed: () => _abrirEditarRol(u),
+                                      ),
+                                    ),
+                                    Tooltip(
+                                      message: 'Eliminar usuario',
+                                      child: material.IconButton(
+                                        icon: const material.Icon(
+                                          material.Icons.delete_outline,
+                                          color: material.Colors.red,
+                                          size: 20,
+                                        ),
+                                        onPressed: () => _abrirEliminar(u),
+                                      ),
+                                    ),
+                                  ],
                                 )
                               else
                                 material.SizedBox(
@@ -953,7 +1116,7 @@ class _EliminarUsuarioDialogState extends State<_EliminarUsuarioDialog> {
           ),
           const material.SizedBox(height: 16),
           material.Text(
-            'Confirме con su contraseña:',
+            'Introduzca la contraseña maestra de borrado:',
             style: const material.TextStyle(
               fontWeight: material.FontWeight.w500,
               fontSize: 13,
@@ -965,8 +1128,8 @@ class _EliminarUsuarioDialogState extends State<_EliminarUsuarioDialog> {
             obscureText: _obscurePassword,
             autofocus: true,
             decoration: material.InputDecoration(
-              labelText: 'Contraseña',
-              hintText: 'Ingrese su contraseña',
+              labelText: 'Contraseña de administración',
+              hintText: 'La definida para eliminar usuarios',
               border: const material.OutlineInputBorder(),
               suffixIcon: material.IconButton(
                 icon: material.Icon(

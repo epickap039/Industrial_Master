@@ -425,24 +425,16 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
             ),
             material.TextButton(
               onPressed: () async {
-                if (passCtrl.text != kAyudasDeletePassword) {
-                  displayInfoBar(context, builder: (c, close) {
-                    return InfoBar(
-                      title: const Text('Error'),
-                      content: const Text('Contraseña incorrecta'),
-                      severity: InfoBarSeverity.error,
-                      onClose: close,
-                    );
-                  });
-                  return;
-                }
                 Navigator.pop(dCtx);
                 try {
                   final prefs = await SharedPreferences.getInstance();
                   final user = prefs.getString('username')?.trim() ?? 'Operador';
                   await ApiClient.delete(
                     '/api/ayudas/documento/$idAyuda',
-                    headers: {'X-Usuario': user},
+                    headers: {
+                      'X-Usuario': user,
+                      ApiClient.adminMasterPasswordHeader: passCtrl.text,
+                    },
                   );
                   await _cargar();
                 } catch (e) {
@@ -645,6 +637,7 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
               right: 20,
               bottom: 20,
               child: material.FloatingActionButton.extended(
+                heroTag: 'ayudas_categoria_nuevo_documento',
                 onPressed: _dialogoNuevoDocumento,
                 shape: material.RoundedRectangleBorder(
                   borderRadius: material.BorderRadius.circular(24.0),

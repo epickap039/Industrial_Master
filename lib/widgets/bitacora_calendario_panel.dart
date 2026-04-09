@@ -1443,11 +1443,11 @@ class _DiaDetallePanel extends StatelessWidget {
                                           CrossAxisAlignment.start,
                                       children: [
                                         Container(
-                                          width: 44,
-                                          height: 44,
+                                          width: 38,
+                                          height: 38,
                                           decoration: BoxDecoration(
                                             color: barColor.withValues(alpha: 0.2),
-                                            shape: BoxShape.circle,
+                                            borderRadius: BorderRadius.circular(10),
                                           ),
                                           alignment: Alignment.center,
                                           child: material.Icon(

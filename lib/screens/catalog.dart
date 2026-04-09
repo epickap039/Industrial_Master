@@ -5,13 +5,18 @@ import 'package:flutter/services.dart'; // Clipboard
 import 'package:url_launcher/url_launcher.dart';
 import 'package:excel/excel.dart' as excel_lib;
 import 'package:file_picker/file_picker.dart';
+import 'package:syncfusion_flutter_pdf/pdf.dart';
 import '../utils/excel_helper.dart';
 import '../services/api_client.dart';
 import '../services/app_role.dart';
+import '../theme/ui_tokens.dart';
 import '../widgets/compact_page_header.dart';
 
 class CatalogScreen extends StatefulWidget {
-  const CatalogScreen({super.key});
+  const CatalogScreen({super.key, this.effectiveRole});
+
+  /// Rol efectivo (incluye simulacion de rol en admin).
+  final String? effectiveRole;
 
   @override
   State<CatalogScreen> createState() => _CatalogScreenState();
@@ -44,15 +49,31 @@ class _CatalogScreenState extends State<CatalogScreen> {
   bool _ordenAscendente = true;
 
   String _userRole = 'USER';
+  final Map<String, Set<String>> _selectedValueFilters = {};
 
   @override
   void initState() {
     super.initState();
-    _loadRole();
+    _loadRoleFromContext();
     _fetchData();
   }
 
-  Future<void> _loadRole() async {
+  @override
+  void didUpdateWidget(covariant CatalogScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.effectiveRole != widget.effectiveRole) {
+      _loadRoleFromContext();
+    }
+  }
+
+  Future<void> _loadRoleFromContext() async {
+    final explicit = widget.effectiveRole?.trim();
+    if (explicit != null && explicit.isNotEmpty) {
+      if (mounted) {
+        setState(() => _userRole = explicit);
+      }
+      return;
+    }
     final prefs = await SharedPreferences.getInstance();
     if (mounted) {
       setState(() {
@@ -61,45 +82,57 @@ class _CatalogScreenState extends State<CatalogScreen> {
     }
   }
 
+  String _normalizeColumnKey(String c) {
+    return c.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+  }
+
+  bool _isRutaPrivadaColumn(String c) {
+    final n = _normalizeColumnKey(c);
+    return n == 'rutarchivo' ||
+        n == 'rutaarchivo' ||
+        n == 'rutaplano' ||
+        n == 'ruta' ||
+        n == 'linkdrive' ||
+        n.contains('rutaarchivo') ||
+        n.contains('rutaplano');
+  }
+
   bool _excludeColumnForRole(String c) {
     final ar = parseAppRole(_userRole);
+    final norm = _normalizeColumnKey(c);
     if (ar == AppRole.qaLegacy) {
       return const {
-        'Ruta_Archivo',
-        'Ruta_Plano',
-        'Link_Drive',
-        'Ruta',
-        'Modificado_Por',
-        'Autor',
-        'Ultima_Actualizacion',
-        'Fecha_Creacion',
-      }.contains(c);
+        'rutaarchivo',
+        'rutaplano',
+        'linkdrive',
+        'ruta',
+        'modificadopor',
+        'autor',
+        'ultimaactualizacion',
+        'fechacreacion',
+      }.contains(norm);
     }
-    if (ar.catalogHideModificadoPor && c == 'Modificado_Por') return true;
+    if (ar.catalogHideModificadoPor && norm == 'modificadopor') return true;
     if (ar == AppRole.produccion &&
         const {
-          'Modificado_Por',
-          'Ruta_Archivo',
-          'Ruta_Plano',
-          'Tiene_DXF',
-          'Largo_DXF',
-          'Ancho_DXF',
-        }.contains(c)) {
+          'modificadopor',
+          'rutaarchivo',
+          'rutaplano',
+          'tienedxf',
+          'largodxf',
+          'anchodxf',
+        }.contains(norm)) {
       return true;
     }
-    if (ar.catalogHideRutaArchivo &&
-        (c == 'Ruta_Archivo' ||
-            c == 'Ruta_Plano' ||
-            c == 'Link_Drive' ||
-            c == 'Ruta')) {
+    if (ar.catalogHideRutaArchivo && _isRutaPrivadaColumn(c)) {
       return true;
     }
     if (ar.catalogHideFechaModificacion &&
-        (c == 'Ultima_Actualizacion' || c == 'Fecha_Creacion')) {
+        (norm == 'ultimaactualizacion' || norm == 'fechacreacion')) {
       return true;
     }
     if (ar.catalogHideDxfColumns &&
-        (c == 'Tiene_DXF' || c == 'Largo_DXF' || c == 'Ancho_DXF')) {
+        (norm == 'tienedxf' || norm == 'largodxf' || norm == 'anchodxf')) {
       return true;
     }
     return false;
@@ -216,6 +249,14 @@ class _CatalogScreenState extends State<CatalogScreen> {
         final cellValue = row[col]?.toString().toLowerCase() ?? '';
         if (!cellValue.contains(filterText)) return false;
       }
+
+      for (final entry in _selectedValueFilters.entries) {
+        final selected = entry.value;
+        if (selected.isEmpty) continue;
+        final col = entry.key;
+        final cell = (row[col]?.toString() ?? '').trim();
+        if (!selected.contains(cell)) return false;
+      }
       return true;
     }).toList();
   }
@@ -269,8 +310,145 @@ class _CatalogScreenState extends State<CatalogScreen> {
     }
     setState(() {
       _onlyWithPlano = false;
+      _selectedValueFilters.clear();
     });
     _applyFilters();
+  }
+
+  List<String> _distinctColumnValues(String column) {
+    final values = _allData
+        .map((r) => (r[column]?.toString() ?? '').trim())
+        .where((v) => v.isNotEmpty && v != '-')
+        .toSet()
+        .toList();
+    values.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return values;
+  }
+
+  Future<void> _showColumnValueFilterDialog(String column) async {
+    final allValues = _distinctColumnValues(column);
+    final current = Set<String>.from(_selectedValueFilters[column] ?? const {});
+    final searchCtrl = TextEditingController();
+    final tempSelected = Set<String>.from(current);
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setDState) {
+            final q = searchCtrl.text.trim().toLowerCase();
+            final visible = q.isEmpty
+                ? allValues
+                : allValues.where((v) => v.toLowerCase().contains(q)).toList();
+            return ContentDialog(
+              title: Text('Filtro de columna: ${column.replaceAll('_', ' ')}'),
+              content: SizedBox(
+                width: 420,
+                height: 420,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    TextBox(
+                      controller: searchCtrl,
+                      placeholder: 'Buscar valor...',
+                      onChanged: (_) => setDState(() {}),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Button(
+                          child: const Text('Seleccionar todo'),
+                          onPressed: () {
+                            setDState(() {
+                              tempSelected.addAll(visible);
+                            });
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                        Button(
+                          child: const Text('Limpiar'),
+                          onPressed: () {
+                            setDState(() {
+                              tempSelected.clear();
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Expanded(
+                      child: ListView.builder(
+                        itemCount: visible.length,
+                        itemBuilder: (_, i) {
+                          final value = visible[i];
+                          final checked = tempSelected.contains(value);
+                          return Checkbox(
+                            checked: checked,
+                            onChanged: (v) {
+                              setDState(() {
+                                if (v == true) {
+                                  tempSelected.add(value);
+                                } else {
+                                  tempSelected.remove(value);
+                                }
+                              });
+                            },
+                            content: Text(
+                              value,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                Button(
+                  child: const Text('Cancelar'),
+                  onPressed: () => Navigator.pop(ctx),
+                ),
+                Button(
+                  child: const Text('Quitar filtro'),
+                  onPressed: () {
+                    setState(() {
+                      _selectedValueFilters.remove(column);
+                    });
+                    _applyFilters(resetScroll: false);
+                    Navigator.pop(ctx);
+                  },
+                ),
+                FilledButton(
+                  child: const Text('Aplicar'),
+                  onPressed: () {
+                    setState(() {
+                      if (tempSelected.isEmpty) {
+                        _selectedValueFilters.remove(column);
+                      } else {
+                        _selectedValueFilters[column] = Set<String>.from(
+                          tempSelected,
+                        );
+                      }
+                    });
+                    _applyFilters(resetScroll: false);
+                    Navigator.pop(ctx);
+                  },
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  List<String> _exportableColumns() {
+    return _columns.where((c) {
+      if (_visibleColumns[c] != true) return false;
+      if (_excludeColumnForRole(c)) return false;
+      return true;
+    }).toList();
   }
 
   /// Exporta a Excel
@@ -282,12 +460,8 @@ class _CatalogScreenState extends State<CatalogScreen> {
     excel_lib.Sheet sheetObject = excel['Catálogo'];
     excel.delete('Sheet1');
 
-    final exportCols =
-        _columns.where((c) {
-          if (_visibleColumns[c] != true) return false;
-          if (_excludeColumnForRole(c)) return false;
-          return true;
-        }).toList();
+    final exportCols = _exportableColumns();
+    if (exportCols.isEmpty) return;
 
     Map<int, int> colWidths = {};
 
@@ -359,6 +533,74 @@ class _CatalogScreenState extends State<CatalogScreen> {
           );
         }
       }
+    }
+  }
+
+  Future<void> _exportToPdf() async {
+    if (_filteredData.isEmpty) return;
+    final exportCols = _exportableColumns();
+    if (exportCols.isEmpty) return;
+
+    final doc = PdfDocument();
+    final grid = PdfGrid();
+    grid.columns.add(count: exportCols.length);
+    grid.headers.add(1);
+
+    final hdr = grid.headers[0];
+    for (int i = 0; i < exportCols.length; i++) {
+      hdr.cells[i].value = exportCols[i].replaceAll('_', ' ');
+    }
+
+    for (final row in _filteredData) {
+      final gr = grid.rows.add();
+      for (int c = 0; c < exportCols.length; c++) {
+        final col = exportCols[c];
+        gr.cells[c].value = row[col]?.toString() ?? '-';
+      }
+    }
+
+    grid.style = PdfGridStyle(
+      font: PdfStandardFont(PdfFontFamily.helvetica, 8),
+      cellPadding: PdfPaddings(left: 3, right: 3, top: 2, bottom: 2),
+    );
+
+    grid.draw(
+      page: doc.pages.add(),
+      bounds: const Rect.fromLTWH(0, 0, 0, 0),
+      format: PdfLayoutFormat(layoutType: PdfLayoutType.paginate),
+    );
+
+    String? outputFile = await FilePicker.platform.saveFile(
+      dialogTitle: 'Guardar catálogo PDF',
+      fileName: 'catalogo.pdf',
+    );
+    if (outputFile == null) {
+      doc.dispose();
+      return;
+    }
+    if (!outputFile.endsWith('.pdf')) outputFile = '$outputFile.pdf';
+
+    try {
+      final bytes = await doc.save();
+      File(outputFile)
+        ..createSync(recursive: true)
+        ..writeAsBytesSync(bytes);
+
+      if (mounted) {
+        displayInfoBar(
+          context,
+          builder: (context, close) {
+            return InfoBar(
+              title: const Text('PDF exportado'),
+              content: Text('Guardado en: $outputFile'),
+              severity: InfoBarSeverity.success,
+              onClose: close,
+            );
+          },
+        );
+      }
+    } finally {
+      doc.dispose();
     }
   }
 
@@ -1089,6 +1331,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
   }
 
   Widget _buildCommandBar() {
+    final role = parseAppRole(_userRole);
     return Wrap(
       spacing: 8,
       runSpacing: 8,
@@ -1103,7 +1346,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
             _applyFilters();
           },
         ),
-        if (parseAppRole(_userRole).catalogCanSelectColumns)
+        if (role.catalogCanSelectColumns)
           Tooltip(
             message: "Seleccionar Columnas",
             child: IconButton(
@@ -1125,10 +1368,11 @@ class _CatalogScreenState extends State<CatalogScreen> {
             onPressed: _clearFilters,
           ),
         ),
-        if (parseAppRole(_userRole).catalogCanSearchDxf)
+        if (role.catalogCanSearchDxf)
           Tooltip(
             message: "Buscar DXF",
             child: Button(
+              style: roundedFilledButtonStyle(),
               onPressed: _searchDXF,
               child: const Row(
                 mainAxisSize: MainAxisSize.min,
@@ -1140,12 +1384,28 @@ class _CatalogScreenState extends State<CatalogScreen> {
               ),
             ),
           ),
-        if (parseAppRole(_userRole).catalogCanExport)
+        if (role.catalogCanExportExcel)
           Tooltip(
             message: "Exportar a Excel",
             child: IconButton(
               icon: const Icon(FluentIcons.excel_logo),
               onPressed: _filteredData.isNotEmpty ? _exportToExcel : null,
+            ),
+          ),
+        if (role.catalogCanExportPdf)
+          Tooltip(
+            message: "Exportar PDF (sin columnas privadas)",
+            child: Button(
+              style: roundedFilledButtonStyle(),
+              onPressed: _filteredData.isNotEmpty ? _exportToPdf : null,
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(FluentIcons.pdf, size: 14),
+                  SizedBox(width: 8),
+                  Text('Exportar PDF'),
+                ],
+              ),
             ),
           ),
       ],
@@ -1198,9 +1458,9 @@ class _CatalogScreenState extends State<CatalogScreen> {
               onPressed:
                   () => Clipboard.setData(ClipboardData(text: _errorMessage!)),
             ),
-            const Text(
+            Text(
               "Copiar Error",
-              style: TextStyle(fontSize: 10, color: Colors.grey),
+              style: fluentSecondaryTextStyle(context, fontSize: 10),
             ),
           ],
         ),
@@ -1218,17 +1478,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
     return Padding(
       padding: const EdgeInsets.all(8.0),
       child: Container(
-        decoration: BoxDecoration(
-          color: FluentTheme.of(context).cardColor,
-          borderRadius: BorderRadius.circular(8.0),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.1),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
+        decoration: elevatedCardDecoration(FluentTheme.of(context)),
         padding: const EdgeInsets.all(8.0),
         child: LayoutBuilder(
           builder: (context, constraints) {
@@ -1312,11 +1562,6 @@ class _CatalogScreenState extends State<CatalogScreen> {
   }
 
   Widget _buildHeaderRow(List<String> activeCols, double actionsWidth) {
-    final theme = FluentTheme.of(context);
-    final filterTextStyle =
-        theme.typography.body?.copyWith(fontSize: 12) ??
-        TextStyle(fontSize: 12, color: theme.resources.textFillColorPrimary);
-
     return Row(
       children: [
         // Espacio acciones (Sin Settings Icon)
@@ -1346,35 +1591,56 @@ class _CatalogScreenState extends State<CatalogScreen> {
                           maxLines: 1,
                         ),
                       ),
-                      Tooltip(
-                        message: 'Ordenar por $col',
-                        child: IconButton(
-                          icon: Icon(
-                            _columnaOrden == col
-                                ? (_ordenAscendente
-                                    ? FluentIcons.sort_up
-                                    : FluentIcons.sort_down)
-                                : FluentIcons.sort,
-                            size: 10,
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Tooltip(
+                            message: 'Ordenar por $col',
+                            child: IconButton(
+                              icon: Icon(
+                                _columnaOrden == col
+                                    ? (_ordenAscendente
+                                        ? FluentIcons.sort_up
+                                        : FluentIcons.sort_down)
+                                    : FluentIcons.sort,
+                                size: 10,
+                              ),
+                              onPressed: () => _ordenarTabla(col),
+                            ),
                           ),
-                          onPressed: () => _ordenarTabla(col),
-                        ),
+                          Tooltip(
+                            message: 'Filtro desplegable (estilo Excel)',
+                            child: IconButton(
+                              icon: Icon(
+                                _selectedValueFilters[col]?.isNotEmpty == true
+                                    ? FluentIcons.filter_solid
+                                    : FluentIcons.filter,
+                                size: 10,
+                                color:
+                                    _selectedValueFilters[col]?.isNotEmpty == true
+                                    ? FluentTheme.of(context).accentColor
+                                    : null,
+                              ),
+                              onPressed: () => _showColumnValueFilterDialog(col),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                  const SizedBox(
-                    height: 4.0,
-                  ), // Separación justa sin paddings extra
-                  SizedBox(
-                    width: _getColumnWidth(col),
-                    child: TextBox(
-                      key: ValueKey('catalog_col_filter_$col'),
-                      controller: _filterControllers[col]!,
-                      placeholder: 'Buscar',
-                      style: filterTextStyle,
-                      onChanged: (_) => _applyFilters(resetScroll: false),
+                  if (_selectedValueFilters[col]?.isNotEmpty == true)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2.0),
+                      child: Text(
+                        '${_selectedValueFilters[col]!.length} seleccionados',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: FluentTheme.of(context).accentColor,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                  ),
                 ],
               ),
             ),

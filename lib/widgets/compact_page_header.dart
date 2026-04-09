@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import '../theme/ui_tokens.dart';
 
 /// Misma función que [PageHeader] de fluent_ui, con padding total controlable.
 /// El [PageHeader] original fija `bottom: 18` y solo permite `padding` horizontal (double).
@@ -8,7 +9,12 @@ class CompactPageHeader extends StatelessWidget {
     this.leading,
     this.title,
     this.commandBar,
-    this.padding = const EdgeInsets.fromLTRB(24, 6, 24, 8),
+    this.padding = const EdgeInsets.fromLTRB(
+      UiTokens.pageHPadding,
+      8,
+      UiTokens.pageHPadding,
+      10,
+    ),
   });
 
   final Widget? leading;

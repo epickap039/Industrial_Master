@@ -1,5 +1,5 @@
 """Modelos Pydantic compartidos (extraídos de server.py)."""
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
@@ -296,5 +296,79 @@ class UsuarioColorResponse(BaseModel):
 
     usuario_login: str = Field(..., alias="usuarioLogin")
     color_hex: str = Field(..., alias="colorHex")
+
+
+# ============================================================================
+# GESTOR DE TAREAS - VOZ A JSON (v15.5)
+# ============================================================================
+
+class TranscripcionVozPayload(BaseModel):
+    """Payload para procesar transcripción de voz (Whisper) a JSON de tarea."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    transcripcion: str = Field(
+        ...,
+        min_length=10,
+        max_length=5000,
+        description="Texto de la transcripción (ej: salida de Whisper)"
+    )
+
+    minutos_base: int = Field(
+        default=30,
+        ge=5,
+        le=480,
+        description="Minutos base para cálculo de complejidad (5-480, default 30)"
+    )
+
+    incluir_metadata: bool = Field(
+        default=True,
+        description="Si True, agrega timestamps y versión en meta_json"
+    )
+
+
+class ArchivoAudioPayload(BaseModel):
+    """Payload para transcribir archivo de audio completo (Whisper)."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    ruta_archivo: str = Field(
+        ...,
+        description="Ruta local o URL del archivo de audio (.mp3, .wav, .m4a, etc.)"
+    )
+
+    idioma: str = Field(
+        default="es",
+        description="Código ISO del idioma (ej: 'es', 'en', 'pt')"
+    )
+
+    minutos_base: int = Field(
+        default=30,
+        ge=5,
+        le=480,
+        description="Minutos base para cálculo de complejidad"
+    )
+
+
+class TareaDesdeVozResponse(BaseModel):
+    """Respuesta con JSON de tarea generado desde voz."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    titulo: str = Field(..., max_length=50)
+    descripcion: str = Field(..., max_length=4000)
+    usuario_asignado: str = Field(..., max_length=200)
+    minutos_estimados: int = Field(..., ge=0)
+    priority_rank: int = Field(..., ge=0, le=2)
+    tipo_tarea: str = Field(default="MANUAL")
+    source_type: str = Field(default="VOZ_LOCAL")
+    meta_json: str = Field(..., description="JSON serializado con metadata")
+
+    # Metadata adicional para confirmación
+    transcripcion_procesada: str = Field(..., description="Transcripción original")
+    entidades_detectadas: Dict[str, Optional[str]] = Field(
+        default_factory=dict,
+        description="Area, Pieza y otra info detectada por NER"
+    )
 
 

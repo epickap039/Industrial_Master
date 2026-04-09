@@ -11,6 +11,7 @@ import pyodbc
 from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
+from admin_master_password import assert_admin_master_password_matches
 from audit_service import registrar_log_global
 from database import get_db_connection
 from user_context import resolve_actor_user
@@ -1768,7 +1769,11 @@ def bitacora_tarea(id_tarea: int):
 def limpiar_historial(
     authorization: Optional[str] = Header(None),
     x_usuario: Optional[str] = Header(None, alias="X-Usuario"),
+    x_admin_master_password: Optional[str] = Header(
+        None, alias="X-Admin-Master-Password"
+    ),
 ):
+    assert_admin_master_password_matches(x_admin_master_password)
     usr = resolve_actor_user(authorization, x_usuario)
     conn = get_db_connection()
     cur = conn.cursor()

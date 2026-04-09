@@ -22,6 +22,7 @@ from fastapi import APIRouter, BackgroundTasks, File, Form, Header, HTTPExceptio
 from fastapi.responses import StreamingResponse
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
+from admin_master_password import assert_admin_master_password_matches
 from database import get_db_connection, _int_from_count_row
 from models import *
 from bom_audit_log import registrar_log
@@ -383,8 +384,7 @@ async def eliminar_archivo_vin(id_vin: int, nombre_archivo: str, x_usuario: Opti
 
 @router.delete("/api/vins/{serie}")
 def delete_vin(serie: str, payload: DeleteVinPayload, x_usuario: Optional[str] = Header(None)):
-    if payload.password != "ADMIN_ING_2024":
-        raise HTTPException(status_code=401, detail="Contraseña incorrecta")
+    assert_admin_master_password_matches(payload.password)
 
     # === TAREA 2: Rastreo de usuario real ===
     usuario_real = x_usuario if x_usuario else "SISTEMA_VIN"

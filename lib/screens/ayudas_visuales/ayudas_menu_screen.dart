@@ -569,6 +569,7 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
               right: 20,
               bottom: 20,
               child: material.FloatingActionButton.extended(
+                heroTag: 'ayudas_menu_nueva_categoria',
                 onPressed: _dialogoNuevaCategoria,
                 shape: material.RoundedRectangleBorder(
                   borderRadius: material.BorderRadius.circular(24.0),

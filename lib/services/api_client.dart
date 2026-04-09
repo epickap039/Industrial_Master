@@ -46,6 +46,9 @@ class ApiException implements Exception {
 class ApiClient {
   ApiClient._();
 
+  /// Cabecera con la contraseña maestra; el servidor la valida (ver `ADMIN_MASTER_PASSWORD`).
+  static const String adminMasterPasswordHeader = 'X-Admin-Master-Password';
+
   static String get _base {
     final u = kApiBaseUrl;
     return u.endsWith('/') ? u.substring(0, u.length - 1) : u;

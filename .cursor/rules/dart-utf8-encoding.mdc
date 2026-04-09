@@ -1,0 +1,11 @@
+---
+description: Guardar siempre Dart como UTF-8 (evitar GB001B595 / U+0000 por UTF-16)
+globs: **/*.dart
+alwaysApply: false
+---
+
+# Codificación de archivos Dart
+
+- Todos los `.dart` del repo deben estar en **UTF-8 sin BOM**. Dart no acepta UTF-16; si el editor guarda en UTF-16, aparecen errores del compilador tipo **GB001B595** (*control character U+0000*) o parsers rotos (*'a' isn't a type*, *Type 'B' not found* en firmas como `List<Map<String, dynamic>>`).
+- Al editar o crear `.dart`, no cambiar la codificación del archivo a Unicode/UTF-16.
+- Si el usuario reporta esos errores, comprobar codificación y reconvertir a UTF-8.

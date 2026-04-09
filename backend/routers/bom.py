@@ -22,6 +22,7 @@ from fastapi import APIRouter, BackgroundTasks, File, Form, Header, HTTPExceptio
 from fastapi.responses import StreamingResponse
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
+from admin_master_password import assert_admin_master_password_matches
 from database import get_db_connection, _int_from_count_row
 from models import *
 from bom_audit_log import registrar_log
@@ -617,8 +618,6 @@ def _purge_tipo_physical(cursor, id_tipo: int) -> int:
 
 
 # ── NUEVO v60.1: Borrado de Revisión (con protección para Aprobadas) ──────────
-ADMIN_PASSWORD_INGENIERIA = "ADMIN_ING_2024"
-
 @router.delete("/api/bom/revisiones/{id_revision}")
 def eliminar_revision(
     id_revision: int,
@@ -650,8 +649,7 @@ def eliminar_revision(
         #    - Aprobada/OBSOLETO   : solo con contraseña correcta.
         ESTADOS_EDITABLES = {"Borrador", "PENDIENTE"}
         if estado not in ESTADOS_EDITABLES:
-            if payload.password != "ADMIN_ING_2024":
-                raise HTTPException(status_code=401, detail="Clave incorrecta. Operación denegada.")
+            assert_admin_master_password_matches(payload.password)
 
         # 3. Registrar en auditoría ANTES de borrar (sobrevive al borrado en cascada)
         usuario_log = _usuario_ingenieria(x_usuario)

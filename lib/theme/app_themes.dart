@@ -2,7 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/material.dart' as material;
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Paletas profesionales: Corporate Light, Industrial Dark, Alto contraste, Cyberpunk.
+/// Paletas profesionales: Corporate Light, Industrial Dark, Ops Neon, Cyberpunk.
 enum AppThemeMode { corporateLight, industrialDark, highContrast, cyberpunk }
 
 final appTheme = ThemeProvider();
@@ -95,73 +95,121 @@ class AppThemes {
     'lightest': const Color(0xFFFFCC80),
   });
 
-  static final AccentColor _highContrastYellow = AccentColor.swatch({
-    'darkest': const Color(0xFFF9A825),
-    'darker': const Color(0xFFFBC02D),
-    'dark': const Color(0xFFFFD600),
-    'normal': const Color(0xFFFFEB3B),
-    'light': const Color(0xFFFFF176),
-    'lighter': const Color(0xFFFFF59D),
-    'lightest': const Color(0xFFFFF9C4),
+  static final AccentColor _opsNeon = AccentColor.swatch({
+    'darkest': const Color(0xFF006064),
+    'darker': const Color(0xFF007A86),
+    'dark': const Color(0xFF00A3B5),
+    'normal': const Color(0xFF00C7D8),
+    'light': const Color(0xFF3DD9E5),
+    'lighter': const Color(0xFF74E5EE),
+    'lightest': const Color(0xFFB6F3F6),
   });
 
-  /// CORPORATE LIGHT — fondo gris muy claro, acento azul oscuro, tipografía oscura (sin negro puro).
+  /// CORPORATE LIGHT - clean neutral dashboard.
   static final FluentThemeData corporateLightTheme = FluentThemeData(
     brightness: Brightness.light,
     accentColor: _corporateBlue,
-    scaffoldBackgroundColor: const Color(0xFFF3F3F3),
-    cardColor: const Color(0xFFFAFAFA),
-    micaBackgroundColor: const Color(0xFFE8E8E8),
+    scaffoldBackgroundColor: const Color(0xFFF4F6FB),
+    cardColor: const Color(0xFFFFFFFF),
+    micaBackgroundColor: const Color(0xFFE9EEF8),
     typography: const Typography.raw(
-      body: TextStyle(color: Color(0xFF242424)),
+      body: TextStyle(color: Color(0xFF202838)),
       bodyStrong: TextStyle(
-        color: Color(0xFF1A1A1A),
+        color: Color(0xFF111827),
         fontWeight: FontWeight.w600,
       ),
-      bodyLarge: TextStyle(color: Color(0xFF1A1A1A)),
-      title: TextStyle(color: Color(0xFF383838), fontWeight: FontWeight.w600),
-      subtitle: TextStyle(color: Color(0xFF37474F)),
-      caption: TextStyle(color: Color(0xFF546E7A)),
+      bodyLarge: TextStyle(color: Color(0xFF111827)),
+      title: TextStyle(color: Color(0xFF1F2937), fontWeight: FontWeight.w700),
+      subtitle: TextStyle(color: Color(0xFF334155)),
+      caption: TextStyle(color: Color(0xFF64748B)),
+    ),
+    iconTheme: const IconThemeData(color: Color(0xFF0F172A), size: 18.0),
+    buttonTheme: ButtonThemeData(
+      defaultButtonStyle: ButtonStyle(
+        foregroundColor: WidgetStateProperty.resolveWith((states) {
+          if (states.isDisabled) return const Color(0xFF94A3B8);
+          return const Color(0xFF0F172A);
+        }),
+        shape: WidgetStateProperty.all(
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      ),
+      filledButtonStyle: ButtonStyle(
+        foregroundColor: WidgetStateProperty.resolveWith((states) {
+          if (states.isDisabled) return const Color(0xFFCBD5E1);
+          return const Color(0xFFFFFFFF);
+        }),
+        shape: WidgetStateProperty.all(
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      ),
     ),
   );
 
-  /// INDUSTRIAL DARK — carbón, acento naranja, tipografía gris clara.
+  /// INDUSTRIAL DARK - robust operations theme with warm accents.
   static final FluentThemeData industrialDarkTheme = FluentThemeData(
     brightness: Brightness.dark,
     accentColor: _industrialOrange,
-    scaffoldBackgroundColor: const Color(0xFF1E1E1E),
-    cardColor: const Color(0xFF2A2A2A),
-    micaBackgroundColor: const Color(0xFF252525),
+    scaffoldBackgroundColor: const Color(0xFF171A20),
+    cardColor: const Color(0xFF212630),
+    micaBackgroundColor: const Color(0xFF1C212B),
     typography: const Typography.raw(
-      body: TextStyle(color: Color(0xFFE8E8E8)),
+      body: TextStyle(color: Color(0xFFE4E8EF)),
       bodyStrong: TextStyle(
-        color: Color(0xFFF5F5F5),
+        color: Color(0xFFF8FAFC),
         fontWeight: FontWeight.bold,
       ),
-      bodyLarge: TextStyle(color: Color(0xFFF0F0F0)),
-      title: TextStyle(color: Color(0xFFE8E8E8), fontWeight: FontWeight.w600),
-      subtitle: TextStyle(color: Color(0xFFCCCCCC)),
-      caption: TextStyle(color: Color(0xFFB0B0B0)),
+      bodyLarge: TextStyle(color: Color(0xFFF1F5F9)),
+      title: TextStyle(color: Color(0xFFF1F5F9), fontWeight: FontWeight.w700),
+      subtitle: TextStyle(color: Color(0xFFCBD5E1)),
+      caption: TextStyle(color: Color(0xFF94A3B8)),
+    ),
+    buttonTheme: ButtonThemeData(
+      defaultButtonStyle: ButtonStyle(
+        shape: WidgetStateProperty.all(
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      ),
+      filledButtonStyle: ButtonStyle(
+        shape: WidgetStateProperty.all(
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      ),
     ),
   );
 
-  /// HIGH CONTRAST (shop floor) — negro puro, acento amarillo, textos claros.
+  /// OPS NEON DASHBOARD (replaces old high contrast mode).
+  /// Dark gradient-like base + cyan/purple accents inspired by SaaS dashboards.
   static final FluentThemeData highContrastTheme = FluentThemeData(
     brightness: Brightness.dark,
-    accentColor: _highContrastYellow,
-    scaffoldBackgroundColor: const Color(0xFF000000),
-    cardColor: const Color(0xFF121212),
-    micaBackgroundColor: const Color(0xFF0A0A0A),
+    accentColor: _opsNeon,
+    scaffoldBackgroundColor: const Color(0xFF131826),
+    cardColor: const Color(0xFF1A2233),
+    micaBackgroundColor: const Color(0xFF161E2F),
     typography: const Typography.raw(
-      body: TextStyle(color: Color(0xFFFFFFFF)),
+      body: TextStyle(color: Color(0xFFD9E2F2)),
       bodyStrong: TextStyle(
-        color: Color(0xFFFFFFFF),
+        color: Color(0xFFF8FAFC),
         fontWeight: FontWeight.bold,
       ),
-      bodyLarge: TextStyle(color: Color(0xFFFFFFFF)),
-      title: TextStyle(color: Color(0xFFFFFFFF), fontWeight: FontWeight.w600),
-      subtitle: TextStyle(color: Color(0xFFFFFFFF)),
-      caption: TextStyle(color: Color(0xFFE0E0E0)),
+      bodyLarge: TextStyle(color: Color(0xFFE2E8F0)),
+      title: TextStyle(color: Color(0xFFF8FAFC), fontWeight: FontWeight.w700),
+      subtitle: TextStyle(color: Color(0xFFC7D2E4)),
+      caption: TextStyle(color: Color(0xFF94A3B8)),
+    ),
+    buttonTheme: ButtonThemeData(
+      defaultButtonStyle: ButtonStyle(
+        shape: WidgetStateProperty.all(
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      ),
+      filledButtonStyle: ButtonStyle(
+        backgroundColor: WidgetStateProperty.all(const Color(0xFF00C7D8)),
+        foregroundColor: WidgetStateProperty.all(const Color(0xFF04111A)),
+        shape: WidgetStateProperty.all(
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      ),
     ),
   );
 
@@ -303,7 +351,7 @@ extension AppThemeModeLabel on AppThemeMode {
       case AppThemeMode.industrialDark:
         return 'Industrial Dark';
       case AppThemeMode.highContrast:
-        return 'Alto contraste';
+        return 'Ops Neon';
       case AppThemeMode.cyberpunk:
         return 'Cyberpunk';
     }

@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart'; // === TAREA 2 ===
 import 'dart:io';
 
 import '../services/api_client.dart';
+import '../theme/ui_tokens.dart';
 import '../widgets/compact_page_header.dart';
 
 class VINDossierScreen extends StatefulWidget {
@@ -334,11 +335,11 @@ class _VINDossierScreenState extends State<VINDossierScreen>
                   height: 400,
                   child:
                       log.isEmpty
-                          ? const Center(
+                          ? Center(
                             child: Text(
                               "Sin historial de eventos.",
                               textAlign: TextAlign.center,
-                              style: TextStyle(color: Colors.grey),
+                              style: fluentSecondaryTextStyle(context),
                             ),
                           )
                           : ListView.builder(

@@ -5,3 +5,20 @@ pandas>=2.0.0
 python-multipart>=0.0.6
 openpyxl>=3.1.2
 PyJWT>=2.8.0
+
+# ============================================================================
+# VOICE-TO-JSON CONVERTER (v15.5)
+# ============================================================================
+
+# Transcripción de audio con Whisper (GPU/CUDA optimizado)
+# Instalación recomendada: pip install faster-whisper
+# Para GPU (CUDA): pip install faster-whisper torch torchaudio
+faster-whisper>=0.10.0
+
+# Soporte para procesamiento de audio
+librosa>=0.10.0  # Análisis de audio (opcional)
+soundfile>=0.12.0  # I/O de archivos de audio (opcional)
+
+# GPU/CUDA (descomenta si tienes nvidia-smi):
+# torch>=2.0.0  # PyTorch con soporte CUDA
+# torchaudio>=2.0.0  # Audio para PyTorch

@@ -12,6 +12,7 @@ import '../services/api_client.dart';
 import '../services/main_nav.dart';
 import '../services/nav_pane.dart';
 import '../theme/app_themes.dart';
+import '../theme/ui_tokens.dart';
 import '../widgets/compact_page_header.dart';
 
 part '../controllers/bom_manager_controller.dart';
@@ -1272,7 +1273,10 @@ class _BOMManagerScreenState extends State<BOMManagerScreen>
   // === v60.0: HORIZONTAL STEPPER DE REVISIONES ===
   Widget _buildRevisionStepper() {
     if (_revisiones.isEmpty) {
-      return const Text("Sin revisiones", style: TextStyle(color: Colors.grey));
+      return Text(
+        "Sin revisiones",
+        style: fluentSecondaryTextStyle(context),
+      );
     }
     // Snapshot inmutable: evita RangeError si _revisiones cambia mid-frame
     final List<dynamic> snap = List<dynamic>.from(_revisiones);
@@ -2148,7 +2152,7 @@ class _DiffAuditorDialogState extends State<_DiffAuditorDialog> {
                     const SizedBox(height: 6),
                     Text(
                       'La revisión ${widget.revNum} es idéntica a la anterior.',
-                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      style: fluentSecondaryTextStyle(context, fontSize: 12),
                     ),
                   ],
                 ),

@@ -10,6 +10,7 @@ import '../services/api_client.dart';
 import '../services/app_role.dart';
 import '../services/nav_pane.dart';
 import '../theme/page_title_style.dart';
+import '../theme/ui_tokens.dart';
 import 'ayudas_visuales/ayudas_api_models.dart';
 
 String _roleLabel(AppRole r) {
@@ -73,7 +74,6 @@ class _LobbyScreenState extends State<LobbyScreen> {
   int _misionesCentroPendientes = 0;
   bool _loadingOps = true;
   String? _opsError;
-  int _ayudasHidraulica = 0;
   Map<String, dynamic>? _ultimaAyudaVisual;
 
   /// Lobby operativo (Calidad / Métodos / Producción): piezas recientes + ayudas por categoría.
@@ -249,7 +249,6 @@ class _LobbyScreenState extends State<LobbyScreen> {
     try {
       final catsRaw = await ApiClient.get('/api/ayudas/categorias');
       final cats = catsRaw is List ? catsRaw : <dynamic>[];
-      var hidraulica = 0;
       Map<String, dynamic>? latest;
       DateTime? latestDate;
 
@@ -262,9 +261,6 @@ class _LobbyScreenState extends State<LobbyScreen> {
           '${cm['id_categoria'] ?? cm['Id_Categoria'] ?? ''}',
         );
         if (id == null || id <= 0) continue;
-        final nombreCat =
-            '${cm['nombre_categoria'] ?? cm['Nombre_Categoria'] ?? ''}'
-                .toLowerCase();
         final data = await ApiClient.get('/api/ayudas/lista/$id');
         final list = data is List ? data : <dynamic>[];
         for (final row in list) {
@@ -272,13 +268,6 @@ class _LobbyScreenState extends State<LobbyScreen> {
           final m = Map<String, dynamic>.from(
             row.map((k, v) => MapEntry('$k', v)),
           );
-          final t = ayudasTituloDocumento(m).toLowerCase();
-          final s = ayudasSubcategoriaProceso(m).toLowerCase();
-          if (nombreCat.contains('hidraul') ||
-              t.contains('hidraul') ||
-              s.contains('hidraul')) {
-            hidraulica++;
-          }
           final d = _safeAyudaDate(m);
           if (d != null && (latestDate == null || d.isAfter(latestDate))) {
             latestDate = d;
@@ -288,7 +277,6 @@ class _LobbyScreenState extends State<LobbyScreen> {
       }
       if (mounted) {
         setState(() {
-          _ayudasHidraulica = hidraulica;
           _ultimaAyudaVisual = latest;
         });
       }
@@ -390,13 +378,17 @@ class _LobbyScreenState extends State<LobbyScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
+    final dark = theme.brightness == Brightness.dark;
     final loading = _cargandoLobby;
     final rolLabel = _roleLabel(parseAppRole(_userRole));
 
     return ScaffoldPage(
       padding: const EdgeInsets.only(top: 8),
       header: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+        padding: const EdgeInsets.symmetric(
+          horizontal: UiTokens.pageHPadding,
+          vertical: 10,
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -421,8 +413,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
             const SizedBox(height: 8),
             Text(
               _lobbyOperativoAyudas
-                  ? 'Resumen operativo: piezas recientes en catálogo y ayudas visuales por categoría'
-                  : 'Flujo de trabajo: Ingeniería → Gestión → Control → Administración',
+                  ? 'Piezas recientes y ayudas por categoría'
+                  : 'Atajos, documentación y estado del sistema',
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
@@ -432,203 +424,218 @@ class _LobbyScreenState extends State<LobbyScreen> {
           ],
         ),
       ),
-      content: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (!_lobbyOperativoAyudas && kpiError != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: InfoBar(
-                  title: const Text('Backend no disponible (KPI)'),
-                  content: Text(kpiError!),
-                  severity: InfoBarSeverity.warning,
-                  onClose: () => setState(() => kpiError = null),
-                ),
-              ),
-            if (_lobbyOperativoAyudas && _lobbyOperativoError != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: InfoBar(
-                  title: const Text('Lobby operativo'),
-                  content: Text(_lobbyOperativoError!),
-                  severity: InfoBarSeverity.warning,
-                  onClose: () => setState(() => _lobbyOperativoError = null),
-                ),
-              ),
-            if (!_lobbyOperativoAyudas && _opsError != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: InfoBar(
-                  title: const Text('Métricas operativas'),
-                  content: Text(_opsError!),
-                  severity: InfoBarSeverity.info,
-                  onClose: () => setState(() => _opsError = null),
-                ),
-              ),
-            if (loading)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 48),
-                child: Center(
-                  child: Column(
-                    children: [
-                      ProgressRing(),
-                      SizedBox(height: 16),
-                      Text('Cargando indicadores…'),
-                    ],
+      content: Container(
+        decoration:
+            dark
+                ? const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFF11192A), Color(0xFF1A1F34), Color(0xFF171D2B)],
+                    stops: [0.0, 0.55, 1.0],
+                  ),
+                )
+                : null,
+        child: SingleChildScrollView(
+          padding: pagePadding(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildQuickActions(theme),
+              const SizedBox(height: UiTokens.sectionGap),
+              if (!_lobbyOperativoAyudas && kpiError != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: InfoBar(
+                    title: const Text('Backend no disponible (KPI)'),
+                    content: Text(kpiError!),
+                    severity: InfoBarSeverity.warning,
+                    onClose: () => setState(() => kpiError = null),
                   ),
                 ),
-              )
-            else if (_lobbyOperativoAyudas)
-              _buildLobbyOperativoAyudasCatalogo(theme)
-            else
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _ayudasSpotlightCard(theme),
-                  const SizedBox(height: 16),
-                  LayoutBuilder(
-                    builder: (context, c) {
-                      final wide = c.maxWidth > 900;
-                      final gap = 16.0;
-                      final cards = [
-                        _areaCard(
-                          theme: theme,
-                          title: 'Ingeniería · Estandarización',
-                          accent: const Color(0xFF1565C0),
-                          headline: '${saludCad.toStringAsFixed(1)} %',
-                          headlineLabel: 'Salud CAD (plano vinculado)',
-                          footerLine:
-                              '${totalLineasBom.toString()} líneas en listas BOM',
-                          chips: [
-                            _chip(
-                              FluentIcons.cube_shape,
-                              'Escáner CAD',
-                              () => widget.onNavigatePane(NavPaneId.escanerCad),
-                            ),
-                            _chip(
-                              FluentIcons.database,
-                              'Catálogo',
-                              () => widget.onNavigatePane(
-                                NavPaneId.catalogoMaestro,
+              if (_lobbyOperativoAyudas && _lobbyOperativoError != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: InfoBar(
+                    title: const Text('Lobby operativo'),
+                    content: Text(_lobbyOperativoError!),
+                    severity: InfoBarSeverity.warning,
+                    onClose: () => setState(() => _lobbyOperativoError = null),
+                  ),
+                ),
+              if (!_lobbyOperativoAyudas && _opsError != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: InfoBar(
+                    title: const Text('Métricas operativas'),
+                    content: Text(_opsError!),
+                    severity: InfoBarSeverity.info,
+                    onClose: () => setState(() => _opsError = null),
+                  ),
+                ),
+              if (loading)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 48),
+                  child: Center(
+                    child: Column(
+                      children: [
+                        ProgressRing(),
+                        SizedBox(height: 16),
+                        Text('Cargando indicadores…'),
+                      ],
+                    ),
+                  ),
+                )
+              else if (_lobbyOperativoAyudas)
+                _buildLobbyOperativoAyudasCatalogo(theme)
+              else
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _ayudasSpotlightCard(theme),
+                    const SizedBox(height: 16),
+                    LayoutBuilder(
+                      builder: (context, c) {
+                        final wide = c.maxWidth > 900;
+                        final gap = 16.0;
+                        final cards = [
+                          _areaCard(
+                            theme: theme,
+                            title: 'Ingeniería · Estandarización',
+                            accent: const Color(0xFF1565C0),
+                            headline: '${saludCad.toStringAsFixed(1)} %',
+                            headlineLabel: 'Salud CAD (plano vinculado)',
+                            footerLine:
+                                '${totalLineasBom.toString()} líneas en listas BOM',
+                            chips: [
+                              _chip(
+                                FluentIcons.cube_shape,
+                                'Escáner CAD',
+                                () => widget.onNavigatePane(NavPaneId.escanerCad),
                               ),
-                            ),
-                          ],
-                        ),
-                        _areaCard(
-                          theme: theme,
-                          title: 'Gestión · Trazabilidad',
-                          accent: const Color(0xFF00695C),
-                          headline: '$_tractosActivos',
-                          headlineLabel: 'Proyectos (tractos) activos',
-                          footerLine:
-                              '$totalVersiones versiones de ingeniería registradas',
-                          chips: [
-                            _chip(
-                              FluentIcons.fabric_folder,
-                              'Proyectos',
-                              () => widget.onNavigatePane(
-                                NavPaneId.gestionProyectos,
+                              _chip(
+                                FluentIcons.database,
+                                'Catálogo',
+                                () => widget.onNavigatePane(
+                                  NavPaneId.catalogoMaestro,
+                                ),
                               ),
-                            ),
-                            _chip(
-                              FluentIcons.car,
-                              'Expedientes VIN',
-                              () => widget.onNavigatePane(
-                                NavPaneId.expedientesVin,
+                            ],
+                          ),
+                          _areaCard(
+                            theme: theme,
+                            title: 'Gestión · Trazabilidad',
+                            accent: const Color(0xFF00695C),
+                            headline: '$_tractosActivos',
+                            headlineLabel: 'Proyectos (tractos) activos',
+                            footerLine:
+                                '$totalVersiones versiones de ingeniería registradas',
+                            chips: [
+                              _chip(
+                                FluentIcons.fabric_folder,
+                                'Proyectos',
+                                () => widget.onNavigatePane(
+                                  NavPaneId.gestionProyectos,
+                                ),
                               ),
-                            ),
-                          ],
-                        ),
-                        _areaCard(
-                          theme: theme,
-                          title: 'Control · Estadísticas',
-                          accent: const Color(0xFF6A1B9A),
-                          headline: totalLineasBom.toString(),
-                          headlineLabel: 'Piezas / líneas en BOM (volumen)',
-                          footerLine:
-                              'Salud global ${saludCad.toStringAsFixed(1)} %',
-                          chips: [
-                            _chip(
-                              FluentIcons.pie_single,
-                              'Dashboard Analytics',
-                              () => widget.onNavigatePane(
-                                NavPaneId.dashboardAnalytics,
+                              _chip(
+                                FluentIcons.car,
+                                'Expedientes VIN',
+                                () => widget.onNavigatePane(
+                                  NavPaneId.expedientesVin,
+                                ),
                               ),
-                            ),
-                            _chip(
-                              FluentIcons.tablet,
-                              'Centro de QA',
-                              () => widget.onNavigatePane(NavPaneId.centroQa),
-                            ),
-                          ],
-                        ),
-                        _areaCard(
-                          theme: theme,
-                          title: 'Operaciones · Monitoreo',
-                          accent: const Color(0xFFE65100),
-                          headline: '$_misionesCentroPendientes',
-                          headlineLabel: 'Misiones Radar/Manual pendientes',
-                          footerLine:
-                              '$_reportesQaAbiertos reportes de bug / QA abiertos',
-                          chips: [
-                            _chip(
-                              FluentIcons.build_issue,
-                              'Radar de Impacto',
-                              () =>
-                                  widget.onNavigatePane(NavPaneId.radarImpacto),
-                            ),
-                            _chip(
-                              FluentIcons.activity_feed,
-                              'Centro de Monitoreo',
-                              () => widget.onNavigatePane(
-                                NavPaneId.centroMonitoreo,
+                            ],
+                          ),
+                          _areaCard(
+                            theme: theme,
+                            title: 'Control · Estadísticas',
+                            accent: const Color(0xFF6A1B9A),
+                            headline: totalLineasBom.toString(),
+                            headlineLabel: 'Piezas / líneas en BOM (volumen)',
+                            footerLine:
+                                'Salud global ${saludCad.toStringAsFixed(1)} %',
+                            chips: [
+                              _chip(
+                                FluentIcons.pie_single,
+                                'Dashboard Analytics',
+                                () => widget.onNavigatePane(
+                                  NavPaneId.dashboardAnalytics,
+                                ),
                               ),
-                            ),
-                          ],
-                          badge:
-                              _misionesCentroPendientes > 0
-                                  ? _misionesCentroPendientes
-                                  : null,
-                        ),
-                      ];
-                      if (wide) {
+                              _chip(
+                                FluentIcons.tablet,
+                                'Centro de QA',
+                                () => widget.onNavigatePane(NavPaneId.centroQa),
+                              ),
+                            ],
+                          ),
+                          _areaCard(
+                            theme: theme,
+                            title: 'Operaciones · Monitoreo',
+                            accent: const Color(0xFFE65100),
+                            headline: '$_misionesCentroPendientes',
+                            headlineLabel: 'Misiones Radar/Manual pendientes',
+                            footerLine:
+                                '$_reportesQaAbiertos reportes de bug / QA abiertos',
+                            chips: [
+                              _chip(
+                                FluentIcons.build_issue,
+                                'Radar de Impacto',
+                                () =>
+                                    widget.onNavigatePane(NavPaneId.radarImpacto),
+                              ),
+                              _chip(
+                                FluentIcons.activity_feed,
+                                'Centro de Monitoreo',
+                                () => widget.onNavigatePane(
+                                  NavPaneId.centroMonitoreo,
+                                ),
+                              ),
+                            ],
+                            badge:
+                                _misionesCentroPendientes > 0
+                                    ? _misionesCentroPendientes
+                                    : null,
+                          ),
+                        ];
+                        if (wide) {
+                          return Column(
+                            children: [
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(child: cards[0]),
+                                  SizedBox(width: gap),
+                                  Expanded(child: cards[1]),
+                                ],
+                              ),
+                              SizedBox(height: gap),
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(child: cards[2]),
+                                  SizedBox(width: gap),
+                                  Expanded(child: cards[3]),
+                                ],
+                              ),
+                            ],
+                          );
+                        }
                         return Column(
                           children: [
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(child: cards[0]),
-                                SizedBox(width: gap),
-                                Expanded(child: cards[1]),
-                              ],
-                            ),
-                            SizedBox(height: gap),
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(child: cards[2]),
-                                SizedBox(width: gap),
-                                Expanded(child: cards[3]),
-                              ],
-                            ),
+                            for (var i = 0; i < cards.length; i++) ...[
+                              if (i > 0) SizedBox(height: gap),
+                              cards[i],
+                            ],
                           ],
                         );
-                      }
-                      return Column(
-                        children: [
-                          for (var i = 0; i < cards.length; i++) ...[
-                            if (i > 0) SizedBox(height: gap),
-                            cards[i],
-                          ],
-                        ],
-                      );
-                    },
-                  ),
-                ],
-              ),
-          ],
+                      },
+                    ),
+                  ],
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -699,19 +706,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
                 .trim();
     final nCat = _ayudasPorCategoria.length;
     return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: theme.cardColor,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: theme.resources.controlStrokeColorDefault),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
+      padding: const EdgeInsets.all(UiTokens.cardPadding + 2),
+      decoration: elevatedCardDecoration(theme),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -814,19 +810,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
   Widget _cardUltimasPiezasCatalogo(FluentThemeData theme) {
     return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: theme.cardColor,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: theme.resources.controlStrokeColorDefault),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
+      padding: const EdgeInsets.all(UiTokens.cardPadding + 2),
+      decoration: elevatedCardDecoration(theme),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -953,19 +938,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
     final pieTotal = nonZero.fold<int>(0, (a, b) => a + b.count);
 
     return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: theme.cardColor,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: theme.resources.controlStrokeColorDefault),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
+      padding: const EdgeInsets.all(UiTokens.cardPadding + 2),
+      decoration: elevatedCardDecoration(theme),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1275,10 +1249,11 @@ class _LobbyScreenState extends State<LobbyScreen> {
   }
 
   Widget _ayudasSpotlightCard(FluentThemeData theme) {
+    final dark = theme.brightness == Brightness.dark;
     final latest = _ultimaAyudaVisual;
     final latestTitle =
         latest == null
-            ? 'Sin ayudas visuales recientes'
+            ? 'Sin documentos recientes'
             : ayudasTituloDocumento(latest);
     final latestDate = latest == null ? null : _safeAyudaDate(latest);
     final latestUser =
@@ -1286,45 +1261,61 @@ class _LobbyScreenState extends State<LobbyScreen> {
             ? ''
             : '${latest['Usuario_Subida'] ?? latest['usuario_subida'] ?? ''}'
                 .trim();
+    final pdfTint =
+        dark ? theme.accentColor.withValues(alpha: 0.9) : const Color(0xFF1565C0);
     return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: theme.cardColor,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: theme.resources.controlStrokeColorDefault),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
+      padding: const EdgeInsets.all(UiTokens.cardPadding + 2),
+      decoration: elevatedCardDecoration(theme),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Ayudas visuales · Lobby',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-              color: const Color(0xFF0D6EFD),
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Documentación reciente',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: theme.typography.body?.color,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Última ayuda visual en el sistema y acceso a la biblioteca.',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        height: 1.25,
+                        color: theme.typography.caption?.color?.withValues(
+                          alpha: 0.88,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Button(
+                onPressed: () =>
+                    widget.onNavigatePane(NavPaneId.ayudasVisuales),
+                child: const Text('Ver ayudas'),
+              ),
+            ],
           ),
           const SizedBox(height: 10),
           Wrap(
-            spacing: 10,
-            runSpacing: 8,
+            spacing: 4,
+            runSpacing: 0,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              _chip(
-                FluentIcons.library,
-                '$_ayudasHidraulica ayudas de hidráulica',
-                () => widget.onNavigatePane(NavPaneId.ayudasVisuales),
-              ),
-              _chip(
-                FluentIcons.fabric_folder,
-                '$_tractosActivos proyectos activos',
-                () => widget.onNavigatePane(NavPaneId.gestionProyectos),
+              HyperlinkButton(
+                child: Text('Proyectos activos ($_tractosActivos)'),
+                onPressed: () =>
+                    widget.onNavigatePane(NavPaneId.gestionProyectos),
               ),
             ],
           ),
@@ -1332,17 +1323,19 @@ class _LobbyScreenState extends State<LobbyScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
-              color: theme.accentColor.withValues(alpha: 0.07),
+              color: theme.accentColor.withValues(alpha: dark ? 0.1 : 0.07),
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: theme.resources.controlStrokeColorDefault.withValues(
-                  alpha: 0.7,
-                ),
-              ),
+              border:
+                  dark
+                      ? null
+                      : Border.all(
+                        color: theme.resources.controlStrokeColorDefault
+                            .withValues(alpha: 0.55),
+                      ),
             ),
             child: Row(
               children: [
-                const Icon(FluentIcons.pdf, color: Color(0xFF1565C0), size: 18),
+                Icon(FluentIcons.pdf, color: pdfTint, size: 18),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
@@ -1373,12 +1366,147 @@ class _LobbyScreenState extends State<LobbyScreen> {
                 if (latest != null)
                   Button(
                     onPressed: _openLatestAyuda,
-                    child: const Text('Abrir'),
+                    child: const Text('Abrir PDF'),
                   ),
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildQuickActions(FluentThemeData theme) {
+    final cards = <Widget>[
+      _quickActionCard(
+        theme: theme,
+        icon: FluentIcons.database,
+        title: 'Catálogo Maestro',
+        subtitle: 'Consulta piezas y procesos',
+        detail: 'Búsqueda por código, revisiones y rutas.',
+        onTap: () => widget.onNavigatePane(NavPaneId.catalogoMaestro),
+      ),
+      _quickActionCard(
+        theme: theme,
+        icon: FluentIcons.page_list,
+        title: 'Ayudas visuales',
+        subtitle: 'Accede rápido a documentos',
+        detail: 'PDFs por categoría y subida reciente.',
+        onTap: () => widget.onNavigatePane(NavPaneId.ayudasVisuales),
+      ),
+      _quickActionCard(
+        theme: theme,
+        icon: FluentIcons.build_issue,
+        title: 'Radar de impacto',
+        subtitle: 'Evalúa impacto y asigna tareas',
+        detail: 'Cambios en BOM y misiones del centro.',
+        onTap: () => widget.onNavigatePane(NavPaneId.radarImpacto),
+      ),
+      _quickActionCard(
+        theme: theme,
+        icon: FluentIcons.fabric_folder,
+        title: 'Gestión de proyectos',
+        subtitle: 'Versiones y trazabilidad',
+        detail: 'Tractos, tipos, versiones y clientes.',
+        onTap: () => widget.onNavigatePane(NavPaneId.gestionProyectos),
+      ),
+    ];
+    return Container(
+      padding: const EdgeInsets.all(UiTokens.cardPadding - 2),
+      decoration: elevatedCardDecoration(theme),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Accesos rápidos',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+              color: theme.typography.body?.color,
+            ),
+          ),
+          const SizedBox(height: 8),
+          LayoutBuilder(
+            builder: (context, c) {
+              final wide = c.maxWidth > 920;
+              if (wide) {
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: cards[0]),
+                    const SizedBox(width: 12),
+                    Expanded(child: cards[1]),
+                    const SizedBox(width: 12),
+                    Expanded(child: cards[2]),
+                    const SizedBox(width: 12),
+                    Expanded(child: cards[3]),
+                  ],
+                );
+              }
+              return Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: cards,
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _quickActionCard({
+    required FluentThemeData theme,
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required String detail,
+    required VoidCallback onTap,
+  }) {
+    final cap = theme.typography.caption?.color?.withValues(alpha: 0.82);
+    return SizedBox(
+      width: 232,
+      child: Button(
+        style: roundedFilledButtonStyle(),
+        onPressed: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, size: 20),
+              const SizedBox(height: 8),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  height: 1.25,
+                  fontWeight: FontWeight.w600,
+                  color: theme.typography.body?.color?.withValues(alpha: 0.9),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                detail,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  height: 1.2,
+                  color: cap,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1411,19 +1539,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
     int? badge,
   }) {
     return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: theme.cardColor,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: theme.resources.controlStrokeColorDefault),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
+      padding: const EdgeInsets.all(UiTokens.cardPadding + 2),
+      decoration: elevatedCardDecoration(theme),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

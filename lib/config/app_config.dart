@@ -1,7 +1,10 @@
 /// ─────────────────────────────────────────────────────────────────────────
 /// CONFIGURACIÓN GLOBAL DE LA APLICACIÓN
 /// ─────────────────────────────────────────────────────────────────────────
-/// Para desplegar en otra PC de la red, cambia SOLO esta línea
-/// y recompila el ejecutable (.exe).
+/// Parametrizable con:
+/// flutter run/build --dart-define=API_BASE_URL=http://IP:8001
 /// ─────────────────────────────────────────────────────────────────────────
-const String kApiBaseUrl = "http://192.168.1.73:8001";
+const String kApiBaseUrl = String.fromEnvironment(
+  'API_BASE_URL',
+  defaultValue: 'http://192.168.1.73:8001',
+);

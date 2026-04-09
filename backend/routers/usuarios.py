@@ -7,6 +7,7 @@ from typing import Any, Dict, List
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
+from admin_master_password import assert_admin_master_password_matches
 from audit_service import registrar_log_global
 from auth_service import hash_password
 from database import get_db_connection
@@ -16,16 +17,36 @@ from user_context import resolve_actor_user
 router = APIRouter()
 
 
-def _require_admin(authorization: str | None) -> str:
-    """Devuelve el username del token si el rol es administrador."""
+_ROLES_GESTION_USUARIOS = frozenset(
+    {
+        "ADMINISTRADOR",
+        "ADMIN",
+        "DESARROLLADOR",
+        "DESARROLLO",
+        "DEVELOPER",
+    }
+)
+
+
+def _require_admin_o_desarrollador(authorization: str | None) -> str:
+    """Username del token si el rol puede gestionar usuarios (admin o desarrollador)."""
     data = decode_access_token_payload(authorization)
     if not data:
         raise HTTPException(status_code=401, detail="No autorizado")
-    rol = str(data.get("rol") or "").strip().upper()
-    if rol not in ("ADMINISTRADOR", "ADMIN"):
+    rol = (
+        str(data.get("rol") or "")
+        .strip()
+        .upper()
+        .replace("Á", "A")
+        .replace("É", "E")
+        .replace("Í", "I")
+        .replace("Ó", "O")
+        .replace("Ú", "U")
+    )
+    if rol not in _ROLES_GESTION_USUARIOS:
         raise HTTPException(
             status_code=403,
-            detail="Solo administradores pueden eliminar usuarios",
+            detail="Solo administradores o desarrolladores pueden realizar esta operación",
         )
     sub = str(data.get("sub") or "").strip()
     if not sub:
@@ -42,6 +63,36 @@ class CrearUsuarioPayload(BaseModel):
     username: str = Field(..., min_length=2, max_length=50)
     password: str = Field(..., min_length=4, max_length=200)
     rol: str = Field(default="USER", max_length=50)
+
+
+class ActualizarRolPayload(BaseModel):
+    rol: str = Field(..., min_length=1, max_length=50)
+
+
+_ROLES_VALIDOS = frozenset(
+    {
+        "ADMINISTRADOR",
+        "CALIDAD",
+        "PRODUCCION",
+        "INGENIERIA_METODOS",
+        "GESTION",
+        "COMPRAS",
+        "DIRECCION",
+        "USER",
+        "QA",
+    }
+)
+
+
+def _normalizar_rol_api(raw: str) -> str:
+    r = (raw or "").strip().upper().replace(" ", "_")
+    if r == "PRODUCCIÓN" or r == "PRODUCCION":
+        return "PRODUCCION"
+    if r == "GESTIÓN" or r == "GESTION":
+        return "GESTION"
+    if r == "DIRECCIÓN" or r == "DIRECCION":
+        return "DIRECCION"
+    return r
 
 
 def _fetch_usuarios_sin_hash(cur: Any, excluir_roles: bool = False) -> List[Dict[str, Any]]:
@@ -125,7 +176,9 @@ def crear_usuario(
             status_code=400,
             detail="Usuario: solo letras, números y . _ @ -",
         )
-    rol = (payload.rol or "USER").strip().upper() or "USER"
+    rol = _normalizar_rol_api(payload.rol or "USER") or "USER"
+    if rol not in _ROLES_VALIDOS:
+        raise HTTPException(status_code=400, detail=f"Rol no permitido: {rol}")
     ph = hash_password(payload.password)
     conn = get_db_connection()
     cur = conn.cursor()
@@ -166,13 +219,68 @@ def crear_usuario(
         conn.close()
 
 
+@router.put("/api/usuarios/{user_id}/rol")
+def actualizar_rol_usuario(
+    user_id: int,
+    payload: ActualizarRolPayload,
+    authorization: str | None = Header(None),
+    x_usuario: str | None = Header(None, alias="X-Usuario"),
+):
+    actor = _require_admin_o_desarrollador(authorization)
+    nuevo = _normalizar_rol_api(payload.rol)
+    if nuevo not in _ROLES_VALIDOS:
+        raise HTTPException(status_code=400, detail=f"Rol no permitido: {nuevo}")
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT username, rol FROM dbo.Tbl_Usuarios WHERE id = ?",
+            (user_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        target_user = str(row[0] or "").strip()
+        if target_user.lower() == actor.strip().lower():
+            raise HTTPException(
+                status_code=400,
+                detail="No puede cambiar el rol de su propia cuenta desde aquí",
+            )
+        cur.execute(
+            "UPDATE dbo.Tbl_Usuarios SET rol = ? WHERE id = ?",
+            (nuevo, user_id),
+        )
+        registrar_log_global(
+            cur,
+            "USUARIOS",
+            "ACTUALIZAR_ROL",
+            "",
+            f"id={user_id};username={target_user[:40]};rol={nuevo}",
+            resolve_actor_user(authorization, x_usuario),
+        )
+        conn.commit()
+        return {"ok": True, "id": user_id, "username": target_user, "rol": nuevo}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
 @router.delete("/api/usuarios/{user_id}")
 def eliminar_usuario(
     user_id: int,
     authorization: str | None = Header(None),
     x_usuario: str | None = Header(None, alias="X-Usuario"),
+    x_admin_master_password: str | None = Header(
+        None, alias="X-Admin-Master-Password"
+    ),
 ):
-    actor = _require_admin(authorization)
+    assert_admin_master_password_matches(x_admin_master_password)
+    actor = _require_admin_o_desarrollador(authorization)
     conn = get_db_connection()
     cur = conn.cursor()
     try:

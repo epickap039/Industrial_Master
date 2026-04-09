@@ -4,7 +4,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 import '../config/app_config.dart';
 import '../services/api_client.dart';
+import '../services/app_role.dart';
 import '../widgets/compact_page_header.dart';
+import 'configuracion_usuarios_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -192,6 +194,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = FluentTheme.of(context);
+    final role = parseAppRole(_userRole);
+    final canManageUsers =
+        role == AppRole.administrador || role == AppRole.desarrollador;
+    final secondaryTextStyle = TextStyle(
+      fontSize: 12,
+      height: 1.35,
+      color: theme.typography.caption?.color ??
+          theme.resources.textFillColorSecondary,
+    );
+    final labelStyle = theme.typography.body?.copyWith(
+          fontWeight: FontWeight.w600,
+        ) ??
+        TextStyle(
+          fontWeight: FontWeight.w600,
+          color: theme.resources.textFillColorPrimary,
+        );
+    final bodyStyle = theme.typography.body ??
+        TextStyle(color: theme.resources.textFillColorPrimary);
     return ScaffoldPage(
       padding: const EdgeInsets.only(top: 8),
       header: CompactPageHeader(
@@ -205,9 +226,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         children: [
           // 1. DIAGNÓSTICO DE RED
           Expander(
-            header: const Text(
+            header: Text(
               'Diagnóstico de Red',
-              style: TextStyle(fontWeight: FontWeight.bold),
+              style: theme.typography.subtitle?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ) ??
+                  const TextStyle(fontWeight: FontWeight.bold),
             ),
             initiallyExpanded: true,
             content: Column(
@@ -218,10 +242,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   runSpacing: 8,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    const Text(
-                      'Estado del Servidor:',
-                      style: TextStyle(fontWeight: FontWeight.w600),
-                    ),
+                    Text('Estado del Servidor:', style: labelStyle),
                     Container(
                       width: 10,
                       height: 10,
@@ -230,7 +251,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         shape: BoxShape.circle,
                       ),
                     ),
-                    Text(_connectionStatus),
+                    Text(_connectionStatus, style: bodyStyle),
                     Button(
                       // Acción modificada: usa la nueva lógica con feedback visual
                       onPressed:
@@ -247,7 +268,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 10),
                 Text(
                   'Prueba la conexión con el servidor ($kApiBaseUrl) y la base de datos SQL.',
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  style: secondaryTextStyle,
                 ),
               ],
             ),
@@ -257,22 +278,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
           // 2. MANTENIMIENTO
           if (_userRole != 'QA') ...[
             Expander(
-              header: const Text(
+              header: Text(
                 'Mantenimiento de Datos',
-                style: TextStyle(fontWeight: FontWeight.bold),
+                style: theme.typography.subtitle?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ) ??
+                    const TextStyle(fontWeight: FontWeight.bold),
               ),
               initiallyExpanded: true,
               content: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'Sincronización de Enlaces (Drive/PDF)',
-                    style: TextStyle(fontWeight: FontWeight.w600),
+                    style: labelStyle,
                   ),
                   const SizedBox(height: 5),
-                  const Text(
+                  Text(
                     'Carga un archivo Excel ("Listado_PDFs_BD.xlsx") para actualizar masivamente los enlaces de Google Drive en el Catálogo Maestro.',
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                    style: secondaryTextStyle,
                   ),
                   const SizedBox(height: 15),
                   _isSyncing
@@ -283,6 +307,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           'Actualizar Enlaces Drive (Desde Excel)',
                         ),
                       ),
+                ],
+              ),
+            ),
+          ],
+          if (canManageUsers) ...[
+            const SizedBox(height: 10),
+            Expander(
+              header: Text(
+                'Administración de usuarios',
+                style: theme.typography.subtitle?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ) ??
+                    const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              initiallyExpanded: false,
+              content: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Gestiona altas, bajas y roles de usuarios del sistema.',
+                    style: secondaryTextStyle,
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    child: const Text('Abrir panel de usuarios'),
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        FluentPageRoute(
+                          builder: (_) => const ConfiguracionUsuariosScreen(),
+                        ),
+                      );
+                    },
+                  ),
                 ],
               ),
             ),

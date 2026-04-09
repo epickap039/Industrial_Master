@@ -71,23 +71,23 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   }
 
   Future<void> _deleteTracto(int id) async {
-    final confirmed = await _showConfirmDialog(
+    final password = await _showConfirmDialog(
       '¿Eliminar Tracto/Proyecto?',
       'Selecciona un tracto para continuar.',
-      requiresPassword: true,
     );
-    if (!confirmed) return;
+    if (password == null) return;
 
     try {
       setState(() => _isLoading = true);
       final response = await ApiClient.deleteUnvalidated(
         '/api/proyectos/tractos/$id',
+        headers: {ApiClient.adminMasterPasswordHeader: password},
       );
       if (response.statusCode == 200) {
         _showSuccess('Tracto eliminado correctamente');
         _fetchTractos();
       } else {
-        _showError("Error: ${response.statusCode}");
+        _reportDeleteFailure(response);
       }
     } catch (e) {
       _showError("Error al eliminar: $e");
@@ -138,23 +138,23 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   }
 
   Future<void> _deleteTipo(int id) async {
-    final confirmed = await _showConfirmDialog(
+    final password = await _showConfirmDialog(
       '¿Eliminar Tipo de Proyecto?',
       'Esta acción es irreversible. Todos los datos asociados se perderán.',
-      requiresPassword: true,
     );
-    if (!confirmed) return;
+    if (password == null) return;
 
     try {
       setState(() => _isLoading = true);
       final response = await ApiClient.deleteUnvalidated(
         '/api/proyectos/tipos/$id',
+        headers: {ApiClient.adminMasterPasswordHeader: password},
       );
       if (response.statusCode == 200) {
         _showSuccess('Tipo eliminado correctamente');
         _fetchTipos(_selectedTracto['id']);
       } else {
-        _showError("Error: ${response.statusCode}");
+        _reportDeleteFailure(response);
       }
     } catch (e) {
       _showError("Error al eliminar: $e");
@@ -203,22 +203,23 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   }
 
   Future<void> _deleteVersion(int id) async {
-    final confirmed = await _showConfirmDialog(
+    final password = await _showConfirmDialog(
       '¿Eliminar Versión?',
       'Se eliminarán todos los clientes y BOMs asociados.',
     );
-    if (!confirmed) return;
+    if (password == null) return;
 
     try {
       setState(() => _isLoading = true);
       final response = await ApiClient.deleteUnvalidated(
         '/api/proyectos/versiones/$id',
+        headers: {ApiClient.adminMasterPasswordHeader: password},
       );
       if (response.statusCode == 200) {
         _showSuccess('Versión eliminada correctamente');
         _fetchVersiones(_selectedTipo['id']);
       } else {
-        _showError("Error: ${response.statusCode}");
+        _reportDeleteFailure(response);
       }
     } catch (e) {
       _showError("Error al eliminar: $e");
@@ -265,22 +266,23 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   }
 
   Future<void> _deleteCliente(int id) async {
-    final confirmed = await _showConfirmDialog(
+    final password = await _showConfirmDialog(
       '¿Eliminar Cliente?',
       'Se eliminarán los datos de configuración asociados.',
     );
-    if (!confirmed) return;
+    if (password == null) return;
 
     try {
       setState(() => _isLoading = true);
       final response = await ApiClient.deleteUnvalidated(
         '/api/proyectos/clientes/$id',
+        headers: {ApiClient.adminMasterPasswordHeader: password},
       );
       if (response.statusCode == 200) {
         _showSuccess('Cliente eliminado correctamente');
         _fetchClientes(_selectedVersion['id']);
       } else {
-        _showError("Error: ${response.statusCode}");
+        _reportDeleteFailure(response);
       }
     } catch (e) {
       _showError("Error al eliminar: $e");
@@ -317,14 +319,23 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
     );
   }
 
-  Future<bool> _showConfirmDialog(
-    String title,
-    String content, {
-    bool requiresPassword = false,
-  }) async {
-    String password = "";
+  void _reportDeleteFailure(ApiHttpResult response) {
+    if (response.statusCode == 401) {
+      final body = response.decodeJsonLenient();
+      if (body is Map && body['detail'] != null) {
+        _showError(body['detail'].toString());
+        return;
+      }
+      _showError('Contraseña maestra incorrecta');
+      return;
+    }
+    _showError('Error: ${response.statusCode}');
+  }
 
-    final result = await showDialog<bool>(
+  Future<String?> _showConfirmDialog(String title, String content) async {
+    String password = '';
+
+    final result = await showDialog<String?>(
       context: context,
       builder:
           (context) => ContentDialog(
@@ -346,90 +357,71 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(content, style: const TextStyle(fontSize: 13)),
-                  if (requiresPassword) ...[
-                    const SizedBox(height: 16),
-                    const Divider(),
-                    const SizedBox(height: 12),
-                    const Text(
-                      '🚨 ACCIÓN CRÍTICA - DATOS IRRECUPERABLES',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: Color.fromARGB(255, 244, 67, 54),
+                  const SizedBox(height: 16),
+                  const Divider(),
+                  const SizedBox(height: 12),
+                  const Text(
+                    '🚨 ACCIÓN CRÍTICA - DATOS IRRECUPERABLES',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: Color.fromARGB(255, 244, 67, 54),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Se eliminarán permanentemente:',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Color.fromARGB(26, 244, 67, 54),
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(
+                        color: Color.fromARGB(50, 244, 67, 54),
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Se eliminarán permanentemente:',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                      ),
+                    child: const Text(
+                      '• Versiones y clientes\n• BOMs y revisiones\n• TODOS los datos asociados',
+                      style: TextStyle(fontSize: 10),
                     ),
-                    const SizedBox(height: 6),
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Color.fromARGB(26, 244, 67, 54),
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(
-                          color: Color.fromARGB(50, 244, 67, 54),
-                        ),
-                      ),
-                      child: const Text(
-                        '• Versiones y clientes\n• BOMs y revisiones\n• TODOS los datos asociados',
-                        style: TextStyle(fontSize: 10),
-                      ),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Ingresa contraseña maestra para confirmar:',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
                     ),
-                    const SizedBox(height: 12),
-                    const Text(
-                      'Ingresa contraseña para confirmar:',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    TextBox(
-                      placeholder: 'Contraseña',
-                      obscureText: true,
-                      onChanged: (value) => password = value,
-                    ),
-                  ],
+                  ),
+                  const SizedBox(height: 6),
+                  TextBox(
+                    placeholder: 'Contraseña maestra',
+                    obscureText: true,
+                    onChanged: (value) => password = value,
+                  ),
                 ],
               ),
             ),
             actions: [
               Button(
                 child: const Text('Cancelar'),
-                onPressed: () => Navigator.pop(context, false),
+                onPressed: () => Navigator.pop(context, null),
               ),
               FilledButton(
-                child: Text(requiresPassword ? '🔓 Confirmar' : '✓ Eliminar'),
-                onPressed: () {
-                  if (requiresPassword) {
-                    if (password == 'ADMIN_ING_2024') {
-                      Navigator.pop(context, true);
-                    } else {
-                      Navigator.pop(context, false);
-                    }
-                  } else {
-                    Navigator.pop(context, true);
-                  }
-                },
+                child: const Text('Confirmar'),
+                onPressed: () => Navigator.pop(context, password),
               ),
             ],
           ),
     );
 
-    if (requiresPassword &&
-        result == false &&
-        password.isNotEmpty &&
-        password != 'ADMIN_ING_2024') {
-      _showError('Contraseña incorrecta');
-    }
-
-    return result ?? false;
+    return result;
   }
 
   void _showAddDialog(String title, Function(String) onSave) {

@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_client.dart';
 import '../services/audio_recording_service.dart';
 import '../services/notification_inbox_service.dart';
+import '../theme/ui_tokens.dart';
 import '../widgets/bitacora_calendario_panel.dart';
 import '../widgets/voice_task_confirmation_dialog.dart';
 import 'monitoreo/widgets/directive_mission_card.dart';
@@ -763,7 +764,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
     if (!_puedeControlarMisiones) return;
     final ctrl = TextEditingController();
     try {
-      final ok = await showDialog<bool>(
+      final masterPwd = await showDialog<String?>(
         context: context,
         builder: (ctx) {
           return ContentDialog(
@@ -779,42 +780,30 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
                 TextBox(
                   controller: ctrl,
                   obscureText: true,
-                  placeholder: 'Contraseña de confirmación',
+                  placeholder: 'Contraseña maestra',
                 ),
               ],
             ),
             actions: [
               Button(
                 child: const Text('Cancelar'),
-                onPressed: () => Navigator.pop(ctx, false),
+                onPressed: () => Navigator.pop(ctx),
               ),
               FilledButton(
                 child: const Text('Borrar Historial'),
-                onPressed: () {
-                  if (ctrl.text == 'ADMIN_ING_2024') {
-                    Navigator.pop(ctx, true);
-                  } else {
-                    displayInfoBar(
-                      ctx,
-                      builder:
-                          (c, close) => InfoBar(
-                            title: const Text('Acceso Denegado'),
-                            content: const Text('Contraseña incorrecta.'),
-                            severity: InfoBarSeverity.error,
-                            onClose: close,
-                          ),
-                    );
-                  }
-                },
+                onPressed: () => Navigator.pop(ctx, ctrl.text),
               ),
             ],
           );
         },
       );
 
-      if (ok == true && mounted) {
+      if (masterPwd != null && mounted) {
         try {
-          await ApiClient.delete('/api/tareas/limpiar_historial');
+          await ApiClient.delete(
+            '/api/tareas/limpiar_historial',
+            headers: {ApiClient.adminMasterPasswordHeader: masterPwd},
+          );
           if (mounted) {
             displayInfoBar(
               context,
@@ -1149,6 +1138,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
     return material.Scaffold(
       floatingActionButton: _puedeControlarMisiones
           ? material.FloatingActionButton(
+              heroTag: 'monitoreo_grabacion_voz',
               onPressed: _isProcessingAudio ? null : _toggleAudioRecording,
               backgroundColor: _isRecordingAudio
                   ? material.Colors.red.shade500
@@ -1167,19 +1157,34 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
           material.FloatingActionButtonLocation.startFloat,
       body: Column(
         children: [
-          material.TabBar(
-            controller: _tabController,
-            tabs: [
-              material.Tab(
-                text: _esModoSoloLectura
-                    ? 'Misiones activas (lectura)'
-                    : 'Misiones activas',
+          Container(
+            margin: const EdgeInsets.fromLTRB(
+              UiTokens.pageHPadding,
+              10,
+              UiTokens.pageHPadding,
+              2,
+            ),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(UiTokens.cardRadius),
+              color: FluentTheme.of(context).cardColor,
+              border: Border.all(
+                color: FluentTheme.of(context).resources.controlStrokeColorDefault,
               ),
-              const material.Tab(text: 'Historial (100 % / Canceladas)'),
-              const material.Tab(text: 'Alta manual'),
-            ],
+            ),
+            child: material.TabBar(
+              controller: _tabController,
+              tabs: [
+                material.Tab(
+                  text: _esModoSoloLectura
+                      ? 'Misiones activas (lectura)'
+                      : 'Misiones activas',
+                ),
+                const material.Tab(text: 'Historial (100 % / Canceladas)'),
+                const material.Tab(text: 'Alta manual'),
+              ],
+            ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           Expanded(
             child: material.TabBarView(
               controller: _tabController,

@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:excel/excel.dart' as excel_lib;
 import '../utils/excel_helper.dart';
 import '../services/api_client.dart';
+import '../theme/ui_tokens.dart';
 import '../widgets/compact_page_header.dart';
 
 import 'dart:io';
@@ -457,10 +458,10 @@ class _MRPScreenState extends State<MRPScreen> {
             const SizedBox(height: 16),
             Text(
               "Selecciona una Revisión de Ingeniería y presiona Calcular.",
-              style: FluentTheme.of(context)
-                  .typography
-                  .body
-                  ?.copyWith(color: Colors.grey),
+              style: FluentTheme.of(context).typography.body?.copyWith(
+                    color: fluentSecondaryTextColor(context),
+                  ) ??
+                  fluentSecondaryTextStyle(context),
             ),
           ],
         ),

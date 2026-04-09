@@ -3,6 +3,7 @@ import 'package:flutter/material.dart' as material;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/api_client.dart';
+import '../theme/ui_tokens.dart';
 import '../widgets/compact_page_header.dart';
 import 'monitoreo/widgets/manual_mission_form_dialog.dart'
     show kResponsablesMisionFallback;
@@ -935,10 +936,10 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
       child: Container(
-        padding: const EdgeInsets.all(8),
+        padding: const EdgeInsets.all(UiTokens.cardPadding - 8),
         decoration: BoxDecoration(
           color: FluentTheme.of(context).micaBackgroundColor,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(UiTokens.cardRadius - 2),
           border: Border.all(
             color: FluentTheme.of(context).resources.dividerStrokeColorDefault,
           ),
@@ -1052,10 +1053,7 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
                 Text(
                   'Sin resultados en listas BOM aprobadas y vigentes para estos códigos.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.grey.withValues(alpha: 0.95),
-                    fontSize: 14,
-                  ),
+                  style: fluentSecondaryTextStyle(context, fontSize: 14),
                 ),
               ],
             ],
@@ -1166,11 +1164,11 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
                   builder: (context) {
                     final list = _piezasPorEnsamble[idEns] ?? const <String>[];
                     if (list.isEmpty) {
-                      return const Padding(
-                        padding: EdgeInsets.only(top: 8),
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 8),
                         child: Text(
                           'Piezas detectadas: —',
-                          style: TextStyle(fontSize: 12, color: Colors.grey),
+                          style: fluentSecondaryTextStyle(context, fontSize: 12),
                         ),
                       );
                     }
@@ -1202,16 +1200,20 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
 
   Widget _buildImpactTree() {
     if (_currentPiece.isEmpty && _groupedResults.isEmpty) {
-      return const Center(
-        child: Text("Ingresa un código de pieza para revelar su impacto estructural.", style: TextStyle(color: Colors.grey)),
+      return Center(
+        child: Text(
+          "Ingresa un código de pieza para revelar su impacto estructural.",
+          style: fluentSecondaryTextStyle(context),
+          textAlign: TextAlign.center,
+        ),
       );
     }
 
     if (_groupedResults.isEmpty) {
-      return const Center(
+      return Center(
         child: Text(
           'Sin resultados en listas BOM aprobadas y vigentes para estos códigos.',
-          style: TextStyle(color: Colors.grey),
+          style: fluentSecondaryTextStyle(context),
           textAlign: TextAlign.center,
         ),
       );
@@ -1301,7 +1303,7 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
           children: [
             Expanded(
               child: Text(
-                'Gestor de Misiones — Quest Briefing',
+                'Radar de Impacto',
                 style: FluentTheme.of(context).typography.title,
               ),
             ),

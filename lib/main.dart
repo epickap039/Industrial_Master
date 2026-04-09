@@ -52,8 +52,8 @@ class _MyAppState extends State<MyApp> {
   int? targetRevisionId;
   final List<AutoSuggestBoxItem<dynamic>> _searchItems = [];
 
-  /// Compacto = solo íconos; open = barra ancha. El botón hamburguesa del AppBar alterna entre ambos.
-  PaneDisplayMode _navPaneDisplayMode = PaneDisplayMode.compact;
+  /// Barra ancha por defecto; el botón permite colapsar a modo íconos.
+  PaneDisplayMode _navPaneDisplayMode = PaneDisplayMode.open;
 
   @override
   void initState() {
@@ -423,9 +423,17 @@ class _MyAppState extends State<MyApp> {
     return ListenableBuilder(
       listenable: appTheme,
       builder: (context, child) {
+        final isDarkTheme = appTheme.currentTheme.brightness == Brightness.dark;
+        final paneBg =
+            isDarkTheme ? const Color(0xFF252B36) : const Color(0xFFE3E6EB);
+        final paneIsDark = paneBg.computeLuminance() < 0.45;
+        final navChromeFg =
+            paneIsDark ? const Color(0xFFF1F5F9) : const Color(0xFF15202B);
+        final navChromeMuted =
+            paneIsDark ? const Color(0xFFCBD5E1) : const Color(0xFF475569);
         return FluentApp(
           debugShowCheckedModeBanner: false,
-          title: 'Industrial Master V135.0',
+          title: 'INGENIERIA IMv235',
           theme: appTheme.currentTheme,
           initialRoute: '/',
           routes: {
@@ -444,87 +452,141 @@ class _MyAppState extends State<MyApp> {
                           _simulatedRoleOverride != null &&
                           _simulatedRoleOverride!.isNotEmpty,
                       effectiveRoleLabel: _effectiveRole,
-                      child: NavigationView(
-                        appBar: NavigationAppBar(
-                          title: Builder(
-                            builder:
-                                (appBarCtx) => Text(
-                                  'Industrial Master V135.0',
-                                  style:
-                                      FluentTheme.of(
-                                        appBarCtx,
-                                      ).typography.caption,
-                                ),
-                          ),
-                          automaticallyImplyLeading: false,
-                          leading: Padding(
-                            padding: const EdgeInsetsDirectional.only(
-                              start: 8.0,
+                      child: NavigationPaneTheme(
+                        data: NavigationPaneThemeData(
+                          backgroundColor: paneBg,
+                          overlayBackgroundColor: paneBg,
+                          itemHeaderTextStyle:
+                              appTheme.currentTheme.typography.bodyStrong
+                                  ?.copyWith(color: navChromeMuted),
+                          unselectedIconColor:
+                              WidgetStateProperty.all(navChromeFg),
+                          selectedIconColor:
+                              WidgetStateProperty.resolveWith((states) {
+                            if (states.isPressed) return navChromeMuted;
+                            return navChromeFg;
+                          }),
+                          unselectedTextStyle:
+                              WidgetStateProperty.resolveWith((states) {
+                            final b = appTheme.currentTheme.typography.body ??
+                                const TextStyle();
+                            return b.copyWith(
+                              color: states.isDisabled
+                                  ? navChromeMuted
+                                  : navChromeFg,
+                            );
+                          }),
+                          selectedTextStyle:
+                              WidgetStateProperty.resolveWith((states) {
+                            final b = appTheme.currentTheme.typography.body ??
+                                const TextStyle();
+                            return b.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: states.isPressed
+                                  ? navChromeMuted
+                                  : navChromeFg,
+                            );
+                          }),
+                        ),
+                        child: NavigationView(
+                          appBar: NavigationAppBar(
+                            backgroundColor: paneBg,
+                            title: Builder(
+                              builder: (appBarCtx) {
+                                final cap =
+                                    FluentTheme.of(appBarCtx).typography.caption;
+                                return Text(
+                                  'INGENIERIA IMv235',
+                                  style: cap?.copyWith(color: navChromeFg) ??
+                                      TextStyle(color: navChromeFg),
+                                );
+                              },
                             ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Tooltip(
-                                  message:
-                                      _navPaneDisplayMode ==
-                                              PaneDisplayMode.compact
-                                          ? 'Expandir menú lateral'
-                                          : 'Comprimir menú a íconos',
-                                  child: IconButton(
-                                    icon: Icon(
-                                      _navPaneDisplayMode ==
-                                              PaneDisplayMode.compact
-                                          ? FluentIcons.global_nav_button
-                                          : FluentIcons.chrome_close,
+                            automaticallyImplyLeading: false,
+                            leading: IconTheme(
+                              data: IconThemeData(
+                                color: navChromeFg,
+                                size: 20,
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsetsDirectional.only(
+                                  start: 8.0,
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Tooltip(
+                                      message:
+                                          _navPaneDisplayMode ==
+                                                  PaneDisplayMode.compact
+                                              ? 'Expandir menú lateral'
+                                              : 'Comprimir menú a íconos',
+                                      child: IconButton(
+                                        icon: Icon(
+                                          _navPaneDisplayMode ==
+                                                  PaneDisplayMode.compact
+                                              ? FluentIcons.global_nav_button
+                                              : FluentIcons.chrome_close,
+                                        ),
+                                        onPressed: () {
+                                          setState(() {
+                                            _navPaneDisplayMode =
+                                                _navPaneDisplayMode ==
+                                                        PaneDisplayMode.compact
+                                                    ? PaneDisplayMode.open
+                                                    : PaneDisplayMode.compact;
+                                          });
+                                        },
+                                      ),
                                     ),
-                                    onPressed: () {
-                                      setState(() {
-                                        _navPaneDisplayMode =
-                                            _navPaneDisplayMode ==
-                                                    PaneDisplayMode.compact
-                                                ? PaneDisplayMode.open
-                                                : PaneDisplayMode.compact;
-                                      });
-                                    },
+                                    const Padding(
+                                      padding:
+                                          EdgeInsetsDirectional.only(start: 4),
+                                      child: Icon(FluentIcons.factory),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            actions: IconTheme(
+                              data: IconThemeData(
+                                color: navChromeFg,
+                                size: 20,
+                              ),
+                              child: DefaultTextStyle.merge(
+                                style: TextStyle(color: navChromeFg),
+                                child: Padding(
+                                  padding: const EdgeInsets.only(right: 12.0),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      RoleSimulationAppBarControls(
+                                        realRoleRaw: _userRole,
+                                        simulatedRole: _simulatedRoleOverride,
+                                        onChanged: (v) {
+                                          setState(() {
+                                            _simulatedRoleOverride = v;
+                                            MainNav.setSimulatedRole(v);
+                                            topIndex = 0;
+                                          });
+                                        },
+                                      ),
+                                      const SizedBox(width: 12),
+                                      const _AppBarNotificationInbox(),
+                                      const SizedBox(width: 8),
+                                      const NetworkStatusIndicator(),
+                                      const SizedBox(width: 8),
+                                      IconButton(
+                                        icon: const Icon(FluentIcons.sign_out),
+                                        onPressed: () => _logout(navContext),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                                const Padding(
-                                  padding: EdgeInsetsDirectional.only(start: 4),
-                                  child: Icon(FluentIcons.factory),
-                                ),
-                              ],
+                              ),
                             ),
                           ),
-                          actions: Padding(
-                            padding: const EdgeInsets.only(right: 12.0),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                RoleSimulationAppBarControls(
-                                  realRoleRaw: _userRole,
-                                  simulatedRole: _simulatedRoleOverride,
-                                  onChanged: (v) {
-                                    setState(() {
-                                      _simulatedRoleOverride = v;
-                                      MainNav.setSimulatedRole(v);
-                                      topIndex = 0;
-                                    });
-                                  },
-                                ),
-                                const SizedBox(width: 12),
-                                const _AppBarNotificationInbox(),
-                                const SizedBox(width: 8),
-                                const NetworkStatusIndicator(),
-                                const SizedBox(width: 8),
-                                IconButton(
-                                  icon: const Icon(FluentIcons.sign_out),
-                                  onPressed: () => _logout(navContext),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        pane: buildIndustrialNavigationPane(
+                          pane: buildIndustrialNavigationPane(
                           selected: topIndex,
                           onPaneChanged:
                               (index) => _handleNavigation(index, navContext),
@@ -550,6 +612,7 @@ class _MyAppState extends State<MyApp> {
                           onThemeTap:
                               () => showAppThemePickerDialog(navContext),
                           onBugTap: () => _showBugDialog(navContext),
+                        ),
                         ),
                       ),
                     );

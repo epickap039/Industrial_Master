@@ -115,8 +115,8 @@ extension AppRoleAccess on AppRole {
         AppRole.gestion => true,
         AppRole.direccion => false,
         AppRole.compras => false,
-        AppRole.calidad => false,
-        AppRole.produccion => false,
+        AppRole.calidad => true,
+        AppRole.produccion => true,
         _ => _fullEngineering || this == AppRole.userLegacy || this == AppRole.otro,
       };
 
@@ -210,20 +210,19 @@ extension AppRoleAccess on AppRole {
       this == AppRole.desarrollador ||
       this == AppRole.ingenieriaMetodos;
 
-  bool get catalogCanExport => switch (this) {
-        AppRole.produccion => false,
-        AppRole.qaLegacy => true,
-        AppRole.calidad => true,
-        _ => true,
-      };
+  bool get catalogCanExportExcel => _fullEngineering;
+
+  bool get catalogCanExportPdf => this == AppRole.calidad || _fullEngineering;
 
   bool get catalogCanSearchDxf => switch (this) {
         AppRole.produccion => false,
+        AppRole.calidad => false,
         AppRole.qaLegacy => false,
         _ => true,
       };
 
-  bool get catalogCanSelectColumns => this != AppRole.produccion;
+  bool get catalogCanSelectColumns =>
+      this != AppRole.produccion && this != AppRole.calidad;
 
   bool get catalogHideModificadoPor => this == AppRole.calidad;
 
@@ -245,6 +244,10 @@ extension AppRoleAccess on AppRole {
   bool get monitoreoCanControlMisiones => _fullEngineering;
 
   bool get isAdminRail => this == AppRole.administrador;
+
+  /// Pie del menú: entrada «Configuración» (ajustes del sistema). Sin Calidad ni Producción.
+  bool get showsFooterConfiguracion =>
+      this != AppRole.produccion && this != AppRole.calidad;
 }
 
 extension AppRoleAdmin on AppRole {

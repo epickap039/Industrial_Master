@@ -6,7 +6,7 @@ class ConstrainedAppBody extends StatelessWidget {
 
   final Widget child;
 
-  static const double maxContentWidth = 1400;
+  static const double maxContentWidth = 1680;
 
   @override
   Widget build(BuildContext context) {

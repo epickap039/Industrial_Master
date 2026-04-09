@@ -6,7 +6,6 @@ import 'screens/auditor.dart';
 import 'screens/ayudas_visuales/ayudas_visuales_nav.dart';
 import 'screens/cad_scanner_screen.dart';
 import 'screens/catalog.dart';
-import 'screens/configuracion_usuarios_screen.dart';
 import 'screens/engineering_map.dart';
 import 'screens/history.dart';
 import 'screens/impact_radar_screen.dart';
@@ -21,6 +20,7 @@ import 'screens/standardization.dart';
 import 'screens/vin_dossier.dart';
 import 'services/app_role.dart';
 import 'services/nav_pane.dart';
+import 'theme/ui_tokens.dart';
 import 'widgets/constrained_app_body.dart';
 
 NavigationPane buildIndustrialNavigationPane({
@@ -36,17 +36,19 @@ NavigationPane buildIndustrialNavigationPane({
   required VoidCallback onBugTap,
 }) {
   final ar = parseAppRole(userRole);
+  final bool useCollapsibleSections =
+      ar == AppRole.administrador ||
+      ar == AppRole.desarrollador ||
+      ar == AppRole.ingenieriaMetodos;
 
   final PaneItem? lobby = ar.showsNavLobby
       ? PaneItem(
           icon: const Icon(FluentIcons.home),
           title: const Text('Lobby Principal'),
-          body: ConstrainedAppBody(
-            child: LobbyScreen(
-              effectiveRole: userRole,
-              isAdmin: ar.isAdminRail,
-              onNavigatePane: onNavigatePane,
-            ),
+          body: LobbyScreen(
+            effectiveRole: userRole,
+            isAdmin: ar.isAdminRail,
+            onNavigatePane: onNavigatePane,
           ),
         )
       : null;
@@ -54,7 +56,7 @@ NavigationPane buildIndustrialNavigationPane({
       ? PaneItem(
           icon: const Icon(FluentIcons.database),
           title: const Text('Catálogo Maestro'),
-          body: const CatalogScreen(),
+          body: CatalogScreen(effectiveRole: userRole),
         )
       : null;
   final PaneItem? materiales = ar.showsNavMateriales
@@ -187,8 +189,11 @@ NavigationPane buildIndustrialNavigationPane({
     onItemPressed: onItemPressed,
     displayMode: displayMode,
     toggleable: toggleable,
-    size: const NavigationPaneSize(openWidth: 240),
+    size: const NavigationPaneSize(openWidth: 256),
     items: _buildNavItems(
+      // En compacto evitamos PaneItemExpander (bug de overflow/flyout en fluent_ui 4.11.5).
+      useCollapsibleSections:
+          useCollapsibleSections && displayMode != PaneDisplayMode.compact,
       lobby: lobby,
       catalogo: catalogo,
       materiales: materiales,
@@ -218,15 +223,7 @@ NavigationPane buildIndustrialNavigationPane({
         title: const Text('Reportar bug'),
         onTap: onBugTap,
       ),
-      if (ar.isAdminRail)
-        PaneItem(
-          icon: const Icon(FluentIcons.people),
-          title: const Text('Usuarios (admin)'),
-          body: ConstrainedAppBody(
-            child: const ConfiguracionUsuariosScreen(),
-          ),
-        ),
-      if (ar != AppRole.produccion)
+      if (ar.showsFooterConfiguracion)
         PaneItem(
           icon: const Icon(FluentIcons.settings),
           title: const Text('Configuración'),
@@ -239,6 +236,7 @@ NavigationPane buildIndustrialNavigationPane({
 }
 
 List<NavigationPaneItem> _buildNavItems({
+  required bool useCollapsibleSections,
   required PaneItem? lobby,
   required PaneItem? catalogo,
   required PaneItem? materiales,
@@ -258,18 +256,43 @@ List<NavigationPaneItem> _buildNavItems({
   required PaneItem? monitoreo,
 }) {
   final out = <NavigationPaneItem>[];
-  void section(String title, List<PaneItem?> paneItems) {
-    final list = paneItems.whereType<PaneItem>().toList();
+  List<PaneItem> collect(List<PaneItem?> paneItems) {
+    return paneItems.whereType<PaneItem>().toList();
+  }
+
+  void section(String title, IconData icon, List<PaneItem?> paneItems) {
+    final list = collect(paneItems);
     if (list.isEmpty) return;
+    if (useCollapsibleSections) {
+      out.add(
+        PaneItemExpander(
+          icon: Icon(icon),
+          title: Text(title),
+          body: list.first.body,
+          items: list,
+        ),
+      );
+      return;
+    }
     out.add(PaneItemHeader(header: Text(title)));
     out.addAll(list);
   }
 
   if (lobby != null) out.add(lobby);
-  section('Ingeniería', [catalogo, materiales, cad, excel, auditor, estandar]);
-  section('Gestión', [proyectos, mapa, vin, historial, ayudas]);
-  section('Control', [analytics, qa, radar, mrp]);
-  section('Administración', [monitoreo]);
+  if (mapa != null) out.add(mapa);
+
+  section('Operacion diaria', FluentIcons.page_list, [ayudas, radar, monitoreo]);
+  section('Ingenieria y cambios', FluentIcons.developer_tools, [
+    proyectos,
+    vin,
+    materiales,
+    cad,
+    excel,
+    auditor,
+    estandar,
+  ]);
+  section('Seguimiento e incidentes', FluentIcons.health, [historial, qa]);
+  section('Datos y catalogos', FluentIcons.database, [catalogo, analytics, mrp]);
   return out;
 }
 
@@ -369,12 +392,12 @@ class RoleSimulationAppBarControls extends StatelessWidget {
         ? kRealSentinel
         : simulatedRole!;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
         color: simulatedRole != null && simulatedRole!.isNotEmpty
             ? FluentTheme.of(context).accentColor.withValues(alpha: 0.1)
             : Colors.transparent,
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(UiTokens.cardRadius - 4),
         border: Border.all(
           color: simulatedRole != null && simulatedRole!.isNotEmpty
               ? FluentTheme.of(context).accentColor.withValues(alpha: 0.3)

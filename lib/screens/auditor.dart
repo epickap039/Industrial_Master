@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:file_picker/file_picker.dart';
 import '../services/api_client.dart';
+import '../theme/ui_tokens.dart';
 import '../widgets/compact_page_header.dart';
 
 class AuditorScreen extends StatefulWidget {
@@ -369,10 +370,10 @@ class _AuditorScreenState extends State<AuditorScreen> {
     if (_isProcessing) return const SizedBox.shrink();
 
     if (_errors == null) {
-      return const Center(
+      return Center(
         child: Text(
           'Selecciona un archivo para comenzar.',
-          style: TextStyle(color: Colors.grey),
+          style: fluentSecondaryTextStyle(context),
         ),
       );
     }

@@ -1,0 +1,33 @@
+---
+description: Fuentes siempre UTF-8; prohibido UTF-16/UCS-2 para evitar U+0000 y builds rotos
+alwaysApply: true
+---
+
+# Codificación: UTF-8 solamente en texto fuente
+
+En este repo (**Flutter/Dart, Python, SQL, YAML, JSON, Markdown**) los archivos de código y configuración deben guardarse como **UTF-8** (idealmente **sin BOM**). **No uses UTF-16 (LE/BE)** para estos archivos.
+
+## Por qué
+
+- UTF-16 inserta bytes `0x00` entre caracteres ASCII. Dart y otras herramientas lo interpretan como **caracteres de control U+0000** fuera de strings → errores tipo `GB001B595` o análisis roto.
+- Es un fallo recurrente en este proyecto; hay que evitarlo por defecto.
+
+## Qué hacer al editar o crear archivos
+
+1. Tras escribir o pegar bloques grandes, si el build/analyzer marca **U+0000** o “control character”, el archivo está mal codificado: **regrabar como UTF-8** (no “convertir” mezclando encodings a mano).
+2. En Cursor/VS Code: para carpetas del proyecto, preferir **`files.encoding": "utf8"`** y **no** “UTF-16 LE” al guardar.
+3. **No** pegar binario o salida de herramientas Windows que guarden en UTF-16 sin normalizar.
+4. En agente: al usar parches grandes, preferir contenido **ASCII/UTF-8 puro**; si el usuario pega texto corrupto, pedir archivo o volver a emitir el bloque.
+
+## Comprobación rápida (PowerShell)
+
+```powershell
+# Si hay muchos NULL, sospecha UTF-16 mal leído como UTF-8
+( [IO.File]::ReadAllBytes("ruta\archivo.dart") | Where-Object { $_ -eq 0 }).Count
+```
+
+Si el recuento es muy alto en un `.dart`/`.py` casi solo ASCII, reconvertir: leer como `Unicode` (UTF-16) y escribir `UTF-8` sin BOM, o reemplazar el archivo con una copia limpia en UTF-8.
+
+## Alcance
+
+- Aplica a **todo** el árbol del proyecto salvo binarios deliberados (imágenes, `.apk`, etc.).

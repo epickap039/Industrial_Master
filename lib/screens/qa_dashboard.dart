@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
 
 import '../services/api_client.dart';
+import '../theme/ui_tokens.dart';
 import '../widgets/compact_page_header.dart';
 
 class QADashboardScreen extends StatefulWidget {
@@ -255,21 +256,23 @@ class _QADashboardScreenState extends State<QADashboardScreen> {
                       Icon(
                         FluentIcons.calendar,
                         size: 20,
-                        color: Colors.grey.withValues(alpha: 0.85),
+                        color: fluentSecondaryTextColor(context)
+                            .withValues(alpha: 0.9),
                       ),
                       const SizedBox(width: 8),
                       Text(
                         rep['fecha']?.toString() ?? '—',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 16,
-                          color: Colors.grey,
+                          color: fluentSecondaryTextColor(context),
                         ),
                       ),
                       const SizedBox(width: 24),
                       Icon(
                         FluentIcons.contact_info,
                         size: 20,
-                        color: Colors.grey.withValues(alpha: 0.85),
+                        color: fluentSecondaryTextColor(context)
+                            .withValues(alpha: 0.9),
                       ),
                       const SizedBox(width: 8),
                       Expanded(

@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'bom_manager.dart';
 import '../services/api_client.dart';
+import '../theme/ui_tokens.dart';
 import '../widgets/compact_page_header.dart';
 
 class EngineeringMapScreen extends StatefulWidget {
@@ -670,9 +671,9 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
                               Colors.grey),
                     ),
                     const SizedBox(height: 12),
-                    const Text(
+                    Text(
                       'No se encontraron datos de ingeniería.',
-                      style: TextStyle(color: Colors.grey),
+                      style: fluentSecondaryTextStyle(context),
                     ),
                   ],
                 ),
