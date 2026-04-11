@@ -9,8 +9,10 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../services/api_client.dart';
+import '../../services/main_nav.dart';
 import '../../theme/app_themes.dart';
 import '../../widgets/compact_page_header.dart';
+import '../../widgets/contextual_bug_report.dart';
 import 'ayudas_api_models.dart';
 import 'ayudas_categoria_screen.dart';
 import 'ayudas_search_utils.dart';
@@ -49,15 +51,33 @@ Uint8List? _decodeIconPng(dynamic raw) {
   }
 }
 
+String? _validateCategoriaPng(Uint8List bytes) {
+  const maxBytes = 512 * 1024;
+  if (bytes.isEmpty) return 'La imagen está vacía.';
+  if (bytes.lengthInBytes > maxBytes) {
+    return 'La imagen excede 512KB. Selecciona una imagen PNG más ligera.';
+  }
+  if (bytes.lengthInBytes < 8) return 'Archivo PNG inválido.';
+  const sig = <int>[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+  for (var i = 0; i < sig.length; i++) {
+    if (bytes[i] != sig[i]) {
+      return 'Formato inválido: solo se permiten imágenes PNG válidas.';
+    }
+  }
+  return null;
+}
+
 /// Pantalla 1: menú de categorías (grid grande con iconos).
 class AyudasMenuScreen extends StatefulWidget {
   const AyudasMenuScreen({
     super.key,
     required this.canUpload,
+    this.canEditCategoryImage = false,
     this.allowRevisionHistory = true,
   });
 
   final bool canUpload;
+  final bool canEditCategoryImage;
   final bool allowRevisionHistory;
 
   @override
@@ -67,6 +87,8 @@ class AyudasMenuScreen extends StatefulWidget {
 class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
   static const List<String> _kSeedTags = ['Soldadura', 'Ensamble', 'Pintura'];
 
+  late final VoidCallback _lobbyOpenListener;
+
   bool _loading = true;
   String? _error;
   List<dynamic> _categorias = [];
@@ -74,19 +96,55 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
   List<Map<String, dynamic>> _todosDocumentos = [];
   final material.TextEditingController _searchCtrl = material.TextEditingController();
 
+  void _showIconValidationError(String msg) {
+    if (!mounted) return;
+    displayInfoBar(
+      context,
+      builder: (c, close) => InfoBar(
+        title: const Text('Ícono no válido'),
+        content: Text(msg),
+        severity: InfoBarSeverity.warning,
+        onClose: close,
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
+    _lobbyOpenListener = _drainLobbyOpenIntent;
+    MainNav.ayudaLobbyOpenSignal.addListener(_lobbyOpenListener);
     _searchCtrl.addListener(() {
       if (mounted) setState(() {});
     });
     _cargar();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _drainLobbyOpenIntent());
   }
 
   @override
   void dispose() {
+    MainNav.ayudaLobbyOpenSignal.removeListener(_lobbyOpenListener);
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  void _drainLobbyOpenIntent() {
+    final intent = MainNav.takePendingAyudaLobby();
+    if (intent == null || !mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Navigator.of(context).push(
+        material.MaterialPageRoute<void>(
+          builder: (_) => AyudasVisorScreen(
+            idAyuda: intent.idAyuda,
+            tituloDocumento: intent.tituloDocumento,
+            idRevisionInicial: intent.idRevision,
+            canUpload: widget.canUpload,
+            allowRevisionHistory: widget.allowRevisionHistory,
+          ),
+        ),
+      );
+    });
   }
 
   Future<void> _cargar() async {
@@ -366,6 +424,11 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
                           bytes = await File(path).readAsBytes();
                         }
                         if (bytes == null || bytes.isEmpty) return;
+                        final validation = _validateCategoriaPng(bytes);
+                        if (validation != null) {
+                          _showIconValidationError(validation);
+                          return;
+                        }
                         final b64 = base64Encode(bytes);
                         iconoPngBytes = bytes;
                         iconoPngB64 = b64;
@@ -446,6 +509,218 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
     }
   }
 
+  Future<void> _dialogoEditarImagenCategoria(Map<String, dynamic> row) async {
+    if (!widget.canEditCategoryImage) return;
+    final idRaw = row['ID_Categoria'];
+    final idCategoria = idRaw is int ? idRaw : int.tryParse('$idRaw') ?? 0;
+    if (idCategoria <= 0) return;
+    final nombre = (row['Nombre_Categoria'] ?? 'Categoría').toString().trim();
+    final iconoCtrl = TextEditingController(
+      text: (row['Icono_Codigo'] ?? '').toString(),
+    );
+    Uint8List? iconoPngBytes =
+        _decodeIconPng(row['Icono_Png_Base64'] ?? row['icono_png_base64']);
+    String? iconoPngB64 = iconoPngBytes == null ? null : base64Encode(iconoPngBytes);
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) {
+          return StatefulBuilder(
+            builder: (context, setLocalState) {
+              return ContentDialog(
+                title: Text('Editar imagen: $nombre'),
+                content: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('Código de icono (opcional)'),
+                    const SizedBox(height: 6),
+                    TextBox(controller: iconoCtrl, placeholder: 'mecanico, electrico…'),
+                    const SizedBox(height: 12),
+                    const Text('Ícono PNG (opcional)'),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: FluentTheme.of(context).inactiveColor,
+                            ),
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: iconoPngBytes == null
+                              ? const Icon(FluentIcons.picture, size: 16)
+                              : Image.memory(iconoPngBytes!, fit: BoxFit.cover),
+                        ),
+                        const SizedBox(width: 8),
+                        Button(
+                          child: const Text('Cambiar PNG'),
+                          onPressed: () async {
+                            final r = await FilePicker.platform.pickFiles(
+                              type: FileType.custom,
+                              allowMultiple: false,
+                              allowedExtensions: ['png'],
+                              withData: true,
+                            );
+                            if (r == null || r.files.isEmpty) return;
+                            Uint8List? bytes = r.files.single.bytes;
+                            final path = r.files.single.path;
+                            if (bytes == null && path != null && path.isNotEmpty) {
+                              bytes = await File(path).readAsBytes();
+                            }
+                            if (bytes == null || bytes.isEmpty) return;
+                            final validation = _validateCategoriaPng(bytes);
+                            if (validation != null) {
+                              _showIconValidationError(validation);
+                              return;
+                            }
+                            setLocalState(() {
+                              iconoPngBytes = bytes;
+                              iconoPngB64 = base64Encode(bytes!);
+                            });
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                        if (iconoPngBytes != null)
+                          IconButton(
+                            icon: const Icon(FluentIcons.clear, size: 14),
+                            onPressed: () {
+                              setLocalState(() {
+                                iconoPngBytes = null;
+                                iconoPngB64 = '';
+                              });
+                            },
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+                actions: [
+                  Button(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Cancelar'),
+                  ),
+                  FilledButton(
+                    child: const Text('Guardar'),
+                    onPressed: () async {
+                      final prefs = await SharedPreferences.getInstance();
+                      final user = prefs.getString('username')?.trim() ?? 'Operador';
+                      showDialog<void>(
+                        context: context,
+                        barrierDismissible: false,
+                        builder: (lc) => const ContentDialog(
+                          title: Text('Guardando…'),
+                          content: Center(
+                            child: SizedBox(height: 80, child: ProgressRing()),
+                          ),
+                        ),
+                      );
+                      try {
+                        final body = <String, dynamic>{
+                          'icono': iconoCtrl.text.trim(),
+                        };
+                        if (iconoPngB64 != null) {
+                          body['icono_png_base64'] = iconoPngB64;
+                        }
+                        await ApiClient.put(
+                          '/api/ayudas/categorias/$idCategoria',
+                          body: body,
+                          headers: {'X-Usuario': user},
+                        );
+                        if (!mounted) return;
+                        Navigator.of(context, rootNavigator: true).pop();
+                        Navigator.of(context, rootNavigator: true).pop();
+                        await _cargar();
+                        if (!mounted) return;
+                        displayInfoBar(
+                          context,
+                          builder: (c, close) => InfoBar(
+                            title: const Text('Listo'),
+                            content: const Text('Imagen de categoría actualizada.'),
+                            severity: InfoBarSeverity.success,
+                            onClose: close,
+                          ),
+                        );
+                      } catch (e) {
+                        if (!mounted) return;
+                        Navigator.of(context, rootNavigator: true).pop();
+                        showAyudasUploadError(context, e);
+                      }
+                    },
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      iconoCtrl.dispose();
+    }
+  }
+
+  Future<void> _abrirSelectorCategoriaEditarImagen() async {
+    if (!widget.canEditCategoryImage || _categorias.isEmpty) return;
+    Map<String, dynamic>? selected =
+        _categorias.first as Map<String, dynamic>;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setLocalState) {
+            return ContentDialog(
+              title: const Text('Editar imagen de categoría'),
+              content: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('Selecciona una categoría'),
+                  const SizedBox(height: 8),
+                  ComboBox<Map<String, dynamic>>(
+                    value: selected,
+                    items: _categorias
+                        .whereType<Map<String, dynamic>>()
+                        .map(
+                          (row) => ComboBoxItem<Map<String, dynamic>>(
+                            value: row,
+                            child: Text(
+                              (row['Nombre_Categoria'] ?? 'Sin nombre').toString(),
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (v) {
+                      if (v == null) return;
+                      setLocalState(() => selected = v);
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                Button(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed: () async {
+                    final row = selected;
+                    Navigator.pop(ctx);
+                    if (row == null) return;
+                    await _dialogoEditarImagenCategoria(row);
+                  },
+                  child: const Text('Continuar'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   bool _esModoCiberpunk(BuildContext context) {
     if (appTheme.currentMode == AppThemeMode.cyberpunk) return true;
     final theme = FluentTheme.of(context);
@@ -462,6 +737,14 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
         commandBar: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            IconButton(
+              icon: const Icon(FluentIcons.bug),
+              onPressed: () => showContextualBugReportDialog(
+                context,
+                modulo: 'Ayudas Visuales',
+                contextoPantalla: 'ayudas_menu',
+              ),
+            ),
             IconButton(
               icon: const Icon(FluentIcons.refresh),
               onPressed: _loading ? null : _cargar,
@@ -632,18 +915,37 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
                         ),
                       ],
                     ),
-          if (widget.canUpload)
+          if (widget.canUpload || widget.canEditCategoryImage)
             Positioned(
               right: 20,
               bottom: 20,
-              child: material.FloatingActionButton.extended(
-                heroTag: 'ayudas_menu_nueva_categoria',
-                onPressed: _dialogoNuevaCategoria,
-                shape: material.RoundedRectangleBorder(
-                  borderRadius: material.BorderRadius.circular(24.0),
-                ),
-                icon: const Icon(material.Icons.add),
-                label: const Text('Nueva categoría'),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (widget.canEditCategoryImage) ...[
+                    material.FloatingActionButton.extended(
+                      heroTag: 'ayudas_menu_editar_imagen_categoria',
+                      onPressed: _abrirSelectorCategoriaEditarImagen,
+                      shape: material.RoundedRectangleBorder(
+                        borderRadius: material.BorderRadius.circular(24.0),
+                      ),
+                      icon: const Icon(material.Icons.photo_camera_outlined),
+                      label: const Text('Editar imagen categoría'),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  if (widget.canUpload)
+                    material.FloatingActionButton.extended(
+                      heroTag: 'ayudas_menu_nueva_categoria',
+                      onPressed: _dialogoNuevaCategoria,
+                      shape: material.RoundedRectangleBorder(
+                        borderRadius: material.BorderRadius.circular(24.0),
+                      ),
+                      icon: const Icon(material.Icons.add),
+                      label: const Text('Nueva categoría'),
+                    ),
+                ],
               ),
             ),
         ],

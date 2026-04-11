@@ -1,0 +1,26 @@
+---
+description: Barra lateral y barra superior con contraste estricto por tema (oscuro más profundo, claro azul rey)
+alwaysApply: true
+---
+
+# Regla visual shell (menú lateral + barra superior)
+
+Aplica a la UI shell principal de Flutter (`NavigationPane` y `NavigationAppBar`).
+
+## Modo oscuro
+
+- La barra lateral (menú) y la barra superior (logo/notificaciones) deben ser de un tono **más oscuro que el fondo base**.
+- Evitar grises claros o superficies del mismo brillo que el `scaffold`.
+- Mantener contraste alto para iconos/texto.
+
+## Modo claro
+
+- La barra lateral y la barra superior deben usar **azul rey** como color de chrome.
+- Evitar blancos/grises neutros en esas barras cuando el tema sea claro.
+- Verificar legibilidad de iconos, títulos y acciones sobre ese azul.
+
+## Implementación recomendada
+
+- Centralizar el color en `shellNavChromeBackground(...)` (`lib/theme/ui_tokens.dart`).
+- Consumir ese mismo token en `NavigationPaneThemeData.backgroundColor` y `NavigationAppBar.backgroundColor`.
+- Si se ajusta color en el futuro, actualizar ambos puntos juntos para mantener coherencia visual.

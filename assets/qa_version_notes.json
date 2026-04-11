@@ -1,0 +1,79 @@
+[
+  {
+    "build": 328,
+    "v": "328.0",
+    "tipo": "parche",
+    "fecha": "2026-04-11",
+    "notas": "Corrección de compilación Windows en tema Cyberpunk (ButtonStyle) y mejora en configuración de usuarios: selector de color ampliado, avatar/iniciales con contorno del color asignado y opción Gris temporal multiuso."
+  },
+  {
+    "build": 327,
+    "v": "327.2",
+    "tipo": "parche",
+    "fecha": "2026-04-11",
+    "notas": "Tarjetas de monitoreo: controles alineados a la derecha, checklist compacto expandible, descripción más visible con ver completo, pausadas más sombreadas y guía de colores; calendario sube etiquetas en celda y auditor refuerza contraste rojo/verde."
+  },
+  {
+    "build": 327,
+    "v": "327.1",
+    "tipo": "parche",
+    "fecha": "2026-04-11",
+    "notas": "Fase QA/Importar/MRPII/BOM: reporte QA con módulos por rol + prioridades en botones + hashtags/filtros, importación ignora Descripcion y notifica nuevos códigos, auditor mejora contraste y notifica al corregir, nuevo Generador de Código y flujo Crear lista nueva para estaciones/ensambles."
+  },
+  {
+    "build": 327,
+    "v": "327.0",
+    "tipo": "parche",
+    "fecha": "2026-04-11",
+    "notas": "Monitoreo: historial ahora exige contraseña maestra al eliminar, se retiró la limpieza masiva en UI, alta manual agrega horas (dias/horas/minutos), mejora de vista compacta por responsable y estimaciones de finalización laboral en activas/estadísticas."
+  },
+  {
+    "build": 327,
+    "v": "327.0",
+    "tipo": "parche",
+    "fecha": "2026-04-10",
+    "notas": "UI shell y usabilidad: ventana de Información más ancha, barras superior/lateral en negro para temas oscuros, catálogo maestro con mayor prioridad de ancho para Material y columnas de procesos más compactas; chat interno ahora incluye sala de chat grupal."
+  },
+  {
+    "build": 327,
+    "v": "327.0",
+    "tipo": "parche",
+    "fecha": "2026-04-10",
+    "notas": "Chat interno: efecto visual de zumbido tipo vibración (sacudida del panel activo), mejora de guía contextual por módulo y ajustes de legibilidad/jerarquía en monitoreo y catálogo."
+  },
+  {
+    "build": 327,
+    "v": "327.0",
+    "tipo": "actualizacion",
+    "fecha": "2026-04-10",
+    "notas": "Chat interno: tiempo real (WebSocket), zumbido con anti-spam y notificaciones nativas en Windows; barra superior y título de ventana IMv327 alineados con el build; migración SQL de tablas de chat."
+  },
+  {
+    "build": 326,
+    "v": "326.0",
+    "tipo": "actualizacion",
+    "fecha": "2026-04-10",
+    "notas": "Centro de monitoreo: edición post-alta de misiones manuales (checklist/imagen), historial con reactivar/eliminar individual, soporte de asignación multiusuario compartida y mejoras transversales de estabilidad."
+  },
+  {
+    "build": 325,
+    "v": "325",
+    "tipo": "parche",
+    "fecha": "2026-04-10",
+    "notas": "Ayudas visuales: botón extra para editar imágenes de categorías ya creadas (solo Ingeniería/Desarrollador), validación PNG con mensajes claros por formato/tamaño y ajuste de permisos del rol desarrollador."
+  },
+  {
+    "build": 324,
+    "v": "324",
+    "tipo": "actualizacion",
+    "fecha": "2026-04-10",
+    "notas": "Centro QA: flujo de Completado/Rechazado, limpieza de historial cerrado/rechazado y mejoras de visibilidad por rol."
+  },
+  {
+    "build": 323,
+    "v": "323",
+    "tipo": "actualizacion",
+    "fecha": "2026-04-10",
+    "notas": "Inventario PT integrado: sincronización de stock, detección de huérfanos, columnas de stock en catálogo y métricas de cobertura en Analytics/MRP."
+  }
+]

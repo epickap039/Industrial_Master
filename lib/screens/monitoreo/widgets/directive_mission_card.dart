@@ -18,6 +18,62 @@ bool _tieneDetalleInfo(Map<String, dynamic> task) {
   return descripcionMision(task).isNotEmpty || _tieneMetaUtil(task);
 }
 
+bool _esPausaPorPrioridadUrgente(Map<String, dynamic> task) {
+  if (!esPausada(task)) return false;
+  final reasonRaw = task['pause_reason_id'] ?? task['Pause_Reason_ID'];
+  final reasonId = reasonRaw is int ? reasonRaw : int.tryParse('$reasonRaw');
+  if (reasonId == 4) return true;
+  final motivo = (task['motivo_pausa'] ??
+              task['Motivo_Pausa'] ??
+              task['pause_reason'] ??
+              task['PauseReason'] ??
+              '')
+          .toString()
+          .trim()
+          .toLowerCase();
+  if (motivo.contains('prioridad urgente')) return true;
+  final meta = task['meta'];
+  if (meta is Map) {
+    final m = (meta['motivo_pausa'] ?? meta['Motivo_Pausa'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+    if (m.contains('prioridad urgente')) return true;
+  }
+  return false;
+}
+
+Color _onUserBg(Color c) => c.computeLuminance() > 0.45 ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC);
+
+Color? _tryHexToColor(String? hex) {
+  final s = (hex ?? '').trim().toUpperCase();
+  if (!RegExp(r'^#[0-9A-F]{6}$').hasMatch(s)) return null;
+  final v = int.tryParse(s.substring(1), radix: 16);
+  if (v == null) return null;
+  return Color(0xFF000000 | v);
+}
+
+double _contrastRatio(Color a, Color b) {
+  final la = a.computeLuminance();
+  final lb = b.computeLuminance();
+  final hi = la > lb ? la : lb;
+  final lo = la > lb ? lb : la;
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+Color _ensureReadableColorOn(Color base, Color bg, {double minRatio = 3.2}) {
+  if (_contrastRatio(base, bg) >= minRatio) return base;
+  var c = base;
+  for (var i = 0; i < 8; i++) {
+    if (_contrastRatio(c, bg) >= minRatio) break;
+    final hsl = material.HSLColor.fromColor(c);
+    final targetLight = bg.computeLuminance() < 0.4 ? 0.78 : 0.22;
+    final nextLight = hsl.lightness + (targetLight - hsl.lightness) * 0.42;
+    c = hsl.withLightness(nextLight.clamp(0.0, 1.0)).toColor();
+  }
+  return c;
+}
+
 class DirectiveMissionCard extends StatefulWidget {
   const DirectiveMissionCard({
     super.key,
@@ -36,6 +92,7 @@ class DirectiveMissionCard extends StatefulWidget {
     this.onResume,
     this.onShowMeta,
     this.onFinalizarManual,
+    this.onEditManual,
     this.vistaHistorial = false,
     this.vistaCompacta = false,
     this.lobbyStyle = false,
@@ -67,6 +124,7 @@ class DirectiveMissionCard extends StatefulWidget {
   final VoidCallback? onResume;
   final VoidCallback? onShowMeta;
   final VoidCallback? onFinalizarManual;
+  final VoidCallback? onEditManual;
   final bool vistaHistorial;
   final bool lobbyStyle;
   final int? lobbyIndex;
@@ -100,6 +158,7 @@ class _DirectiveMissionCardState extends State<DirectiveMissionCard> {
         onResume: widget.onResume,
         onShowMeta: widget.onShowMeta,
         onFinalizarManual: widget.onFinalizarManual,
+        onEditManual: widget.onEditManual,
         vistaHistorial: widget.vistaHistorial,
         lobbyStyle: widget.lobbyStyle,
         lobbyIndex: widget.lobbyIndex,
@@ -137,11 +196,16 @@ class _DirectiveMissionCardState extends State<DirectiveMissionCard> {
     final String asignado =
         '${t['usuario_asignado'] ?? t['Usuario_Asignado'] ?? 'Sin asignar'}'
             .trim();
+    final pausada = esPausada(t);
 
     return material.Card(
       elevation: 2,
       margin: EdgeInsets.zero,
-      color: bg,
+      color: pausada
+          ? (widget.isDark
+              ? const material.Color(0xFF3A3E46)
+              : const material.Color(0xFFE5E7EB))
+          : bg,
       shape: material.RoundedRectangleBorder(
         borderRadius: material.BorderRadius.circular(8),
         side: material.BorderSide(
@@ -189,7 +253,7 @@ class _DirectiveMissionCardState extends State<DirectiveMissionCard> {
                         asignado,
                         style: material.TextStyle(
                           fontSize: 11,
-                          color: fg.withValues(alpha: 0.7),
+                          color: fg.withValues(alpha: pausada ? 0.55 : 0.7),
                         ),
                         maxLines: 1,
                         overflow: material.TextOverflow.ellipsis,
@@ -233,6 +297,7 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
     this.onResume,
     this.onShowMeta,
     this.onFinalizarManual,
+    this.onEditManual,
     this.vistaHistorial = false,
     this.lobbyStyle = false,
     this.lobbyIndex,
@@ -268,6 +333,7 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
 
   /// Cierre express para tareas con origen manual (progreso 100 %, estado Terminado).
   final VoidCallback? onFinalizarManual;
+  final VoidCallback? onEditManual;
 
   /// Pestaña historial: resalta cancelaciones y motivo.
   final bool vistaHistorial;
@@ -278,6 +344,18 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
   final int? lobbyIndex;
   final int? lobbyCount;
   final void Function(int index, int delta)? onReorderByDelta;
+
+  static String _tituloChecklistUi(String raw, bool manual) {
+    final h = tituloEncabezadoGrupoChecklist(raw).trim();
+    if (!manual) return h;
+    final lc = h.toLowerCase();
+    final indef =
+        h == kGrupoJerarquiaIndefinida ||
+        lc.contains('[indefinido]') ||
+        lc.contains('sin jerarquia definida');
+    if (indef) return 'Tareas por completar';
+    return h;
+  }
 
   static const Color _kGreen = Color(0xFF00E676);
   static const Color _kYellow = Color(0xFFFFC107);
@@ -334,10 +412,42 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
             .toList();
     final titulo = tituloMision(task);
     final asignado = asignadoMision(task);
+    final usuariosAsignados = (() {
+      final raw = task['usuarios_asignados'];
+      if (raw is! List) return <String>[];
+      final out = <String>[];
+      final seen = <String>{};
+      for (final item in raw) {
+        final u = '${item ?? ''}'.trim();
+        if (u.isEmpty) continue;
+        final key = u.toLowerCase();
+        if (seen.contains(key)) continue;
+        seen.add(key);
+        out.add(u);
+      }
+      return out;
+    })();
+    final avatarLabel = (() {
+      final hasTodos = usuariosAsignados.any((u) {
+        final n = u.trim().toUpperCase();
+        return n == '__TODOS__' || n == 'TODOS';
+      });
+      if (hasTodos) return 'TODOS';
+      if (usuariosAsignados.length > 2) return '+${usuariosAsignados.length}';
+      final base =
+          usuariosAsignados.isNotEmpty ? usuariosAsignados.first : asignado;
+      if (base.trim().isEmpty || base == 'Sin asignar') return '??';
+      final parts = base.trim().split(RegExp(r'[\s_]+'));
+      if (parts.length >= 2) {
+        return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+      }
+      return base.substring(0, base.length >= 2 ? 2 : 1).toUpperCase();
+    })();
     final stroke = _colorSemaforo();
     final andonBar = _colorAndonPrioridad();
     final cancelada = esCancelada(task);
     final pausada = esPausada(task);
+    final pausadaPorUrgente = _esPausaPorPrioridadUrgente(task);
     final criticaTarjeta =
         esCritica(task) && !cancelada && vistaMisionesActivas;
     final descCard = descripcionMision(task);
@@ -350,10 +460,12 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
     final fcHist = vistaHistorial ? fechaCierreHistorialLegible(task) : '';
     final ucHist = vistaHistorial ? usuarioCompletoHistorialLegible(task) : '';
 
-    final bg = isDark ? const Color(0xFF2C2C32) : const Color(0xFFF0F0F3);
+    final bg = pausada
+        ? (isDark ? const Color(0xFF3A3E46) : const Color(0xFFE5E7EB))
+        : (isDark ? const Color(0xFF2C2C32) : const Color(0xFFF0F0F3));
     final lobbySurface = BoxDecoration(
       gradient:
-          criticaTarjeta
+          (!pausada && criticaTarjeta)
               ? LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
@@ -371,11 +483,15 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
                         ],
               )
               : null,
-      color: criticaTarjeta ? null : bg,
+      color: (!pausada && criticaTarjeta) ? null : bg,
       border: Border(left: BorderSide(width: 8.0, color: andonBar)),
     );
-    final fg = isDark ? const Color(0xFFECEFF1) : const Color(0xFF1B1B1B);
-    final fgSec = isDark ? const Color(0xFFB0BEC5) : const Color(0xFF616161);
+    final fg = pausada
+        ? (isDark ? const Color(0xFFD1D5DB) : const Color(0xFF4B5563))
+        : (isDark ? const Color(0xFFECEFF1) : const Color(0xFF1B1B1B));
+    final fgSec = pausada
+        ? (isDark ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280))
+        : (isDark ? const Color(0xFFB0BEC5) : const Color(0xFF616161));
 
     material.Color barColor;
     if (cancelada) {
@@ -390,45 +506,66 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
 
     final tieneDetalleInfo = _tieneDetalleInfo(task);
     final tieneImagenAdjunta = imagenAdjuntaBase64Tarea(task) != null;
+    final canEditManualMission =
+        esManualSource(task) &&
+        canControl &&
+        !cancelada &&
+        !pausada &&
+        p < 100 &&
+        onEditManual != null;
     final tiempoTxt = tiempoEstimadoEtiqueta(task);
     final totalMeta = totalMinutosPresupuestoCombinado(task);
+    final tiempoCorto = (() {
+      var s = tiempoTxt;
+      s = s.replaceFirst('Tiempo estimado: ', 'T. est.: ');
+      s = s.replaceAll(' hrs ', ' h ');
+      s = s.replaceAll(' min', ' m');
+      s = s.replaceAll(' no aplica', ' n/a');
+      return s;
+    })();
 
-    final presupuestoBlock = Tooltip(
+    final tiempoFooter = Tooltip(
       message:
           totalMeta != null
               ? 'Tiempo restante estimado = presupuesto ($totalMeta min) × (1 − progreso/100). '
                   'Radar: total_minutos en meta; manual: minutos al crear o checklist.'
               : 'Defina minutos estimados al crear la misión manual, marque «No aplica» si no aplica, '
                   'o use Radar para simulación con total_minutos.',
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        child: Text(
-          tiempoTxt,
-          textAlign: lobbyStyle ? TextAlign.start : TextAlign.center,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            color: fg,
-            height: 1.25,
-          ),
+      child: Text(
+        tiempoCorto,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: fgSec,
         ),
+        textAlign: TextAlign.right,
       ),
     );
 
-    final actionWrap = Wrap(
-      spacing: 6,
-      runSpacing: 6,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        if (onShowMeta != null && tieneDetalleInfo)
+    final actionWrap = Align(
+      alignment: Alignment.centerRight,
+      child: Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        alignment: WrapAlignment.end,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
           Tooltip(
-            message:
-                'Nombre, descripción al crear la misión y, si aplica, datos técnicos (Radar / auditoría).',
+            message: 'Guía rápida de color y estados de la tarjeta.',
             child: IconButton(
               icon: const Icon(FluentIcons.info, size: 16),
-              onPressed: onShowMeta,
+              onPressed: () => _showCardColorLegend(context),
             ),
           ),
+          if (onShowMeta != null && tieneDetalleInfo)
+            Tooltip(
+              message:
+                  'Nombre, descripción al crear la misión y, si aplica, datos técnicos (Radar / auditoría).',
+              child: IconButton(
+                icon: const Icon(FluentIcons.info_solid, size: 15),
+                onPressed: onShowMeta,
+              ),
+            ),
         if (tieneImagenAdjunta)
           Tooltip(
             message: 'Ver imagen adjunta a la mision',
@@ -455,34 +592,23 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
             !cancelada &&
             !pausada &&
             p < 100)
-          FilledButton(
-            style: ButtonStyle(
-              backgroundColor: WidgetStateProperty.all(const Color(0xFFFFA000)),
-            ),
-            onPressed: onPause,
-            child: const Text('Pausar'),
-          ),
+          Button(onPressed: onPause, child: const Text('Pausar')),
         if (vistaMisionesActivas && canControl && pausada && p < 100)
-          FilledButton(onPressed: onResume, child: const Text('Reanudar')),
+          Button(onPressed: onResume, child: const Text('Reanudar')),
         if (esManualSource(task) &&
             canControl &&
             !cancelada &&
             !pausada &&
             p < 100 &&
             onFinalizarManual != null)
-          FilledButton(
-            style: ButtonStyle(
-              backgroundColor: WidgetStateProperty.all(const Color(0xFF2979FF)),
-            ),
-            onPressed: onFinalizarManual,
-            child: const Text('Finalizar'),
-          ),
+          Button(onPressed: onFinalizarManual, child: const Text('Finalizar')),
         if (vistaMisionesActivas && canControl && onCancel != null)
           IconButton(
             icon: const Icon(FluentIcons.delete, size: 16),
             onPressed: onCancel,
           ),
-      ],
+        ],
+      ),
     );
 
     final checklistTile = _expansionChecklist(
@@ -494,6 +620,14 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
       fgSec,
       isDark,
       permitirChecklist && canControl && !pausada,
+    );
+    final controlesInferiores = Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(child: checklistTile),
+        const SizedBox(width: 8),
+        Flexible(child: actionWrap),
+      ],
     );
 
     final Widget? bitacoraHistorial =
@@ -507,23 +641,142 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
             )
             : null;
 
+    material.Color colorUsuario(String u) {
+      final fromTaskRaw = task['usuarios_colores'];
+      if (fromTaskRaw is Map) {
+        final k = u.trim().toLowerCase();
+        String? hx;
+        for (final entry in fromTaskRaw.entries) {
+          final ku = '${entry.key}'.trim().toLowerCase();
+          if (ku == k) {
+            hx = '${entry.value}'.trim();
+            break;
+          }
+        }
+        final parsed = _tryHexToColor(hx);
+        if (parsed != null) {
+          return _ensureReadableColorOn(parsed, bg);
+        }
+      }
+      if (u.trim().toLowerCase() == asignado.trim().toLowerCase()) {
+        final parsed = _tryHexToColor('${task['usuario_color_hex'] ?? ''}');
+        if (parsed != null) {
+          return _ensureReadableColorOn(parsed, bg);
+        }
+      }
+      const palette = <material.Color>[
+        material.Color(0xFF64B5F6),
+        material.Color(0xFF42A5F5),
+        material.Color(0xFF5C6BC0),
+        material.Color(0xFF7E57C2),
+        material.Color(0xFFAB47BC),
+        material.Color(0xFFBA68C8),
+        material.Color(0xFF26C6DA),
+        material.Color(0xFF29B6F6),
+        material.Color(0xFFFF8A65),
+        material.Color(0xFF00ACC1),
+      ];
+      var hash = 0;
+      for (final c in u.codeUnits) {
+        hash = (hash * 31 + c) & 0xFFFFFFFF;
+      }
+      return _ensureReadableColorOn(palette[hash.abs() % palette.length], bg);
+    }
+
+    final footerUsuarios = (() {
+      final list = usuariosAsignados.isNotEmpty ? usuariosAsignados : <String>[asignado];
+      final hasTodos = list.any((u) {
+        final n = u.trim().toUpperCase();
+        return n == '__TODOS__' || n == 'TODOS';
+      });
+      if (hasTodos) {
+        return <Widget>[
+          Text(
+            'TODOS',
+            style: TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w900,
+              color: fg,
+              height: 1.18,
+            ),
+          ),
+        ];
+      }
+      if (list.length <= 1) {
+        final name = list.first.trim().isEmpty ? 'Sin asignar' : list.first;
+        final uColor = colorUsuario(name);
+        return <Widget>[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+                      color: uColor.withValues(alpha: 0.42),
+              borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: uColor.withValues(alpha: 0.92)),
+            ),
+            child: Text(
+              name,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                        color: _onUserBg(uColor),
+                height: 1.2,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ];
+      }
+      return [
+            for (final u in list)
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+                  color: colorUsuario(u).withValues(alpha: 0.4),
+              borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: colorUsuario(u).withValues(alpha: 0.9)),
+            ),
+            child: Text(
+              u,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                    color: _onUserBg(colorUsuario(u)),
+                height: 1.15,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+      ];
+    })();
+
     final footerRow = Row(
       children: [
+        Container(
+          width: 8,
+          height: 22,
+          decoration: BoxDecoration(
+            color: colorUsuario(asignado),
+            borderRadius: BorderRadius.circular(3),
+          ),
+        ),
+        const SizedBox(width: 6),
         Icon(FluentIcons.contact, size: 16, color: fgSec),
         const SizedBox(width: 8),
         Expanded(
-          child: Text(
-            asignado == 'Sin asignar' ? asignado : 'Responsable: $asignado',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: fg,
-              height: 1.2,
-            ),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: footerUsuarios,
           ),
         ),
+        const SizedBox(width: 10),
+        tiempoFooter,
+        const SizedBox(width: 8),
         Icon(
           esManualSource(task)
               ? FluentIcons.page_list
@@ -546,10 +799,6 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
     if (lobbyStyle && vistaMisionesActivas) {
       final idx = lobbyIndex ?? 0;
       final n = lobbyCount ?? 1;
-      final iconData =
-          esManualSource(task)
-              ? FluentIcons.page_list
-              : FluentIcons.bullseye_target;
       return material.Card(
         elevation: 4,
         color: material.Colors.transparent,
@@ -640,7 +889,18 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
                         color: stroke.withValues(alpha: 0.22),
                         borderRadius: BorderRadius.circular(14),
                       ),
-                      child: Icon(iconData, color: stroke, size: 28),
+                      alignment: Alignment.center,
+                      child: Text(
+                        avatarLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.fade,
+                        style: TextStyle(
+                          fontSize: avatarLabel.length > 3 ? 10 : 16,
+                          fontWeight: FontWeight.w900,
+                          color: stroke,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -686,7 +946,37 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
                                 ),
                                 const SizedBox(width: 6),
                               ],
+                              if (canEditManualMission)
+                                Tooltip(
+                                  message: 'Editar checklist o imagen de la misión manual',
+                                  child: IconButton(
+                                    icon: const Icon(FluentIcons.edit, size: 16),
+                                    onPressed: onEditManual,
+                                  ),
+                                ),
                               _pill(context, _pillEstado(), stroke),
+                              if (pausadaPorUrgente) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF6D4C41),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: const Text(
+                                    'SUSPENDIDA',
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w800,
+                                      color: Color(0xFFFFF3E0),
+                                      letterSpacing: 0.45,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                           if (showMotivoInline) ...[
@@ -729,16 +1019,34 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
                           ),
                           if (descCard.isNotEmpty) ...[
                             const SizedBox(height: 6),
-                            Text(
-                              descCard,
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: fgSec,
-                                height: 1.25,
-                              ),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    descCard,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: fg,
+                                      height: 1.24,
+                                    ),
+                                    maxLines: 3,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                if (descCard.length > 90) ...[
+                                  const SizedBox(width: 4),
+                                  Tooltip(
+                                    message: 'Ver descripción completa',
+                                    child: IconButton(
+                                      icon: const Icon(FluentIcons.read, size: 15),
+                                      onPressed: () =>
+                                          _showMissionDescriptionDialog(context, descCard),
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
                           ],
                         ],
@@ -752,11 +1060,7 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    presupuestoBlock,
-                    const SizedBox(height: 10),
-                    actionWrap,
-                    const SizedBox(height: 8),
-                    checklistTile,
+                    controlesInferiores,
                     if (bitacoraHistorial != null) ...[
                       const SizedBox(height: 6),
                       bitacoraHistorial,
@@ -915,13 +1219,39 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
                               ),
                             ),
                           ],
+                          if (canEditManualMission)
+                            Tooltip(
+                              message: 'Editar checklist o imagen de la misión manual',
+                              child: IconButton(
+                                icon: const Icon(FluentIcons.edit, size: 16),
+                                onPressed: onEditManual,
+                              ),
+                            ),
                           _pill(context, _pillEstado(), stroke),
+                          if (pausadaPorUrgente) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              margin: const EdgeInsets.only(right: 4),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 5,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF6D4C41),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Text(
+                                'SUSPENDIDA',
+                                style: TextStyle(
+                                  fontSize: 8,
+                                  fontWeight: FontWeight.w900,
+                                  color: Color(0xFFFFF3E0),
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
-                      ),
-                      const SizedBox(height: 6),
-                      Align(
-                        alignment: Alignment.center,
-                        child: presupuestoBlock,
                       ),
                       const SizedBox(height: 6),
                       ClipRRect(
@@ -945,16 +1275,34 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
                       ),
                       if (descCard.isNotEmpty) ...[
                         const SizedBox(height: 4),
-                        Text(
-                          descCard,
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: fgSec,
-                            height: 1.2,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                descCard,
+                                style: TextStyle(
+                                  fontSize: 12.4,
+                                  fontWeight: FontWeight.w600,
+                                  color: fg,
+                                  height: 1.2,
+                                ),
+                                maxLines: 3,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (descCard.length > 90) ...[
+                              const SizedBox(width: 2),
+                              Tooltip(
+                                message: 'Ver descripción completa',
+                                child: IconButton(
+                                  icon: const Icon(FluentIcons.read, size: 14),
+                                  onPressed: () =>
+                                      _showMissionDescriptionDialog(context, descCard),
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                       ],
                       if (vistaHistorial &&
@@ -992,9 +1340,7 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
                         ),
                       ],
                       const SizedBox(height: 6),
-                      actionWrap,
-                      const SizedBox(height: 8),
-                      checklistTile,
+                      controlesInferiores,
                       if (bitacoraHistorial != null) ...[
                         const SizedBox(height: 6),
                         bitacoraHistorial,
@@ -1048,6 +1394,7 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
               fgMuted: fgSec,
               isDark: isDark,
               puedeEditar: puedeEditar,
+              hidePlaceholderGroupHeader: esManualSource(task),
             );
     return MissionChecklistScrollPane(
       title: 'Checklist (${checks.length})',
@@ -1085,6 +1432,7 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
     required Color fgMuted,
     required bool isDark,
     required bool puedeEditar,
+    bool hidePlaceholderGroupHeader = false,
   }) {
     final byGroup = <String, List<Map<String, dynamic>>>{};
     for (final c in checks) {
@@ -1093,11 +1441,23 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
     }
     final keys = byGroup.keys.toList()..sort(compareGrupoChecklist);
     final out = <Widget>[];
+    if (hidePlaceholderGroupHeader && keys.length == 1) {
+      final header = tituloEncabezadoGrupoChecklist(keys.first).trim();
+      if (header == kGrupoJerarquiaIndefinida) {
+        return [
+          for (final c in byGroup[keys.first]!)
+            Padding(
+              padding: const EdgeInsets.only(left: 8, bottom: 6),
+              child: _filaCheck(idTarea, c, puedeEditar, fgMuted),
+            ),
+        ];
+      }
+    }
     final headerBg = isDark ? const Color(0xFF38383F) : const Color(0xFFE4E7EF);
     for (var gi = 0; gi < keys.length; gi++) {
       final g = keys[gi];
       final list = byGroup[g]!;
-      final headerText = tituloEncabezadoGrupoChecklist(g);
+      final headerText = _tituloChecklistUi(g, esManualSource(task));
 
       final filasItems = <Widget>[
         for (final c in list)
@@ -1270,7 +1630,7 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
       if (matched.isEmpty) continue;
 
       final gtRaw = '${block['grupo_titulo'] ?? ''}'.trim();
-      final headerText = tituloEncabezadoGrupoChecklist(gtRaw);
+      final headerText = _tituloChecklistUi(gtRaw, esManualSource(task));
 
       final filasItems = <Widget>[
         for (final c in matched)
@@ -1449,12 +1809,15 @@ class _MissionChecklistScrollPaneState
         ),
         child: material.ExpansionTile(
           tilePadding: EdgeInsets.zero,
+          dense: true,
+          visualDensity: const VisualDensity(horizontal: -2, vertical: -3),
+          minTileHeight: 26,
           childrenPadding: const EdgeInsets.only(bottom: 8),
           title: Text(
             widget.title,
             style: TextStyle(
               fontWeight: FontWeight.w600,
-              fontSize: 13,
+              fontSize: 12,
               color: widget.fg,
             ),
           ),
@@ -1616,6 +1979,55 @@ class _BitacoraHistorialExpansionState
       ),
     );
   }
+}
+
+void _showMissionDescriptionDialog(BuildContext context, String descripcion) {
+  showDialog(
+    context: context,
+    builder: (ctx) => ContentDialog(
+      title: const Text('Descripción completa'),
+      content: SizedBox(
+        width: 480,
+        child: SingleChildScrollView(
+          child: Text(
+            descripcion.trim().isEmpty ? 'Sin descripción.' : descripcion.trim(),
+            style: const TextStyle(fontSize: 13, height: 1.3),
+          ),
+        ),
+      ),
+      actions: [
+        Button(child: const Text('Cerrar'), onPressed: () => Navigator.pop(ctx)),
+      ],
+    ),
+  );
+}
+
+void _showCardColorLegend(BuildContext context) {
+  showDialog(
+    context: context,
+    builder: (ctx) => ContentDialog(
+      title: const Text('Guía de colores - Tarjeta'),
+      content: const SizedBox(
+        width: 560,
+        child: Text(
+          'Barra izquierda:\n'
+          '• Rojo: prioridad crítica\n'
+          '• Naranja: prioridad alta\n'
+          '• Azul: prioridad normal\n'
+          '• Gris: sin prioridad definida\n\n'
+          'Estados visuales:\n'
+          '• Contorno más intenso: tarjeta activa en foco\n'
+          '• Sombreada + etiqueta SUSPENDIDA: pausada por prioridad crítica\n'
+          '• Etiqueta de usuario: color identificador del responsable\n'
+          '• Progreso: barra con porcentaje actual del checklist',
+          style: TextStyle(fontSize: 12.5, height: 1.35),
+        ),
+      ),
+      actions: [
+        Button(child: const Text('Entendido'), onPressed: () => Navigator.pop(ctx)),
+      ],
+    ),
+  );
 }
 
 /// Resultado de [showAsignarPrioridadMissionDialog].

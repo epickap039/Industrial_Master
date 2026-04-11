@@ -130,6 +130,7 @@ def buscar_vin(q: str):
             LEFT JOIN Tbl_Unidades_Fisicas     socio ON u.ID_VIN_Asociado = socio.ID_Unidad
             WHERE u.Serie LIKE ?
         """
+        q = (q or "").strip()
         cursor.execute(query, (f"%{q}%",))
         rows = cursor.fetchall()
         return [

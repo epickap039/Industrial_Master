@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "industrial_manager_v15_5" "\0"
+            VALUE "CompanyName", "JAES" "\0"
+            VALUE "FileDescription", "Industrial Manager x Epickap" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "industrial_manager_v15_5" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.example. All rights reserved." "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 Alejandro de Jesus Gonzalez Hernandez (Epickap). All rights reserved." "\0"
             VALUE "OriginalFilename", "industrial_manager_v15_5.exe" "\0"
-            VALUE "ProductName", "industrial_manager_v15_5" "\0"
+            VALUE "ProductName", "Industrial Manager x Epickap" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

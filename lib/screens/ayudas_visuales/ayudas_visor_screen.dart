@@ -7,6 +7,7 @@ import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 
 import '../../config/app_config.dart';
 import '../../services/api_client.dart';
+import '../../widgets/contextual_bug_report.dart';
 import 'ayudas_api_models.dart';
 
 String _pdfUrlForRevision(int idRevision) {
@@ -288,7 +289,7 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
               controller: passCtrl,
               obscureText: true,
               decoration: const material.InputDecoration(
-                labelText: 'Contraseña',
+                labelText: 'Clave maestra',
               ),
             ),
             actions: [
@@ -301,13 +302,12 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
                   Navigator.pop(dCtx);
                   try {
                     final prefs = await SharedPreferences.getInstance();
-                    final user =
-                        prefs.getString('username')?.trim() ?? 'Operador';
+                    final user = prefs.getString('username')?.trim() ?? 'Operador';
                     await ApiClient.delete(
                       '/api/ayudas/revision/$idRevision',
                       headers: {
                         'X-Usuario': user,
-                        ApiClient.adminMasterPasswordHeader: passCtrl.text,
+                        ApiClient.adminMasterPasswordHeader: passCtrl.text.trim(),
                       },
                     );
                     await _cargarHistorial();
@@ -369,6 +369,16 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
             fontWeight: FontWeight.w600,
           ),
         ),
+        actions: [
+          material.IconButton(
+            icon: const material.Icon(material.Icons.bug_report_outlined),
+            onPressed: () => showContextualBugReportDialog(
+              context,
+              modulo: 'Ayudas Visuales',
+              contextoPantalla: 'ayudas_visor',
+            ),
+          ),
+        ],
       ),
       body: LayoutBuilder(
         builder: (context, c) {

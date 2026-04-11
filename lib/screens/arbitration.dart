@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/conflict_dialog.dart';
 import '../services/api_client.dart';
 import '../services/arbitration_bridge.dart';
+import '../services/notification_inbox_service.dart';
 import '../theme/page_title_style.dart';
 import '../theme/ui_tokens.dart';
 
@@ -257,7 +258,7 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
 
       final result = await ApiClient.post(
         '/api/excel/sincronizar',
-        headers: {'X-Usuario': 'Alejandro'},
+        headers: {'X-Usuario': username},
         body: updatesToSend,
       ) as Map<String, dynamic>;
 
@@ -279,6 +280,26 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
       );
 
       if (!mounted) return;
+      final nuevos = (result['nuevos_insertados'] is int)
+          ? (result['nuevos_insertados'] as int)
+          : int.tryParse('${result['nuevos_insertados'] ?? 0}') ?? 0;
+      if (nuevos > 0) {
+        await CmdInboxStore.instance.addSystemNotice(
+          title: 'Importar archivos: nuevos codigos',
+          body: 'Se agregaron $nuevos codigo(s) nuevos al catalogo maestro.',
+        );
+        if (mounted) {
+          displayInfoBar(
+            context,
+            builder: (c, close) => InfoBar(
+              title: const Text('Carga completada'),
+              content: Text('Se registraron $nuevos código(s) nuevos en la base de datos.'),
+              severity: InfoBarSeverity.success,
+              onClose: close,
+            ),
+          );
+        }
+      }
 
       // Limpiar lista visualmente
       setState(() {
@@ -1151,10 +1172,14 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
                                     alignment: Alignment.center,
                                     child: DecoratedBox(
                                       decoration: BoxDecoration(
-                                        color: theme.cardColor,
+                                        color: estado == 'CONFLICTO'
+                                            ? const Color(0xFF7F1D1D)
+                                            : theme.cardColor,
                                         border: Border.all(
                                           color: estado == 'NUEVO'
                                               ? theme.accentColor
+                                              : estado == 'CONFLICTO'
+                                                  ? const Color(0xFFEF4444)
                                               : theme
                                                   .resources
                                                   .dividerStrokeColorDefault,
@@ -1172,6 +1197,9 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
                                           style: theme.typography.caption
                                               ?.copyWith(
                                                 fontWeight: FontWeight.w600,
+                                                color: estado == 'CONFLICTO'
+                                                    ? const Color(0xFFFEE2E2)
+                                                    : null,
                                               ),
                                           maxLines: 1,
                                           softWrap: false,

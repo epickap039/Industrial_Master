@@ -14,6 +14,7 @@ import '../services/nav_pane.dart';
 import '../theme/app_themes.dart';
 import '../theme/ui_tokens.dart';
 import '../widgets/compact_page_header.dart';
+import 'bom_new_list_screen.dart';
 
 part '../controllers/bom_manager_controller.dart';
 
@@ -46,6 +47,35 @@ class BOMManagerScreen extends StatefulWidget {
 
 class _BOMManagerScreenState extends State<BOMManagerScreen>
     with BomManagerControllerMixin {
+  Future<void> _abrirCrearListaNueva() async {
+    final revIdRaw = _selectedRevision?['id_revision'];
+    final revId = revIdRaw is int ? revIdRaw : int.tryParse('$revIdRaw');
+    if (revId == null || revId <= 0) {
+      if (!mounted) return;
+      displayInfoBar(
+        context,
+        builder: (c, close) => InfoBar(
+          title: const Text('Selecciona una revisión'),
+          content: const Text('Primero selecciona una revisión para crear la lista.'),
+          severity: InfoBarSeverity.warning,
+          onClose: close,
+        ),
+      );
+      return;
+    }
+    final created = await Navigator.push<bool>(
+      context,
+      FluentPageRoute(
+        builder: (_) => BomNewListScreen(idRevision: revId),
+      ),
+    );
+    if (created == true) {
+      if (!mounted) return;
+      await _fetchArbol();
+      await _fetchBomPlana();
+    }
+  }
+
   CommandBarButton get _ecrCommandBarItem {
     final bool hasBorrador = _revisiones.any(
       (r) => r['estado'] == 'Borrador' || r['estado'] == 'PENDIENTE',
@@ -252,6 +282,17 @@ class _BOMManagerScreenState extends State<BOMManagerScreen>
                           Icon(FluentIcons.add_to, size: 14),
                           SizedBox(width: 8),
                           Text('Sumar Excel'),
+                        ],
+                      ),
+                    ),
+                    FilledButton(
+                      onPressed: _abrirCrearListaNueva,
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(FluentIcons.add, size: 14),
+                          SizedBox(width: 8),
+                          Text('Crear lista nueva'),
                         ],
                       ),
                     ),
@@ -1684,6 +1725,13 @@ class _BOMManagerScreenState extends State<BOMManagerScreen>
                                           ),
                                           label: const Text('Importar Excel'),
                                           onPressed: _importarExcel,
+                                        ),
+                                      if (_selectedRevision != null &&
+                                          _esEditable)
+                                        CommandBarButton(
+                                          icon: const Icon(FluentIcons.add),
+                                          label: const Text('Crear lista nueva'),
+                                          onPressed: _abrirCrearListaNueva,
                                         ),
                                       if (_selectedRevision != null &&
                                           _esEditable)

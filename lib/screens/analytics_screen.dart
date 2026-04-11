@@ -28,6 +28,12 @@ double _distTotalM2(dynamic item) {
   return double.tryParse(v.toString()) ?? 0;
 }
 
+double _analyticsDouble(dynamic v) {
+  if (v == null) return 0;
+  if (v is num) return v.toDouble();
+  return double.tryParse(v.toString()) ?? 0;
+}
+
 class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
 
@@ -328,7 +334,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       padding: const EdgeInsets.only(top: 8),
       header: CompactPageHeader(
         title: Text(
-          'Dashboard Analytics - Control de Producción',
+          'Estadísticas - Control de Producción',
           style: FluentTheme.of(context).typography.title,
         ),
         commandBar: Wrap(
@@ -438,7 +444,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             ],
           ),
           const SizedBox(height: 24),
-          _buildEnsambleChart(isDark),
+          _buildTopBrechaStock(isDark),
         ],
       ),
     );
@@ -453,6 +459,22 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     final totalUnidades  = (_dashboardData!['total_unidades']  ?? 0) as int;
     final lineasBomTbl = _analyticsInt(_dashboardData!['total_lineas_bom_estructura']);
     final registrosMaestro = _analyticsInt(_dashboardData!['total_registros_maestro_piezas']);
+    final stockKpis = (_dashboardData!['stock_kpis'] is Map)
+        ? Map<String, dynamic>.from(_dashboardData!['stock_kpis'])
+        : <String, dynamic>{};
+    final demandaStock = _analyticsDouble(stockKpis['demanda_total_unidades']);
+    final stockTotal = _analyticsDouble(stockKpis['stock_total_unidades']);
+    final faltanteTotal = _analyticsDouble(stockKpis['faltante_total_unidades']);
+    final cobertura = _analyticsDouble(stockKpis['porcentaje_cobertura']);
+    final skusFaltante = _analyticsInt(stockKpis['skus_con_faltante']);
+    final ultimaSync = (stockKpis['ultima_sync_stock_pt'] ?? '').toString().trim();
+    String? syncLabel;
+    if (ultimaSync.isNotEmpty) {
+      final dt = DateTime.tryParse(ultimaSync);
+      if (dt != null) {
+        syncLabel = DateFormat('yyyy-MM-dd HH:mm').format(dt.toLocal());
+      }
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -518,6 +540,31 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               isDark: isDark,
               subtitle: "catálogo técnico BD",
             ),
+            _kpiCard(
+              title: "Cobertura Stock PT",
+              value: "${cobertura.toStringAsFixed(1)}%",
+              icon: FluentIcons.shop,
+              color: isDark ? const Color(0xFF80CBC4) : const Color(0xFF00695C),
+              isDark: isDark,
+              subtitle: syncLabel == null ? "demanda vs stock" : "sync: $syncLabel",
+            ),
+            _kpiCard(
+              title: "Faltante Total",
+              value: _numFormat.format(faltanteTotal.round()),
+              icon: FluentIcons.warning,
+              color: isDark ? const Color(0xFFFFAB91) : const Color(0xFFC62828),
+              isDark: isDark,
+              subtitle: "skus con faltante: $skusFaltante",
+            ),
+            _kpiCard(
+              title: "Demanda vs Stock",
+              value:
+                  "${_numFormat.format(demandaStock.round())} / ${_numFormat.format(stockTotal.round())}",
+              icon: FluentIcons.stacked_line_chart,
+              color: isDark ? const Color(0xFFB39DDB) : const Color(0xFF5E35B1),
+              isDark: isDark,
+              subtitle: "unidades en scope",
+            ),
           ],
         ),
         if (sugerencia.isNotEmpty) ...[
@@ -544,6 +591,77 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           ),
         ],
       ],
+    );
+  }
+
+  Widget _buildTopBrechaStock(bool isDark) {
+    final List<dynamic> topRaw = List.from(_dashboardData!['top_brecha_stock'] ?? const []);
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: FluentTheme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            "Top Brecha de Stock (Demanda vs Almacén)",
+            style: FluentTheme.of(context).typography.subtitle,
+          ),
+          const SizedBox(height: 14),
+          if (topRaw.isEmpty)
+            Text(
+              "Sin datos de brecha para este alcance.",
+              style: TextStyle(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.7)
+                    : Colors.black.withValues(alpha: 0.65),
+              ),
+            )
+          else
+            ...topRaw.take(10).map((e) {
+              final m = Map<String, dynamic>.from(e as Map);
+              final codigo = (m['Codigo_Pieza'] ?? '').toString();
+              final demanda = _analyticsDouble(m['Demanda_Unidades']);
+              final stock = _analyticsDouble(m['Stock_Unidades']);
+              final faltante = _analyticsDouble(m['Faltante_Unidades']);
+              final color = faltante > 0
+                  ? (isDark ? const Color(0xFFFFAB91) : const Color(0xFFC62828))
+                  : (isDark ? const Color(0xFFB2DFDB) : const Color(0xFF2E7D32));
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 5),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 140,
+                      child: Text(
+                        codigo,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        "Dem: ${_numFormat.format(demanda.round())}  |  Stock: ${_numFormat.format(stock.round())}",
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: isDark
+                              ? Colors.white.withValues(alpha: 0.75)
+                              : Colors.black.withValues(alpha: 0.7),
+                        ),
+                      ),
+                    ),
+                    Text(
+                      "Faltante: ${_numFormat.format(faltante.round())}",
+                      style: TextStyle(fontWeight: FontWeight.w700, color: color),
+                    ),
+                  ],
+                ),
+              );
+            }),
+        ],
+      ),
     );
   }
 

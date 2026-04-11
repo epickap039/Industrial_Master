@@ -17,10 +17,13 @@ enum NavPaneId {
   expedientesVin,
   historialCambios,
   ayudasVisuales,
+  chatInterno,
   dashboardAnalytics,
   centroQa,
+  notasVersion,
   radarImpacto,
   requerimientosMrp,
+  generadorCodigo,
   centroMonitoreo,
 }
 
@@ -28,6 +31,7 @@ bool _shows(NavPaneId id, AppRole r) => switch (id) {
       NavPaneId.lobby => r.showsNavLobby,
       NavPaneId.operacionHub =>
         r.showsNavAyudas ||
+        r.showsNavChatInterno ||
         r.showsNavMateriales ||
         r.showsNavRadar ||
         r.showsNavMonitoreo,
@@ -55,10 +59,13 @@ bool _shows(NavPaneId id, AppRole r) => switch (id) {
       NavPaneId.expedientesVin => r.showsNavVin,
       NavPaneId.historialCambios => r.showsNavHistorialCambios,
       NavPaneId.ayudasVisuales => r.showsNavAyudas,
+      NavPaneId.chatInterno => r.showsNavChatInterno,
       NavPaneId.dashboardAnalytics => r.showsNavAnalytics,
       NavPaneId.centroQa => r.showsNavQa,
+      NavPaneId.notasVersion => r.showsNavQa,
       NavPaneId.radarImpacto => r.showsNavRadar,
       NavPaneId.requerimientosMrp => r.showsNavMrp,
+      NavPaneId.generadorCodigo => r.showsNavCatalogo,
       NavPaneId.centroMonitoreo => r.showsNavMonitoreo,
     };
 
@@ -78,6 +85,7 @@ List<NavPaneId> visibleNavPanes(AppRole r) =>
 NavPaneId _ownerSectionFor(NavPaneId id) {
   return switch (id) {
     NavPaneId.ayudasVisuales ||
+    NavPaneId.chatInterno ||
     NavPaneId.materialesOficiales ||
     NavPaneId.radarImpacto ||
     NavPaneId.centroMonitoreo => NavPaneId.operacionHub,
@@ -87,10 +95,11 @@ NavPaneId _ownerSectionFor(NavPaneId id) {
     NavPaneId.importarExcel ||
     NavPaneId.auditorArchivos ||
     NavPaneId.estandarizacion => NavPaneId.ingenieriaHub,
-    NavPaneId.historialCambios || NavPaneId.centroQa => NavPaneId.seguimientoHub,
+    NavPaneId.historialCambios || NavPaneId.centroQa || NavPaneId.notasVersion => NavPaneId.seguimientoHub,
     NavPaneId.catalogoMaestro ||
     NavPaneId.dashboardAnalytics ||
-    NavPaneId.requerimientosMrp => NavPaneId.datosHub,
+    NavPaneId.requerimientosMrp ||
+    NavPaneId.generadorCodigo => NavPaneId.datosHub,
     _ => id,
   };
 }

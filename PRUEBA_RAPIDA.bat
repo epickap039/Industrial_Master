@@ -18,7 +18,12 @@ if exist "%~dp0backend\utf8_repo_sweep.py" (
 
 :: --- LIMPIEZA DE RUTAS ANTIGUAS ---
 :: Esto es necesario para eliminar los errores "Type not found" de la cache
-call flutter clean
+if /I "%~1"=="--clean" (
+  echo [SETUP] Ejecutando flutter clean por solicitud explicita...
+  call flutter clean
+) else (
+  echo [SETUP] Omitiendo flutter clean para conservar APK/EXE previos.
+)
 call flutter pub get
 
 :: --- INICIO DE PROCESOS ---

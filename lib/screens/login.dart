@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -27,6 +28,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isServerOnline = false;
   Uint8List? _avatarBytes;
   int _avatarReq = 0;
+  Timer? _avatarDebounce;
   String? _selectedColorHex;
   Map<String, String> _usedColorsByUser = {};
 
@@ -40,22 +42,26 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
+    _avatarDebounce?.cancel();
     _userController.removeListener(_handleUserInputForAvatar);
     _userController.dispose();
     _passController.dispose();
     super.dispose();
   }
 
-  Future<void> _handleUserInputForAvatar() async {
+  void _handleUserInputForAvatar() {
+    _avatarDebounce?.cancel();
     final username = _userController.text.trim();
     final myReq = ++_avatarReq;
-    if (username.isEmpty) {
+    if (username.isEmpty || username.length < 3 || username.contains(' ')) {
       if (mounted) setState(() => _avatarBytes = null);
       return;
     }
-    final bytes = await UserAvatarService.instance.loadAvatarForUser(username);
-    if (!mounted || myReq != _avatarReq) return;
-    setState(() => _avatarBytes = bytes);
+    _avatarDebounce = Timer(const Duration(milliseconds: 320), () async {
+      final bytes = await UserAvatarService.instance.loadAvatarForUser(username);
+      if (!mounted || myReq != _avatarReq) return;
+      setState(() => _avatarBytes = bytes);
+    });
   }
 
   Future<void> _pickAvatarForTypedUser() async {

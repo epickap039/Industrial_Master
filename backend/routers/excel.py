@@ -207,11 +207,6 @@ async def procesar_excel(file: UploadFile = File(...)):
                 }
 
                 # Comparación Flexible (Case Insensitive)
-                if item['Descripcion_Excel'].lower() != desc_sql.lower():
-                     if item['Descripcion_Excel']: # Solo si excel tiene dato
-                        status = "CONFLICTO"
-                        detalles.append(f"Desc: '{item['Descripcion_Excel']}' vs SQL '{desc_sql}'")
-
                 if item['Material_Excel'].lower() != mat_sql.lower():
                      if item['Material_Excel']:
                         status = "CONFLICTO"
@@ -246,6 +241,7 @@ async def sincronizar_excel(items: List[SincronizacionItem], x_usuario: Optional
     cursor = conn.cursor()
     
     procesados = 0
+    nuevos_insertados = 0
     errores = 0
     
     try:
@@ -293,6 +289,7 @@ async def sincronizar_excel(items: List[SincronizacionItem], x_usuario: Optional
 
                 if cursor.rowcount > 0:
                     procesados += 1
+                    nuevos_insertados += 1
                     # Log Auditoría CREACIÓN
                     registrar_auditoria(cursor, item.Codigo_Pieza, 'CREACION', 'NO EXISTIA', item.model_dump(), usuario)
 
@@ -338,7 +335,11 @@ async def sincronizar_excel(items: List[SincronizacionItem], x_usuario: Optional
                     registrar_auditoria(cursor, item.Codigo_Pieza, 'MODIFICACION', val_anterior, item.model_dump(), usuario)
 
         conn.commit()
-        return {"status": "ok", "message": f"{procesados} registros sincronizados exitosamente."}
+        return {
+            "status": "ok",
+            "message": f"{procesados} registros sincronizados exitosamente.",
+            "nuevos_insertados": nuevos_insertados,
+        }
 
     except Exception as e:
         conn.rollback()

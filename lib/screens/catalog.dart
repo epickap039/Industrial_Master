@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -11,6 +12,7 @@ import '../services/api_client.dart';
 import '../services/app_role.dart';
 import '../theme/ui_tokens.dart';
 import '../widgets/compact_page_header.dart';
+import '../widgets/contextual_bug_report.dart';
 
 class CatalogScreen extends StatefulWidget {
   const CatalogScreen({super.key, this.effectiveRole});
@@ -43,6 +45,12 @@ class _CatalogScreenState extends State<CatalogScreen> {
   bool _isLoading = true;
   bool _onlyWithPlano = false;
   String? _errorMessage;
+  int? _stockPtOrphansCount;
+  bool _stockPtSyncBusy = false;
+  bool _stockPtOrphansBusy = false;
+  Timer? _stockPtAutoSyncTimer;
+  DateTime? _lastStockPtAutoSyncAt;
+  static const Duration _stockPtAutoSyncEvery = Duration(minutes: 5);
 
   // Ordenamiento
   String _columnaOrden = "";
@@ -71,6 +79,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
     if (explicit != null && explicit.isNotEmpty) {
       if (mounted) {
         setState(() => _userRole = explicit);
+        _configureStockPtAutoSync();
       }
       return;
     }
@@ -79,6 +88,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
       setState(() {
         _userRole = prefs.getString('rol') ?? 'USER';
       });
+      _configureStockPtAutoSync();
     }
   }
 
@@ -135,11 +145,16 @@ class _CatalogScreenState extends State<CatalogScreen> {
         (norm == 'tienedxf' || norm == 'largodxf' || norm == 'anchodxf')) {
       return true;
     }
+    if (!ar.catalogShowsStockPtAlmacen &&
+        (norm == 'stockptalmacen' || norm == 'stockptalmacensyncat')) {
+      return true;
+    }
     return false;
   }
 
   @override
   void dispose() {
+    _stockPtAutoSyncTimer?.cancel();
     _horizontalScrollController.dispose();
     _verticalScrollController.dispose();
     for (var controller in _filterControllers.values) {
@@ -148,7 +163,272 @@ class _CatalogScreenState extends State<CatalogScreen> {
     super.dispose();
   }
 
-  /// Carga datos del backend
+  void _configureStockPtAutoSync() {
+    final canAutoSync = parseAppRole(_userRole).catalogShowsStockPtAlmacen;
+    if (!canAutoSync) {
+      _stockPtAutoSyncTimer?.cancel();
+      _stockPtAutoSyncTimer = null;
+      return;
+    }
+    _stockPtAutoSyncTimer ??= Timer.periodic(_stockPtAutoSyncEvery, (_) {
+      unawaited(
+        _syncStockPtDesdeHoja(
+          showSuccessNotification: false,
+          showErrorNotification: true,
+          showProgressDialog: false,
+        ),
+      );
+    });
+    final last = _lastStockPtAutoSyncAt;
+    if (last == null || DateTime.now().difference(last) >= _stockPtAutoSyncEvery) {
+      unawaited(
+        _syncStockPtDesdeHoja(
+          showSuccessNotification: false,
+          showErrorNotification: true,
+          showProgressDialog: false,
+        ),
+      );
+    }
+  }
+
+  void _showStockPtInfo({
+    required String title,
+    required String message,
+    required InfoBarSeverity severity,
+  }) {
+    if (!mounted) return;
+    displayInfoBar(
+      context,
+      builder:
+          (c, close) => InfoBar(
+            title: Text(title),
+            content: Text(message),
+            severity: severity,
+            onClose: close,
+          ),
+    );
+  }
+
+  String _stockPtApiErrorDetail(ApiException e, {required String action}) {
+    final status = e.statusCode;
+    final msg = e.message.trim().isEmpty ? 'Sin detalle del servidor.' : e.message;
+    return 'Fallo en $action (HTTP $status): $msg';
+  }
+
+  Future<T> _runStockTaskWithProgress<T>({
+    required String title,
+    required String subtitle,
+    required Future<T> Function() task,
+  }) async {
+    if (!mounted) return task();
+    final started = DateTime.now();
+    int elapsedSec = 0;
+    void Function(void Function())? setProgressState;
+    final timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      elapsedSec = DateTime.now().difference(started).inSeconds;
+      setProgressState?.call(() {});
+    });
+    unawaited(
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) {
+          return StatefulBuilder(
+            builder: (ctx, setStateDialog) {
+              setProgressState = setStateDialog;
+              return ContentDialog(
+                title: Text(title),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(subtitle),
+                    const SizedBox(height: 10),
+                    const ProgressBar(strokeWidth: 4),
+                    const SizedBox(height: 10),
+                    Text(
+                      'Tiempo transcurrido: ${elapsedSec}s · Estimado: 3 a 20s',
+                      style: fluentSecondaryTextStyle(context, fontSize: 11),
+                    ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+    try {
+      return await task();
+    } finally {
+      timer.cancel();
+      if (mounted && Navigator.of(context, rootNavigator: true).canPop()) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+    }
+  }
+
+  /// Carga conteo de codigos con stock en hoja que no estan en catalogo.
+  Future<void> _refreshStockPtOrphansCount() async {
+    if (!parseAppRole(_userRole).catalogShowsStockPtAlmacen) return;
+    try {
+      final raw = await ApiClient.get('/api/catalog/stock-pt/orphans');
+      if (!mounted) return;
+      if (raw is Map) {
+        final c = raw['count'];
+        final n = c is int ? c : int.tryParse('$c');
+        setState(() => _stockPtOrphansCount = n);
+      }
+    } on ApiException catch (_) {
+      if (mounted) setState(() => _stockPtOrphansCount = null);
+    } catch (_) {
+      if (mounted) setState(() => _stockPtOrphansCount = null);
+    }
+  }
+
+  Future<void> _syncStockPtDesdeHoja({
+    bool showSuccessNotification = true,
+    bool showErrorNotification = true,
+    bool showProgressDialog = true,
+  }) async {
+    if (!parseAppRole(_userRole).catalogShowsStockPtAlmacen) return;
+    if (_stockPtSyncBusy) return;
+    setState(() => _stockPtSyncBusy = true);
+    try {
+      final dynamic raw;
+      if (showProgressDialog) {
+        raw = await _runStockTaskWithProgress(
+          title: 'Sincronizando stock PT',
+          subtitle: 'Consultando hoja externa y actualizando catálogo maestro...',
+          task: () => ApiClient.post('/api/catalog/stock-pt/sync'),
+        );
+      } else {
+        raw = await ApiClient.post('/api/catalog/stock-pt/sync');
+      }
+      if (!mounted) return;
+      _lastStockPtAutoSyncAt = DateTime.now();
+      final msg =
+          raw is Map
+              ? 'Hoja: ${raw['filas_hoja'] ?? '?'} · Catálogo actualizado: ${raw['registros_catalogo_actualizados'] ?? '?'}'
+              : 'Sincronizado';
+      if (showSuccessNotification) {
+        _showStockPtInfo(
+          title: 'Stock PT sincronizado',
+          message: msg,
+          severity: InfoBarSeverity.success,
+        );
+      }
+      await _fetchData(showLoading: false);
+      await _refreshStockPtOrphansCount();
+    } on ApiException catch (e) {
+      if (showErrorNotification) {
+        _showStockPtInfo(
+          title: 'Error en sync stock PT',
+          message: _stockPtApiErrorDetail(
+            e,
+            action: 'sincronizacion con hoja Inventario PT',
+          ),
+          severity: InfoBarSeverity.error,
+        );
+      }
+    } catch (e) {
+      if (showErrorNotification) {
+        _showStockPtInfo(
+          title: 'Error en sync stock PT',
+          message: 'Fallo de conectividad o parseo local: $e',
+          severity: InfoBarSeverity.error,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _stockPtSyncBusy = false);
+    }
+  }
+
+  Future<void> _showStockPtOrphansDialog() async {
+    if (!parseAppRole(_userRole).catalogShowsStockPtAlmacen) return;
+    setState(() => _stockPtOrphansBusy = true);
+    try {
+      final raw = await _runStockTaskWithProgress(
+        title: 'Buscando faltantes de catálogo',
+        subtitle: 'Escaneando hoja externa vs catálogo maestro...',
+        task: () => ApiClient.get('/api/catalog/stock-pt/orphans'),
+      );
+      if (!mounted) return;
+      final items =
+          raw is Map && raw['items'] is List
+              ? List<Map<String, dynamic>>.from(
+                (raw['items'] as List).map(
+                  (e) => Map<String, dynamic>.from(e as Map),
+                ),
+              )
+              : <Map<String, dynamic>>[];
+      setState(() => _stockPtOrphansCount = items.length);
+      _showStockPtInfo(
+        title: 'Escaneo completado',
+        message:
+            'Consulta OK. Códigos con stock sin catálogo: ${items.length}.',
+        severity: InfoBarSeverity.success,
+      );
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) {
+          return ContentDialog(
+            title: const Text('SKU en hoja inventario sin catálogo maestro'),
+            constraints: const BoxConstraints(maxWidth: 560, maxHeight: 520),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: 360,
+              child:
+                  items.isEmpty
+                      ? const Center(
+                        child: Text(
+                          'Ninguno. Todos los códigos de la hoja existen en el maestro.',
+                        ),
+                      )
+                      : ListView.separated(
+                        itemCount: items.length,
+                        separatorBuilder: (_, __) => const Divider(),
+                        itemBuilder: (context, i) {
+                          final it = items[i];
+                          return ListTile(
+                            title: Text(
+                              '${it['codigo'] ?? ''}',
+                              style: const TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                            subtitle: Text('Stock hoja: ${it['stock'] ?? '-'}'),
+                          );
+                        },
+                      ),
+            ),
+            actions: [
+              FilledButton(
+                child: const Text('Cerrar'),
+                onPressed: () => Navigator.pop(ctx),
+              ),
+            ],
+          );
+        },
+      );
+    } on ApiException catch (e) {
+      _showStockPtInfo(
+        title: 'Error al consultar inventario externo',
+        message: _stockPtApiErrorDetail(
+          e,
+          action: 'consulta de codigos sin catalogo',
+        ),
+        severity: InfoBarSeverity.error,
+      );
+    } catch (e) {
+      _showStockPtInfo(
+        title: 'Error al consultar inventario externo',
+        message: 'Fallo de red/local al consultar hoja: $e',
+        severity: InfoBarSeverity.error,
+      );
+    } finally {
+      if (mounted) setState(() => _stockPtOrphansBusy = false);
+    }
+  }
+
   Future<void> _fetchData({bool showLoading = true}) async {
     if (showLoading) {
       if (mounted) {
@@ -177,6 +457,24 @@ class _CatalogScreenState extends State<CatalogScreen> {
           allKeys.insert(indexOfAncho + 1, 'Espesor_Perfil_CAD');
         }
 
+        // Ocultar Area_CAD y ubicar columnas de stock PT en ese tramo.
+        final areaCadIndex = allKeys.indexOf('Area_CAD');
+        allKeys.remove('Area_CAD');
+        allKeys.remove('Stock_PT_Almacen');
+        allKeys.remove('Stock_PT_Almacen_SyncAt');
+        if (areaCadIndex >= 0) {
+          final insertAt = areaCadIndex.clamp(0, allKeys.length);
+          if (data.first.containsKey('Stock_PT_Almacen')) {
+            allKeys.insert(insertAt, 'Stock_PT_Almacen');
+          }
+          if (data.first.containsKey('Stock_PT_Almacen_SyncAt')) {
+            allKeys.insert(
+              (insertAt + 1).clamp(0, allKeys.length),
+              'Stock_PT_Almacen_SyncAt',
+            );
+          }
+        }
+
         _columns = allKeys;
 
         if (_visibleColumns.isEmpty) {
@@ -192,6 +490,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
             'Tiene_DXF',
             'Largo_DXF',
             'Ancho_DXF',
+            'Stock_PT_Almacen_SyncAt',
           };
           for (var col in _columns) {
             _visibleColumns[col] = !hiddenByDefault.contains(col);
@@ -217,6 +516,9 @@ class _CatalogScreenState extends State<CatalogScreen> {
           _applyFilters(resetScroll: showLoading);
           _isLoading = false;
         });
+        if (parseAppRole(_userRole).catalogShowsStockPtAlmacen) {
+          unawaited(_refreshStockPtOrphansCount());
+        }
       }
     } on ApiException catch (e) {
       if (mounted) {
@@ -261,9 +563,37 @@ class _CatalogScreenState extends State<CatalogScreen> {
     }).toList();
   }
 
+  int _compareCellValues(dynamic a, dynamic b) {
+    final sa = (a ?? '').toString().trim();
+    final sb = (b ?? '').toString().trim();
+
+    final na = double.tryParse(sa.replaceAll(',', ''));
+    final nb = double.tryParse(sb.replaceAll(',', ''));
+    if (na != null && nb != null) {
+      return na.compareTo(nb);
+    }
+
+    final da = DateTime.tryParse(sa);
+    final db = DateTime.tryParse(sb);
+    if (da != null && db != null) {
+      return da.compareTo(db);
+    }
+
+    return sa.toLowerCase().compareTo(sb.toLowerCase());
+  }
+
+  void _sortRowsInPlace(List<Map<String, dynamic>> rows) {
+    if (_columnaOrden.trim().isEmpty) return;
+    rows.sort((a, b) {
+      final c = _compareCellValues(a[_columnaOrden], b[_columnaOrden]);
+      return _ordenAscendente ? c : -c;
+    });
+  }
+
   /// Aplica filtros locales usando solo los controladores persistentes por columna.
   void _applyFilters({bool resetScroll = true}) {
     final next = _computeFilteredRows();
+    _sortRowsInPlace(next);
     setState(() {
       _filteredData = next;
     });
@@ -283,25 +613,8 @@ class _CatalogScreenState extends State<CatalogScreen> {
         _columnaOrden = columna;
         _ordenAscendente = true;
       }
-
-      _filteredData.sort((a, b) {
-        String valA = (a[columna] ?? "").toString().toLowerCase();
-        String valB = (b[columna] ?? "").toString().toLowerCase();
-
-        // Manejo especial de fechas para última actualización
-        if (columna == 'Ultima_Actualizacion') {
-          DateTime? dateA = DateTime.tryParse(valA);
-          DateTime? dateB = DateTime.tryParse(valB);
-          if (dateA != null && dateB != null) {
-            return _ordenAscendente
-                ? dateA.compareTo(dateB)
-                : dateB.compareTo(dateA);
-          }
-        }
-
-        return _ordenAscendente ? valA.compareTo(valB) : valB.compareTo(valA);
-      });
     });
+    _applyFilters(resetScroll: false);
   }
 
   void _clearFilters() {
@@ -447,6 +760,8 @@ class _CatalogScreenState extends State<CatalogScreen> {
     return _columns.where((c) {
       if (_visibleColumns[c] != true) return false;
       if (_excludeColumnForRole(c)) return false;
+      // Nunca exportar rutas internas (aunque la columna sea visible).
+      if (_isRutaPrivadaColumn(c)) return false;
       return true;
     }).toList();
   }
@@ -1336,84 +1651,164 @@ class _CatalogScreenState extends State<CatalogScreen> {
 
   Widget _buildCommandBar() {
     final role = parseAppRole(_userRole);
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      alignment: WrapAlignment.center,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        ToggleSwitch(
-          checked: _onlyWithPlano,
-          content: Text(_onlyWithPlano ? 'Con Plano/Drive' : 'Todos'),
-          onChanged: (v) {
-            setState(() => _onlyWithPlano = v);
-            _applyFilters();
-          },
-        ),
-        if (role.catalogCanSelectColumns)
-          Tooltip(
-            message: "Seleccionar Columnas",
-            child: IconButton(
-              icon: const Icon(FluentIcons.column_options),
-              onPressed: _showColumnSelector,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 44),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            ToggleSwitch(
+              checked: _onlyWithPlano,
+              content: Text(_onlyWithPlano ? 'Con Plano/Drive' : 'Todos'),
+              onChanged: (v) {
+                setState(() => _onlyWithPlano = v);
+                _applyFilters();
+              },
             ),
-          ),
-        Tooltip(
-          message: "Refrescar Datos",
-          child: IconButton(
-            icon: const Icon(FluentIcons.refresh),
-            onPressed: _fetchData,
-          ),
-        ),
-        Tooltip(
-          message: "Limpiar Filtros",
-          child: IconButton(
-            icon: const Icon(FluentIcons.clear_filter),
-            onPressed: _clearFilters,
-          ),
-        ),
-        if (role.catalogCanSearchDxf)
-          Tooltip(
-            message: "Buscar DXF",
-            child: Button(
-              style: roundedFilledButtonStyle(),
-              onPressed: _searchDXF,
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(FluentIcons.search),
-                  SizedBox(width: 8),
-                  Text('Buscar DXF'),
-                ],
+            const SizedBox(width: 8),
+            if (role.catalogCanSelectColumns)
+              Tooltip(
+                message: "Seleccionar Columnas",
+                child: IconButton(
+                  icon: const Icon(FluentIcons.column_options),
+                  onPressed: _showColumnSelector,
+                ),
+              ),
+            Tooltip(
+              message: "Refrescar Datos",
+              child: IconButton(
+                icon: const Icon(FluentIcons.refresh),
+                onPressed: _fetchData,
               ),
             ),
-          ),
-        if (role.catalogCanExportExcel)
-          Tooltip(
-            message: "Exportar a Excel",
-            child: IconButton(
-              icon: const Icon(FluentIcons.excel_logo),
-              onPressed: _filteredData.isNotEmpty ? _exportToExcel : null,
-            ),
-          ),
-        if (role.catalogCanExportPdf)
-          Tooltip(
-            message: "Exportar PDF (sin columnas privadas)",
-            child: Button(
-              style: roundedFilledButtonStyle(),
-              onPressed: _filteredData.isNotEmpty ? _exportToPdf : null,
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(FluentIcons.pdf, size: 14),
-                  SizedBox(width: 8),
-                  Text('Exportar PDF'),
-                ],
+            Tooltip(
+              message: "Limpiar Filtros",
+              child: IconButton(
+                icon: const Icon(FluentIcons.clear_filter),
+                onPressed: _clearFilters,
               ),
             ),
-          ),
-      ],
+            if (role.catalogCanSearchDxf)
+              Tooltip(
+                message: "Buscar DXF",
+                child: IconButton(
+                  icon: const Icon(FluentIcons.search),
+                  onPressed: _searchDXF,
+                ),
+              ),
+            if (role.catalogCanExportExcel)
+              Tooltip(
+                message: "Exportar a Excel",
+                child: IconButton(
+                  icon: const Icon(FluentIcons.excel_logo),
+                  onPressed: _filteredData.isNotEmpty ? _exportToExcel : null,
+                ),
+              ),
+            if (role.catalogCanExportPdf)
+              Tooltip(
+                message: "Exportar PDF (sin columnas privadas)",
+                child: IconButton(
+                  icon: const Icon(FluentIcons.pdf, size: 14),
+                  onPressed: _filteredData.isNotEmpty ? _exportToPdf : null,
+                ),
+              ),
+            Tooltip(
+              message: "Reportar fallo del catálogo",
+              child: IconButton(
+                icon: const Icon(FluentIcons.bug),
+                onPressed: () => showContextualBugReportDialog(
+                  context,
+                  modulo: 'Catálogo Maestro',
+                  contextoPantalla: 'catalogo_maestro',
+                ),
+              ),
+            ),
+            if (role.catalogCanSeeStockPtActions) ...[
+              Tooltip(
+                message:
+                    role.catalogShowsStockPtAlmacen
+                        ? 'Actualizar stock desde hoja externa'
+                        : 'Solo Ingeniería y Desarrollador pueden ejecutar este botón',
+                child: IconButton(
+                  onPressed:
+                      !role.catalogShowsStockPtAlmacen
+                          ? null
+                          : _stockPtSyncBusy
+                          ? null
+                          : () => _syncStockPtDesdeHoja(
+                            showProgressDialog: true,
+                          ),
+                  icon:
+                      _stockPtSyncBusy
+                          ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: ProgressRing(strokeWidth: 2),
+                          )
+                          : const Icon(FluentIcons.sync_status_solid),
+                ),
+              ),
+              Tooltip(
+                message:
+                    role.catalogShowsStockPtAlmacen
+                        ? 'Ver códigos con stock no registrados en catálogo'
+                        : 'Solo Ingeniería y Desarrollador pueden ejecutar este botón',
+                child: IconButton(
+                  onPressed:
+                      !role.catalogShowsStockPtAlmacen
+                          ? null
+                          : _stockPtOrphansBusy
+                          ? null
+                          : _showStockPtOrphansDialog,
+                  icon: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      _stockPtOrphansBusy
+                          ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: ProgressRing(strokeWidth: 2),
+                          )
+                          : const Icon(FluentIcons.issue_tracking),
+                      if (_stockPtOrphansCount != null &&
+                          _stockPtOrphansCount! > 0)
+                        Positioned(
+                          right: -9,
+                          top: -7,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 1,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFC42B1C),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              '${_stockPtOrphansCount}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
+  }
+
+  String _displayColumnName(String col) {
+    return col == 'Espesor_Perfil_CAD'
+        ? 'Espesor / Long. Perfil'
+        : col.replaceAll('_', ' ');
   }
 
   double _getColumnWidth(String col) {
@@ -1426,13 +1821,13 @@ class _CatalogScreenState extends State<CatalogScreen> {
       case 'Medida':
         return 100.0;
       case 'Material':
-        return 160.0;
+        return 220.0;
       case 'Proceso_Primario':
-        return 135.0;
+        return 110.0;
       case 'Proceso_1':
       case 'Proceso_2':
       case 'Proceso_3':
-        return 100.0;
+        return 84.0;
       case 'Largo_CAD':
       case 'Ancho_CAD':
         return 90.0;
@@ -1443,9 +1838,64 @@ class _CatalogScreenState extends State<CatalogScreen> {
       case 'Largo_DXF':
       case 'Ancho_DXF':
         return 90.0;
+      case 'Stock_PT_Almacen':
+        return 100.0;
+      case 'Stock_PT_Almacen_SyncAt':
+        return 160.0;
       default:
         return 130.0;
     }
+  }
+
+  Map<String, double> _computeColumnWidthsForViewport(
+    BuildContext context,
+    List<String> activeCols,
+    double availableColsWidth,
+  ) {
+    if (activeCols.isEmpty) return const {};
+    final textScale =
+        MediaQuery.textScalerOf(context).scale(1.0).clamp(1.0, 1.45);
+    const headerStyle = TextStyle(
+      fontWeight: FontWeight.bold,
+      fontSize: 12.0,
+    );
+    final mins = <String, double>{};
+    for (final col in activeCols) {
+      final title = _displayColumnName(col);
+      final tp = TextPainter(
+        text: TextSpan(text: title, style: headerStyle),
+        maxLines: 1,
+        textDirection: TextDirection.ltr,
+        textScaler: TextScaler.linear(textScale),
+      )..layout();
+      // Título + paddings de celda + espacio de botones ordenar/filtro.
+      final titleDrivenMin = tp.width + 16 + 62;
+      final baseMin = _getColumnWidth(col);
+      mins[col] = titleDrivenMin > baseMin ? titleDrivenMin : baseMin;
+    }
+    final minTotal = mins.values.fold<double>(0.0, (a, b) => a + b);
+    if (availableColsWidth <= minTotal) return mins;
+    final extra = availableColsWidth - minTotal;
+    double weightFor(String col, double w) {
+      if (col == 'Material') return w * 2.1;
+      if (col == 'Descripcion') return w * 1.15;
+      if (col == 'Proceso_Primario') return w * 0.9;
+      if (col == 'Proceso_1' || col == 'Proceso_2' || col == 'Proceso_3') {
+        return w * 0.82;
+      }
+      return w;
+    }
+    final weightedTotal = activeCols.fold<double>(
+      0.0,
+      (sum, col) => sum + weightFor(col, mins[col]!),
+    );
+    final out = <String, double>{};
+    for (final col in activeCols) {
+      final w = mins[col]!;
+      final ww = weightFor(col, w);
+      out[col] = w + (extra * (ww / weightedTotal));
+    }
+    return out;
   }
 
   Widget _buildContent() {
@@ -1504,10 +1954,17 @@ class _CatalogScreenState extends State<CatalogScreen> {
         padding: const EdgeInsets.all(8.0),
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final double actionsWidth = 145.0;
+            final textScale =
+                MediaQuery.textScalerOf(context).scale(1.0).clamp(1.0, 1.45);
+            final double actionsWidth = 145.0 * textScale;
+            final widths = _computeColumnWidthsForViewport(
+              context,
+              activeCols,
+              (constraints.maxWidth - actionsWidth).clamp(0.0, double.infinity),
+            );
             final double colsWidth = activeCols.fold(
               0.0,
-              (sum, col) => sum + _getColumnWidth(col),
+              (sum, col) => sum + (widths[col] ?? _getColumnWidth(col)),
             );
             final minWidth = colsWidth + actionsWidth;
             final viewWidth =
@@ -1549,7 +2006,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _buildHeaderRow(activeCols, actionsWidth),
+                            _buildHeaderRow(activeCols, actionsWidth, widths),
                             const SizedBox(height: 8), // Separación justa (8px)
                             const Divider(),
                             // Expanded hijo válido de Column, que NO hace scroll.
@@ -1565,6 +2022,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                                     index,
                                     activeCols,
                                     actionsWidth,
+                                    widths,
                                   );
                                 },
                               ),
@@ -1583,14 +2041,19 @@ class _CatalogScreenState extends State<CatalogScreen> {
     );
   }
 
-  Widget _buildHeaderRow(List<String> activeCols, double actionsWidth) {
+  Widget _buildHeaderRow(
+    List<String> activeCols,
+    double actionsWidth,
+    Map<String, double> widths,
+  ) {
     return Row(
       children: [
         // Espacio acciones (Sin Settings Icon)
         SizedBox(width: actionsWidth, child: Container()),
         ...activeCols.map((col) {
+          final displayName = _displayColumnName(col);
           return SizedBox(
-            width: _getColumnWidth(col),
+            width: widths[col] ?? _getColumnWidth(col),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8.0),
               child: Column(
@@ -1601,16 +2064,17 @@ class _CatalogScreenState extends State<CatalogScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Expanded(
-                        child: Text(
-                          col == 'Espesor_Perfil_CAD'
-                              ? 'Espesor / Long. Perfil'
-                              : col.replaceAll('_', ' '),
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12.0,
+                        child: Tooltip(
+                          message: displayName,
+                          child: Text(
+                            displayName,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12.0,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
                           ),
-                          overflow: TextOverflow.ellipsis,
-                          maxLines: 1,
                         ),
                       ),
                       Row(
@@ -1677,6 +2141,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
     int index,
     List<String> activeCols,
     double actionsWidth,
+    Map<String, double> widths,
   ) {
     final palette = uiSurfacePaletteOf(context);
     final hasLink =
@@ -1785,7 +2250,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
           ),
           ...activeCols.map((col) {
             return SizedBox(
-              width: _getColumnWidth(col),
+              width: widths[col] ?? _getColumnWidth(col),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8.0),
                 child: Text(

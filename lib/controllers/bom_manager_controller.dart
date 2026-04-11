@@ -1681,6 +1681,11 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
 
   Future<void> _addVIN(String vin) async {
     if (_selectedRevision == null) return;
+    final vinNorm = vin.trim().toUpperCase();
+    if (vinNorm.isEmpty) {
+      if (mounted) _showError("Ingrese un VIN válido");
+      return;
+    }
     // === TAREA 2: Leer usuario real para el header ===
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
@@ -1692,7 +1697,7 @@ mixin BomManagerControllerMixin on State<BOMManagerScreen> {
       final response = await ApiClient.postUnvalidated(
         '/api/bom/revisiones/${_selectedRevision['id_revision']}/vins',
         headers: {'X-Usuario': username},
-        body: {'vin': vin},
+        body: {'vin': vinNorm},
       );
       if (!mounted) return;
       if (response.statusCode == 200) {

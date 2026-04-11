@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:file_picker/file_picker.dart';
 import '../services/api_client.dart';
+import '../services/notification_inbox_service.dart';
 import '../theme/ui_tokens.dart';
 import '../widgets/compact_page_header.dart';
 
@@ -104,6 +105,10 @@ class _AuditorScreenState extends State<AuditorScreen> {
         await file.writeAsBytes(bytes);
 
         if (mounted) {
+          await CmdInboxStore.instance.addSystemNotice(
+            title: 'Auditor: archivo corregido',
+            body: 'Se genero correctamente el archivo corregido: ${_fileName ?? 'Excel'}.',
+          );
           displayInfoBar(
             context,
             builder: (context, close) {
@@ -423,6 +428,14 @@ class _AuditorScreenState extends State<AuditorScreen> {
 
     final codigos = discrepanciasAgrupadas.keys.toList();
 
+    const errStrong = Color(0xFFF87171);
+    const errSoftBg = Color(0xFF2B1F25);
+    const okStrong = Color(0xFF34D399);
+    const okSoftBg = Color(0xFF1C2D2A);
+    final textMain = FluentTheme.of(context).typography.bodyStrong?.color ??
+        (FluentTheme.of(context).brightness == Brightness.dark ? const Color(0xFFF1F5F9) : const Color(0xFF111827));
+    final textMuted = FluentTheme.of(context).typography.caption?.color ??
+        (FluentTheme.of(context).brightness == Brightness.dark ? const Color(0xFFCBD5E1) : const Color(0xFF475569));
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -431,7 +444,7 @@ class _AuditorScreenState extends State<AuditorScreen> {
           style: TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.bold,
-            color: Colors.warningPrimaryColor,
+            color: const Color(0xFFE67E22),
           ),
         ),
         const SizedBox(height: 5),
@@ -455,7 +468,7 @@ class _AuditorScreenState extends State<AuditorScreen> {
                           Icon(
                             FluentIcons.database,
                             size: 20,
-                            color: Colors.blue,
+                            color: const Color(0xFFB0BEC5),
                           ),
                           const SizedBox(width: 8),
                           Text(
@@ -463,7 +476,7 @@ class _AuditorScreenState extends State<AuditorScreen> {
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
-                              color: Colors.blue,
+                              color: textMain,
                             ),
                           ),
                           const SizedBox(width: 10),
@@ -473,12 +486,17 @@ class _AuditorScreenState extends State<AuditorScreen> {
                               vertical: 2,
                             ),
                             decoration: BoxDecoration(
-                              color: Colors.red.withValues(alpha: 0.1),
+                              color: const Color(0xFF351C24),
+                              border: Border.all(color: errStrong.withValues(alpha: 0.75)),
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: Text(
                               '${items.length} errores',
-                              style: TextStyle(color: Colors.red, fontSize: 12),
+                              style: const TextStyle(
+                                color: Color(0xFFFFCDD2),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
                         ],
@@ -559,7 +577,7 @@ class _AuditorScreenState extends State<AuditorScreen> {
                                                     vertical: 4,
                                                   ),
                                               decoration: BoxDecoration(
-                                                color: Colors.red,
+                                                color: errStrong,
                                                 borderRadius:
                                                     BorderRadius.circular(4),
                                               ),
@@ -606,14 +624,12 @@ class _AuditorScreenState extends State<AuditorScreen> {
                                                   8,
                                                 ),
                                                 decoration: BoxDecoration(
-                                                  color: Colors.red.withValues(alpha: 
-                                                    0.05,
-                                                  ),
+                                                  color: errSoftBg,
+                                                  borderRadius: BorderRadius.circular(6),
                                                   border: Border(
                                                     left: BorderSide(
-                                                      color: Colors.red
-                                                          .withValues(alpha: 0.5),
-                                                      width: 3,
+                                                      color: errStrong,
+                                                      width: 4,
                                                     ),
                                                   ),
                                                 ),
@@ -621,11 +637,12 @@ class _AuditorScreenState extends State<AuditorScreen> {
                                                   crossAxisAlignment:
                                                       CrossAxisAlignment.start,
                                                   children: [
-                                                    const Text(
+                                                    Text(
                                                       'En Documento Excel:',
                                                       style: TextStyle(
-                                                        color: Colors.grey,
+                                                        color: errStrong.withValues(alpha: 0.95),
                                                         fontSize: 11,
+                                                        fontWeight: FontWeight.w700,
                                                       ),
                                                     ),
                                                     const SizedBox(height: 4),
@@ -633,7 +650,7 @@ class _AuditorScreenState extends State<AuditorScreen> {
                                                       itemRef['excel']
                                                           .toString(),
                                                       style: TextStyle(
-                                                        color: Colors.red,
+                                                        color: textMain,
                                                         fontWeight:
                                                             FontWeight.w600,
                                                       ),
@@ -661,13 +678,12 @@ class _AuditorScreenState extends State<AuditorScreen> {
                                                   8,
                                                 ),
                                                 decoration: BoxDecoration(
-                                                  color: Colors.green
-                                                      .withValues(alpha: 0.05),
+                                                  color: okSoftBg,
+                                                  borderRadius: BorderRadius.circular(6),
                                                   border: Border(
                                                     left: BorderSide(
-                                                      color: Colors.green
-                                                          .withValues(alpha: 0.5),
-                                                      width: 3,
+                                                      color: okStrong,
+                                                      width: 4,
                                                     ),
                                                   ),
                                                 ),
@@ -675,18 +691,19 @@ class _AuditorScreenState extends State<AuditorScreen> {
                                                   crossAxisAlignment:
                                                       CrossAxisAlignment.start,
                                                   children: [
-                                                    const Text(
+                                                    Text(
                                                       'En Base de Datos:',
                                                       style: TextStyle(
-                                                        color: Colors.grey,
+                                                        color: okStrong.withValues(alpha: 0.95),
                                                         fontSize: 11,
+                                                        fontWeight: FontWeight.w700,
                                                       ),
                                                     ),
                                                     const SizedBox(height: 4),
                                                     SelectableText(
                                                       itemRef['bd'].toString(),
                                                       style: TextStyle(
-                                                        color: Colors.green,
+                                                        color: textMain,
                                                         fontWeight:
                                                             FontWeight.w600,
                                                       ),

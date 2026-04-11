@@ -94,6 +94,8 @@ def calculate_mrp(id_revision: int):
                 NULLIF(LTRIM(RTRIM(M.Material)), '')              AS MaterialOficialRaw,
                 LTRIM(RTRIM(ISNULL(M.Material, '')))              AS Material_Trace,
                 M.Espesor_Perfil_CAD,
+                ISNULL(M.Stock_PT_Almacen, 0)                     AS Stock_PT_Almacen,
+                M.Stock_PT_Almacen_SyncAt                         AS Stock_PT_Almacen_SyncAt,
                 ISNULL(E.Cantidad, 0)                             AS Cantidad,
                 COALESCE(
                     TRY_CAST(M.Largo_CAD AS FLOAT),
@@ -124,22 +126,44 @@ def calculate_mrp(id_revision: int):
         # Filtro COMERCIAL: solo por MaterialOficialRaw — sin fallback a Descripcion.
         # Espesor: ISNULL(CAST(...AS VARCHAR), 'N/A') para mostrar N/A limpio.
         query_mrp = _cte_base + """
+        , BaseNoCommercial AS (
+            SELECT *
+            FROM PiezasBase
+            WHERE MaterialOficialRaw IS NOT NULL
+              AND UPPER(LTRIM(RTRIM(MaterialOficialRaw))) NOT LIKE '%COMERCIAL%'
+        ),
+        AggPerCode AS (
+            SELECT
+                LTRIM(RTRIM(MaterialOficialRaw))                            AS material_oficial,
+                ISNULL(CAST(Espesor_Perfil_CAD AS VARCHAR(50)), 'N/A')      AS Calibre_Espesor,
+                Codigo_Pieza,
+                SUM(Cantidad)                                               AS Cantidad_Total_Piezas_Codigo,
+                SUM(Cantidad * ISNULL(LargoLimpio, 0.0))                    AS Requerimiento_Longitud_mm_Codigo,
+                SUM(Cantidad * ISNULL(NULLIF(AreaLimpia, 0),
+                    (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0))))     AS Requerimiento_Area_mm2_Codigo,
+                MAX(ISNULL(Stock_PT_Almacen, 0))                            AS Stock_PT_Almacen_Codigo,
+                MAX(Stock_PT_Almacen_SyncAt)                                AS Stock_PT_Almacen_SyncAt_Codigo
+            FROM BaseNoCommercial
+            GROUP BY
+                LTRIM(RTRIM(MaterialOficialRaw)),
+                ISNULL(CAST(Espesor_Perfil_CAD AS VARCHAR(50)), 'N/A'),
+                Codigo_Pieza
+        )
         SELECT
-            LTRIM(RTRIM(MaterialOficialRaw))                            AS material_oficial,
-            ISNULL(CAST(Espesor_Perfil_CAD AS VARCHAR(50)), 'N/A')      AS Calibre_Espesor,
-            SUM(Cantidad)                                               AS Cantidad_Total_Piezas,
-            SUM(Cantidad * ISNULL(LargoLimpio, 0.0))                    AS Requerimiento_Longitud_mm,
-            SUM(Cantidad * ISNULL(NULLIF(AreaLimpia, 0),
-                (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0))))     AS Requerimiento_Area_mm2
-        FROM PiezasBase
-        WHERE MaterialOficialRaw IS NOT NULL
-          AND UPPER(LTRIM(RTRIM(MaterialOficialRaw))) NOT LIKE '%COMERCIAL%'
+            material_oficial,
+            Calibre_Espesor,
+            SUM(Cantidad_Total_Piezas_Codigo)                           AS Cantidad_Total_Piezas,
+            SUM(Requerimiento_Longitud_mm_Codigo)                       AS Requerimiento_Longitud_mm,
+            SUM(Requerimiento_Area_mm2_Codigo)                          AS Requerimiento_Area_mm2,
+            SUM(Stock_PT_Almacen_Codigo)                                AS Stock_Asociado_Estimado,
+            MAX(Stock_PT_Almacen_SyncAt_Codigo)                         AS Stock_PT_Almacen_SyncAt
+        FROM AggPerCode
         GROUP BY
-            LTRIM(RTRIM(MaterialOficialRaw)),
-            ISNULL(CAST(Espesor_Perfil_CAD AS VARCHAR(50)), 'N/A')
+            material_oficial,
+            Calibre_Espesor
         ORDER BY
-            LTRIM(RTRIM(MaterialOficialRaw)),
-            ISNULL(CAST(Espesor_Perfil_CAD AS VARCHAR(50)), 'N/A')
+            material_oficial,
+            Calibre_Espesor
         """
         cursor.execute(query_mrp, (id_revision,))
         rows_mrp = cursor.fetchall()
@@ -153,6 +177,10 @@ def calculate_mrp(id_revision: int):
             material_upper = mat_of.upper()
             req_area_mm2   = float(r.Requerimiento_Area_mm2)
             req_long_mm    = float(r.Requerimiento_Longitud_mm)
+            stock_asociado_estimado = float(getattr(r, "Stock_Asociado_Estimado", 0) or 0)
+            cantidad_total_piezas = float(r.Cantidad_Total_Piezas)
+            brecha_estim = max(0.0, cantidad_total_piezas - stock_asociado_estimado)
+            sync_at = getattr(r, "Stock_PT_Almacen_SyncAt", None)
 
             sugerencia   = "N/A"
             scrap_factor = 1.15
@@ -162,10 +190,14 @@ def calculate_mrp(id_revision: int):
                     "material_oficial":      mat_of,
                     "Material":              mat_of,
                     "Calibre_Espesor":       r.Calibre_Espesor,
-                    "Cantidad_Total_Piezas": float(r.Cantidad_Total_Piezas),
+                    "Cantidad_Total_Piezas": cantidad_total_piezas,
                     "Requerimiento_Area_mm2":    req_area_mm2,
                     "Requerimiento_Longitud_mm": req_long_mm,
                     "Sugerencia_Compra":     "Pendiente: cargar dimensiones CAD/DXF",
+                    "Stock_Asociado_Estimado": stock_asociado_estimado,
+                    "Brecha_Estimada": brecha_estim,
+                    "es_estimado": True,
+                    "Stock_PT_Almacen_SyncAt": sync_at.isoformat() if sync_at else None,
                 })
                 continue
 
@@ -188,10 +220,14 @@ def calculate_mrp(id_revision: int):
                 "material_oficial":      mat_of,
                 "Material":              mat_of,
                 "Calibre_Espesor":       r.Calibre_Espesor,
-                "Cantidad_Total_Piezas": float(r.Cantidad_Total_Piezas),
+                "Cantidad_Total_Piezas": cantidad_total_piezas,
                 "Requerimiento_Area_mm2":    req_area_mm2,
                 "Requerimiento_Longitud_mm": req_long_mm,
                 "Sugerencia_Compra":     sugerencia,
+                "Stock_Asociado_Estimado": stock_asociado_estimado,
+                "Brecha_Estimada": brecha_estim,
+                "es_estimado": True,
+                "Stock_PT_Almacen_SyncAt": sync_at.isoformat() if sync_at else None,
             })
 
         # ── 2. Componentes Comerciales (solo cantidad, sin placas) ─────────────
@@ -201,7 +237,9 @@ def calculate_mrp(id_revision: int):
         SELECT
             Codigo_Pieza,
             LTRIM(RTRIM(ISNULL(Material_Trace, '')))  AS Material_Comercial,
-            SUM(Cantidad)                              AS Cantidad_Total
+            SUM(Cantidad)                              AS Cantidad_Total,
+            MAX(ISNULL(Stock_PT_Almacen, 0))          AS Stock_PT_Almacen,
+            MAX(Stock_PT_Almacen_SyncAt)              AS Stock_PT_Almacen_SyncAt
         FROM PiezasBase
         WHERE UPPER(LTRIM(RTRIM(ISNULL(Material_Trace, '')))) LIKE '%COMERCIAL%'
         GROUP BY Codigo_Pieza, LTRIM(RTRIM(ISNULL(Material_Trace, '')))
@@ -210,14 +248,24 @@ def calculate_mrp(id_revision: int):
         cursor.execute(query_comerciales, (id_revision,))
         rows_com = cursor.fetchall()
 
-        componentes_comerciales = [
-            {
-                "Codigo_Pieza":  r.Codigo_Pieza,
-                "Descripcion":   r.Material_Comercial,  # campo renombrado; UI compat
-                "Cantidad_Total": float(r.Cantidad_Total),
-            }
-            for r in rows_com
-        ]
+        componentes_comerciales = []
+        for r in rows_com:
+            demanda = float(r.Cantidad_Total or 0)
+            stock = float(getattr(r, "Stock_PT_Almacen", 0) or 0)
+            faltante = max(0.0, demanda - stock)
+            cobertura_pct = min(100.0, (stock / demanda) * 100.0) if demanda > 0 else 100.0
+            sync_at = getattr(r, "Stock_PT_Almacen_SyncAt", None)
+            componentes_comerciales.append(
+                {
+                    "Codigo_Pieza": r.Codigo_Pieza,
+                    "Descripcion": r.Material_Comercial,  # campo renombrado; UI compat
+                    "Cantidad_Total": demanda,
+                    "Stock_PT_Almacen": stock,
+                    "Cantidad_Faltante": faltante,
+                    "Cobertura_Pct": cobertura_pct,
+                    "Stock_PT_Almacen_SyncAt": sync_at.isoformat() if sync_at else None,
+                }
+            )
 
         # ── 3. Piezas sin medidas / sin material (huérfanas) ─────────────────
         # PURGA REGLA ESPEJO: huérfano = Material vacío, NULL o 'POR DEFINIR'.
@@ -256,10 +304,44 @@ def calculate_mrp(id_revision: int):
             for r in rows_orphans
         ]
 
+        # 4. Resumen de stock para widgets inferiores/laterales (MRP)
+        demanda_total_com = sum(float(x.get("Cantidad_Total", 0) or 0) for x in componentes_comerciales)
+        stock_total_com = sum(float(x.get("Stock_PT_Almacen", 0) or 0) for x in componentes_comerciales)
+        faltante_total_com = sum(float(x.get("Cantidad_Faltante", 0) or 0) for x in componentes_comerciales)
+        lineas_faltante_com = sum(1 for x in componentes_comerciales if float(x.get("Cantidad_Faltante", 0) or 0) > 0)
+
+        demanda_total_mp = sum(float(x.get("Cantidad_Total_Piezas", 0) or 0) for x in mrp_calculado)
+        stock_total_mp = sum(float(x.get("Stock_Asociado_Estimado", 0) or 0) for x in mrp_calculado)
+        brecha_total_mp = sum(float(x.get("Brecha_Estimada", 0) or 0) for x in mrp_calculado)
+        lineas_brecha_mp = sum(1 for x in mrp_calculado if float(x.get("Brecha_Estimada", 0) or 0) > 0)
+
+        ultima_sync_candidates = [
+            x.get("Stock_PT_Almacen_SyncAt")
+            for x in componentes_comerciales + mrp_calculado
+            if x.get("Stock_PT_Almacen_SyncAt")
+        ]
+        ultima_sync_stock_pt = max(ultima_sync_candidates) if ultima_sync_candidates else None
+
         return {
             "mrp_calculado":          mrp_calculado,
             "componentes_comerciales": componentes_comerciales,
             "piezas_sin_medidas":     piezas_sin_medidas,
+            "resumen_stock_mrp": {
+                "comerciales": {
+                    "demanda_total_unidades": demanda_total_com,
+                    "stock_total_unidades": stock_total_com,
+                    "faltante_total_unidades": faltante_total_com,
+                    "lineas_con_faltante": lineas_faltante_com,
+                },
+                "materia_prima_estimado": {
+                    "demanda_total_unidades": demanda_total_mp,
+                    "stock_asociado_total_unidades": stock_total_mp,
+                    "brecha_total_unidades": brecha_total_mp,
+                    "lineas_con_brecha": lineas_brecha_mp,
+                    "es_estimado": True,
+                },
+                "ultima_sync_stock_pt": ultima_sync_stock_pt,
+            },
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -953,7 +953,9 @@ def add_vin(id_revision: int, payload: VINPayload, x_usuario: Optional[str] = He
     usuario_real = _usuario_ingenieria(x_usuario)
     try:
         val = payload.observaciones if payload.observaciones is not None else payload.notas
-        vin_upper = payload.vin.upper()
+        vin_upper = (payload.vin or "").strip().upper()
+        if not vin_upper:
+            raise HTTPException(status_code=400, detail="VIN vacío")
 
         # Prevención de duplicados por revisión para evitar excepción SQL.
         cursor.execute(

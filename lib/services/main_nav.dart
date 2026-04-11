@@ -1,7 +1,21 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 import 'app_role.dart';
 import 'nav_pane.dart';
+
+/// Documento a abrir en el visor al navegar desde el lobby (sin `url_launcher`).
+class AyudasLobbyOpenIntent {
+  const AyudasLobbyOpenIntent({
+    required this.idAyuda,
+    required this.idRevision,
+    required this.tituloDocumento,
+  });
+
+  final int idAyuda;
+  final int idRevision;
+  final String tituloDocumento;
+}
 
 /// Navegación al shell principal ([NavigationView] en `main.dart`).
 /// Los índices del rail son **solo paneles visibles** para el rol actual.
@@ -48,5 +62,20 @@ class MainNav {
     final nav = Navigator.of(context, rootNavigator: true);
     nav.popUntil((route) => route.isFirst);
     goToPaneId(id);
+  }
+
+  static AyudasLobbyOpenIntent? _pendingAyudaLobby;
+  static final ValueNotifier<int> ayudaLobbyOpenSignal = ValueNotifier<int>(0);
+
+  /// Encola apertura del visor PDF integrado; [AyudasMenuScreen] consume con [takePendingAyudaLobby].
+  static void requestOpenAyudaLobby(AyudasLobbyOpenIntent intent) {
+    _pendingAyudaLobby = intent;
+    ayudaLobbyOpenSignal.value++;
+  }
+
+  static AyudasLobbyOpenIntent? takePendingAyudaLobby() {
+    final p = _pendingAyudaLobby;
+    _pendingAyudaLobby = null;
+    return p;
   }
 }

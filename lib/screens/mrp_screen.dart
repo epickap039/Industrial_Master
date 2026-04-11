@@ -26,8 +26,12 @@ class _MRPScreenState extends State<MRPScreen> {
   List<Map<String, dynamic>> _mrpData = [];
   List<Map<String, dynamic>> _comercialesData = [];
   List<Map<String, dynamic>> _orphanData = [];
+  Map<String, dynamic>? _resumenStockMrp;
   String? _errorMessage;
   String? _selectedRevisionClientes;
+  String _filtroRiesgo = 'Todos';
+  bool _soloConBrecha = false;
+  String _filtroTexto = '';
 
   // Tab index: 0 = Materia Prima, 1 = Comerciales, 2 = Huérfanos
   int _tabIndex = 0;
@@ -41,6 +45,41 @@ class _MRPScreenState extends State<MRPScreen> {
     if (v == null) return 'N/A';
     final s = v.toString().trim();
     return s.isEmpty ? 'N/A' : s;
+  }
+
+  double _d(dynamic v) {
+    if (v == null) return 0;
+    if (v is num) return v.toDouble();
+    return double.tryParse(v.toString()) ?? 0;
+  }
+
+  String _riesgoMp(Map<String, dynamic> row) {
+    final demanda = _d(row['Cantidad_Total_Piezas']);
+    final stock = _d(row['Stock_Asociado_Estimado']);
+    final brecha = _d(row['Brecha_Estimada']);
+    final cobertura = demanda <= 0 ? 100 : (stock / demanda) * 100;
+    if (brecha > 0 && cobertura <= 40) return 'Crítico';
+    if (brecha > 0) return 'Alerta';
+    return 'Estable';
+  }
+
+  List<Map<String, dynamic>> get _mrpFiltrado {
+    final txt = _filtroTexto.trim().toLowerCase();
+    return _mrpData.where((row) {
+      final riesgo = _riesgoMp(row);
+      final brecha = _d(row['Brecha_Estimada']);
+      if (_filtroRiesgo != 'Todos' && riesgo != _filtroRiesgo) return false;
+      if (_soloConBrecha && brecha <= 0) return false;
+      if (txt.isNotEmpty) {
+        final hay = [
+          _materialOficialMP(row),
+          row['Calibre_Espesor']?.toString() ?? '',
+          row['Sugerencia_Compra']?.toString() ?? '',
+        ].join(' ').toLowerCase().contains(txt);
+        if (!hay) return false;
+      }
+      return true;
+    }).toList();
   }
 
   @override
@@ -99,6 +138,7 @@ class _MRPScreenState extends State<MRPScreen> {
       _mrpData = [];
       _comercialesData = [];
       _orphanData = [];
+      _resumenStockMrp = null;
       _tabIndex = 0;
     });
 
@@ -117,6 +157,9 @@ class _MRPScreenState extends State<MRPScreen> {
                 data['componentes_comerciales'] ?? []);
             _orphanData = List<Map<String, dynamic>>.from(
                 data['piezas_sin_medidas'] ?? []);
+            _resumenStockMrp = data['resumen_stock_mrp'] is Map
+                ? Map<String, dynamic>.from(data['resumen_stock_mrp'])
+                : null;
           });
         }
       } else {
@@ -149,6 +192,8 @@ class _MRPScreenState extends State<MRPScreen> {
       'Piezas Totales',
       'Área / Requerimiento (Texto)',
       'Área m² (Num)',
+      'Stock Asociado Estimado',
+      'Brecha Estimada',
       'Orden de Compra Sugerida',
     ];
     Map<int, int> ocWidths = {};
@@ -171,6 +216,8 @@ class _MRPScreenState extends State<MRPScreen> {
         excel_lib.IntCellValue(piezas),
         excel_lib.TextCellValue(_formatArea(areaMm2)),
         excel_lib.DoubleCellValue(areaM2),
+        excel_lib.IntCellValue(ExcelHelper.cleanToInt(row['Stock_Asociado_Estimado'])),
+        excel_lib.IntCellValue(ExcelHelper.cleanToInt(row['Brecha_Estimada'])),
         excel_lib.TextCellValue(row['Sugerencia_Compra']?.toString() ?? 'N/A'),
       ];
       for (int c = 0; c < cells.length; c++) {
@@ -187,7 +234,14 @@ class _MRPScreenState extends State<MRPScreen> {
     // Hoja 2 — Componentes Comerciales
     if (_comercialesData.isNotEmpty) {
       excel_lib.Sheet sheetCom = excelFile['Componentes_Comerciales'];
-      final comHeaders = ['Código de Pieza', 'Descripción', 'Cantidad Total'];
+      final comHeaders = [
+        'Código de Pieza',
+        'Descripción',
+        'Cantidad Total',
+        'Stock Almacén',
+        'Cantidad Faltante',
+        'Cobertura %',
+      ];
       Map<int, int> comWidths = {};
       for (int i = 0; i < comHeaders.length; i++) {
         sheetCom.updateCell(
@@ -205,6 +259,9 @@ class _MRPScreenState extends State<MRPScreen> {
           excel_lib.TextCellValue(row['Codigo_Pieza']?.toString() ?? '-'),
           excel_lib.TextCellValue(row['Descripcion']?.toString() ?? '-'),
           excel_lib.IntCellValue(cant),
+          excel_lib.IntCellValue(ExcelHelper.cleanToInt(row['Stock_PT_Almacen'])),
+          excel_lib.IntCellValue(ExcelHelper.cleanToInt(row['Cantidad_Faltante'])),
+          excel_lib.DoubleCellValue(_d(row['Cobertura_Pct'])),
         ];
         for (int c = 0; c < cells.length; c++) {
           sheetCom.updateCell(
@@ -367,6 +424,7 @@ class _MRPScreenState extends State<MRPScreen> {
                               _mrpData = [];
                               _comercialesData = [];
                               _orphanData = [];
+                              _resumenStockMrp = null;
                               _errorMessage = null;
                               _tabIndex = 0;
                             });
@@ -503,6 +561,8 @@ class _MRPScreenState extends State<MRPScreen> {
           // ── Pestañas ─────────────────────────────────────────────────────
           _buildTabBar(),
           const SizedBox(height: 12),
+          _buildFiltrosOperativos(),
+          const SizedBox(height: 8),
 
           // ── Panel activo ─────────────────────────────────────────────────
           Expanded(child: _buildActivePanel()),
@@ -612,6 +672,42 @@ class _MRPScreenState extends State<MRPScreen> {
 
   // ── Panels ────────────────────────────────────────────────────────────────
 
+  Widget _buildFiltrosOperativos() {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        SizedBox(
+          width: 240,
+          child: TextBox(
+            placeholder: 'Filtrar material / acción...',
+            onChanged: (v) => setState(() => _filtroTexto = v),
+          ),
+        ),
+        SizedBox(
+          width: 140,
+          child: ComboBox<String>(
+            value: _filtroRiesgo,
+            isExpanded: true,
+            items: const [
+              ComboBoxItem(value: 'Todos', child: Text('Riesgo: Todos')),
+              ComboBoxItem(value: 'Crítico', child: Text('Crítico')),
+              ComboBoxItem(value: 'Alerta', child: Text('Alerta')),
+              ComboBoxItem(value: 'Estable', child: Text('Estable')),
+            ],
+            onChanged: (v) => setState(() => _filtroRiesgo = v ?? 'Todos'),
+          ),
+        ),
+        ToggleSwitch(
+          checked: _soloConBrecha,
+          content: const Text('Solo con brecha'),
+          onChanged: (v) => setState(() => _soloConBrecha = v),
+        ),
+      ],
+    );
+  }
+
   Widget _buildActivePanel() {
     switch (_tabIndex) {
       case 0:
@@ -627,19 +723,27 @@ class _MRPScreenState extends State<MRPScreen> {
 
   // Panel 0 — Materia Prima / Placas
   Widget _buildMPPanel() {
-    if (_mrpData.isEmpty) {
+    final mp = _mrpFiltrado;
+    if (mp.isEmpty) {
       return const Center(
-        child: Text("No hay materia prima que cortar para esta revisión."),
+        child: Text("No hay resultados para los filtros actuales."),
       );
     }
     return Container(
       decoration: _cardDecoration(),
-      child: ListView(
-        padding: const EdgeInsets.all(8.0),
+      child: Column(
         children: [
-          _buildHeaderRow(),
-          const Divider(),
-          ..._mrpData.map((row) => _buildDataRow(row)),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.all(8.0),
+              children: [
+                _buildHeaderRow(),
+                const Divider(),
+                ...mp.map((row) => _buildDataRow(row)),
+              ],
+            ),
+          ),
+          _buildStockSummaryFooter(forComerciales: false),
         ],
       ),
     );
@@ -655,12 +759,19 @@ class _MRPScreenState extends State<MRPScreen> {
     }
     return Container(
       decoration: _cardDecoration(),
-      child: ListView(
-        padding: const EdgeInsets.all(8.0),
+      child: Column(
         children: [
-          _buildComercialHeaderRow(),
-          const Divider(),
-          ..._comercialesData.map((row) => _buildComercialDataRow(row)),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.all(8.0),
+              children: [
+                _buildComercialHeaderRow(),
+                const Divider(),
+                ..._comercialesData.map((row) => _buildComercialDataRow(row)),
+              ],
+            ),
+          ),
+          _buildStockSummaryFooter(forComerciales: true),
         ],
       ),
     );
@@ -698,6 +809,71 @@ class _MRPScreenState extends State<MRPScreen> {
         ],
       );
 
+  Widget _buildStockSummaryFooter({required bool forComerciales}) {
+    final resumen = _resumenStockMrp;
+    if (resumen == null) return const SizedBox.shrink();
+    final block = forComerciales
+        ? Map<String, dynamic>.from(resumen['comerciales'] ?? const {})
+        : Map<String, dynamic>.from(resumen['materia_prima_estimado'] ?? const {});
+    final demanda = _d(block['demanda_total_unidades']);
+    final stock = forComerciales
+        ? _d(block['stock_total_unidades'])
+        : _d(block['stock_asociado_total_unidades']);
+    final faltante = forComerciales
+        ? _d(block['faltante_total_unidades'])
+        : _d(block['brecha_total_unidades']);
+    final lineas = forComerciales
+        ? _d(block['lineas_con_faltante']).toInt()
+        : _d(block['lineas_con_brecha']).toInt();
+    final syncText = (resumen['ultima_sync_stock_pt'] ?? '').toString();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: Colors.grey.withValues(alpha: 0.25))),
+        color: Colors.black.withValues(alpha: 0.03),
+      ),
+      child: Wrap(
+        spacing: 16,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Text(
+            forComerciales ? 'Resumen Comerciales' : 'Resumen MP (estimado)',
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          Text('Demanda: ${_numFormat.format(demanda.round())}'),
+          Text('Stock: ${_numFormat.format(stock.round())}'),
+          Text(
+            forComerciales
+                ? 'Faltante: ${_numFormat.format(faltante.round())}'
+                : 'Brecha: ${_numFormat.format(faltante.round())}',
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              color: faltante > 0 ? const Color(0xFFC62828) : const Color(0xFF2E7D32),
+            ),
+          ),
+          Text('Líneas con brecha: $lineas'),
+          if (syncText.isNotEmpty)
+            Text(
+              'Última sync stock: $syncText',
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.blue.withValues(alpha: 0.8),
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          if (!forComerciales)
+            const Text(
+              'Valores estimados por agrupación de material.',
+              style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic),
+            ),
+        ],
+      ),
+    );
+  }
+
   // ── Materia Prima rows ────────────────────────────────────────────────────
 
   Widget _buildHeaderRow() {
@@ -720,6 +896,18 @@ class _MRPScreenState extends State<MRPScreen> {
               child: Text('ÁREA TOTAL REQUERIDA',
                   style: style, textAlign: TextAlign.right)),
           Expanded(
+              flex: 2,
+              child: Text('STOCK EST.',
+                  style: style, textAlign: TextAlign.right)),
+          Expanded(
+              flex: 2,
+              child: Text('BRECHA EST.',
+                  style: style, textAlign: TextAlign.right)),
+          Expanded(
+              flex: 2,
+              child: Text('RIESGO',
+                  style: style, textAlign: TextAlign.right)),
+          Expanded(
               flex: 4,
               child: Text('ORDEN DE COMPRA SUGERIDA',
                   style: style, textAlign: TextAlign.right)),
@@ -731,6 +919,9 @@ class _MRPScreenState extends State<MRPScreen> {
   Widget _buildDataRow(Map<String, dynamic> row) {
     final double areaMm2 = (row['Requerimiento_Area_mm2'] ?? 0).toDouble();
     final double piezas  = (row['Cantidad_Total_Piezas'] ?? 0).toDouble();
+    final stockEst = _d(row['Stock_Asociado_Estimado']);
+    final brechaEst = _d(row['Brecha_Estimada']);
+    final riesgo = _riesgoMp(row);
     final isDark = FluentTheme.of(context).brightness == Brightness.dark;
     final dataColor = isDark
         ? Colors.white.withValues(alpha: 0.9)
@@ -776,6 +967,42 @@ class _MRPScreenState extends State<MRPScreen> {
             ),
           ),
           Expanded(
+            flex: 2,
+            child: Text(
+              _numFormat.format(stockEst.round()),
+              textAlign: TextAlign.right,
+              style: base.copyWith(fontWeight: FontWeight.w600),
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Text(
+              _numFormat.format(brechaEst.round()),
+              textAlign: TextAlign.right,
+              style: base.copyWith(
+                fontWeight: FontWeight.w700,
+                color: brechaEst > 0
+                    ? (isDark ? const Color(0xFFFFAB91) : const Color(0xFFC62828))
+                    : (isDark ? const Color(0xFFB2DFDB) : const Color(0xFF2E7D32)),
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Text(
+              riesgo,
+              textAlign: TextAlign.right,
+              style: base.copyWith(
+                fontWeight: FontWeight.w700,
+                color: riesgo == 'Crítico'
+                    ? const Color(0xFFC62828)
+                    : riesgo == 'Alerta'
+                        ? const Color(0xFFEF6C00)
+                        : const Color(0xFF2E7D32),
+              ),
+            ),
+          ),
+          Expanded(
             flex: 4,
             child: Text(
               row['Sugerencia_Compra']?.toString() ?? 'N/A',
@@ -806,14 +1033,26 @@ class _MRPScreenState extends State<MRPScreen> {
       child: Row(
         children: [
           Expanded(flex: 2, child: Text('CÓDIGO', style: style)),
-          Expanded(flex: 5, child: Text('DESCRIPCIÓN', style: style)),
+          Expanded(flex: 4, child: Text('DESCRIPCIÓN', style: style)),
           Expanded(
               flex: 2,
               child: Text('CANTIDAD',
                   style: style, textAlign: TextAlign.right)),
           Expanded(
               flex: 3,
-              child: Text('ACCIÓN SUGERIDA',
+              child: Text('STOCK',
+                  style: style, textAlign: TextAlign.right)),
+          Expanded(
+              flex: 3,
+              child: Text('FALTANTE',
+                  style: style, textAlign: TextAlign.right)),
+          Expanded(
+              flex: 2,
+              child: Text('COBERTURA',
+                  style: style, textAlign: TextAlign.right)),
+          Expanded(
+              flex: 3,
+              child: Text('ACCIÓN',
                   style: style, textAlign: TextAlign.right)),
         ],
       ),
@@ -828,6 +1067,9 @@ class _MRPScreenState extends State<MRPScreen> {
     final base =
         TextStyle(color: dataColor, fontWeight: FontWeight.normal, fontSize: 13);
     final double cant = (row['Cantidad_Total'] ?? 0).toDouble();
+    final double stock = _d(row['Stock_PT_Almacen']);
+    final double faltante = _d(row['Cantidad_Faltante']);
+    final double cobertura = _d(row['Cobertura_Pct']);
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
@@ -844,7 +1086,7 @@ class _MRPScreenState extends State<MRPScreen> {
             ),
           ),
           Expanded(
-            flex: 5,
+            flex: 4,
             child: Text(
               row['Descripcion']?.toString() ?? '-',
               style: base,
@@ -863,12 +1105,52 @@ class _MRPScreenState extends State<MRPScreen> {
           Expanded(
             flex: 3,
             child: Text(
-              'Compra directa (${_numFormat.format(cant)} pzs)',
+              _numFormat.format(stock.round()),
               textAlign: TextAlign.right,
               style: base.copyWith(
-                color: isDark
-                    ? const Color(0xFFCE93D8)
-                    : const Color(0xFF6A1B9A),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 3,
+            child: Text(
+              _numFormat.format(faltante.round()),
+              textAlign: TextAlign.right,
+              style: base.copyWith(
+                fontWeight: FontWeight.bold,
+                color: faltante > 0
+                    ? (isDark ? const Color(0xFFFFAB91) : const Color(0xFFC62828))
+                    : (isDark ? const Color(0xFFB2DFDB) : const Color(0xFF2E7D32)),
+                fontSize: 12,
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Text(
+              '${cobertura.toStringAsFixed(1)}%',
+              textAlign: TextAlign.right,
+              style: base.copyWith(
+                color: cobertura >= 100
+                    ? (isDark ? const Color(0xFFB2DFDB) : const Color(0xFF2E7D32))
+                    : (isDark ? const Color(0xFFFFAB91) : const Color(0xFFC62828)),
+                fontWeight: FontWeight.w700,
+                fontSize: 12,
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 3,
+            child: Text(
+              faltante <= 0
+                  ? 'Cubierto con stock'
+                  : 'Comprar ${_numFormat.format(faltante.round())} pzs',
+              textAlign: TextAlign.right,
+              style: base.copyWith(
+                color: faltante <= 0
+                    ? (isDark ? const Color(0xFFB2DFDB) : const Color(0xFF2E7D32))
+                    : (isDark ? const Color(0xFFCE93D8) : const Color(0xFF6A1B9A)),
                 fontWeight: FontWeight.bold,
                 fontSize: 12,
               ),

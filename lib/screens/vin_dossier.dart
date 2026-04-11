@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:open_file/open_file.dart';
 import 'package:shared_preferences/shared_preferences.dart'; // === TAREA 2 ===
+import 'dart:async';
 import 'dart:io';
 
 import '../services/api_client.dart';
@@ -33,12 +34,30 @@ class _VINDossierScreenState extends State<VINDossierScreen>
   List<dynamic> _archivos = [];
   bool _isLoadingArchivos = false;
   bool _isSubiendo = false;
+  Timer? _autoRefreshTimer;
 
   @override
   void initState() {
     super.initState();
     _fetchAllVins();
     _fetchArchivos(); // Refuerzo de carga inicial
+    _startAutoRefresh();
+  }
+
+  @override
+  void dispose() {
+    _autoRefreshTimer?.cancel();
+    _searchController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  void _startAutoRefresh() {
+    _autoRefreshTimer?.cancel();
+    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+      if (!mounted || _vinData == null || _isSubiendo || _isLoading) return;
+      unawaited(_refreshCurrentVinSilently());
+    });
   }
 
   Future<void> _fetchAllVins() async {
@@ -62,38 +81,41 @@ class _VINDossierScreenState extends State<VINDossierScreen>
   }
 
   void _filterVins(String query) {
+    final queryNorm = query.trim().toLowerCase();
     setState(() {
       _filteredVins =
           _allVins.where((v) {
             final vinStr = v['vin']?.toString().toLowerCase() ?? '';
             final clientStr = v['cliente']?.toString().toLowerCase() ?? '';
-            return vinStr.contains(query.toLowerCase()) ||
-                clientStr.contains(query.toLowerCase());
+            return vinStr.contains(queryNorm) || clientStr.contains(queryNorm);
           }).toList();
     });
   }
 
   Future<void> _searchVIN(String query) async {
-    if (query.isEmpty) return;
+    final queryNorm = query.trim();
+    if (queryNorm.isEmpty) return;
     setState(() => _isLoading = true);
     try {
       final response = await ApiClient.getUnvalidated(
         '/api/vins/buscar',
-        queryParameters: {'q': query},
+        queryParameters: {'q': queryNorm},
       );
       if (response.statusCode == 200) {
         final List results = response.decodeJson() as List<dynamic>;
-        setState(() {
-          if (results.isNotEmpty) {
+        if (results.isNotEmpty) {
+          setState(() {
             _vinData = results.first;
             // _notesController SIN asignar – la caja siempre vacía para nueva entrada
-            _fetchArchivos(); // v60.0: cargar archivos del VIN
-          } else {
+          });
+          await _fetchArchivos(silent: false); // v60.0: cargar archivos del VIN
+        } else {
+          setState(() {
             _vinData = null;
             _archivos = [];
-            _showError("No se encontró el VIN");
-          }
-        });
+          });
+          _showError("No se encontró el VIN");
+        }
       }
     } catch (e) {
       _showError("Error de conexión: $e");
@@ -103,20 +125,42 @@ class _VINDossierScreenState extends State<VINDossierScreen>
   }
 
   // === v60.0: NUBE DE ARCHIVOS ===
-  Future<void> _fetchArchivos() async {
+  Future<void> _fetchArchivos({bool silent = false}) async {
     if (_vinData == null) return;
-    setState(() => _isLoadingArchivos = true);
+    if (!silent) setState(() => _isLoadingArchivos = true);
     try {
       final res = await ApiClient.getUnvalidated(
         '/api/vins/${_vinData['id_unidad']}/archivos',
       );
       if (res.statusCode == 200) {
-        setState(() => _archivos = res.decodeJson() as List<dynamic>);
+        if (mounted) {
+          setState(() => _archivos = res.decodeJson() as List<dynamic>);
+        }
       }
     } catch (_) {
       // silencioso
     } finally {
-      setState(() => _isLoadingArchivos = false);
+      if (!silent && mounted) setState(() => _isLoadingArchivos = false);
+    }
+  }
+
+  Future<void> _refreshCurrentVinSilently() async {
+    final vin = (_vinData?['vin'] ?? '').toString().trim();
+    if (vin.isEmpty) return;
+    try {
+      final response = await ApiClient.getUnvalidated(
+        '/api/vins/buscar',
+        queryParameters: {'q': vin},
+      );
+      if (response.statusCode == 200) {
+        final List results = response.decodeJson() as List<dynamic>;
+        if (results.isNotEmpty && mounted) {
+          setState(() => _vinData = results.first);
+        }
+      }
+      await _fetchArchivos(silent: true);
+    } catch (_) {
+      // refresh silencioso: ignorar errores transitorios
     }
   }
 
@@ -176,7 +220,7 @@ class _VINDossierScreenState extends State<VINDossierScreen>
       if (response.statusCode == 200) {
         _showError("Nota guardada en el historial", isError: false);
         _notesController.clear();
-        _searchVIN(_vinData['vin']); // Recargar para ver historial actualizado
+        await _refreshCurrentVinSilently();
       }
     } catch (e) {
       _showError("Error al guardar: $e");
@@ -250,7 +294,7 @@ class _VINDossierScreenState extends State<VINDossierScreen>
       );
       if (res.statusCode == 200) {
         _showError('Nota eliminada', isError: false);
-        _searchVIN(_vinData['vin']); // Refrescar para ver historial actualizado
+        await _refreshCurrentVinSilently();
       } else {
         _showError('Error al borrar nota: ${res.statusCode}');
       }
@@ -435,7 +479,7 @@ class _VINDossierScreenState extends State<VINDossierScreen>
           idSocio == 0 ? "VIN desvinculado" : "Complemento vinculado",
           isError: false,
         );
-        _searchVIN(_vinData['vin']); // reload
+        await _refreshCurrentVinSilently();
       } else {
         _showError("Error al vincular: ${res.statusCode}");
       }

@@ -99,4 +99,25 @@ class UserAvatarService {
       await ApiClient.deleteUnvalidated('/api/usuarios/$user/avatar');
     } catch (_) {}
   }
+
+  /// Fuerza lectura desde backend y refresca caché local sin borrar avatar remoto.
+  Future<Uint8List?> refreshAvatarFromServer(String username) async {
+    final user = _normUser(username);
+    if (user.isEmpty) return null;
+    try {
+      final res = await ApiClient.getUnvalidated('/api/usuarios/$user/avatar');
+      if (res.statusCode < 200 || res.statusCode >= 300) return null;
+      final decoded = res.decodeJsonLenient();
+      if (decoded is! Map) return null;
+      final b64 = '${decoded['avatar_base64'] ?? decoded['avatar'] ?? ''}'.trim();
+      final bytes = _decodeBase64(b64);
+      if (bytes == null) return null;
+      final map = await _loadMap();
+      map[user] = b64;
+      await _saveMap(map);
+      return bytes;
+    } catch (_) {
+      return null;
+    }
+  }
 }

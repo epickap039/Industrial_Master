@@ -27,6 +27,8 @@ const List<String> kCategoriasMision = [
   'Otro',
 ];
 
+const String kTodosResponsablesToken = '__TODOS__';
+
 String? _base64SinPrefijoDataUrl(String raw) {
   final s = raw.trim();
   if (s.isEmpty) return null;
@@ -40,7 +42,12 @@ String? _base64SinPrefijoDataUrl(String raw) {
 Future<bool> showManualMissionFormDialog(BuildContext context) async {
   var responsables = List<String>.from(kResponsablesMisionFallback);
   try {
-    final raw = await ApiClient.get('/api/usuarios/lista');
+    dynamic raw;
+    try {
+      raw = await ApiClient.get('/api/usuarios/all');
+    } catch (_) {
+      raw = await ApiClient.get('/api/usuarios/lista');
+    }
     if (raw is List && raw.isNotEmpty) {
       final nom =
           raw
@@ -83,12 +90,17 @@ class _ManualMissionDialogState extends State<_ManualMissionDialog> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _tituloCtrl;
   late final TextEditingController _descCtrl;
+  late final TextEditingController _diasCtrl;
+  late final TextEditingController _horasCtrl;
   late final TextEditingController _minutosCtrl;
   late final TextEditingController _pasoCtrl;
   String? _responsable;
   String? _categoria;
   String? _imagenBase64;
   bool _enviando = false;
+  bool _asignarMultiples = false;
+  bool _asignarATodos = false;
+  final Set<String> _responsablesSeleccionados = <String>{};
 
   /// Si true, no se envía presupuesto de tiempo (carga acumulada ignora esta misión).
   bool _sinTiempoEstimado = false;
@@ -101,9 +113,14 @@ class _ManualMissionDialogState extends State<_ManualMissionDialog> {
     super.initState();
     _tituloCtrl = TextEditingController();
     _descCtrl = TextEditingController();
+    _diasCtrl = TextEditingController(text: '0');
+    _horasCtrl = TextEditingController(text: '0');
     _minutosCtrl = TextEditingController(text: '60');
     _pasoCtrl = TextEditingController();
     _responsable = widget.responsables.first;
+    if (_responsable != null && _responsable!.isNotEmpty) {
+      _responsablesSeleccionados.add(_responsable!);
+    }
     _categoria = kCategoriasMision.first;
   }
 
@@ -111,6 +128,8 @@ class _ManualMissionDialogState extends State<_ManualMissionDialog> {
   void dispose() {
     _tituloCtrl.dispose();
     _descCtrl.dispose();
+    _diasCtrl.dispose();
+    _horasCtrl.dispose();
     _minutosCtrl.dispose();
     _pasoCtrl.dispose();
     super.dispose();
@@ -124,7 +143,7 @@ class _ManualMissionDialogState extends State<_ManualMissionDialog> {
         'nombre': paso,
         'completado': 0,
         'minutos': 0,
-        'grupo': '[Indefinido] > [Indefinido] > [Indefinido]',
+        'grupo': '',
       });
     });
     _pasoCtrl.clear();
@@ -176,13 +195,15 @@ class _ManualMissionDialogState extends State<_ManualMissionDialog> {
   Future<void> _crear() async {
     if (!_formKey.currentState!.validate()) return;
     if (!_sinTiempoEstimado) {
+      final dp = int.tryParse(_diasCtrl.text.trim());
+      final hp = int.tryParse(_horasCtrl.text.trim());
       final mp = int.tryParse(_minutosCtrl.text.trim());
-      if (mp == null || mp < 0) {
+      if (dp == null || dp < 0 || hp == null || hp < 0 || mp == null || mp < 0) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text(
-                'Indique minutos válidos (≥ 0) o marque «No aplica».',
+                'Indique días/horas/minutos válidos (>= 0) o marque "No aplica".',
               ),
             ),
           );
@@ -192,13 +213,39 @@ class _ManualMissionDialogState extends State<_ManualMissionDialog> {
     }
     setState(() => _enviando = true);
     try {
+      final diasParse = int.tryParse(_diasCtrl.text.trim()) ?? 0;
+      final horasParse = int.tryParse(_horasCtrl.text.trim()) ?? 0;
       final minParse = int.tryParse(_minutosCtrl.text.trim());
+      final int totalMin =
+          _sinTiempoEstimado
+              ? 0
+              : (diasParse * 24 * 60) + (horasParse * 60) + (minParse ?? 0);
+      final Set<String> responsablesPayload = <String>{};
+      final principal = (_responsable ?? '').trim();
+      if (principal.isNotEmpty) responsablesPayload.add(principal);
+      if (_asignarMultiples) {
+        responsablesPayload.addAll(
+          _responsablesSeleccionados.where((u) => u.trim().isNotEmpty),
+        );
+      }
+      if (!_asignarATodos && responsablesPayload.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Seleccione al menos un responsable.')),
+          );
+        }
+        setState(() => _enviando = false);
+        return;
+      }
       final body = <String, dynamic>{
         'titulo': _tituloCtrl.text.trim(),
         'descripcion': _descCtrl.text.trim(),
-        'responsable': _responsable ?? '',
+        'responsable': principal,
+        'responsables': _asignarATodos
+            ? const [kTodosResponsablesToken]
+            : responsablesPayload.toList(),
         'categoria': _categoria ?? '',
-        'minutos_estimados': _sinTiempoEstimado ? 0 : (minParse ?? 0),
+        'minutos_estimados': totalMin,
         'sin_tiempo_estimado': _sinTiempoEstimado,
         'checklist': _checklistItems,
       };
@@ -224,6 +271,16 @@ class _ManualMissionDialogState extends State<_ManualMissionDialog> {
   @override
   Widget build(BuildContext context) {
     final responsables = widget.responsables;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final checklistBg = isDark
+        ? const Color(0xFF2A2A2A)
+        : const Color(0xFFF4F6FB);
+    final checklistText = isDark
+        ? const Color(0xFFE8E8E8)
+        : const Color(0xFF1F2937);
+    final checklistBorder = isDark
+        ? const Color(0xFFB0B0B0)
+        : const Color(0xFFD0D7E2);
 
     return AlertDialog(
       title: const Text('Nueva misión manual'),
@@ -260,6 +317,32 @@ class _ManualMissionDialogState extends State<_ManualMissionDialog> {
                 const SizedBox(height: 12),
                 Row(
                   children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: _diasCtrl,
+                        enabled: !_sinTiempoEstimado && !_enviando,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'Tiempo estimado (días)',
+                          border: OutlineInputBorder(),
+                          hintText: 'p. ej. 1',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextFormField(
+                        controller: _horasCtrl,
+                        enabled: !_sinTiempoEstimado && !_enviando,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'Tiempo estimado (horas)',
+                          border: OutlineInputBorder(),
+                          hintText: 'p. ej. 2',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: TextFormField(
                         controller: _minutosCtrl,
@@ -299,9 +382,65 @@ class _ManualMissionDialogState extends State<_ManualMissionDialog> {
                   onChanged:
                       _enviando
                           ? null
-                          : (v) => setState(() => _responsable = v),
+                          : (v) => setState(() {
+                                _responsable = v;
+                                final sv = (v ?? '').trim();
+                                if (sv.isNotEmpty) {
+                                  _responsablesSeleccionados.add(sv);
+                                }
+                              }),
                 ),
                 const SizedBox(height: 12),
+                CheckboxListTile(
+                  value: _asignarMultiples,
+                  onChanged: _enviando
+                      ? null
+                      : (v) => setState(() => _asignarMultiples = v ?? false),
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Asignar a más de una persona'),
+                ),
+                if (_asignarMultiples) ...[
+                  CheckboxListTile(
+                    value: _asignarATodos,
+                    onChanged: _enviando
+                        ? null
+                        : (v) => setState(() => _asignarATodos = v ?? false),
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Asignar a todos los usuarios'),
+                  ),
+                  if (!_asignarATodos)
+                    Container(
+                      constraints: const BoxConstraints(maxHeight: 140),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: checklistBorder),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: ListView(
+                        shrinkWrap: true,
+                        children: [
+                          for (final usr in responsables)
+                            CheckboxListTile(
+                              value: _responsablesSeleccionados.contains(usr),
+                              dense: true,
+                              title: Text(usr),
+                              onChanged: _enviando
+                                  ? null
+                                  : (v) => setState(() {
+                                        if (v == true) {
+                                          _responsablesSeleccionados.add(usr);
+                                        } else {
+                                          _responsablesSeleccionados.remove(usr);
+                                        }
+                                      }),
+                            ),
+                        ],
+                      ),
+                    ),
+                  const SizedBox(height: 8),
+                ],
+                const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
                   value: _categoria,
                   decoration: const InputDecoration(
@@ -326,7 +465,7 @@ class _ManualMissionDialogState extends State<_ManualMissionDialog> {
                       'PASOS (CHECKLIST)',
                       style: Theme.of(context).textTheme.labelLarge?.copyWith(
                         fontWeight: FontWeight.w600,
-                        color: const Color(0xFFE8E8E8),
+                        color: checklistText,
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -334,9 +473,9 @@ class _ManualMissionDialogState extends State<_ManualMissionDialog> {
                     if (_checklistItems.isNotEmpty)
                       Container(
                         decoration: BoxDecoration(
-                          color: const Color(0xFF2A2A2A),
+                          color: checklistBg,
                           border: Border.all(
-                            color: const Color(0xFFB0B0B0),
+                            color: checklistBorder,
                             width: 0.5,
                           ),
                           borderRadius: BorderRadius.circular(4),
@@ -352,7 +491,7 @@ class _ManualMissionDialogState extends State<_ManualMissionDialog> {
                                       i < _checklistItems.length - 1
                                           ? Border(
                                             bottom: BorderSide(
-                                              color: const Color(0xFFB0B0B0),
+                                              color: checklistBorder,
                                               width: 0.3,
                                             ),
                                           )
@@ -371,7 +510,7 @@ class _ManualMissionDialogState extends State<_ManualMissionDialog> {
                                           style: Theme.of(
                                             context,
                                           ).textTheme.bodyMedium?.copyWith(
-                                            color: const Color(0xFFE8E8E8),
+                                            color: checklistText,
                                           ),
                                         ),
                                       ),

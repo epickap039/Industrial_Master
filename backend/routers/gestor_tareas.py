@@ -30,6 +30,7 @@ router = APIRouter()
 
 # Misma cadena que engineering._GRUPO_INDEFINIDO_SW (sin usar "Global" en checklist nuevo).
 _GRUPO_CHECKLIST_SIN_JERARQUIA = "[Indefinido] > [Indefinido] > [Indefinido]"
+_RESPONSABLES_TODOS_TOKEN = "__TODOS__"
 
 
 class ChecklistItemPayload(BaseModel):
@@ -75,6 +76,7 @@ class CrearManualPayload(BaseModel):
     titulo: str = Field(..., min_length=1, max_length=500)
     descripcion: str = Field(default="", max_length=4000)
     responsable: str = Field(..., min_length=1, max_length=200)
+    responsables: List[str] = Field(default_factory=list)
     categoria: str = Field(..., min_length=1, max_length=200)
     checklist: List[ChecklistItemPayload] = Field(default_factory=list)
     minutos_estimados: int = 0
@@ -83,6 +85,18 @@ class CrearManualPayload(BaseModel):
         default=None,
         description="Imagen en Base64 (sin prefijo data:); se guarda en Meta_JSON.",
     )
+
+
+class EditarManualPayload(BaseModel):
+    titulo: Optional[str] = Field(default=None, min_length=1, max_length=500)
+    descripcion: Optional[str] = Field(default=None, max_length=4000)
+    responsable: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    responsables: Optional[List[str]] = None
+    checklist: Optional[List[ChecklistItemPayload]] = None
+    minutos_estimados: Optional[int] = Field(default=None, ge=0)
+    sin_tiempo_estimado: Optional[bool] = None
+    imagen_base64: Optional[str] = None
+    eliminar_imagen: bool = False
 
 
 class ReordenarItemPayload(BaseModel):
@@ -207,6 +221,89 @@ def _audit_estado_tabla_existe(cur: Any) -> bool:
         """
     )
     return cur.fetchone() is not None
+
+
+def _tabla_asignados_existe(cur: Any) -> bool:
+    cur.execute(
+        """
+        SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+        WHERE TABLE_NAME = 'Tbl_Gestor_Tarea_Asignados'
+        """
+    )
+    return cur.fetchone() is not None
+
+
+def _guardar_asignados_tarea(cur: Any, id_tarea: int, usuarios: List[str]) -> None:
+    if not _tabla_asignados_existe(cur):
+        return
+    cur.execute(
+        "DELETE FROM Tbl_Gestor_Tarea_Asignados WHERE ID_Tarea = ?",
+        (id_tarea,),
+    )
+    vistos: set[str] = set()
+    for usr in usuarios:
+        u = (usr or "").strip()
+        if not u:
+            continue
+        key = u.lower()
+        if key in vistos:
+            continue
+        vistos.add(key)
+        cur.execute(
+            """
+            INSERT INTO Tbl_Gestor_Tarea_Asignados (ID_Tarea, Usuario)
+            VALUES (?, ?)
+            """,
+            (id_tarea, u),
+        )
+
+
+def _resolver_asignados_payload(
+    cur: Any,
+    responsable: str,
+    responsables: Optional[List[str]],
+) -> List[str]:
+    ordered: List[str] = []
+    seen: set[str] = set()
+
+    def _add_user(v: str) -> None:
+        s = (v or "").strip()
+        if not s:
+            return
+        key = s.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        ordered.append(s)
+
+    _add_user(responsable)
+    for item in responsables or []:
+        _add_user(str(item))
+
+    include_all = any(u.upper() == _RESPONSABLES_TODOS_TOKEN for u in ordered)
+    ordered = [u for u in ordered if u.upper() != _RESPONSABLES_TODOS_TOKEN]
+    seen = {u.lower() for u in ordered}
+
+    if include_all:
+        cur.execute(
+            """
+            SELECT username
+            FROM dbo.Tbl_Usuarios
+            WHERE username IS NOT NULL AND LTRIM(RTRIM(username)) <> ''
+            ORDER BY username
+            """
+        )
+        for (raw_u,) in cur.fetchall():
+            u = str(raw_u or "").strip()
+            if not u:
+                continue
+            key = u.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            ordered.append(u)
+
+    return ordered
 
 
 def _audit_id_tarea_col(cur: Any) -> Optional[str]:
@@ -694,6 +791,7 @@ def crear_tarea(
         _apply_source_and_assignee_post_insert(
             cur, t_cols, t_pk, id_tarea, payload.tipo, payload.usuario_asignado
         )
+        _guardar_asignados_tarea(cur, id_tarea, [payload.usuario_asignado])
 
         registrar_log_global(
             cur,
@@ -778,6 +876,14 @@ def crear_tarea_manual(
             ),
         }
 
+        usuarios_asignados = _resolver_asignados_payload(
+            cur,
+            payload.responsable,
+            payload.responsables,
+        )
+        if not usuarios_asignados:
+            raise HTTPException(status_code=400, detail="Debe definir al menos un responsable válido")
+
         insert_cols: List[str] = []
         insert_vals: List[Any] = []
         if map_task["tipo"]:
@@ -810,6 +916,7 @@ def crear_tarea_manual(
                 "categoria": payload.categoria.strip(),
                 "_origen_crear_api": "MANUAL",
                 "source_type": "Manual",
+                "usuarios_asignados": usuarios_asignados,
             }
             desc_m = (payload.descripcion or "").strip()
             if desc_m:
@@ -827,7 +934,7 @@ def crear_tarea_manual(
             insert_cols.append(col_tc)
             insert_vals.append(payload.titulo.strip())
 
-        ua = payload.responsable.strip()
+        ua = usuarios_asignados[0]
         col_ua = map_task.get("usuario_asignado")
         if ua and col_ua:
             insert_cols.append(col_ua)
@@ -902,6 +1009,7 @@ def crear_tarea_manual(
             )
 
         _ensure_cycle_and_priority(cur, t_cols, t_pk, id_tarea)
+        _guardar_asignados_tarea(cur, id_tarea, usuarios_asignados)
 
         registrar_log_global(
             cur,
@@ -913,6 +1021,207 @@ def crear_tarea_manual(
         )
         conn.commit()
         return {"ok": True, "id_tarea": id_tarea, "id_check_pk": c_pk}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.put("/api/tareas/manual/{id_tarea}")
+def editar_tarea_manual(
+    id_tarea: int,
+    payload: EditarManualPayload,
+    authorization: Optional[str] = Header(None),
+    x_usuario: Optional[str] = Header(None, alias="X-Usuario"),
+):
+    usr = resolve_actor_user(authorization, x_usuario)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        t_cols = _get_cols(cur, "Tbl_Gestor_Tareas")
+        c_cols = _get_cols(cur, "Tbl_Gestor_Checklist")
+        if not t_cols or not c_cols:
+            raise HTTPException(status_code=500, detail="Tablas de gestor no disponibles")
+
+        t_pk = _pk_like(t_cols, "tarea") or "ID_Tarea"
+        t_titulo = _pick(t_cols, "Titulo", "Nombre_Tarea")
+        t_descripcion = _pick(t_cols, "Descripcion", "Detalle")
+        t_minutos = _pick(
+            t_cols,
+            "Duracion_Minutos",
+            "Tiempo_Total_Estimado",
+            "Minutos_Estimados",
+            "Tiempo_Estimado_Min",
+        )
+        t_meta = _pick(t_cols, "Meta_JSON", "Datos_JSON", "Contexto_JSON")
+        t_tipo = _pick_tipo_tarea_col(t_cols)
+        t_source_type = _pick(t_cols, "SourceType", "Source_Type")
+        t_estado = _pick(t_cols, "Estado", "Status", "Estado_Tarea")
+        t_progreso = _pick(t_cols, "Porcentaje_Progreso", "Progreso")
+        t_titulo_cambio = _pick(t_cols, "Titulo_Cambio")
+        t_usuario_asignado = _pick(
+            t_cols,
+            "Usuario_Asignado",
+            "UsuarioAsignado",
+            "Asignado_A",
+            "Responsable",
+        )
+
+        c_fk_tarea = _pick(c_cols, "ID_Tarea", "Id_Tarea", "Tarea_ID")
+        c_nombre = _pick(c_cols, "Nombre_Item", "Item", "Descripcion")
+        c_minutos = _pick(c_cols, "Tiempo_Estimado", "Minutos_Estimados", "Tiempo_Estimado_Min")
+        c_done = _pick(c_cols, "Completado", "Hecho", "Status")
+        c_orden = _pick(c_cols, "Orden", "Sort")
+        c_grupo = _pick(c_cols, "Grupo", "Grupo_Item", "Categoria", "Categoria_Item")
+        c_meta = _pick(
+            c_cols,
+            "Meta_JSON",
+            "Meta_Item",
+            "Datos_JSON",
+            "Contexto_JSON",
+            "Observaciones_JSON",
+        )
+        if not c_fk_tarea:
+            raise HTTPException(status_code=500, detail="No se encontró FK de checklist a tarea")
+
+        cur.execute(f"SELECT * FROM Tbl_Gestor_Tareas WHERE {t_pk} = ?", (id_tarea,))
+        colnames = [d[0] for d in cur.description]
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Tarea no encontrada")
+        task = {k: v for k, v in zip(colnames, row)}
+        if not _fila_es_tarea_manual(task, t_source_type, t_tipo):
+            raise HTTPException(status_code=400, detail="Solo tareas manuales pueden editarse aquí")
+        est = str(task.get(t_estado) or "").lower() if t_estado else ""
+        if "cancel" in est:
+            raise HTTPException(status_code=400, detail="La tarea está cancelada")
+
+        update_parts: List[str] = []
+        update_vals: List[Any] = []
+        nuevos_asignados: Optional[List[str]] = None
+
+        if payload.responsable is not None or payload.responsables is not None:
+            base_resp = (payload.responsable or "").strip()
+            if not base_resp:
+                base_resp = str(
+                    task.get(t_usuario_asignado or "") or task.get("Usuario_Asignado") or ""
+                ).strip()
+            nuevos_asignados = _resolver_asignados_payload(cur, base_resp, payload.responsables)
+            if not nuevos_asignados:
+                raise HTTPException(status_code=400, detail="Debe definir al menos un responsable válido")
+            if t_usuario_asignado:
+                update_parts.append(f"{t_usuario_asignado} = ?")
+                update_vals.append(nuevos_asignados[0])
+
+        if payload.titulo is not None and t_titulo:
+            update_parts.append(f"{t_titulo} = ?")
+            update_vals.append(payload.titulo.strip())
+            if t_titulo_cambio:
+                update_parts.append(f"{t_titulo_cambio} = ?")
+                update_vals.append(payload.titulo.strip())
+        if payload.descripcion is not None and t_descripcion:
+            update_parts.append(f"{t_descripcion} = ?")
+            update_vals.append(payload.descripcion.strip())
+        if payload.minutos_estimados is not None and t_minutos:
+            update_parts.append(f"{t_minutos} = ?")
+            update_vals.append(int(payload.minutos_estimados))
+
+        meta_dict: Dict[str, Any] = {}
+        if t_meta:
+            raw_meta = task.get(t_meta)
+            if isinstance(raw_meta, str) and raw_meta.strip().startswith("{"):
+                try:
+                    parsed = json.loads(raw_meta)
+                    if isinstance(parsed, dict):
+                        meta_dict = dict(parsed)
+                except Exception:
+                    meta_dict = {}
+
+            if payload.descripcion is not None:
+                desc = payload.descripcion.strip()
+                if desc:
+                    meta_dict["descripcion"] = desc
+                else:
+                    meta_dict.pop("descripcion", None)
+            if payload.sin_tiempo_estimado is not None:
+                if payload.sin_tiempo_estimado:
+                    meta_dict["sin_tiempo_estimado"] = True
+                else:
+                    meta_dict.pop("sin_tiempo_estimado", None)
+            if nuevos_asignados is not None:
+                meta_dict["usuarios_asignados"] = nuevos_asignados
+
+            img = (payload.imagen_base64 or "").strip()
+            if img:
+                meta_dict["imagen_adjunta_base64"] = img
+            elif payload.eliminar_imagen:
+                meta_dict.pop("imagen_adjunta_base64", None)
+
+            update_parts.append(f"{t_meta} = ?")
+            update_vals.append(json.dumps(meta_dict, ensure_ascii=False))
+
+        if payload.checklist is not None:
+            cur.execute(f"DELETE FROM Tbl_Gestor_Checklist WHERE {c_fk_tarea} = ?", (id_tarea,))
+            for idx, item in enumerate(payload.checklist, start=1):
+                cols = [c_fk_tarea]
+                vals: List[Any] = [id_tarea]
+                nombre = item.nombre.strip()
+                grupo = (item.grupo or "").strip() or _GRUPO_CHECKLIST_SIN_JERARQUIA
+                texto_sec = (item.texto_secundario or "").strip()
+                if texto_sec and not c_meta:
+                    nombre = f"{nombre}\n{texto_sec}"
+                if c_nombre:
+                    cols.append(c_nombre)
+                    vals.append(nombre)
+                if c_minutos:
+                    cols.append(c_minutos)
+                    vals.append(int(item.minutos or 0))
+                if c_done:
+                    cols.append(c_done)
+                    vals.append(0)
+                if c_orden:
+                    cols.append(c_orden)
+                    vals.append(idx)
+                if c_grupo:
+                    cols.append(c_grupo)
+                    vals.append(grupo)
+                if c_meta:
+                    cols.append(c_meta)
+                    vals.append(_checklist_meta_json(grupo, texto_sec))
+                cur.execute(
+                    f"INSERT INTO Tbl_Gestor_Checklist ({', '.join(cols)}) VALUES ({', '.join(['?'] * len(vals))})",
+                    tuple(vals),
+                )
+            if t_progreso:
+                update_parts.append(f"{t_progreso} = ?")
+                update_vals.append(0)
+            if t_estado:
+                update_parts.append(f"{t_estado} = ?")
+                update_vals.append("Pendiente")
+
+        if update_parts:
+            update_vals.append(id_tarea)
+            cur.execute(
+                f"UPDATE Tbl_Gestor_Tareas SET {', '.join(update_parts)} WHERE {t_pk} = ?",
+                tuple(update_vals),
+            )
+        if nuevos_asignados is not None:
+            _guardar_asignados_tarea(cur, id_tarea, nuevos_asignados)
+
+        registrar_log_global(
+            cur,
+            "GESTOR_TAREAS",
+            "EDITAR_TAREA_MANUAL",
+            "",
+            f"id_tarea={id_tarea};checks={'si' if payload.checklist is not None else 'no'}",
+            usr,
+        )
+        conn.commit()
+        return {"ok": True, "id_tarea": id_tarea}
     except HTTPException:
         conn.rollback()
         raise
@@ -1398,6 +1707,39 @@ def listar_tareas():
         t_rows = cur.fetchall()
         t_colnames = [d[0] for d in cur.description]
         tasks: List[Dict[str, Any]] = []
+        asignados_por_tarea: Dict[int, List[str]] = {}
+        colores_por_usuario: Dict[str, str] = {}
+        if _tabla_asignados_existe(cur):
+            cur.execute(
+                "SELECT ID_Tarea, Usuario FROM Tbl_Gestor_Tarea_Asignados ORDER BY ID_Asignado"
+            )
+            for id_t, usr in cur.fetchall():
+                try:
+                    tid = int(id_t)
+                except (TypeError, ValueError):
+                    continue
+                u = str(usr or "").strip()
+                if not u:
+                    continue
+                asignados_por_tarea.setdefault(tid, []).append(u)
+        try:
+            cur.execute(
+                """
+                SELECT username, COALESCE(color_hex, '#7F7F7F') as color_hex
+                FROM dbo.Tbl_Usuarios
+                WHERE username IS NOT NULL AND LTRIM(RTRIM(username)) <> ''
+                """
+            )
+            for usr, color_hex in cur.fetchall():
+                u = str(usr or "").strip()
+                hx = str(color_hex or "#7F7F7F").strip().upper()
+                if not u:
+                    continue
+                if len(hx) != 7 or not hx.startswith("#"):
+                    hx = "#7F7F7F"
+                colores_por_usuario[u.lower()] = hx
+        except Exception:
+            colores_por_usuario = {}
 
         for row in t_rows:
             m = {k: v for k, v in zip(t_colnames, row)}
@@ -1441,7 +1783,26 @@ def listar_tareas():
             ua_raw = m.get(t_usuario_asignado) if t_usuario_asignado else None
             usuario_asignado_val = _norm_cell(ua_raw)
             ca_cell = _norm_cell(m.get(t_current_assignee)) if t_current_assignee else None
+            usuarios_asignados = asignados_por_tarea.get(task_id, [])
             asignado_display = ca_cell or usuario_asignado_val
+            if usuarios_asignados:
+                asignado_display = usuarios_asignados[0]
+            usuarios_colores: Dict[str, str] = {}
+            for u in usuarios_asignados:
+                uh = str(u or "").strip()
+                if not uh:
+                    continue
+                ch = colores_por_usuario.get(uh.lower(), "#7F7F7F")
+                usuarios_colores[uh] = ch
+            if usuario_asignado_val and usuario_asignado_val not in usuarios_colores:
+                usuarios_colores[usuario_asignado_val] = colores_por_usuario.get(
+                    usuario_asignado_val.lower(), "#7F7F7F"
+                )
+            usuario_color_hex = (
+                colores_por_usuario.get(asignado_display.lower(), "#7F7F7F")
+                if asignado_display
+                else "#7F7F7F"
+            )
 
             motivo_canc = _motivo_cancel_desde_fila(m, t_motivo_cancel, t_meta)
 
@@ -1467,6 +1828,9 @@ def listar_tareas():
                     "CurrentAssignee": ca_cell,
                     "current_assignee": ca_cell,
                     "asignado_display": asignado_display,
+                    "usuarios_asignados": usuarios_asignados,
+                    "usuario_color_hex": usuario_color_hex,
+                    "usuarios_colores": usuarios_colores,
                     "source_type": src_val,
                     "SourceType": src_val,
                     "priority_rank": _int_or_none(m.get(t_priority)) if t_priority else None,
@@ -1764,6 +2128,142 @@ def bitacora_tarea(id_tarea: int):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
+
+
+@router.put("/api/tareas/historial/{id_tarea}/reactivar")
+def reactivar_tarea_historial(
+    id_tarea: int,
+    authorization: Optional[str] = Header(None),
+    x_usuario: Optional[str] = Header(None, alias="X-Usuario"),
+):
+    usr = resolve_actor_user(authorization, x_usuario)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        t_cols = _get_cols(cur, "Tbl_Gestor_Tareas")
+        c_cols = _get_cols(cur, "Tbl_Gestor_Checklist")
+        t_pk = _pk_like(t_cols, "tarea") or "ID_Tarea"
+        t_estado = _pick(t_cols, "Estado", "Status", "Estado_Tarea")
+        t_progreso = _pick(t_cols, "Porcentaje_Progreso", "Progreso")
+        if not t_estado or not t_progreso:
+            raise HTTPException(status_code=500, detail="No se pudo mapear estado/progreso")
+
+        cur.execute(f"SELECT * FROM Tbl_Gestor_Tareas WHERE {t_pk} = ?", (id_tarea,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Tarea no encontrada")
+        cols = [d[0] for d in cur.description]
+        task = {k: v for k, v in zip(cols, row)}
+        estado_actual = str(task.get(t_estado) or "")
+        progreso_actual = int(task.get(t_progreso) or 0)
+        if "cancel" not in estado_actual.lower() and progreso_actual < 100:
+            raise HTTPException(status_code=400, detail="La tarea ya está activa")
+
+        set_parts = [f"{t_estado} = ?", f"{t_progreso} = ?"]
+        set_vals: List[Any] = ["Pendiente", 0]
+        for fc in [
+            _pick(t_cols, "Fecha_Cierre", "Fecha_Completado", "Fecha_Finalizacion", "Fecha_Fin"),
+            _pick(t_cols, "PauseTime", "Pause_Time"),
+            _pick(t_cols, "PauseReasonID", "Pause_Reason_ID"),
+        ]:
+            if fc:
+                set_parts.append(f"{fc} = ?")
+                set_vals.append(None)
+        set_vals.append(id_tarea)
+        cur.execute(
+            f"UPDATE Tbl_Gestor_Tareas SET {', '.join(set_parts)} WHERE {t_pk} = ?",
+            tuple(set_vals),
+        )
+
+        c_fk_tarea = _pick(c_cols, "ID_Tarea", "Id_Tarea", "Tarea_ID") if c_cols else None
+        c_done = _pick(c_cols, "Completado", "Hecho", "Status") if c_cols else None
+        if c_fk_tarea and c_done:
+            cur.execute(
+                f"UPDATE Tbl_Gestor_Checklist SET {c_done} = 0 WHERE {c_fk_tarea} = ?",
+                (id_tarea,),
+            )
+
+        registrar_log_global(
+            cur,
+            "GESTOR_TAREAS",
+            "REACTIVAR_TAREA",
+            "",
+            f"id_tarea={id_tarea};estado_ant={estado_actual}",
+            usr,
+        )
+        conn.commit()
+        return {"ok": True, "id_tarea": id_tarea}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.delete("/api/tareas/historial/{id_tarea}")
+def eliminar_tarea_historial(
+    id_tarea: int,
+    authorization: Optional[str] = Header(None),
+    x_usuario: Optional[str] = Header(None, alias="X-Usuario"),
+    x_admin_master_password: Optional[str] = Header(
+        None, alias="X-Admin-Master-Password"
+    ),
+):
+    assert_admin_master_password_matches(x_admin_master_password)
+    usr = resolve_actor_user(authorization, x_usuario)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        t_cols = _get_cols(cur, "Tbl_Gestor_Tareas")
+        c_cols = _get_cols(cur, "Tbl_Gestor_Checklist")
+        t_pk = _pk_like(t_cols, "tarea") or "ID_Tarea"
+        t_estado = _pick(t_cols, "Estado", "Status", "Estado_Tarea")
+        t_progreso = _pick(t_cols, "Porcentaje_Progreso", "Progreso")
+        if not t_estado or not t_progreso:
+            raise HTTPException(status_code=500, detail="No se pudo mapear estado/progreso")
+        cur.execute(
+            f"SELECT {t_estado}, {t_progreso} FROM Tbl_Gestor_Tareas WHERE {t_pk} = ?",
+            (id_tarea,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Tarea no encontrada")
+        estado = str(row[0] or "").lower()
+        progreso = int(row[1] or 0)
+        if "cancel" not in estado and progreso < 100:
+            raise HTTPException(status_code=400, detail="Solo se elimina historial cerrado")
+
+        c_fk_tarea = _pick(c_cols, "ID_Tarea", "Id_Tarea", "Tarea_ID") if c_cols else None
+        if c_fk_tarea:
+            cur.execute(f"DELETE FROM Tbl_Gestor_Checklist WHERE {c_fk_tarea} = ?", (id_tarea,))
+        if _tabla_asignados_existe(cur):
+            cur.execute("DELETE FROM Tbl_Gestor_Tarea_Asignados WHERE ID_Tarea = ?", (id_tarea,))
+        cur.execute(f"DELETE FROM Tbl_Gestor_Tareas WHERE {t_pk} = ?", (id_tarea,))
+        if (cur.rowcount or 0) == 0:
+            raise HTTPException(status_code=404, detail="No se pudo eliminar la tarea")
+
+        registrar_log_global(
+            cur,
+            "GESTOR_TAREAS",
+            "ELIMINAR_TAREA_HISTORIAL",
+            "",
+            f"id_tarea={id_tarea}",
+            usr,
+        )
+        conn.commit()
+        return {"ok": True, "id_tarea": id_tarea}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
 
 @router.delete("/api/tareas/limpiar_historial")
 def limpiar_historial(

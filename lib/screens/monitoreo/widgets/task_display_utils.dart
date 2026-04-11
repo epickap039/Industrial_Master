@@ -8,6 +8,43 @@ bool esCancelada(Map<String, dynamic> t) => normEst(t).contains('cancel');
 
 bool esPausada(Map<String, dynamic> t) => normEst(t).contains('paus');
 
+/// Radar/Manual u otras misiones gestionadas en el Centro de Monitoreo.
+bool esMisionCentroTablero(Map<String, dynamic> t) {
+  var src =
+      '${t['source_type'] ?? t['SourceType'] ?? ''}'.trim().toUpperCase();
+  if (src.isEmpty) {
+    src = 'MANUAL';
+  }
+  if (src == 'MANUAL' || src == 'RADAR') return true;
+  final raw = t['tipo']?.toString().trim() ?? '';
+  if (raw.isEmpty || raw == 'null') return false;
+  final u = raw.toUpperCase();
+  if (u == 'RADAR' || u == 'MANUAL') return true;
+  return u.contains('RADAR') || u.contains('MANUAL');
+}
+
+/// Misión del centro aún en curso (pestaña Activas): no cancelada, no 100%, no terminada.
+bool esMisionCentroActiva(Map<String, dynamic> t) {
+  if (!esMisionCentroTablero(t)) return false;
+  if (esCancelada(t)) return false;
+  final p = int.tryParse('${t['porcentaje_progreso'] ?? 0}') ?? 0;
+  if (p >= 100) return false;
+  final st = normEst(t);
+  if (st.contains('terminad')) return false;
+  return true;
+}
+
+/// Misión del centro cerrada o cancelada (pestaña Historial).
+bool esMisionCentroHistorial(Map<String, dynamic> t) {
+  if (!esMisionCentroTablero(t)) return false;
+  if (esCancelada(t)) return true;
+  final p = int.tryParse('${t['porcentaje_progreso'] ?? 0}') ?? 0;
+  if (p >= 100) return true;
+  final st = normEst(t);
+  if (st.contains('terminad')) return true;
+  return false;
+}
+
 bool esManualSource(Map<String, dynamic> t) {
   final st = '${t['source_type'] ?? t['SourceType'] ?? ''}'.trim().toLowerCase();
   if (st == 'manual') return true;
@@ -240,6 +277,59 @@ int? minutosRestantesEstimados(Map<String, dynamic> task) {
   return (safeTotal * (1.0 - pClamped / 100.0)).round().clamp(0, safeTotal);
 }
 
+bool _esDiaLaboral(DateTime d) => d.weekday >= DateTime.monday && d.weekday <= DateTime.saturday;
+
+({DateTime start, DateTime end})? _ventanaLaboral(DateTime d) {
+  if (!_esDiaLaboral(d)) return null;
+  final start = DateTime(d.year, d.month, d.day, 8, 0);
+  final end = d.weekday == DateTime.saturday
+      ? DateTime(d.year, d.month, d.day, 14, 0)
+      : DateTime(d.year, d.month, d.day, 17, 0);
+  return (start: start, end: end);
+}
+
+DateTime? finLaboralDesde(DateTime base, int minutosPendientes) {
+  if (minutosPendientes <= 0) return base;
+  var rem = minutosPendientes;
+  var cur = base;
+  var guard = 0;
+  while (rem > 0 && guard < 5000) {
+    guard++;
+    final win = _ventanaLaboral(cur);
+    if (win == null) {
+      cur = DateTime(cur.year, cur.month, cur.day + 1, 8, 0);
+      continue;
+    }
+    if (cur.isBefore(win.start)) {
+      cur = win.start;
+    }
+    if (!cur.isBefore(win.end)) {
+      cur = DateTime(cur.year, cur.month, cur.day + 1, 8, 0);
+      continue;
+    }
+    final disp = win.end.difference(cur).inMinutes;
+    if (rem <= disp) return cur.add(Duration(minutes: rem));
+    rem -= disp;
+    cur = DateTime(cur.year, cur.month, cur.day + 1, 8, 0);
+  }
+  return cur;
+}
+
+String etiquetaFinLaboral(DateTime dt) {
+  const dias = ['', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo'];
+  const meses = ['', 'ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+  final h = dt.hour.toString().padLeft(2, '0');
+  final m = dt.minute.toString().padLeft(2, '0');
+  return '${dias[dt.weekday]} ${dt.day} ${meses[dt.month]} $h:$m';
+}
+
+String? estimadoFinLaboralDesdeAhoraEtiqueta(int minutosPendientes) {
+  if (minutosPendientes <= 0) return null;
+  final fin = finLaboralDesde(DateTime.now(), minutosPendientes);
+  if (fin == null) return null;
+  return etiquetaFinLaboral(fin);
+}
+
 String tituloMision(Map<String, dynamic> t) {
   String? norm(Object? v) {
     if (v == null) return null;
@@ -287,6 +377,11 @@ String asignadoMision(Map<String, dynamic> t) {
 
   final ad = norm(t['asignado_display']);
   if (ad != null) return ad;
+  final asignados = t['usuarios_asignados'];
+  if (asignados is List && asignados.isNotEmpty) {
+    final first = norm(asignados.first);
+    if (first != null) return first;
+  }
 
   for (final key in ['CurrentAssignee', 'current_assignee', 'Usuario_Asignado', 'usuario_asignado']) {
     final s = norm(t[key]);
@@ -331,7 +426,7 @@ int? idCheckDe(Map<String, dynamic> check) {
 const String kGrupoCierreDocumental = 'Global';
 
 /// Coincide con `engineering._GRUPO_INDEFINIDO_SW`: checklist sin grupo no cae en Global (Radar/SW).
-const String kGrupoJerarquiaIndefinida = '[Indefinido] > [Indefinido] > [Indefinido]';
+const String kGrupoJerarquiaIndefinida = 'Sin jerarquía definida';
 
 /// Impacto de material (no mezclar con cierre).
 const String kGrupoImpactoMaterial = 'Impacto de material';
@@ -645,7 +740,11 @@ String tiempoEstimadoEtiqueta(Map<String, dynamic> task) {
   }
   final safeTotal = totalMin < 0 ? 0 : totalMin;
   final rem = (safeTotal * (1.0 - pClamped / 100.0)).round().clamp(0, safeTotal);
-  final h = rem ~/ 60;
+  final d = rem ~/ (24 * 60);
+  final h = (rem % (24 * 60)) ~/ 60;
   final m = rem % 60;
+  if (d > 0) {
+    return 'Tiempo estimado: ${d} d ${h} h ${m} min';
+  }
   return 'Tiempo estimado: $h hrs $m min';
 }

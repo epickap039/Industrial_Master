@@ -892,6 +892,16 @@ class _AvatarCellState extends State<_AvatarCell> {
     });
   }
 
+  Future<void> _reloadFromServer() async {
+    setState(() => _loading = true);
+    final b = await UserAvatarService.instance.refreshAvatarFromServer(widget.username);
+    if (!mounted) return;
+    setState(() {
+      _bytes = b;
+      _loading = false;
+    });
+  }
+
   Future<void> _pickAndSave() async {
     if (!widget.canEdit) return;
     final picked = await FilePicker.platform.pickFiles(
@@ -920,17 +930,42 @@ class _AvatarCellState extends State<_AvatarCell> {
         child: ProgressRing(strokeWidth: 2),
       );
     }
-    return material.Tooltip(
-      message: widget.canEdit ? 'Click para cambiar foto' : 'Foto de perfil',
-      child: material.InkWell(
-        onTap: widget.canEdit ? _pickAndSave : null,
-        borderRadius: material.BorderRadius.circular(10),
-        child: _AvatarCirclePreview(
-          bytes: _bytes,
-          fallbackLabel: widget.username,
-          size: 48,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        material.Tooltip(
+          message: widget.canEdit ? 'Click para cambiar foto' : 'Foto de perfil',
+          child: material.InkWell(
+            onTap: widget.canEdit ? _pickAndSave : null,
+            borderRadius: material.BorderRadius.circular(10),
+            child: _AvatarCirclePreview(
+              bytes: _bytes,
+              fallbackLabel: widget.username,
+              size: 48,
+            ),
+          ),
         ),
-      ),
+        const SizedBox(height: 6),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Tooltip(
+              message: widget.canEdit ? 'Editar foto' : 'Sin permiso',
+              child: IconButton(
+                icon: const Icon(FluentIcons.camera, size: 14),
+                onPressed: widget.canEdit ? _pickAndSave : null,
+              ),
+            ),
+            Tooltip(
+              message: 'Recargar foto',
+              child: IconButton(
+                icon: const Icon(FluentIcons.refresh, size: 14),
+                onPressed: _reloadFromServer,
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }
@@ -991,8 +1026,17 @@ class _AvatarCirclePreview extends StatelessWidget {
 }
 
 class _ColorCellState extends State<_ColorCell> {
-  String _colorHex = '#1F77B4';
+  String _colorHex = '#7F7F7F';
   bool _loading = true;
+
+  material.Color _safeHexToColor(String hex) {
+    final cleaned = hex.trim().replaceFirst('#', '').toUpperCase();
+    final ok = RegExp(r'^[0-9A-F]{6}$').hasMatch(cleaned);
+    if (!ok) return const material.Color(0xFF7F7F7F);
+    final parsed = int.tryParse(cleaned, radix: 16);
+    if (parsed == null) return const material.Color(0xFF7F7F7F);
+    return material.Color(0xFF000000 | parsed);
+  }
 
   @override
   void initState() {
@@ -1003,12 +1047,20 @@ class _ColorCellState extends State<_ColorCell> {
   Future<void> _cargarColor() async {
     try {
       final resp = await ApiClient.get('/api/usuarios/${widget.username}/color');
-      if (resp is Map && mounted) {
-        final hex = resp['color_hex'] ?? resp['colorHex'] ?? '#1F77B4';
+      if (!mounted) return;
+      if (resp is Map) {
+        final hex = (resp['color_hex'] ?? resp['colorHex'] ?? '#7F7F7F')
+            .toString()
+            .toUpperCase();
+        final cleaned = hex.startsWith('#') ? hex : '#$hex';
         setState(() {
-          _colorHex = hex.toString().toUpperCase();
+          _colorHex = RegExp(r'^#[0-9A-F]{6}$').hasMatch(cleaned)
+              ? cleaned
+              : '#7F7F7F';
           _loading = false;
         });
+      } else {
+        setState(() => _loading = false);
       }
     } catch (_) {
       if (mounted) setState(() => _loading = false);
@@ -1023,6 +1075,7 @@ class _ColorCellState extends State<_ColorCell> {
           ? const material.Color(0xFF121212)
           : material.Colors.white,
       builder: (ctx) => _SimpleColorPickerDialog(
+        username: widget.username,
         currentColor: _colorHex,
         onColorSelected: (newColor) async {
           if (!mounted) return;
@@ -1076,7 +1129,7 @@ class _ColorCellState extends State<_ColorCell> {
             width: 48,
             height: 32,
             decoration: material.BoxDecoration(
-              color: material.Color(int.parse('0xFF${_colorHex.replaceFirst('#', '')}')),
+              color: _safeHexToColor(_colorHex),
               borderRadius: material.BorderRadius.circular(8),
               border: material.Border.all(
                 color: FluentTheme.of(context).inactiveColor.withValues(alpha: 0.5),
@@ -1084,8 +1137,7 @@ class _ColorCellState extends State<_ColorCell> {
               ),
               boxShadow: [
                 material.BoxShadow(
-                  color: material.Color(int.parse('0xFF${_colorHex.replaceFirst('#', '')}'))
-                      .withValues(alpha: 0.3),
+                  color: _safeHexToColor(_colorHex).withValues(alpha: 0.3),
                   blurRadius: 4,
                   offset: const material.Offset(0, 2),
                 ),
@@ -1105,7 +1157,7 @@ class _ColorCellState extends State<_ColorCell> {
   }
 
   material.Color _getContrastColor() {
-    final color = material.Color(int.parse('0xFF${_colorHex.replaceFirst('#', '')}'));
+    final color = _safeHexToColor(_colorHex);
     final luminance = color.computeLuminance();
     return luminance > 0.5 ? material.Colors.black87 : material.Colors.white70;
   }
@@ -1113,10 +1165,12 @@ class _ColorCellState extends State<_ColorCell> {
 
 class _SimpleColorPickerDialog extends StatefulWidget {
   const _SimpleColorPickerDialog({
+    required this.username,
     required this.currentColor,
     required this.onColorSelected,
   });
 
+  final String username;
   final String currentColor;
   final Function(String) onColorSelected;
 
@@ -1126,93 +1180,138 @@ class _SimpleColorPickerDialog extends StatefulWidget {
 }
 
 class _SimpleColorPickerDialogState extends State<_SimpleColorPickerDialog> {
-  static const Map<String, String> _colors = {
-    '#1F77B4': 'Azul',
-    '#FF7F0E': 'Naranja',
-    '#2CA02C': 'Verde',
-    '#D62728': 'Rojo',
-    '#9467BD': 'Púrpura',
-    '#8C564B': 'Marrón',
-    '#E377C2': 'Rosa',
-    '#7F7F7F': 'Gris',
-    '#BCBD22': 'Amarillo',
-    '#17BECF': 'Cian',
-    '#1B9E77': 'Verde oscuro',
-    '#D95F02': 'Naranja oscuro',
-  };
+  static const List<MapEntry<String, String>> _colors = [
+    MapEntry('#7F7F7F', 'Gris temporal'),
+    MapEntry('#42A5F5', 'Azul eléctrico'),
+    MapEntry('#64B5F6', 'Azul cielo'),
+    MapEntry('#5C6BC0', 'Índigo'),
+    MapEntry('#7E57C2', 'Violeta'),
+    MapEntry('#9575CD', 'Lavanda'),
+    MapEntry('#AB47BC', 'Magenta violeta'),
+    MapEntry('#BA68C8', 'Lila neón'),
+    MapEntry('#26C6DA', 'Cian intenso'),
+    MapEntry('#00ACC1', 'Turquesa profundo'),
+    MapEntry('#29B6F6', 'Azul agua'),
+    MapEntry('#4FC3F7', 'Celeste frío'),
+    MapEntry('#FF8A65', 'Coral suave'),
+    MapEntry('#FF7043', 'Coral intenso'),
+    MapEntry('#F06292', 'Rosa frambuesa'),
+    MapEntry('#7986CB', 'Índigo suave'),
+    MapEntry('#4DD0E1', 'Turquesa claro'),
+    MapEntry('#81D4FA', 'Azul hielo'),
+  ];
 
   late String _selected;
+  Uint8List? _avatarBytes;
+  bool _loadingAvatar = true;
+
+  material.Color _safeHexToColor(String hex) {
+    final cleaned = hex.trim().replaceFirst('#', '').toUpperCase();
+    final ok = RegExp(r'^[0-9A-F]{6}$').hasMatch(cleaned);
+    if (!ok) return const material.Color(0xFF7F7F7F);
+    final parsed = int.tryParse(cleaned, radix: 16);
+    if (parsed == null) return const material.Color(0xFF7F7F7F);
+    return material.Color(0xFF000000 | parsed);
+  }
+
+  Future<void> _loadAvatar() async {
+    final b = await UserAvatarService.instance.loadAvatarForUser(widget.username);
+    if (!mounted) return;
+    setState(() {
+      _avatarBytes = b;
+      _loadingAvatar = false;
+    });
+  }
 
   @override
   void initState() {
     super.initState();
-    _selected = widget.currentColor.toUpperCase();
+    final normalized = widget.currentColor.toUpperCase();
+    final exists = _colors.any((e) => e.key == normalized);
+    _selected = exists ? normalized : '#7F7F7F';
+    _loadAvatar();
   }
 
   @override
   Widget build(BuildContext context) {
-    final selectedColor = material.Color(int.parse('0xFF${_selected.replaceFirst('#', '')}'));
-    final selectedName = _colors[_selected] ?? _selected;
+    final selectedColor = _safeHexToColor(_selected);
+    final selectedName = _colors
+        .firstWhere(
+          (entry) => entry.key == _selected,
+          orElse: () => const MapEntry('#7F7F7F', 'Gris temporal'),
+        )
+        .value;
 
     return material.AlertDialog(
-      title: const material.Text('Seleccionar color para el usuario'),
+      title: material.Text('Color de ${widget.username}'),
       content: material.SingleChildScrollView(
         child: material.SizedBox(
-          width: 360,
+          width: 430,
           child: material.Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Preview area
               material.Container(
-                padding: const material.EdgeInsets.all(20),
+                padding: const material.EdgeInsets.all(16),
                 decoration: material.BoxDecoration(
-                  color: selectedColor.withValues(alpha: 0.1),
+                  color: selectedColor.withValues(alpha: 0.12),
                   border: material.Border.all(
-                    color: selectedColor.withValues(alpha: 0.3),
+                    color: selectedColor.withValues(alpha: 0.45),
                     width: 2,
                   ),
                   borderRadius: material.BorderRadius.circular(12),
                 ),
-                child: material.Column(
+                child: material.Row(
                   children: [
                     material.Container(
-                      width: 80,
-                      height: 80,
+                      width: 76,
+                      height: 76,
+                      padding: const material.EdgeInsets.all(3),
                       decoration: material.BoxDecoration(
-                        color: selectedColor,
-                        borderRadius: material.BorderRadius.circular(10),
-                        boxShadow: [
-                          material.BoxShadow(
-                            color: selectedColor.withValues(alpha: 0.4),
-                            blurRadius: 8,
-                            offset: const material.Offset(0, 4),
+                        shape: material.BoxShape.circle,
+                        border: material.Border.all(color: selectedColor, width: 3),
+                      ),
+                      child: _loadingAvatar
+                          ? const Center(child: SizedBox(width: 20, height: 20, child: ProgressRing(strokeWidth: 2)))
+                          : _AvatarCirclePreview(
+                              bytes: _avatarBytes,
+                              fallbackLabel: widget.username,
+                              size: 70,
+                            ),
+                    ),
+                    const material.SizedBox(width: 14),
+                    Expanded(
+                      child: material.Column(
+                        crossAxisAlignment: material.CrossAxisAlignment.start,
+                        children: [
+                          material.Text(
+                            selectedName,
+                            style: const material.TextStyle(
+                              fontSize: 16,
+                              fontWeight: material.FontWeight.w700,
+                            ),
+                          ),
+                          const material.SizedBox(height: 4),
+                          material.Text(
+                            _selected,
+                            style: material.TextStyle(
+                              fontSize: 12,
+                              color: material.Colors.grey[600],
+                              fontFamily: 'Consolas',
+                            ),
+                          ),
+                          const material.SizedBox(height: 4),
+                          const material.Text(
+                            'Si aún no eliges color, usa Gris temporal.',
+                            style: material.TextStyle(fontSize: 12),
                           ),
                         ],
-                      ),
-                    ),
-                    const material.SizedBox(height: 12),
-                    material.Text(
-                      selectedName,
-                      style: const material.TextStyle(
-                        fontSize: 16,
-                        fontWeight: material.FontWeight.w600,
-                      ),
-                    ),
-                    const material.SizedBox(height: 4),
-                    material.Text(
-                      _selected,
-                      style: material.TextStyle(
-                        fontSize: 12,
-                        color: material.Colors.grey[600],
-                        fontFamily: 'Courier New',
                       ),
                     ),
                   ],
                 ),
               ),
               const material.SizedBox(height: 20),
-              // Color grid
               material.Text(
                 'Colores disponibles',
                 style: const material.TextStyle(
@@ -1221,49 +1320,49 @@ class _SimpleColorPickerDialogState extends State<_SimpleColorPickerDialog> {
                 ),
               ),
               const material.SizedBox(height: 12),
-              material.GridView.count(
-                crossAxisCount: 4,
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
-                shrinkWrap: true,
-                physics: const material.NeverScrollableScrollPhysics(),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
                 children: [
-                  for (final entry in _colors.entries)
-                    material.GestureDetector(
-                      onTap: () => setState(() => _selected = entry.key),
-                      child: material.AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        decoration: material.BoxDecoration(
-                          color: material.Color(
-                              int.parse('0xFF${entry.key.replaceFirst('#', '')}')),
-                          borderRadius: material.BorderRadius.circular(8),
-                          border: material.Border.all(
-                            color: _selected == entry.key
-                                ? material.Colors.white
-                                : material.Colors.transparent,
-                            width: 3,
+                  for (final entry in _colors)
+                    material.Tooltip(
+                      message: '${entry.value} (${entry.key})',
+                      child: material.InkWell(
+                        onTap: () => setState(() => _selected = entry.key),
+                        borderRadius: material.BorderRadius.circular(999),
+                        child: material.AnimatedContainer(
+                          duration: const Duration(milliseconds: 160),
+                          width: 32,
+                          height: 32,
+                          decoration: material.BoxDecoration(
+                            shape: material.BoxShape.circle,
+                            color: _safeHexToColor(entry.key),
+                            border: material.Border.all(
+                              color: _selected == entry.key
+                                  ? material.Colors.white
+                                  : material.Colors.white.withValues(alpha: 0.25),
+                              width: _selected == entry.key ? 3 : 1.2,
+                            ),
+                            boxShadow: _selected == entry.key
+                                ? [
+                                    material.BoxShadow(
+                                      color: _safeHexToColor(entry.key).withValues(alpha: 0.55),
+                                      blurRadius: 8,
+                                      spreadRadius: 1,
+                                    ),
+                                  ]
+                                : const [],
                           ),
-                          boxShadow: _selected == entry.key
-                              ? [
-                                  material.BoxShadow(
-                                    color: material.Color(int.parse(
-                                            '0xFF${entry.key.replaceFirst('#', '')}'))
-                                        .withValues(alpha: 0.5),
-                                    blurRadius: 8,
-                                    offset: const material.Offset(0, 4),
+                          child: _selected == entry.key
+                              ? Center(
+                                  child: material.Icon(
+                                    material.Icons.check,
+                                    color: _getContrastColor(entry.key),
+                                    size: 16,
                                   ),
-                                ]
-                              : [],
+                                )
+                              : const SizedBox.shrink(),
                         ),
-                        child: _selected == entry.key
-                            ? material.Center(
-                                child: material.Icon(
-                                  material.Icons.check,
-                                  color: _getContrastColor(entry.key),
-                                  size: 20,
-                                ),
-                              )
-                            : const material.SizedBox(),
                       ),
                     ),
                 ],

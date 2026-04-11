@@ -2,11 +2,14 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../screens/monitoreo/widgets/task_display_utils.dart';
+
 const String _kPrefsKey = 'cmd_notification_inbox_v1';
 const int _kMaxItems = 200;
 
 const String kMissionAssignedType = 'mission_assigned';
 const String kMissionReminderType = 'mission_reminder';
+const String kSystemNoticeType = 'system_notice';
 
 class CmdInboxEntry {
   CmdInboxEntry._(
@@ -305,6 +308,55 @@ class CmdInboxStore {
     return created;
   }
 
+  /// IDs de tareas del centro (Radar/Manual) **activas** y asignadas al usuario.
+  static Set<int> pendingCentroMissionIdsForUser(
+    List<Map<String, dynamic>> tasks,
+    String username,
+  ) {
+    final u = username.trim().toLowerCase();
+    if (u.isEmpty) return {};
+    final out = <int>{};
+    for (final t in tasks) {
+      if (!esMisionCentroActiva(t)) continue;
+      final asignado =
+          '${t['usuario_asignado'] ?? t['Usuario_Asignado'] ?? ''}'.trim();
+      if (asignado.isEmpty) continue;
+      if (asignado.toLowerCase() != u) continue;
+      final idRaw = t['id_tarea'] ?? t['Id_Tarea'] ?? t['id'];
+      final id = idRaw is int ? idRaw : int.tryParse('$idRaw');
+      if (id != null && id > 0) out.add(id);
+    }
+    return out;
+  }
+
+  /// Quita del buzón notificaciones de misión que ya no están pendientes (completadas,
+  /// canceladas, borradas en servidor o reasignadas).
+  Future<bool> pruneMissionEntriesNotIn(Set<int> activePendingTaskIds) async {
+    final all = await loadAll();
+    final filtered = all.where((e) {
+      if (e.idTarea == null) return true;
+      if (e.tipo != kMissionAssignedType && e.tipo != kMissionReminderType) {
+        return true;
+      }
+      return activePendingTaskIds.contains(e.idTarea!);
+    }).toList();
+    if (filtered.length == all.length) return false;
+    await _save(filtered);
+    return true;
+  }
+
+  /// Alinea el buzón con [tasks] y el usuario actual (misma regla que recordatorios).
+  Future<bool> pruneMissionInboxAgainstTaskList(
+    List<Map<String, dynamic>> tasks,
+    String currentUsername,
+  ) {
+    final ids = CmdInboxStore.pendingCentroMissionIdsForUser(
+      tasks,
+      currentUsername,
+    );
+    return pruneMissionEntriesNotIn(ids);
+  }
+
   Future<void> markRead(String id) async {
     final all = await loadAll();
     for (final n in all) {
@@ -333,5 +385,29 @@ class CmdInboxStore {
     final prefs = await SharedPreferences.getInstance();
     final key = await _prefsKeyForCurrentUser();
     await prefs.remove(key);
+  }
+
+  Future<void> addSystemNotice({
+    required String title,
+    required String body,
+  }) async {
+    final all = await loadAll();
+    final now = DateTime.now();
+    all.insert(
+      0,
+      CmdInboxEntry._(
+        's_${now.millisecondsSinceEpoch}',
+        kSystemNoticeType,
+        title.trim().isEmpty ? 'Notificacion del sistema' : title.trim(),
+        body.trim(),
+        now,
+        null,
+        false,
+        now,
+        '',
+        2,
+      ),
+    );
+    await _save(all);
   }
 }

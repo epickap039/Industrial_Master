@@ -3,7 +3,14 @@ import 'package:flutter/material.dart' as material;
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Paletas profesionales: Corporate Light, Industrial Dark, Ops Neon, Cyberpunk.
-enum AppThemeMode { corporateLight, industrialDark, highContrast, cyberpunk }
+enum AppThemeMode {
+  corporateLight,
+  roseLight,
+  skyLight,
+  industrialDark,
+  highContrast,
+  cyberpunk,
+}
 
 final appTheme = ThemeProvider();
 
@@ -29,6 +36,8 @@ class ThemeProvider extends ChangeNotifier {
       'AppThemeMode.cyberpunk': AppThemeMode.cyberpunk,
       'AppThemeMode.highContrast': AppThemeMode.highContrast,
       'AppThemeMode.corporateLight': AppThemeMode.corporateLight,
+      'AppThemeMode.roseLight': AppThemeMode.roseLight,
+      'AppThemeMode.skyLight': AppThemeMode.skyLight,
       'AppThemeMode.industrialDark': AppThemeMode.industrialDark,
     };
     final mapped = legacy[saved];
@@ -64,6 +73,10 @@ class ThemeProvider extends ChangeNotifier {
     switch (_currentMode) {
       case AppThemeMode.corporateLight:
         return AppThemes.corporateLightTheme;
+      case AppThemeMode.roseLight:
+        return AppThemes.roseLightTheme;
+      case AppThemeMode.skyLight:
+        return AppThemes.skyLightTheme;
       case AppThemeMode.highContrast:
         return AppThemes.highContrastTheme;
       case AppThemeMode.cyberpunk:
@@ -103,6 +116,26 @@ class AppThemes {
     'light': const Color(0xFF3DD9E5),
     'lighter': const Color(0xFF74E5EE),
     'lightest': const Color(0xFFB6F3F6),
+  });
+
+  static final AccentColor _roseAccent = AccentColor.swatch({
+    'darkest': const Color(0xFF8A3054),
+    'darker': const Color(0xFFA33F66),
+    'dark': const Color(0xFFBC4E78),
+    'normal': const Color(0xFFD66690),
+    'light': const Color(0xFFE289AB),
+    'lighter': const Color(0xFFEDAFCA),
+    'lightest': const Color(0xFFF6D4E3),
+  });
+
+  static final AccentColor _skyAccent = AccentColor.swatch({
+    'darkest': const Color(0xFF1E5D8A),
+    'darker': const Color(0xFF2A6EA0),
+    'dark': const Color(0xFF377FB7),
+    'normal': const Color(0xFF4B97CF),
+    'light': const Color(0xFF6DAFD9),
+    'lighter': const Color(0xFF9BCAE7),
+    'lightest': const Color(0xFFCFE6F4),
   });
 
   /// CORPORATE LIGHT - clean neutral dashboard.
@@ -178,6 +211,40 @@ class AppThemes {
     ),
   );
 
+  /// GRAY LIGHT (slot roseLight) - neutro suave sin deslumbrar.
+  static final FluentThemeData roseLightTheme = FluentThemeData(
+    brightness: Brightness.light,
+    accentColor: _corporateBlue,
+    scaffoldBackgroundColor: const Color(0xFFF3F4F6),
+    cardColor: const Color(0xFFF8FAFC),
+    micaBackgroundColor: const Color(0xFFE5E7EB),
+    typography: const Typography.raw(
+      body: TextStyle(color: Color(0xFF1F2937)),
+      bodyStrong: TextStyle(color: Color(0xFF111827), fontWeight: FontWeight.w700),
+      bodyLarge: TextStyle(color: Color(0xFF111827)),
+      title: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.w700),
+      subtitle: TextStyle(color: Color(0xFF334155)),
+      caption: TextStyle(color: Color(0xFF64748B)),
+    ),
+  );
+
+  /// COOL GRAY LIGHT (slot skyLight) - gris frío con contraste cómodo.
+  static final FluentThemeData skyLightTheme = FluentThemeData(
+    brightness: Brightness.light,
+    accentColor: _corporateBlue,
+    scaffoldBackgroundColor: const Color(0xFFF1F5F9),
+    cardColor: const Color(0xFFF8FAFC),
+    micaBackgroundColor: const Color(0xFFE2E8F0),
+    typography: const Typography.raw(
+      body: TextStyle(color: Color(0xFF1E293B)),
+      bodyStrong: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.w700),
+      bodyLarge: TextStyle(color: Color(0xFF0F172A)),
+      title: TextStyle(color: Color(0xFF020617), fontWeight: FontWeight.w700),
+      subtitle: TextStyle(color: Color(0xFF334155)),
+      caption: TextStyle(color: Color(0xFF64748B)),
+    ),
+  );
+
   /// OPS NEON DASHBOARD (replaces old high contrast mode).
   /// Dark gradient-like base + cyan/purple accents inspired by SaaS dashboards.
   static final FluentThemeData highContrastTheme = FluentThemeData(
@@ -213,39 +280,52 @@ class AppThemes {
     ),
   );
 
-  /// CYBERPUNK — se conserva la estética existente.
+  /// CYBERPUNK (refinado): estilo oscuro sin deformar tipografías ni botones.
   static final FluentThemeData cyberpunkTheme = FluentThemeData(
     brightness: Brightness.dark,
-    accentColor: Colors.teal,
-    scaffoldBackgroundColor: const Color(0xFF050505),
-    cardColor: const Color(0xFF111111),
+    accentColor: AccentColor.swatch(const <String, Color>{
+      'darkest': Color(0xFF006064),
+      'darker': Color(0xFF00838F),
+      'dark': Color(0xFF00ACC1),
+      'normal': Color(0xFF00E5FF),
+      'light': Color(0xFF67E8F9),
+      'lighter': Color(0xFFA5F3FC),
+      'lightest': Color(0xFFCCFBF1),
+    }),
+    scaffoldBackgroundColor: const Color(0xFF090B13),
+    cardColor: const Color(0xFF151927),
+    micaBackgroundColor: const Color(0xFF0E1424),
     typography: const Typography.raw(
-      body: TextStyle(color: Color(0xFF00FFCC), fontFamily: 'Consolas'),
+      body: TextStyle(color: Color(0xFFE2E8F0)),
+      bodyStrong: TextStyle(color: Color(0xFFF8FAFC), fontWeight: FontWeight.w700),
+      bodyLarge: TextStyle(color: Color(0xFFF1F5F9)),
       title: TextStyle(
-        color: Color(0xFF00FFCC),
-        fontWeight: FontWeight.bold,
-        fontFamily: 'Consolas',
+        color: Color(0xFFF8FAFC),
+        fontWeight: FontWeight.w700,
       ),
-      subtitle: TextStyle(color: Color(0xFF00FFCC), fontFamily: 'Consolas'),
+      subtitle: TextStyle(color: Color(0xFFCBD5E1)),
+      caption: TextStyle(color: Color(0xFF94A3B8)),
     ),
     buttonTheme: ButtonThemeData(
       defaultButtonStyle: ButtonStyle(
+        foregroundColor: WidgetStateProperty.all(const Color(0xFFB2F5EA)),
+        backgroundColor: WidgetStateProperty.all(const Color(0xFF111827)),
         shape: WidgetStateProperty.all(
-          BeveledRectangleBorder(
-            borderRadius: BorderRadius.zero,
-            side: const BorderSide(color: Color(0xFF00FFCC)),
+          RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+            side: const BorderSide(color: Color(0xFF00E5FF), width: 1),
           ),
         ),
-        elevation: WidgetStateProperty.all(0),
       ),
       filledButtonStyle: ButtonStyle(
+        backgroundColor: WidgetStateProperty.all(const Color(0xFFE11D8A)),
+        foregroundColor: WidgetStateProperty.all(const Color(0xFFF8FAFC)),
         shape: WidgetStateProperty.all(
-          BeveledRectangleBorder(
-            borderRadius: BorderRadius.zero,
-            side: const BorderSide(color: Color(0xFF00FFCC)),
+          RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+            side: const BorderSide(color: Color(0xFFF472B6), width: 1),
           ),
         ),
-        elevation: WidgetStateProperty.all(0),
       ),
     ),
   );
@@ -256,53 +336,70 @@ class AppThemes {
 // ============================================================================
 
 class UserColorPalette {
-  /// 12 colores estándares WCAG AA compatible para asignación a usuarios.
-  /// Cada color tiene contraste ≥ 4.5:1 contra backgrounds oscuros.
+  /// 18 colores para asignación de usuarios (incluye gris temporal multiuso).
   static const List<Color> userColors = [
-    Color(0xFFFF8C00), // Naranja (default)
-    Color(0xFFFF6B6B), // Rojo vibrante
-    Color(0xFF4ECDC4), // Teal
-    Color(0xFF45B7D1), // Azul celeste
-    Color(0xFF96CEB4), // Verde menta
-    Color(0xFFFFFAED), // Blanco crema
-    Color(0xFFEEAAED), // Magenta/Púrpura
-    Color(0xFFDDA0DD), // Plumero
-    Color(0xFFA4DE6C), // Verde lima
-    Color(0xFF74B9FF), // Azul cielo
-    Color(0xFFA29BFE), // Lavanda
-    Color(0xFFF7B731), // Oro
+    Color(0xFF7F7F7F), // Gris temporal
+    Color(0xFF42A5F5), // Azul eléctrico
+    Color(0xFF64B5F6), // Azul cielo intenso
+    Color(0xFF5C6BC0), // Índigo
+    Color(0xFF7E57C2), // Violeta
+    Color(0xFF9575CD), // Lavanda fuerte
+    Color(0xFFAB47BC), // Magenta violeta
+    Color(0xFFBA68C8), // Lila neón
+    Color(0xFF26C6DA), // Cian intenso
+    Color(0xFF00ACC1), // Turquesa profundo
+    Color(0xFF29B6F6), // Azul agua
+    Color(0xFF4FC3F7), // Celeste frío
+    Color(0xFFFF8A65), // Coral suave
+    Color(0xFFFF7043), // Coral intenso
+    Color(0xFFF06292), // Rosa frambuesa
+    Color(0xFF7986CB), // Índigo suave
+    Color(0xFF4DD0E1), // Turquesa claro
+    Color(0xFF81D4FA), // Azul hielo
   ];
 
   /// Códigos hexadecimales correspondientes para envío a API
   static const List<String> userColorsHex = [
-    '#FF8C00', // Naranja (default)
-    '#FF6B6B', // Rojo vibrante
-    '#4ECDC4', // Teal
-    '#45B7D1', // Azul celeste
-    '#96CEB4', // Verde menta
-    '#FFFFAED', // Blanco crema
-    '#EEAAED', // Magenta/Púrpura
-    '#DDA0DD', // Plumero
-    '#A4DE6C', // Verde lima
-    '#74B9FF', // Azul cielo
-    '#A29BFE', // Lavanda
-    '#F7B731', // Oro
+    '#7F7F7F', // Gris temporal
+    '#42A5F5', // Azul eléctrico
+    '#64B5F6', // Azul cielo intenso
+    '#5C6BC0', // Índigo
+    '#7E57C2', // Violeta
+    '#9575CD', // Lavanda fuerte
+    '#AB47BC', // Magenta violeta
+    '#BA68C8', // Lila neón
+    '#26C6DA', // Cian intenso
+    '#00ACC1', // Turquesa profundo
+    '#29B6F6', // Azul agua
+    '#4FC3F7', // Celeste frío
+    '#FF8A65', // Coral suave
+    '#FF7043', // Coral intenso
+    '#F06292', // Rosa frambuesa
+    '#7986CB', // Índigo suave
+    '#4DD0E1', // Turquesa claro
+    '#81D4FA', // Azul hielo
   ];
 
   /// Nombres amigables para cada color
   static const List<String> userColorNames = [
-    'Naranja (Default)',
-    'Rojo Vibrante',
-    'Teal',
-    'Azul Celeste',
-    'Verde Menta',
-    'Blanco Crema',
-    'Magenta',
-    'Plumero',
-    'Verde Lima',
-    'Azul Cielo',
-    'Lavanda',
-    'Oro',
+    'Gris temporal',
+    'Azul eléctrico',
+    'Azul cielo intenso',
+    'Índigo',
+    'Violeta',
+    'Lavanda fuerte',
+    'Magenta violeta',
+    'Lila neón',
+    'Cian intenso',
+    'Turquesa profundo',
+    'Azul agua',
+    'Celeste frío',
+    'Coral suave',
+    'Coral intenso',
+    'Rosa frambuesa',
+    'Índigo suave',
+    'Turquesa claro',
+    'Azul hielo',
   ];
 
   /// Obtener color por índice
@@ -348,6 +445,10 @@ extension AppThemeModeLabel on AppThemeMode {
     switch (this) {
       case AppThemeMode.corporateLight:
         return 'Corporate Light';
+      case AppThemeMode.roseLight:
+        return 'Gris Suave';
+      case AppThemeMode.skyLight:
+        return 'Gris Frío';
       case AppThemeMode.industrialDark:
         return 'Industrial Dark';
       case AppThemeMode.highContrast:

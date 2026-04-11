@@ -1,0 +1,11 @@
+---
+description: Notas de versión y flujo Centro QA / misiones de prueba
+alwaysApply: true
+---
+
+# Centro QA y limpiezas
+
+- **Reportes QA** (`qa_dashboard`, API `Tbl_Reportes_Beta`): al corregir un bug reportado, cerrar con **Completado** (`/resolver`) o **Rechazado** (`/rechazar`). Solo `Abierto` se listan en bandeja.
+- **Notas de versión (retroalimentación)**: tras un fix tocado por QA, añade **una línea breve** al array en `assets/qa_version_notes.json` (campos `v`, `fecha` ISO `YYYY-MM-DD`, `notas`). Más reciente primero. Sin párrafos largos.
+- **Historial misiones de prueba (Centro monitoreo)**: pestaña *Historial* → *Limpiar historial en BD* pide contraseña maestra; borra de `Tbl_Gestor_Tareas` las terminadas/canceladas (`DELETE /api/tareas/limpiar_historial`).
+- **Historial reportes QA cerrados**: en Centro QA, admins/desarrolladores → *Limpiar historial reportes* + contraseña maestra (`DELETE /api/reportes/limpiar_historial`).

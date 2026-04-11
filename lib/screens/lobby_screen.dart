@@ -1,16 +1,19 @@
+import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:url_launcher/url_launcher.dart';
-
 import '../config/app_config.dart';
 import '../services/api_client.dart';
 import '../services/app_role.dart';
+import '../services/main_nav.dart';
 import '../services/nav_pane.dart';
 import '../services/notification_inbox_service.dart';
+import '../services/user_avatar_service.dart';
 import '../theme/page_title_style.dart';
 import '../theme/ui_tokens.dart';
 import 'monitoreo/widgets/notification_inbox_panel.dart';
@@ -64,6 +67,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
   String _userName = 'Cargando...';
   String _userRole = '';
   String _userGender = '';
+  String _loginUsername = '';
+  Uint8List? _avatarBytes;
+  bool _avatarLoading = false;
 
   // KPIs /api/dashboard/kpi
   int totalLineasBom = 0;
@@ -116,6 +122,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
     final prefUsername = (prefs.getString('username') ?? '').trim();
     final prefDisplayName = (prefs.getString('display_name') ?? '').trim();
     final prefGender = (prefs.getString('user_gender') ?? '').trim();
+    final prefLogin = (prefs.getString('username') ?? '').trim();
     final userId = prefs.getInt('user_id');
     if (mounted) {
       setState(() {
@@ -123,9 +130,11 @@ class _LobbyScreenState extends State<LobbyScreen> {
             ? prefDisplayName
             : (prefUsername.isNotEmpty ? prefUsername : 'Usuario');
         _userGender = prefGender;
+        _loginUsername = prefLogin;
         _userRole = widget.effectiveRole;
       });
     }
+    await _reloadLobbyAvatar(silent: true);
     // Sincroniza el nombre visible con el perfil real (si se cambió en backend).
     try {
       final raw = await ApiClient.get('/api/usuarios/all');
@@ -166,6 +175,65 @@ class _LobbyScreenState extends State<LobbyScreen> {
         await prefs.setString('username', newLogin);
       }
     } catch (_) {}
+  }
+
+  Future<void> _reloadLobbyAvatar({bool silent = false}) async {
+    final uname = _loginUsername.trim();
+    if (uname.isEmpty) return;
+    if (mounted) setState(() => _avatarLoading = true);
+    try {
+      final fresh = await UserAvatarService.instance.refreshAvatarFromServer(uname);
+      if (!mounted) return;
+      setState(() => _avatarBytes = fresh);
+      if (!silent) {
+        _showTopBarInfo(
+          'Foto de perfil',
+          fresh == null ? 'No hay foto de perfil para este usuario.' : 'Foto recargada.',
+          InfoBarSeverity.success,
+        );
+      }
+    } catch (e) {
+      if (!silent) {
+        _showTopBarInfo('Foto de perfil', '$e', InfoBarSeverity.error);
+      }
+    } finally {
+      if (mounted) setState(() => _avatarLoading = false);
+    }
+  }
+
+  Future<void> _pickLobbyAvatar() async {
+    final uname = _loginUsername.trim();
+    if (uname.isEmpty) return;
+    final picked = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      withData: true,
+      allowMultiple: false,
+    );
+    if (picked == null || picked.files.isEmpty) return;
+    Uint8List? bytes = picked.files.single.bytes;
+    final path = picked.files.single.path;
+    if (bytes == null && path != null && path.isNotEmpty) {
+      bytes = await File(path).readAsBytes();
+    }
+    if (bytes == null || bytes.isEmpty) return;
+    await UserAvatarService.instance.saveAvatarForUser(uname, bytes);
+    if (!mounted) return;
+    setState(() => _avatarBytes = bytes);
+    _showTopBarInfo('Foto de perfil', 'Foto actualizada.', InfoBarSeverity.success);
+  }
+
+  void _showTopBarInfo(String title, String msg, InfoBarSeverity severity) {
+    if (!mounted) return;
+    displayInfoBar(
+      context,
+      builder:
+          (c, close) => InfoBar(
+            title: Text(title),
+            content: Text(msg),
+            severity: severity,
+            onClose: close,
+          ),
+    );
   }
 
   String _displayNameFromUserRow(Map<String, dynamic> row) {
@@ -245,6 +313,21 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
   Future<void> _fetchInboxPreview() async {
     try {
+      final prefs = await SharedPreferences.getInstance();
+      final inboxUser = (prefs.getString('username') ?? '').trim();
+      if (inboxUser.isNotEmpty) {
+        try {
+          final data = await ApiClient.get('/api/tareas/lista');
+          if (data is List) {
+            final taskRows =
+                data.whereType<Map<String, dynamic>>().toList();
+            await CmdInboxStore.instance.pruneMissionInboxAgainstTaskList(
+              taskRows,
+              inboxUser,
+            );
+          }
+        } catch (_) {}
+      }
       final all = await CmdInboxStore.instance.loadAll();
       final unread = all.where((n) => !n.leido).length;
       if (!mounted) return;
@@ -272,6 +355,16 @@ class _LobbyScreenState extends State<LobbyScreen> {
       },
     );
     if (mounted) await _fetchInboxPreview();
+  }
+
+  Widget _lobbyFilledAction({required String label, required VoidCallback? onPressed}) {
+    return FilledButton(
+      onPressed: onPressed,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        child: Text(label),
+      ),
+    );
   }
 
   DateTime? _parseCatalogDate(dynamic v) {
@@ -493,13 +586,23 @@ class _LobbyScreenState extends State<LobbyScreen> {
     } catch (_) {}
   }
 
-  Future<void> _openLatestAyuda() async {
+  void _openLatestAyuda() {
     final m = _ultimaAyudaVisual;
     if (m == null) return;
+    final idAyuda = ayudasIdAyuda(m);
     final idRevision = ayudasIdRevision(m);
-    if (idRevision <= 0) return;
-    final uri = Uri.parse('$kApiBaseUrl/api/ayudas/ver/$idRevision');
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (idAyuda <= 0 || idRevision <= 0) return;
+    if (navIndexForPane(NavPaneId.ayudasVisuales, MainNav.currentRole) < 0) {
+      return;
+    }
+    MainNav.requestOpenAyudaLobby(
+      AyudasLobbyOpenIntent(
+        idAyuda: idAyuda,
+        idRevision: idRevision,
+        tituloDocumento: ayudasTituloDocumento(m),
+      ),
+    );
+    widget.onNavigatePane(NavPaneId.ayudasVisuales);
   }
 
   Future<void> _fetchKpis() async {
@@ -600,37 +703,94 @@ class _LobbyScreenState extends State<LobbyScreen> {
           horizontal: UiTokens.pageHPadding,
           vertical: 10,
         ),
-        child: Column(
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              '${_welcomeWord()}, $_userName',
-              style: pageTitleTextStyle(context, fontSize: 32).copyWith(
-                fontWeight: FontWeight.w800,
-                color: theme.typography.title?.color,
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${_welcomeWord()}, $_userName',
+                    style: pageTitleTextStyle(context, fontSize: 28).copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: theme.typography.title?.color,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    softWrap: false,
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Panel de control | Rol: $rolLabel',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: theme.typography.caption?.color?.withValues(alpha: 0.65),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _lobbyOperativoAyudas
+                        ? 'Piezas recientes y ayudas por categoría'
+                        : 'Atajos, documentación y estado del sistema',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w500,
+                      color: theme.typography.caption?.color?.withValues(alpha: 0.92),
+                    ),
+                  ),
+                ],
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              softWrap: false,
             ),
-            const SizedBox(height: 6),
-            Text(
-              'Panel de control | Rol: $rolLabel',
-              style: TextStyle(
-                fontSize: 14,
-                color: theme.typography.caption?.color?.withValues(alpha: 0.65),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              _lobbyOperativoAyudas
-                  ? 'Piezas recientes y ayudas por categoría'
-                  : 'Atajos, documentación y estado del sistema',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: theme.accentColor.withValues(alpha: 0.95),
-              ),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: theme.inactiveColor.withValues(alpha: 0.45),
+                      width: 1.4,
+                    ),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child:
+                      _avatarLoading
+                          ? const Center(child: ProgressRing(strokeWidth: 2))
+                          : (_avatarBytes != null
+                              ? Image.memory(_avatarBytes!, fit: BoxFit.cover)
+                              : Center(
+                                child: Text(
+                                  (_userName.isEmpty ? 'U' : _userName.substring(0, 1))
+                                      .toUpperCase(),
+                                  style: const TextStyle(fontWeight: FontWeight.w700),
+                                ),
+                              )),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Tooltip(
+                      message: 'Editar foto',
+                      child: IconButton(
+                        icon: const Icon(FluentIcons.camera),
+                        onPressed: _pickLobbyAvatar,
+                      ),
+                    ),
+                    Tooltip(
+                      message: 'Recargar foto',
+                      child: IconButton(
+                        icon: const Icon(FluentIcons.refresh),
+                        onPressed: () => _reloadLobbyAvatar(),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ],
         ),
@@ -641,8 +801,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: [Color(0xFF11192A), Color(0xFF1A1F34), Color(0xFF171D2B)],
-                  stops: [0.0, 0.55, 1.0],
+                  colors: [Color(0xFF141B28), Color(0xFF191F2C)],
+                  stops: [0.0, 1.0],
                 ),
               )
             : BoxDecoration(color: palette.surfaceBase),
@@ -703,9 +863,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     _ayudasSpotlightCard(theme),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
                     _notificationsSummaryCard(theme),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
                     LayoutBuilder(
                       builder: (context, c) {
                         final wide = c.maxWidth > 900;
@@ -770,7 +930,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                             chips: [
                               _chip(
                                 FluentIcons.pie_single,
-                                'Dashboard Analytics',
+                                'Estadísticas',
                                 () => widget.onNavigatePane(
                                   NavPaneId.dashboardAnalytics,
                                 ),
@@ -1010,9 +1170,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   ),
                 ),
                 if (latest != null)
-                  Button(
+                  _lobbyFilledAction(
+                    label: 'Ver documento',
                     onPressed: _openLatestAyuda,
-                    child: const Text('Abrir'),
                   ),
               ],
             ),
@@ -1573,9 +1733,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   ),
                 ),
                 if (latest != null)
-                  Button(
+                  _lobbyFilledAction(
+                    label: 'Ver documento',
                     onPressed: _openLatestAyuda,
-                    child: const Text('Abrir PDF'),
                   ),
               ],
             ),
@@ -1747,9 +1907,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   ),
                 ),
               ),
-              FilledButton(
+              _lobbyFilledAction(
+                label: 'Abrir buzón',
                 onPressed: _openInboxFromLobby,
-                child: const Text('Abrir buzón'),
               ),
             ],
           ),
@@ -1834,7 +1994,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
       style: roundedFilledButtonStyle(),
       onPressed: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
+        padding: const EdgeInsets.symmetric(vertical: 4),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1843,17 +2003,17 @@ class _LobbyScreenState extends State<LobbyScreen> {
             Text(
               title,
               style: const TextStyle(
-                fontWeight: FontWeight.w800,
-                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                fontSize: 13.5,
               ),
             ),
             const SizedBox(height: 4),
             Text(
               subtitle,
               style: TextStyle(
-                fontSize: 12.5,
+                fontSize: 12,
                 height: 1.25,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w500,
                 color: theme.typography.body?.color?.withValues(alpha: 0.9),
               ),
             ),
@@ -1913,9 +2073,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
                 child: Text(
                   title,
                   style: TextStyle(
-                    fontSize: 15,
+                    fontSize: 14,
                     fontWeight: FontWeight.w700,
-                    color: accent,
+                    color: theme.typography.bodyStrong?.color,
                   ),
                 ),
               ),

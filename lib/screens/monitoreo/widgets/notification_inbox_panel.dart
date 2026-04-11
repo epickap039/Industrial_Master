@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/material.dart' as material;
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../services/api_client.dart';
 import '../../../services/notification_inbox_service.dart';
@@ -58,6 +59,23 @@ class _NotificationInboxDialogContentState extends State<_NotificationInboxDialo
 
   Future<void> _reload() async {
     setState(() => _loading = true);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final inboxUser = (prefs.getString('username') ?? '').trim();
+      if (inboxUser.isNotEmpty) {
+        try {
+          final data = await ApiClient.get('/api/tareas/lista');
+          if (data is List) {
+            final taskRows =
+                data.whereType<Map<String, dynamic>>().toList();
+            await CmdInboxStore.instance.pruneMissionInboxAgainstTaskList(
+              taskRows,
+              inboxUser,
+            );
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
     final list = await CmdInboxStore.instance.loadAll();
     await _loadUserColors(list);
     if (mounted) {
@@ -142,6 +160,16 @@ class _NotificationInboxDialogContentState extends State<_NotificationInboxDialo
     return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
   }
 
+  Widget _inboxActionButton({required String label, VoidCallback? onPressed}) {
+    return Button(
+      onPressed: onPressed,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Text(label),
+      ),
+    );
+  }
+
   String _priorityLabel(int rank) {
     if (rank <= 0) return 'Crítica';
     if (rank == 1) return 'Alta';
@@ -185,103 +213,134 @@ class _NotificationInboxDialogContentState extends State<_NotificationInboxDialo
     final userColor = _userColorMap[user] ?? const Color(0xFF1F77B4);
     final userAvatar = _userAvatarMap[user];
     final prColor = _priorityColor(n.priorityRank);
+    final unread = !n.leido;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
-        color: n.leido
-            ? theme.resources.subtleFillColorSecondary
-            : userColor.withValues(alpha: 0.09),
+        color: unread
+            ? userColor.withValues(alpha: 0.14)
+            : theme.resources.subtleFillColorSecondary,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: prColor.withValues(alpha: 0.85), width: 1.5),
+        border: Border.all(
+          color: unread
+              ? prColor.withValues(alpha: 0.95)
+              : theme.resources.controlStrokeColorDefault.withValues(alpha: 0.45),
+          width: unread ? 1.6 : 1.0,
+        ),
       ),
-      child: material.InkWell(
+      child: material.Material(
+        type: material.MaterialType.transparency,
         borderRadius: BorderRadius.circular(10),
-        onTap: () => _tapItem(n),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 28,
-                    height: 28,
-                    decoration: BoxDecoration(
-                      color: userColor,
-                      shape: BoxShape.circle,
-                    ),
-                    alignment: Alignment.center,
-                    clipBehavior: Clip.antiAlias,
-                    child: userAvatar != null
-                        ? Image.memory(userAvatar, fit: BoxFit.cover)
-                        : Text(
-                            _initials(user),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w800,
+        clipBehavior: Clip.antiAlias,
+        child: material.InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: () => _tapItem(n),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: userColor,
+                        shape: BoxShape.circle,
+                      ),
+                      alignment: Alignment.center,
+                      clipBehavior: Clip.antiAlias,
+                      child: userAvatar != null
+                          ? Image.memory(userAvatar, fit: BoxFit.cover)
+                          : Text(
+                              _initials(user),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        user,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontWeight: unread ? FontWeight.w800 : FontWeight.w600,
+                          color: theme.typography.body?.color,
+                        ),
+                      ),
+                    ),
+                    if (unread)
+                      Container(
+                        margin: const EdgeInsets.only(right: 6),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 1,
+                        ),
+                        decoration: BoxDecoration(
+                          color: userColor.withValues(alpha: 0.18),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          'Nuevo',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            color: userColor,
                           ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      user,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        color: theme.typography.body?.color,
+                        ),
+                      ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: prColor.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        _priorityLabel(n.priorityRank),
+                        style: TextStyle(
+                          color: prColor,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 2,
+                    const SizedBox(width: 4),
+                    IconButton(
+                      icon: const Icon(FluentIcons.delete, size: 14),
+                      onPressed: () => _eliminar(n),
                     ),
-                    decoration: BoxDecoration(
-                      color: prColor.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      _priorityLabel(n.priorityRank),
-                      style: TextStyle(
-                        color: prColor,
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  IconButton(
-                    icon: const Icon(FluentIcons.delete, size: 14),
-                    onPressed: () => _eliminar(n),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                n.title,
-                style: TextStyle(
-                  fontWeight: n.leido ? FontWeight.w500 : FontWeight.w800,
+                  ],
                 ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                n.body,
-                style: const TextStyle(fontSize: 12.5),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                df.format(n.fecha.toLocal()),
-                style: TextStyle(
-                  fontSize: 11,
-                  color: theme.typography.body?.color?.withValues(alpha: 0.65),
+                const SizedBox(height: 4),
+                Text(
+                  n.title,
+                  style: TextStyle(
+                    fontWeight: unread ? FontWeight.w800 : FontWeight.w500,
+                  ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 2),
+                Text(
+                  n.body,
+                  style: const TextStyle(fontSize: 12.5),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  df.format(n.fecha.toLocal()),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: theme.typography.body?.color?.withValues(alpha: 0.65),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -358,35 +417,47 @@ class _NotificationInboxDialogContentState extends State<_NotificationInboxDialo
                   ),
       ),
       actions: [
-        Button(
-          onPressed:
-              widget.onOpenMonitoring == null
-                  ? null
-                  : () {
-                    Navigator.of(context).pop();
-                    widget.onOpenMonitoring?.call();
-                  },
-          child: const Text('Ir a monitoreo'),
-        ),
-        Button(
-          onPressed: _items.isEmpty
-              ? null
-              : () {
-                  _vaciar();
-                },
-          child: const Text('Vaciar buzon'),
-        ),
-        Button(
-          onPressed: _items.every((e) => e.leido)
-              ? null
-              : () {
-                  _marcarTodas();
-                },
-          child: const Text('Marcar todas leidas'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cerrar'),
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Wrap(
+              alignment: WrapAlignment.end,
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _inboxActionButton(
+                  label: 'Ir a monitoreo',
+                  onPressed:
+                      widget.onOpenMonitoring == null
+                          ? null
+                          : () {
+                            Navigator.of(context).pop();
+                            widget.onOpenMonitoring?.call();
+                          },
+                ),
+                _inboxActionButton(
+                  label: 'Vaciar buzon',
+                  onPressed: _items.isEmpty ? null : _vaciar,
+                ),
+                _inboxActionButton(
+                  label: 'Marcar todas leidas',
+                  onPressed: _items.every((e) => e.leido) ? null : _marcarTodas,
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: FilledButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  child: Text('Cerrar'),
+                ),
+              ),
+            ),
+          ],
         ),
       ],
     );

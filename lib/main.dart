@@ -13,9 +13,12 @@ import 'package:flutter/services.dart';
 import 'theme/app_themes.dart';
 import 'theme/ui_tokens.dart';
 import 'screens/splash_screen.dart';
+import 'config/app_branding.dart';
 import 'config/app_config.dart';
 import 'services/api_client.dart';
 import 'services/arbitration_bridge.dart';
+import 'services/app_role.dart';
+import 'services/chat_windows_notification_service.dart';
 import 'services/main_nav.dart';
 import 'services/nav_pane.dart';
 import 'main_layout.dart';
@@ -27,6 +30,7 @@ const String API_URL = kApiBaseUrl;
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('es_ES', null);
+  await ChatWindowsNotificationService.instance.init();
   runApp(const MyApp());
 }
 
@@ -52,10 +56,18 @@ class _MyAppState extends State<MyApp> {
           : _userRole;
   int? targetRevisionId;
   NavPaneId? _requestedPaneId;
+  NavPaneId? _activeLeafPane;
   final List<AutoSuggestBoxItem<dynamic>> _searchItems = [];
 
   /// Barra ancha por defecto; el botón permite colapsar a modo íconos.
   PaneDisplayMode _navPaneDisplayMode = PaneDisplayMode.open;
+
+  bool _isSectionHubPane(NavPaneId? pane) {
+    return pane == NavPaneId.operacionHub ||
+        pane == NavPaneId.ingenieriaHub ||
+        pane == NavPaneId.seguimientoHub ||
+        pane == NavPaneId.datosHub;
+  }
 
   @override
   void initState() {
@@ -79,6 +91,7 @@ class _MyAppState extends State<MyApp> {
           _isLoggedIn = true;
           _userRole = storedRole;
           _simulatedRoleOverride = null;
+          _activeLeafPane = null;
         });
       } else {
         // Caducó la sesión
@@ -108,6 +121,7 @@ class _MyAppState extends State<MyApp> {
       _userRole = r;
       _simulatedRoleOverride = null;
       topIndex = 0;
+      _activeLeafPane = null;
     });
   }
 
@@ -167,17 +181,78 @@ class _MyAppState extends State<MyApp> {
     setState(() {
       _isLoggedIn = false;
       _simulatedRoleOverride = null;
+      _activeLeafPane = null;
     });
     Navigator.pushReplacementNamed(context, '/login');
   }
 
+  List<String> _modulosReportablesPorRol(AppRole role) {
+    final mods = <String>[
+      'General',
+      if (role.showsNavLobby) 'Lobby principal',
+      if (role.showsNavMonitoreo) 'Centro de monitoreo',
+      if (role.showsNavMonitoreo) 'Centro de monitoreo > Misiones activas',
+      if (role.showsNavMonitoreo) 'Centro de monitoreo > Historial',
+      if (role.showsNavMonitoreo) 'Centro de monitoreo > Alta manual',
+      if (role.showsNavAyudas) 'Ayudas visuales',
+      if (role.showsNavChatInterno) 'Chat interno',
+      if (role.showsNavRadar) 'Radar de impacto',
+      if (role.showsNavCatalogo) 'Catálogo maestro',
+      if (role.showsNavCatalogo) 'Generador de Código',
+      if (role.showsNavMateriales) 'Materiales oficiales',
+      if (role.showsNavCadScanner) 'Escáner CAD',
+      if (role.showsNavImportarExcel) 'Importar Excel',
+      if (role.showsNavAuditor) 'Auditor de archivos',
+      if (role.showsNavEstandarizacion) 'Estandarización',
+      if (role.showsNavGestionProyectos) 'Gestión de proyectos',
+      if (role.showsNavVin) 'Expedientes VIN',
+      if (role.showsNavMapaIngenieria) 'Mapa de ingeniería',
+      if (role.showsNavHistorialCambios) 'Historial de cambios',
+      if (role.showsNavQa) 'Centro de QA',
+      if (role.showsNavQa) 'Centro de QA > Historial',
+      if (role.showsNavQa) 'Centro de QA > Notas de versión',
+      if (role.showsNavAnalytics) 'Estadísticas',
+      if (role.showsNavMrp) 'Requerimientos (MRP)',
+      if (role.showsNavMrp) 'Requerimientos (MRP) > Materia prima / Placas',
+      if (role.showsNavMrp) 'Requerimientos (MRP) > Componentes comerciales',
+      if (role.showsNavMrp) 'Requerimientos (MRP) > Auditoría / Huérfanos',
+      if (role.showsNavCatalogo) 'Gestor de listas (BOM)',
+      'Login',
+      'Otros',
+    ];
+    return mods.toSet().toList()..sort();
+  }
+
+  String _normalizarHashtag(String raw) {
+    var t = raw.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '_');
+    t = t.replaceAll(RegExp(r'[^a-z0-9_#]'), '');
+    if (t.isEmpty) return '';
+    if (!t.startsWith('#')) t = '#$t';
+    return t;
+  }
+
   void _showBugDialog(BuildContext context) {
-    String modulo = "Otros";
-    String gravedad = "Sugerencia";
+    final role = parseAppRole(_effectiveRole);
+    final modulosDisponibles = _modulosReportablesPorRol(role);
+    String modulo =
+        modulosDisponibles.contains('General')
+            ? 'General'
+            : modulosDisponibles.first;
+    String gravedad = "Mejora";
     String descripcion = "";
     bool enviando = false;
     Uint8List? capturaBytes;
     String? capturaBase64;
+    final hashtagCtrl = TextEditingController();
+    final hashtags = <String>{};
+    const frecuentes = <String>[
+      '#no_se_ve',
+      '#no_conecta',
+      '#se_traba',
+      '#lento',
+      '#dato_incorrecto',
+      '#permiso',
+    ];
 
     showDialog(
       context: context,
@@ -213,44 +288,68 @@ class _MyAppState extends State<MyApp> {
                         isExpanded: true,
                         value: modulo,
                         placeholder: const Text("¿Dónde ocurrió el error?"),
-                        items:
-                            [
-                                  "BOM",
-                                  "VINs",
-                                  "Login",
-                                  "Gestión Proyectos",
-                                  "Importador Excel",
-                                  "Otros",
-                                ]
-                                .map(
-                                  (e) => ComboBoxItem(value: e, child: Text(e)),
-                                )
-                                .toList(),
+                        items: modulosDisponibles
+                            .map(
+                              (e) => ComboBoxItem(value: e, child: Text(e)),
+                            )
+                            .toList(),
                         onChanged:
-                            (v) => setDState(() => modulo = v ?? "Otros"),
+                            (v) => setDState(() => modulo = v ?? modulo),
                       ),
                       const SizedBox(height: 12),
-                      ComboBox<String>(
-                        isExpanded: true,
-                        value: gravedad,
-                        placeholder: const Text("Nivel de gravedad"),
-                        items: [
-                          const ComboBoxItem(
-                            value: "Crítico",
-                            child: Text("Rojo: Crítico (Bloquea el uso)"),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: gravedad == 'Mejora'
+                                ? FilledButton(
+                                    style: ButtonStyle(
+                                      backgroundColor: WidgetStateProperty.all(
+                                        const Color(0xFF2979FF),
+                                      ),
+                                    ),
+                                    onPressed: () {},
+                                    child: const Text('Mejora'),
+                                  )
+                                : Button(
+                                    onPressed: () => setDState(() => gravedad = 'Mejora'),
+                                    child: const Text('Mejora'),
+                                  ),
                           ),
-                          const ComboBoxItem(
-                            value: "Visual",
-                            child: Text("Amarillo: Visual o Menor"),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: gravedad == 'Falla'
+                                ? FilledButton(
+                                    style: ButtonStyle(
+                                      backgroundColor: WidgetStateProperty.all(
+                                        const Color(0xFFF9A825),
+                                      ),
+                                    ),
+                                    onPressed: () {},
+                                    child: const Text('Falla'),
+                                  )
+                                : Button(
+                                    onPressed: () => setDState(() => gravedad = 'Falla'),
+                                    child: const Text('Falla'),
+                                  ),
                           ),
-                          const ComboBoxItem(
-                            value: "Sugerencia",
-                            child: Text("Azul: Sugerencia de mejora"),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: gravedad == 'Crítico'
+                                ? FilledButton(
+                                    style: ButtonStyle(
+                                      backgroundColor: WidgetStateProperty.all(
+                                        const Color(0xFFC62828),
+                                      ),
+                                    ),
+                                    onPressed: () {},
+                                    child: const Text('Crítico'),
+                                  )
+                                : Button(
+                                    onPressed: () => setDState(() => gravedad = 'Crítico'),
+                                    child: const Text('Crítico'),
+                                  ),
                           ),
                         ],
-                        onChanged:
-                            (v) =>
-                                setDState(() => gravedad = v ?? "Sugerencia"),
                       ),
                       const SizedBox(height: 12),
                       TextBox(
@@ -260,6 +359,51 @@ class _MyAppState extends State<MyApp> {
                         onChanged: (v) => descripcion = v,
                       ),
                       const SizedBox(height: 12),
+                      TextBox(
+                        controller: hashtagCtrl,
+                        placeholder: "Agregar hashtag (ej. #no_se_ve) y Enter",
+                        onSubmitted: (v) {
+                          final t = _normalizarHashtag(v);
+                          if (t.isEmpty) return;
+                          setDState(() {
+                            hashtags.add(t);
+                            hashtagCtrl.clear();
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          for (final h in frecuentes)
+                            Button(
+                              onPressed: () => setDState(() => hashtags.add(h)),
+                              child: Text(h),
+                            ),
+                        ],
+                      ),
+                      if (hashtags.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            for (final h in hashtags)
+                              GestureDetector(
+                                onTap: () => setDState(() => hashtags.remove(h)),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF334155),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(h),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
                       const SizedBox(height: 12),
                       if (capturaBytes != null)
                         Container(
@@ -368,6 +512,7 @@ class _MyAppState extends State<MyApp> {
                               "gravedad": gravedad,
                               "descripcion": descripcion,
                               "captura": capturaBase64,
+                              "hashtags": hashtags.toList(),
                             },
                           );
                           Navigator.pop(context);
@@ -416,6 +561,15 @@ class _MyAppState extends State<MyApp> {
     setState(() {
       topIndex = index;
       _requestedPaneId = paneId;
+      final ar = MainNav.currentRole;
+      final directPane = paneId ?? navPaneAtIndex(index, ar);
+      if (_isSectionHubPane(directPane)) {
+        if (paneId != null && !_isSectionHubPane(paneId)) {
+          _activeLeafPane = paneId;
+        }
+      } else {
+        _activeLeafPane = directPane;
+      }
     });
     final ar = MainNav.currentRole;
     final pane = navPaneAtIndex(index, ar);
@@ -441,7 +595,7 @@ class _MyAppState extends State<MyApp> {
             paneIsDark ? const Color(0xFFCBD5E1) : const Color(0xFF475569);
         return FluentApp(
           debugShowCheckedModeBanner: false,
-          title: 'INGENIERIA IMv235',
+          title: kAppChromeTitle,
           theme: appTheme.currentTheme,
           initialRoute: '/',
           routes: {
@@ -514,7 +668,7 @@ class _MyAppState extends State<MyApp> {
                                 final cap =
                                     FluentTheme.of(appBarCtx).typography.caption;
                                 return Text(
-                                  'INGENIERIA IMv235',
+                                  kAppChromeTitle,
                                   style: cap?.copyWith(color: navChromeFg) ??
                                       TextStyle(color: navChromeFg),
                                 );
@@ -590,6 +744,35 @@ class _MyAppState extends State<MyApp> {
                                         },
                                       ),
                                       const SizedBox(width: 12),
+                                      _AppBarManualInfoButton(
+                                        currentPane:
+                                            _activeLeafPane ??
+                                            navPaneAtIndex(
+                                              topIndex,
+                                              MainNav.currentRole,
+                                            ),
+                                        effectiveRoleRaw: _effectiveRole,
+                                      ),
+                                      if (parseAppRole(_effectiveRole)
+                                          .showsNavChatInterno) ...[
+                                        const SizedBox(width: 8),
+                                        _AppBarChatButton(
+                                          onOpenChat: () {
+                                            final idx = navIndexForPane(
+                                              NavPaneId.chatInterno,
+                                              MainNav.currentRole,
+                                            );
+                                            if (idx >= 0) {
+                                              _handleNavigation(
+                                                idx,
+                                                navContext,
+                                                paneId: NavPaneId.chatInterno,
+                                              );
+                                            }
+                                          },
+                                        ),
+                                      ],
+                                      const SizedBox(width: 8),
                                       _AppBarNotificationInbox(
                                         onOpenMonitoring: () {
                                           final idx = navIndexForPane(
@@ -636,6 +819,10 @@ class _MyAppState extends State<MyApp> {
                           toggleable: false,
                           targetRevisionId: targetRevisionId,
                           requestedPaneId: _requestedPaneId,
+                          onActiveLeafPaneChanged: (pane) {
+                            if (_activeLeafPane == pane) return;
+                            setState(() => _activeLeafPane = pane);
+                          },
                           onNavigatePane: (id, {revisionId}) {
                             final idx = navIndexForPane(
                               id,
@@ -667,6 +854,706 @@ class _MyAppState extends State<MyApp> {
   }
 }
 
+class _AppBarManualInfoButton extends StatelessWidget {
+  const _AppBarManualInfoButton({
+    required this.currentPane,
+    required this.effectiveRoleRaw,
+  });
+
+  final NavPaneId? currentPane;
+  final String effectiveRoleRaw;
+
+  AppRole get _role => parseAppRole(effectiveRoleRaw);
+
+  bool get _canEdit {
+    return _role.isAdminRail || _role == AppRole.ingenieriaMetodos;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'Información y guía de uso',
+      child: IconButton(
+        icon: const Icon(FluentIcons.info),
+        onPressed: () {
+          showDialog(
+            context: context,
+            builder: (_) => _ManualInfoDialog(
+              currentPane: currentPane,
+              canEdit: _canEdit,
+              role: _role,
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _ManualInfoDialog extends StatefulWidget {
+  const _ManualInfoDialog({
+    required this.currentPane,
+    required this.canEdit,
+    required this.role,
+  });
+
+  final NavPaneId? currentPane;
+  final bool canEdit;
+  final AppRole role;
+
+  @override
+  State<_ManualInfoDialog> createState() => _ManualInfoDialogState();
+}
+
+class _ManualInfoDialogState extends State<_ManualInfoDialog> {
+  bool _loading = true;
+  String _selected = 'general';
+  String _activeGuideSection = 'pasos';
+  final Map<String, Map<String, String>> _entries = {};
+
+  static const Map<String, Map<String, String>> _fallback = {
+    'general': {
+      'titulo': 'Guía general',
+      'contenido':
+          'Usa el menú lateral para cambiar de módulo y el icono de información para consultar esta guía.\n'
+              '• Campana: abre el buzón de tareas y permite saltar a monitoreo.\n'
+              '• Indicador de red: confirma conexión backend.\n'
+              '• Cerrar sesión: finaliza tu sesión actual.\n'
+              'Antes de aplicar cambios en datos, valida permisos y contexto del rol activo.',
+    },
+    'catalogo_maestro': {
+      'titulo': 'Catálogo maestro',
+      'contenido':
+          'Sincroniza stock PT cuando sea necesario, revisa huérfanos y valida filtros/ordenamiento '
+              'antes de exportar a Excel.',
+    },
+    'chat_interno': {
+      'titulo': 'Chat interno',
+      'contenido':
+          'Selecciona un usuario en la columna izquierda para abrir conversación.\n'
+              '• Enter envía el mensaje.\n'
+              '• Zumbido solicita atención inmediata (con límite anti-spam).\n'
+              '• Los mensajes y zumbidos pueden mostrar notificación nativa de Windows.',
+    },
+    'centro_monitoreo': {
+      'titulo': 'Centro de monitoreo',
+      'contenido':
+          'Gestiona tareas activas con prioridades, checklist y bitácora.\n'
+              '• Alta manual: crea misiones con responsable, tiempo y evidencia.\n'
+              '• Historial: reactivar o eliminar misiones cerradas con control administrativo.\n'
+              '• Buzón: revisa asignaciones pendientes y marca notificaciones como leídas.',
+    },
+    'ayudas_visuales': {
+      'titulo': 'Ayudas visuales',
+      'contenido':
+          'Consulta o publica instructivos PDF por categoría.\n'
+              '• Buscador superior: filtra por título, VIN y etiquetas.\n'
+              '• Nueva categoría: crea grupo para organizar documentos.\n'
+              '• Editar imagen categoría: actualiza icono Fluent o PNG de la tarjeta.',
+    },
+    'centro_qa': {
+      'titulo': 'Centro QA',
+      'contenido':
+          'Gestiona reportes abiertos, cierra con Completado/Rechazado y registra ajustes en notas de versión.',
+    },
+    'materiales_oficiales': {
+      'titulo': 'Materiales oficiales',
+      'contenido':
+          'Consulta materiales autorizados y su estado vigente.\n'
+              'Verifica especificación, proceso y trazabilidad antes de liberar cambios.',
+    },
+    'radar_impacto': {
+      'titulo': 'Radar de impacto',
+      'contenido':
+          'Evalúa el impacto de cambios por tracto, proyecto y versión.\n'
+              'Úsalo para priorizar misiones con mayor riesgo operativo.',
+    },
+    'notas_version': {
+      'titulo': 'Notas de versión',
+      'contenido':
+          'Muestra historial de cambios entregados por build.\n'
+              'Valida qué correcciones están incluidas antes de pruebas QA.',
+    },
+    'generador_codigo': {
+      'titulo': 'Generador de Código',
+      'contenido':
+          'Permite dar de alta piezas nuevas de forma individual en catálogo maestro.\n'
+              '• Captura manual de código (temporal).\n'
+              '• Valida duplicados antes de guardar.\n'
+              '• Incluye procesos, material oficial, dimensiones y simetría.',
+    },
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = _moduleKey(widget.currentPane);
+    _load();
+  }
+
+  String _moduleKey(NavPaneId? pane) {
+    return switch (pane) {
+      NavPaneId.catalogoMaestro => 'catalogo_maestro',
+      NavPaneId.centroMonitoreo => 'centro_monitoreo',
+      NavPaneId.ayudasVisuales => 'ayudas_visuales',
+      NavPaneId.chatInterno => 'chat_interno',
+      NavPaneId.materialesOficiales => 'materiales_oficiales',
+      NavPaneId.radarImpacto => 'radar_impacto',
+      NavPaneId.notasVersion => 'notas_version',
+      NavPaneId.generadorCodigo => 'generador_codigo',
+      NavPaneId.centroQa => 'centro_qa',
+      _ => 'general',
+    };
+  }
+
+  String _moduleLabel(String key) {
+    return switch (key) {
+      'general' => 'Guia general',
+      'catalogo_maestro' => 'Catalogo maestro',
+      'chat_interno' => 'Chat interno',
+      'centro_monitoreo' => 'Centro de monitoreo',
+      'ayudas_visuales' => 'Ayudas visuales',
+      'centro_qa' => 'Centro QA',
+      'materiales_oficiales' => 'Materiales oficiales',
+      'radar_impacto' => 'Radar de impacto',
+      'notas_version' => 'Notas de version',
+      'generador_codigo' => 'Generador de codigo',
+      _ => key.replaceAll('_', ' '),
+    };
+  }
+
+  IconData _moduleIcon(String key) {
+    return switch (key) {
+      'general' => FluentIcons.info,
+      'catalogo_maestro' => FluentIcons.table,
+      'chat_interno' => FluentIcons.chat,
+      'centro_monitoreo' => FluentIcons.task_logo,
+      'ayudas_visuales' => FluentIcons.picture,
+      'centro_qa' => FluentIcons.test_plan,
+      'materiales_oficiales' => FluentIcons.product_release,
+      'radar_impacto' => FluentIcons.analytics_view,
+      'notas_version' => FluentIcons.history,
+      'generador_codigo' => FluentIcons.cube_shape,
+      _ => FluentIcons.page,
+    };
+  }
+
+  List<String> _visibleModules(List<String> sortedKeys) {
+    if (widget.role != AppRole.calidad && widget.role != AppRole.produccion) {
+      return sortedKeys;
+    }
+    const allowedForQualityAndProduction = <String>{
+      'general',
+      'catalogo_maestro',
+      'ayudas_visuales',
+    };
+    final filtered = sortedKeys.where(allowedForQualityAndProduction.contains).toList();
+    if (!filtered.contains('general')) {
+      filtered.insert(0, 'general');
+    }
+    return filtered;
+  }
+
+  List<String> _contentParagraphs(String text) {
+    return text
+        .split('\n')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+  }
+
+  Widget _buildFormattedManual(String text) {
+    final paragraphs = _contentParagraphs(text);
+    if (paragraphs.isEmpty) {
+      return const Text('Sin contenido para este modulo.');
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final p in paragraphs)
+          if (p.startsWith('•') || p.startsWith('-'))
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(top: 4),
+                    child: Icon(FluentIcons.circle_ring, size: 10),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      p.replaceFirst(RegExp(r'^[•\-]\s*'), ''),
+                      style: const TextStyle(fontSize: 14, height: 1.45),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Text(
+                p,
+                style: const TextStyle(fontSize: 14, height: 1.5),
+              ),
+            ),
+      ],
+    );
+  }
+
+  List<String> _defaultStepsFor(String module) {
+    return switch (module) {
+      'catalogo_maestro' => const [
+        'Define filtros por código, medida, material y proceso antes de empezar.',
+        'Ajusta columnas visibles para priorizar Material y datos críticos.',
+        'Ordena por Código o Material para ubicar rápidamente la pieza objetivo.',
+        'Revisa consistencia visual entre descripción, medida y proceso primario.',
+        'Si aplica, valida stock PT y ejecuta sincronización desde el flujo autorizado.',
+        'Solo exporta cuando la vista final coincida con la consulta requerida.',
+      ],
+      'chat_interno' => const [
+        'Abre una conversación individual o el chat grupal.',
+        'Escribe el mensaje y presiona Enter o Enviar.',
+        'Usa Zumbido solo cuando necesites atención inmediata.',
+        'Confirma respuesta en panel y notificación de Windows.',
+      ],
+      'centro_monitoreo' => const [
+        'Crea misión manual con responsables, prioridad y tiempo estimado.',
+        'Define checklist base y agrega evidencia inicial cuando corresponda.',
+        'Da seguimiento en tarjetas activas y actualiza estatus por avance real.',
+        'Valida notificaciones/buzón para tareas asignadas al usuario actual.',
+        'Reactiva o cierra misión respetando trazabilidad en historial.',
+      ],
+      'ayudas_visuales' => const [
+        'Selecciona una categoría existente o crea una categoría nueva.',
+        'Carga el documento con nombre claro, versión y contexto de uso.',
+        'Configura icono de categoría (Fluent o PNG) según estándar visual.',
+        'Valida permisos del rol antes de editar, reemplazar o publicar.',
+        'Confirma apertura correcta del archivo en visor y su metadato.',
+      ],
+      'centro_qa' => const [
+        'Filtra reportes abiertos por módulo/prioridad.',
+        'Reproduce y documenta evidencia del hallazgo.',
+        'Cierra con Completado o Rechazado.',
+        'Registra nota breve en notas de versión.',
+      ],
+      'materiales_oficiales' => const [
+        'Busca material por código o descripción.',
+        'Valida especificación y estado vigente.',
+        'Confirma proceso asociado y trazabilidad.',
+      ],
+      'radar_impacto' => const [
+        'Selecciona proyecto o tracto a evaluar.',
+        'Revisa impacto por ensamble y prioridad.',
+        'Genera acciones/misiones para alto riesgo.',
+      ],
+      'notas_version' => const [
+        'Revisa build y fecha de despliegue.',
+        'Confirma que el fix esperado esté listado.',
+        'Comunica a QA qué validar en pruebas.',
+      ],
+      'generador_codigo' => const [
+        'Captura el código manualmente y valida que no exista.',
+        'Define procesos y material oficial antes de guardar.',
+        'Completa medidas y simetría si están disponibles.',
+        'Confirma la vista previa de cómo quedará en catálogo.',
+      ],
+      _ => const [
+        'Entra al módulo desde menú lateral según tu rol.',
+        'Revisa estado de red/notificaciones antes de operar.',
+        'Aplica cambios solo con contexto y permisos correctos.',
+        'Confirma resultado en pantalla antes de cerrar sesión.',
+      ],
+    };
+  }
+
+  List<String> _defaultButtonsFor(String module) {
+    return switch (module) {
+      'catalogo_maestro' => const [
+        'Filtros: acota registros por código, texto y campos clave.',
+        'Columnas: muestra u oculta campos según objetivo de revisión.',
+        'Orden: cambia prioridad para análisis rápido de resultados.',
+        'Exportar: genera archivo con la vista activa validada.',
+      ],
+      'chat_interno' => const [
+        'Enviar: publica mensaje en conversación activa.',
+        'Zumbido: alerta inmediata con anti-spam.',
+        'Chat grupal: sala común para avisos rápidos.',
+      ],
+      'centro_monitoreo' => const [
+        'Nueva misión: alta manual de tarea.',
+        'Editar: ajusta responsable, tiempo o evidencia.',
+        'Buzón: abre asignaciones y marca leídas.',
+      ],
+      'ayudas_visuales' => const [
+        'Nueva categoría: crea agrupador visual.',
+        'Subir documento: adjunta instructivo.',
+        'Editar icono: cambia Fluent icon o PNG.',
+        'Buscar: localiza por título, categoría o contenido relacionado.',
+      ],
+      'centro_qa' => const [
+        'Completar: cierra bug corregido.',
+        'Rechazar: descarta no reproducible/no aplica.',
+        'Limpiar historial: elimina cerrados con clave maestra.',
+      ],
+      'generador_codigo' => const [
+        'Registrar código: alta de pieza al catálogo maestro.',
+        'Limpiar: reinicia captura para una nueva pieza.',
+      ],
+      _ => const [
+        'Recargar: actualiza datos de la pantalla.',
+        'Editar: modifica contenido permitido por tu rol.',
+      ],
+    };
+  }
+
+  List<String> _defaultErrorsFor(String module) {
+    return switch (module) {
+      'catalogo_maestro' => const [
+        'No mezcles columnas ocultas con filtros que dependan de ellas.',
+        'Si falta información, limpia filtros y vuelve a consultar.',
+        'Si stock no coincide, ejecuta sincronización autorizada y recarga.',
+      ],
+      'chat_interno' => const [
+        'Si no carga usuarios, valida backend y sesión activa.',
+        'Si no llega zumbido, revisa anti-spam y conexión WS.',
+      ],
+      'centro_monitoreo' => const [
+        'No cerrar misión sin checklist mínimo completo.',
+        'Si notificación no aparece, revisa permisos de Windows.',
+      ],
+      'ayudas_visuales' => const [
+        'Carga solo PNG/JPG/PDF válidos y tamaño moderado.',
+        'Si falla subida, valida extensión, peso y conexión backend.',
+        'Si persiste, confirma estructura de tablas/campos en backend.',
+      ],
+      'centro_qa' => const [
+        'No dejar fixes en estado Abierto tras resolver.',
+        'Al cerrar reportes, agrega nota corta de versión.',
+      ],
+      'generador_codigo' => const [
+        'Si falla guardado, revisa que el código no exista ya.',
+        'Valida al menos un proceso y material oficial seleccionado.',
+      ],
+      _ => const [
+        'Si hay error de red, recarga módulo y revisa backend.',
+        'Antes de escalar, captura evidencia y pasos de reproducción.',
+      ],
+    };
+  }
+
+  List<String> _defaultAcronymsFor(String module) {
+    const common = <String>[
+      'ECR: Engineering Change Request (solicitud formal para iniciar un cambio de ingeniería).',
+      'BOM: Bill of Materials (lista/estructura de componentes de una pieza o ensamble).',
+      'MRP: Material Requirements Planning (planeación de requerimientos de material).',
+      'VIN: Vehicle Identification Number (identificador único del vehículo/unidad).',
+      'QA: Quality Assurance (aseguramiento de calidad y gestión de reportes).',
+      'PT: Producto Terminado (inventario de piezas/prod. terminados).',
+      'CAD: Computer-Aided Design (diseño asistido por computadora; planos/modelos).',
+      'DXF: Drawing Exchange Format (formato de intercambio de dibujos CAD).',
+      'PDF: Portable Document Format (formato de documento para instructivos/evidencia).',
+      'WS: WebSocket (canal en tiempo real para chat/eventos).',
+      'API: Application Programming Interface (servicios backend consumidos por la app).',
+      'KPI: Key Performance Indicator (indicador clave de desempeño).',
+    ];
+    return switch (module) {
+      'catalogo_maestro' => const [
+        'ECR: inicio formal de cambio para crear/editar ramas de ingeniería por versión o cliente.',
+        'BOM: lista técnica de materiales/componentes por revisión.',
+        'CAD: datos de diseño (largo, ancho, espesor, etc.).',
+        'DXF: archivo de trazo/plano para procesos de corte.',
+        'PT: stock de producto terminado sincronizado desde inventario.',
+        'SKU: código único de referencia del artículo en inventarios/listados.',
+      ],
+      'chat_interno' => const [
+        'WS: WebSocket para entrega de mensajes en tiempo real.',
+        'API: endpoints REST para usuarios, conversaciones y mensajes.',
+      ],
+      'centro_monitoreo' => const [
+        'KPI: métricas de carga/avance operativo mostradas en panel.',
+        'ADN (VIN): historial de eventos técnicos y operativos del expediente.',
+      ],
+      'ayudas_visuales' => const [
+        'PDF: formato principal para instructivos y ayudas publicadas.',
+        'PNG/JPG: formatos de imagen para iconos y material visual.',
+      ],
+      _ => common,
+    };
+  }
+
+  Widget _buildGuideList(List<String> items) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final item in items)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.only(top: 4),
+                  child: Icon(FluentIcons.checkbox_composite, size: 13),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    item,
+                    style: const TextStyle(fontSize: 14, height: 1.45),
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildGuideSectionContent(Map<String, String> entry) {
+    if (_activeGuideSection == 'que_hace') {
+      return _buildFormattedManual(entry['contenido'] ?? '');
+    }
+    if (_activeGuideSection == 'botones') {
+      return _buildGuideList(_defaultButtonsFor(_selected));
+    }
+    if (_activeGuideSection == 'errores') {
+      return _buildGuideList(_defaultErrorsFor(_selected));
+    }
+    if (_activeGuideSection == 'siglas') {
+      return _buildGuideList(_defaultAcronymsFor(_selected));
+    }
+    return _buildGuideList(_defaultStepsFor(_selected));
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final raw = await ApiClient.get('/api/config/manual');
+      final parsed = <String, Map<String, String>>{};
+      if (raw is List) {
+        for (final item in raw) {
+          if (item is! Map) continue;
+          final m = Map<String, dynamic>.from(item.map((k, v) => MapEntry('$k', v)));
+          final key = (m['modulo'] ?? '').toString().trim().toLowerCase();
+          if (key.isEmpty) continue;
+          parsed[key] = {
+            'titulo': (m['titulo'] ?? '').toString(),
+            'contenido': (m['contenido'] ?? '').toString(),
+          };
+        }
+      }
+      _entries
+        ..clear()
+        ..addAll(_fallback)
+        ..addAll(parsed);
+    } catch (_) {
+      _entries
+        ..clear()
+        ..addAll(_fallback);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _editCurrent() async {
+    final current = _entries[_selected] ?? _fallback['general']!;
+    final titleCtrl = TextEditingController(text: current['titulo'] ?? '');
+    final bodyCtrl = TextEditingController(text: current['contenido'] ?? '');
+    try {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => ContentDialog(
+          title: const Text('Editar contenido del manual'),
+          content: SizedBox(
+            width: 560,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextBox(controller: titleCtrl, placeholder: 'Título'),
+                const SizedBox(height: 8),
+                TextBox(controller: bodyCtrl, placeholder: 'Contenido', maxLines: 10),
+              ],
+            ),
+          ),
+          actions: [
+            Button(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Guardar')),
+          ],
+        ),
+      );
+      if (ok != true) return;
+      await ApiClient.put(
+        '/api/config/manual/$_selected',
+        body: {
+          'titulo': titleCtrl.text.trim(),
+          'contenido': bodyCtrl.text.trim(),
+        },
+      );
+      if (!mounted) return;
+      await _load();
+    } finally {
+      titleCtrl.dispose();
+      bodyCtrl.dispose();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final allKeys = _entries.keys.toList()..sort();
+    final keys = _visibleModules(allKeys);
+    if (!keys.contains(_selected)) _selected = keys.isEmpty ? 'general' : keys.first;
+    final entry = _entries[_selected] ?? _fallback['general']!;
+    final size = MediaQuery.sizeOf(context);
+    final dialogWidth = (size.width - 10) > 620 ? (size.width - 10) : 620.0;
+    final dialogHeight = (size.height - 10) > 420 ? (size.height - 10) : 420.0;
+    final leftPaneWidth = dialogWidth * 0.26;
+    return ContentDialog(
+      constraints: BoxConstraints(
+        maxWidth: dialogWidth + 36,
+        minWidth: dialogWidth + 36,
+        maxHeight: dialogHeight + 90,
+      ),
+      title: Row(
+        children: [
+          const Icon(FluentIcons.info, size: 18),
+          const SizedBox(width: 8),
+          Text(
+            'Guia de uso por modulo',
+            style: FluentTheme.of(context).typography.subtitle,
+          ),
+        ],
+      ),
+      content: SizedBox(
+        width: dialogWidth,
+        height: dialogHeight - 120,
+        child: _loading
+            ? const Center(child: ProgressRing())
+            : Row(
+                children: [
+                  Container(
+                    width: leftPaneWidth,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: FluentTheme.of(context).resources.cardBackgroundFillColorDefault,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: FluentTheme.of(context).resources.controlStrokeColorDefault,
+                      ),
+                    ),
+                    child: ListView(
+                      children: [
+                        Text(
+                          'Modulos',
+                          style: FluentTheme.of(context).typography.bodyStrong,
+                        ),
+                        const SizedBox(height: 8),
+                        for (final k in keys)
+                          ListTile.selectable(
+                            selected: k == _selected,
+                            leading: Icon(_moduleIcon(k), size: 16),
+                            title: Text(
+                              _moduleLabel(k),
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _selected = k;
+                                _activeGuideSection = 'pasos';
+                              });
+                            },
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
+                      decoration: BoxDecoration(
+                        color: FluentTheme.of(context).resources.cardBackgroundFillColorDefault,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: FluentTheme.of(context).resources.controlStrokeColorDefault,
+                        ),
+                      ),
+                      child: ListView(
+                        children: [
+                          Text(
+                            entry['titulo'] ?? '',
+                            style: FluentTheme.of(context).typography.title,
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Referencia operativa del modulo seleccionado.',
+                            style: FluentTheme.of(context).typography.caption,
+                          ),
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              _guideSectionBtn('Que hace', 'que_hace'),
+                              _guideSectionBtn('Pasos', 'pasos'),
+                              _guideSectionBtn('Botones', 'botones'),
+                              _guideSectionBtn('Errores comunes', 'errores'),
+                              _guideSectionBtn('Siglas', 'siglas'),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+                          const Divider(size: 1),
+                          const SizedBox(height: 14),
+                          _buildGuideSectionContent(entry),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+      ),
+      actions: [
+        if (widget.canEdit) Button(onPressed: _editCurrent, child: const Text('Editar')),
+        Button(onPressed: _load, child: const Text('Recargar')),
+        FilledButton(onPressed: () => Navigator.pop(context), child: const Text('Cerrar')),
+      ],
+    );
+  }
+
+  Widget _guideSectionBtn(String label, String id) {
+    final selected = _activeGuideSection == id;
+    if (selected) {
+      return FilledButton(
+        onPressed: () => setState(() => _activeGuideSection = id),
+        child: Text(label),
+      );
+    }
+    return Button(
+      onPressed: () => setState(() => _activeGuideSection = id),
+      child: Text(label),
+    );
+  }
+}
+
+class _AppBarChatButton extends StatelessWidget {
+  const _AppBarChatButton({required this.onOpenChat});
+
+  final VoidCallback onOpenChat;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'Chat interno',
+      child: IconButton(
+        icon: const Icon(FluentIcons.chat),
+        onPressed: onOpenChat,
+      ),
+    );
+  }
+}
+
 /// Campana de buzón (misiones asignadas) visible en toda la app desde la barra superior.
 class _AppBarNotificationInbox extends StatefulWidget {
   const _AppBarNotificationInbox({required this.onOpenMonitoring});
@@ -681,12 +1568,13 @@ class _AppBarNotificationInbox extends StatefulWidget {
 class _AppBarNotificationInboxState extends State<_AppBarNotificationInbox> {
   int _unread = 0;
   Timer? _timer;
+  bool _primedUnreadBaseline = false;
 
   @override
   void initState() {
     super.initState();
     unawaited(_refresh());
-    _timer = Timer.periodic(const Duration(seconds: 30), (_) {
+    _timer = Timer.periodic(const Duration(seconds: 10), (_) {
       unawaited(_refresh());
     });
   }
@@ -699,7 +1587,39 @@ class _AppBarNotificationInboxState extends State<_AppBarNotificationInbox> {
 
   Future<void> _refresh() async {
     try {
-      final n = await CmdInboxStore.instance.unreadCount();
+      final prefs = await SharedPreferences.getInstance();
+      final inboxUser = (prefs.getString('username') ?? '').trim();
+      if (inboxUser.isNotEmpty) {
+        try {
+          final data = await ApiClient.get('/api/tareas/lista');
+          if (data is List) {
+            final taskRows =
+                data.whereType<Map<String, dynamic>>().toList();
+            await CmdInboxStore.instance.pruneMissionInboxAgainstTaskList(
+              taskRows,
+              inboxUser,
+            );
+          }
+        } catch (_) {}
+      }
+      final all = await CmdInboxStore.instance.loadAll();
+      final n = all.where((e) => !e.leido).length;
+      if (_primedUnreadBaseline && n > _unread) {
+        CmdInboxEntry? newestUnread;
+        for (final item in all) {
+          if (!item.leido) {
+            newestUnread = item;
+            break;
+          }
+        }
+        if (newestUnread != null) {
+          await ChatWindowsNotificationService.instance.showMessage(
+            title: newestUnread.title,
+            body: newestUnread.body,
+          );
+        }
+      }
+      _primedUnreadBaseline = true;
       if (mounted) setState(() => _unread = n);
     } catch (_) {
       if (mounted) setState(() => _unread = 0);

@@ -73,6 +73,9 @@ class BugReportPayload(BaseModel):
     gravedad: str
     descripcion: str
     captura: Optional[str] = None
+    contexto_pantalla: Optional[str] = None
+    crear_tarea_correccion: bool = False
+    hashtags: List[str] = []
 
 
 class ClonarPayload(BaseModel):
@@ -251,6 +254,20 @@ class SincronizacionItem(BaseModel):
     Estado: str
 
     model_config = ConfigDict(extra="ignore")
+
+
+class CodigoGeneradorPayload(BaseModel):
+    codigo: str = Field(..., min_length=1, max_length=120)
+    procesos: List[str] = Field(..., min_length=1)
+    descripcion: Optional[str] = ""
+    material: Optional[str] = ""
+    largo: Optional[float] = None
+    ancho: Optional[float] = None
+    espesor: Optional[float] = None
+    simetria: bool = False
+    detalle_simetria: Optional[str] = ""
+    referencia_plano: Optional[str] = ""
+    usuario: Optional[str] = "GeneradorCodigo"
 
 
 class MasivoUpdate(BaseModel):

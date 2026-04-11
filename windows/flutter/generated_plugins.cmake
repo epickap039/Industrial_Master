@@ -3,6 +3,7 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  local_notifier
   pasteboard
   permission_handler_windows
   record_windows

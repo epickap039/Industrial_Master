@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/material.dart' as material;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -71,8 +72,8 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
     _cargar();
     _verificarVozDisponible();
 
-    // Auto-refresco cada 30 s para recibir notificaciones
-    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+    // Auto-refresco más ágil para recibir notificaciones con menor latencia.
+    _refreshTimer = Timer.periodic(const Duration(seconds: 12), (timer) {
       if (mounted) _cargar(silent: true);
     });
   }
@@ -142,40 +143,6 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
 
   bool get _esModoSoloLectura => !_puedeControlarMisiones;
 
-  bool _esMisionCentro(Map<String, dynamic> t) {
-    var src =
-        '${t['source_type'] ?? t['SourceType'] ?? ''}'.trim().toUpperCase();
-    if (src.isEmpty) {
-      src = 'MANUAL';
-    }
-    if (src == 'MANUAL' || src == 'RADAR') return true;
-    final raw = t['tipo']?.toString().trim() ?? '';
-    if (raw.isEmpty || raw == 'null') return false;
-    final u = raw.toUpperCase();
-    if (u == 'RADAR' || u == 'MANUAL') return true;
-    return u.contains('RADAR') || u.contains('MANUAL');
-  }
-
-  bool _esActivaTab(Map<String, dynamic> t) {
-    if (!_esMisionCentro(t)) return false;
-    if (esCancelada(t)) return false;
-    final p = int.tryParse('${t['porcentaje_progreso'] ?? 0}') ?? 0;
-    if (p >= 100) return false;
-    final st = normEst(t);
-    if (st.contains('terminad')) return false;
-    return true;
-  }
-
-  bool _esHistorialTab(Map<String, dynamic> t) {
-    if (!_esMisionCentro(t)) return false;
-    if (esCancelada(t)) return true;
-    final p = int.tryParse('${t['porcentaje_progreso'] ?? 0}') ?? 0;
-    if (p >= 100) return true;
-    final st = normEst(t);
-    if (st.contains('terminad')) return true;
-    return false;
-  }
-
   Future<List<Map<String, dynamic>>> _cargarBitacora(int idTarea) async {
     try {
       final raw = await ApiClient.get('/api/tareas/bitacora/$idTarea');
@@ -184,6 +151,48 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
       }
     } catch (_) {}
     return [];
+  }
+
+  Map<String, dynamic> _normalizarTareaDeApi(Map<String, dynamic> src) {
+    final t = Map<String, dynamic>.from(src);
+    int? p;
+    for (final k in const [
+      'porcentaje_progreso',
+      'Porcentaje_Progreso',
+      'Progreso',
+      'porcentaje',
+    ]) {
+      final v = t[k];
+      final n = v is int ? v : int.tryParse('$v');
+      if (n != null) {
+        p = n;
+        break;
+      }
+    }
+    if (p == null) {
+      final rawChecks = t['checklist'];
+      if (rawChecks is List && rawChecks.isNotEmpty) {
+        final checks = <Map<String, dynamic>>[];
+        for (final e in rawChecks) {
+          if (e is Map<String, dynamic>) {
+            checks.add(Map<String, dynamic>.from(e));
+          } else if (e is Map) {
+            checks.add(
+              Map<String, dynamic>.from(
+                e.map((k, v) => MapEntry(k.toString(), v)),
+              ),
+            );
+          }
+        }
+        if (checks.isNotEmpty) {
+          p = calcularProgresoDesdeChecklist(checks);
+        }
+      }
+    }
+    final pct = (p ?? 0).clamp(0, 100);
+    t['porcentaje_progreso'] = pct;
+    t['Porcentaje_Progreso'] = pct;
+    return t;
   }
 
   Future<void> _cargar({bool silent = false}) async {
@@ -215,12 +224,36 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
         });
         return;
       }
-      final list = data.whereType<Map<String, dynamic>>().toList();
+      final list = data
+          .whereType<Map<String, dynamic>>()
+          .map(_normalizarTareaDeApi)
+          .toList();
 
-      // Notificaciones: buzón persistente + InfoBar cuando se detecta una misión
-      // del usuario (incluye primera carga para no perder asignaciones previas).
+      if (_currentUserName.isNotEmpty) {
+        await CmdInboxStore.instance.pruneMissionInboxAgainstTaskList(
+          list,
+          _currentUserName,
+        );
+      }
+
+      final pendientesMias = <Map<String, dynamic>>[];
+      if (_currentUserName.isNotEmpty) {
+        final u = _currentUserName.toLowerCase();
+        for (final t in list) {
+          if (!esMisionCentroActiva(t)) continue;
+          final asignado =
+              '${t['usuario_asignado'] ?? t['Usuario_Asignado'] ?? ''}'.trim();
+          if (asignado.isEmpty) continue;
+          if (asignado.toLowerCase() != u) continue;
+          pendientesMias.add(t);
+        }
+      }
+
+      // Notificaciones: solo misiones **activas** del centro; primera carga rellena
+      // el buzón sin incluir historial ni tareas ya cerradas.
       final primeraLectura = _seenTaskIds.isEmpty;
       for (final t in list) {
+        if (!esMisionCentroActiva(t)) continue;
         final idRaw = t['id_tarea'];
         final id = idRaw is int ? idRaw : int.tryParse('$idRaw');
         if (id == null) continue;
@@ -276,46 +309,34 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
       // Recordatorios automáticos:
       // - cada 4h si la notificación base sigue sin leer
       // - cada 24h si ya se leyó pero la misión sigue pendiente
-      if (_currentUserName.isNotEmpty) {
-        final pendientesMias = <Map<String, dynamic>>[];
-        for (final t in list) {
-          if (!_esActivaTab(t)) continue;
-          final asignado =
-              '${t['usuario_asignado'] ?? t['Usuario_Asignado'] ?? ''}'.trim();
-          if (asignado.isEmpty) continue;
-          if (asignado.toLowerCase() == _currentUserName.toLowerCase()) {
-            pendientesMias.add(t);
-          }
-        }
-        if (pendientesMias.isNotEmpty) {
-          final reminders = await CmdInboxStore.instance.addDueMissionReminders(
-            pendientesMias,
-          );
-          if (reminders.isNotEmpty && mounted) {
-            displayInfoBar(
-              context,
-              builder:
-                  (c, close) => InfoBar(
-                    title: const Text('Recordatorio de misión'),
-                    content: Text(
-                      reminders.length == 1
-                          ? 'Tiene 1 misión pendiente por atender.'
-                          : 'Tiene ${reminders.length} misiones pendientes por atender.',
-                    ),
-                    severity: InfoBarSeverity.warning,
-                    action: IconButton(
-                      icon: const Icon(FluentIcons.clear),
-                      onPressed: close,
-                    ),
+      if (pendientesMias.isNotEmpty) {
+        final reminders = await CmdInboxStore.instance.addDueMissionReminders(
+          pendientesMias,
+        );
+        if (reminders.isNotEmpty && mounted) {
+          displayInfoBar(
+            context,
+            builder:
+                (c, close) => InfoBar(
+                  title: const Text('Recordatorio de misión'),
+                  content: Text(
+                    reminders.length == 1
+                        ? 'Tiene 1 misión pendiente por atender.'
+                        : 'Tiene ${reminders.length} misiones pendientes por atender.',
                   ),
-            );
-          }
+                  severity: InfoBarSeverity.warning,
+                  action: IconButton(
+                    icon: const Icon(FluentIcons.clear),
+                    onPressed: close,
+                  ),
+                ),
+          );
         }
       }
 
       final activas =
           list
-              .where(_esActivaTab)
+              .where(esMisionCentroActiva)
               .map((e) => Map<String, dynamic>.from(e))
               .toList();
       setState(() {
@@ -368,53 +389,65 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
     final idCheck = idCheckDe(check);
     if (idCheck == null) return;
     if (_checkEnProceso.contains(idCheck)) return;
-    setState(() => _checkEnProceso.add(idCheck));
+    final hecho = nuevoValor ?? false;
+    Map<String, dynamic>? snapshotTask;
+    int snapshotTaskIndex = -1;
+    setState(() {
+      _checkEnProceso.add(idCheck);
+      final ti = _tareas.indexWhere((x) {
+        final id = x['id_tarea'];
+        final a = id is int ? id : int.tryParse('$id');
+        return a == idTarea;
+      });
+      if (ti < 0) return;
+      snapshotTaskIndex = ti;
+      snapshotTask = Map<String, dynamic>.from(_tareas[ti]);
+      final task = Map<String, dynamic>.from(_tareas[ti]);
+      final rawList = task['checklist'] as List<dynamic>? ?? [];
+      final list = <Map<String, dynamic>>[];
+      for (final e in rawList) {
+        if (e is Map<String, dynamic>) {
+          list.add(Map<String, dynamic>.from(e));
+        } else if (e is Map) {
+          list.add(
+            Map<String, dynamic>.from(
+              e.map((k, v) => MapEntry(k.toString(), v)),
+            ),
+          );
+        }
+      }
+      final ci = list.indexWhere((c) => idCheckDe(c) == idCheck);
+      if (ci >= 0) {
+        list[ci] = Map<String, dynamic>.from(list[ci])..['completado'] = hecho ? 1 : 0;
+        task['checklist'] = list;
+        final pct = calcularProgresoDesdeChecklist(list);
+        task['porcentaje_progreso'] = pct;
+        _aplicarEstadoLocalPorProgreso(task, pct);
+        _tareas[ti] = task;
+      }
+      _activasOrdenadas =
+          _tareas
+              .where(esMisionCentroActiva)
+              .map((e) => Map<String, dynamic>.from(e))
+              .toList();
+    });
     try {
       await ApiClient.put(
         '/api/tareas/check/$idCheck',
-        body: {'completado': nuevoValor ?? false},
+        body: {'completado': hecho},
       );
-      if (!mounted) return;
-      setState(() {
-        final ti = _tareas.indexWhere((x) {
-          final id = x['id_tarea'];
-          final a = id is int ? id : int.tryParse('$id');
-          return a == idTarea;
-        });
-        if (ti < 0) return;
-        final task = Map<String, dynamic>.from(_tareas[ti]);
-        final rawList = task['checklist'] as List<dynamic>? ?? [];
-        final list = <Map<String, dynamic>>[];
-        for (final e in rawList) {
-          if (e is Map<String, dynamic>) {
-            list.add(Map<String, dynamic>.from(e));
-          } else if (e is Map) {
-            list.add(
-              Map<String, dynamic>.from(
-                e.map((k, v) => MapEntry(k.toString(), v)),
-              ),
-            );
-          }
-        }
-        final ci = list.indexWhere((c) => idCheckDe(c) == idCheck);
-        if (ci >= 0) {
-          final hecho = nuevoValor ?? false;
-          list[ci] = Map<String, dynamic>.from(list[ci])
-            ..['completado'] = hecho ? 1 : 0;
-          task['checklist'] = list;
-          final pct = calcularProgresoDesdeChecklist(list);
-          task['porcentaje_progreso'] = pct;
-          _aplicarEstadoLocalPorProgreso(task, pct);
-          _tareas[ti] = task;
-        }
-        _activasOrdenadas =
-            _tareas
-                .where(_esActivaTab)
-                .map((e) => Map<String, dynamic>.from(e))
-                .toList();
-      });
     } catch (e) {
       if (mounted) {
+        setState(() {
+          if (snapshotTask != null && snapshotTaskIndex >= 0) {
+            _tareas[snapshotTaskIndex] = Map<String, dynamic>.from(snapshotTask!);
+            _activasOrdenadas =
+                _tareas
+                    .where(esMisionCentroActiva)
+                    .map((x) => Map<String, dynamic>.from(x))
+                    .toList();
+          }
+        });
         displayInfoBar(
           context,
           builder:
@@ -454,6 +487,202 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
     );
     if (r == null || !mounted) return;
     await _aplicarPrioridadMision(idTarea, r.nivel, r.suspenderOtras);
+  }
+
+  Future<void> _dialogoEditarMisionManual(int idTarea) async {
+    final idx = _tareas.indexWhere((x) {
+      final id = x['id_tarea'];
+      final a = id is int ? id : int.tryParse('$id');
+      return a == idTarea;
+    });
+    if (idx < 0) return;
+    final task = Map<String, dynamic>.from(_tareas[idx]);
+    if (!esManualSource(task)) return;
+
+    final tituloCtrl = TextEditingController(text: tituloMision(task));
+    final descCtrl = TextEditingController(text: descripcionMision(task));
+    final minsRaw = task['minutos_estimados'] ?? task['Duracion_Minutos'] ?? 0;
+    final minsVal = minsRaw is int ? minsRaw : int.tryParse('$minsRaw') ?? 0;
+    final daysCtrl = TextEditingController(text: '${minsVal ~/ (24 * 60)}');
+    final minsCtrl = TextEditingController(text: '${minsVal % (24 * 60)}');
+    final rawChecks = (task['checklist'] as List<dynamic>? ?? [])
+        .map((e) => Map<String, dynamic>.from((e as Map).map((k, v) => MapEntry('$k', v))))
+        .toList();
+    final checksCtrl = TextEditingController(
+      text: rawChecks
+          .map((e) => (e['nombre'] ?? '').toString().trim())
+          .where((e) => e.isNotEmpty)
+          .join('\n'),
+    );
+    final meta = metaMapTarea(task) ?? <String, dynamic>{};
+    bool sinTiempo = meta['sin_tiempo_estimado'] == true;
+    bool quitarImagen = false;
+    String? nuevaImagen;
+
+    try {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) {
+          return StatefulBuilder(
+            builder: (ctx, setLocal) {
+              return ContentDialog(
+                title: Text('Editar misión manual #$idTarea'),
+                content: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 640),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TextBox(controller: tituloCtrl, placeholder: 'Título'),
+                      const SizedBox(height: 8),
+                      TextBox(
+                        controller: descCtrl,
+                        placeholder: 'Descripción',
+                        maxLines: 3,
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextBox(
+                              controller: daysCtrl,
+                              enabled: !sinTiempo,
+                              placeholder: 'Días estimados',
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextBox(
+                              controller: minsCtrl,
+                              enabled: !sinTiempo,
+                              placeholder: 'Minutos estimados',
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Checkbox(
+                            checked: sinTiempo,
+                            content: const Text('No aplica tiempo'),
+                            onChanged: (v) => setLocal(() => sinTiempo = v ?? false),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      TextBox(
+                        controller: checksCtrl,
+                        placeholder: 'Checklist (1 línea por ítem)',
+                        maxLines: 7,
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          Button(
+                            onPressed: () async {
+                              final picked = await FilePicker.platform.pickFiles(
+                                type: FileType.image,
+                                withData: true,
+                              );
+                              final bytes =
+                                  (picked == null || picked.files.isEmpty)
+                                      ? null
+                                      : picked.files.first.bytes;
+                              if (bytes == null || bytes.isEmpty) return;
+                              setLocal(() {
+                                nuevaImagen = base64Encode(bytes);
+                                quitarImagen = false;
+                              });
+                            },
+                            child: const Text('Cambiar imagen'),
+                          ),
+                          ToggleSwitch(
+                            checked: quitarImagen,
+                            onChanged: (v) => setLocal(() => quitarImagen = v),
+                            content: const Text('Quitar imagen actual'),
+                          ),
+                          if (nuevaImagen != null)
+                            const Text('Imagen nueva lista para guardar'),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  Button(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    child: const Text('Cancelar'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: const Text('Guardar cambios'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+      if (ok != true || !mounted) return;
+
+      final lines = checksCtrl.text
+          .split(RegExp(r'[\r\n]+'))
+          .map((s) => s.trim())
+          .where((s) => s.isNotEmpty)
+          .toList();
+      final checklist = lines
+          .map(
+            (line) => <String, dynamic>{
+              'nombre': line,
+              'minutos': 0,
+              'grupo': kGrupoJerarquiaIndefinida,
+            },
+          )
+          .toList();
+      await ApiClient.put(
+        '/api/tareas/manual/$idTarea',
+        body: {
+          'titulo': tituloCtrl.text.trim(),
+          'descripcion': descCtrl.text.trim(),
+          'minutos_estimados': sinTiempo
+              ? 0
+              : ((int.tryParse(daysCtrl.text.trim()) ?? 0) * 24 * 60) +
+                  (int.tryParse(minsCtrl.text.trim()) ?? 0),
+          'sin_tiempo_estimado': sinTiempo,
+          'checklist': checklist,
+          if (nuevaImagen != null) 'imagen_base64': nuevaImagen,
+          if (quitarImagen) 'eliminar_imagen': true,
+        },
+      );
+      if (!mounted) return;
+      await _cargar();
+      if (!mounted) return;
+      displayInfoBar(
+        context,
+        builder: (c, close) => InfoBar(
+          title: const Text('Misión actualizada'),
+          content: const Text('Checklist e imagen editados correctamente.'),
+          severity: InfoBarSeverity.success,
+          onClose: close,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      displayInfoBar(
+        context,
+        builder: (c, close) => InfoBar(
+          title: const Text('Error'),
+          content: Text('No se pudo editar la misión: $e'),
+          severity: InfoBarSeverity.error,
+          onClose: close,
+        ),
+      );
+    } finally {
+      tituloCtrl.dispose();
+      descCtrl.dispose();
+      daysCtrl.dispose();
+      minsCtrl.dispose();
+      checksCtrl.dispose();
+    }
   }
 
   Map<String, dynamic>? _tareaActivaPorId(int idTarea) {
@@ -809,82 +1038,108 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
     return b == Brightness.dark;
   }
 
-  Future<void> _dialogoLimpiarHistorial() async {
-    if (!_puedeControlarMisiones) return;
-    final ctrl = TextEditingController();
+  Future<void> _reactivarTareaHistorial(Map<String, dynamic> tarea) async {
+    final id = tarea['id_tarea'];
+    final idTarea = id is int ? id : int.tryParse('$id');
+    if (idTarea == null) return;
+    try {
+      await ApiClient.put('/api/tareas/historial/$idTarea/reactivar');
+      if (!mounted) return;
+      await _cargar();
+      if (!mounted) return;
+      displayInfoBar(
+        context,
+        builder: (c, close) => InfoBar(
+          title: const Text('Tarea reactivada'),
+          content: Text('La misión #$idTarea volvió a activas.'),
+          severity: InfoBarSeverity.success,
+          onClose: close,
+        ),
+      );
+      _tabController.index = 0;
+    } catch (e) {
+      if (!mounted) return;
+      displayInfoBar(
+        context,
+        builder: (c, close) => InfoBar(
+          title: const Text('Error'),
+          content: Text('No se pudo reactivar: $e'),
+          severity: InfoBarSeverity.error,
+          onClose: close,
+        ),
+      );
+    }
+  }
+
+  Future<void> _eliminarTareaHistorial(Map<String, dynamic> tarea) async {
+    final id = tarea['id_tarea'];
+    final idTarea = id is int ? id : int.tryParse('$id');
+    if (idTarea == null) return;
+    final pwdCtrl = TextEditingController();
     try {
       final masterPwd = await showDialog<String?>(
         context: context,
-        builder: (ctx) {
-          return ContentDialog(
-            title: const Text('Limpiar Historial'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Text(
-                  'Se borrarán DEFINTIVAMENTE todas las misiones terminadas al 100% o canceladas de la base de datos.',
+        builder:
+            (ctx) => ContentDialog(
+              title: const Text('Eliminar misión del historial'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'Se eliminará de forma permanente la misión #$idTarea.\n'
+                    'Ingrese contraseña maestra para confirmar.',
+                  ),
+                  const SizedBox(height: 10),
+                  TextBox(
+                    controller: pwdCtrl,
+                    obscureText: true,
+                    placeholder: 'Contraseña maestra',
+                  ),
+                ],
+              ),
+              actions: [
+                Button(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancelar'),
                 ),
-                const SizedBox(height: 12),
-                TextBox(
-                  controller: ctrl,
-                  obscureText: true,
-                  placeholder: 'Contraseña maestra',
+                FilledButton(
+                  onPressed: () => Navigator.pop(ctx, pwdCtrl.text.trim()),
+                  child: const Text('Eliminar'),
                 ),
               ],
             ),
-            actions: [
-              Button(
-                child: const Text('Cancelar'),
-                onPressed: () => Navigator.pop(ctx),
-              ),
-              FilledButton(
-                child: const Text('Borrar Historial'),
-                onPressed: () => Navigator.pop(ctx, ctrl.text),
-              ),
-            ],
-          );
-        },
       );
-
-      if (masterPwd != null && mounted) {
-        try {
-          await ApiClient.delete(
-            '/api/tareas/limpiar_historial',
-            headers: {ApiClient.adminMasterPasswordHeader: masterPwd},
-          );
-          if (mounted) {
-            displayInfoBar(
-              context,
-              builder:
-                  (c, close) => InfoBar(
-                    title: const Text('Historial Limpiado'),
-                    content: const Text(
-                      'Las tareas antiguas fueron borradas con éxito.',
-                    ),
-                    severity: InfoBarSeverity.success,
-                    onClose: close,
-                  ),
-            );
-            await _cargar();
-          }
-        } catch (e) {
-          if (mounted) {
-            displayInfoBar(
-              context,
-              builder:
-                  (c, close) => InfoBar(
-                    title: const Text('Error'),
-                    content: Text('$e'),
-                    severity: InfoBarSeverity.error,
-                    onClose: close,
-                  ),
-            );
-          }
-        }
-      }
+      if ((masterPwd ?? '').isEmpty) return;
+      await ApiClient.delete(
+        '/api/tareas/historial/$idTarea',
+        headers: {ApiClient.adminMasterPasswordHeader: masterPwd!},
+      );
+      if (!mounted) return;
+      await _cargar();
+      if (!mounted) return;
+      displayInfoBar(
+        context,
+        builder: (c, close) => InfoBar(
+          title: const Text('Eliminada'),
+          content: Text('La misión #$idTarea fue eliminada del historial.'),
+          severity: InfoBarSeverity.warning,
+          onClose: close,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      displayInfoBar(
+        context,
+        builder: (c, close) => InfoBar(
+          title: const Text('Error'),
+          content: Text('No se pudo eliminar: $e'),
+          severity: InfoBarSeverity.error,
+          onClose: close,
+        ),
+      );
     } finally {
-      ctrl.dispose();
+      pwdCtrl.dispose();
     }
   }
 
@@ -1188,7 +1443,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
     return material.Scaffold(
       backgroundColor: palette.surfaceBase,
       floatingActionButton: _puedeControlarMisiones
-          ? material.FloatingActionButton(
+          ? material.FloatingActionButton.small(
               heroTag: 'monitoreo_grabacion_voz',
               onPressed: _isProcessingAudio ? null : _toggleAudioRecording,
               backgroundColor: _isRecordingAudio
@@ -1200,7 +1455,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
                     ? FluentIcons.stop
                     : FluentIcons.microphone,
                 color: material.Colors.white,
-                size: 24,
+                size: 18,
               ),
             )
           : null,
@@ -1282,16 +1537,17 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
   /// Color de avatar determinista a partir del nombre del usuario.
   static material.Color _avatarColor(String name) {
     const colors = [
-      material.Color(0xFF1565C0), // azul oscuro
-      material.Color(0xFF00695C), // teal
-      material.Color(0xFF6A1B9A), // lilac
-      material.Color(0xFFAD1457), // rosa
-      material.Color(0xFFE65100), // naranja
-      material.Color(0xFF2E7D32), // verde
-      material.Color(0xFF4527A0), // indigo
-      material.Color(0xFF00838F), // cyan
+      material.Color(0xFF42A5F5), // azul electrico
+      material.Color(0xFF64B5F6), // azul cielo intenso
+      material.Color(0xFF5C6BC0), // indigo
+      material.Color(0xFF7E57C2), // violeta
+      material.Color(0xFF9575CD), // lavanda fuerte
+      material.Color(0xFFAB47BC), // magenta violeta
+      material.Color(0xFF26C6DA), // cian intenso
+      material.Color(0xFF00ACC1), // turquesa profundo
+      material.Color(0xFFFF8A65), // coral suave
     ];
-    if (name == _kSinAsignar) return const material.Color(0xFF546E7A);
+    if (name == _kSinAsignar) return const material.Color(0xFF5E35B1);
     var hash = 0;
     for (final c in name.codeUnits) {
       hash = (hash * 31 + c) & 0xFFFFFFFF;
@@ -1333,12 +1589,44 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
     final me = _currentUserName.trim().toLowerCase();
     if (_filtroUsuario == _kFiltroMisTareas && me.isNotEmpty) {
       return _activasOrdenadas
-          .where((t) => asignadoMision(t).trim().toLowerCase() == me)
+          .where((t) {
+            if (asignadoMision(t).trim().toLowerCase() == me) return true;
+            final raw = t['usuarios_asignados'];
+            if (raw is List) {
+              for (final u in raw) {
+                if ('$u'.trim().toLowerCase() == me) return true;
+              }
+            }
+            return false;
+          })
           .toList();
     }
     return _activasOrdenadas
         .where((t) => asignadoMision(t) == _filtroUsuario)
         .toList();
+  }
+
+  List<MapEntry<String, List<Map<String, dynamic>>>> _agruparActivasMostradas(
+    List<Map<String, dynamic>> tasks,
+  ) {
+    final byUser = <String, List<Map<String, dynamic>>>{};
+    for (final t in tasks) {
+      final raw = asignadoMision(t).trim();
+      final key = raw.isEmpty ? 'Sin asignar' : raw;
+      byUser.putIfAbsent(key, () => []).add(t);
+    }
+    final me = _currentUserName.trim().toLowerCase();
+    final entries = byUser.entries.toList()
+      ..sort((a, b) {
+        final aMe = me.isNotEmpty && a.key.toLowerCase() == me;
+        final bMe = me.isNotEmpty && b.key.toLowerCase() == me;
+        if (aMe && !bMe) return -1;
+        if (!aMe && bMe) return 1;
+        if (a.key == 'Sin asignar') return -1;
+        if (b.key == 'Sin asignar') return 1;
+        return a.key.toLowerCase().compareTo(b.key.toLowerCase());
+      });
+    return entries;
   }
 
   Widget _tarjetaActivaLobby(
@@ -1373,6 +1661,12 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
       onFinalizarManual:
           _puedeControlarMisiones
               ? () => _finalizarManualMision(
+                id is int ? id : int.tryParse('$id') ?? 0,
+              )
+              : null,
+      onEditManual:
+          _puedeControlarMisiones && esManualSource(t)
+              ? () => _dialogoEditarMisionManual(
                 id is int ? id : int.tryParse('$id') ?? 0,
               )
               : null,
@@ -1414,11 +1708,12 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
     for (final u in usuarios) {
       final m = _minutosRestantesParaUsuario(u);
       if (m <= 0) continue;
+      final finTxt = estimadoFinLaboralDesdeAhoraEtiqueta(m);
       chips.add(
         Padding(
           padding: const EdgeInsets.only(right: 8, bottom: 6),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
             decoration: BoxDecoration(
               color: FluentTheme.of(
                 context,
@@ -1430,9 +1725,26 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
                 ).resources.controlStrokeColorDefault.withValues(alpha: 0.35),
               ),
             ),
-            child: Text(
-              '$u · ${_formatoMinutosCarga(m)} restantes (estim.)',
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '$u · ${_formatoMinutosCarga(m)} restantes (estim.)',
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                ),
+                if (finTxt != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    '$u finaliza sus actividades el $finTxt',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: FluentTheme.of(context).typography.body?.color?.withValues(alpha: 0.82),
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
         ),
@@ -1599,25 +1911,69 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
                         290.0,
                         _vistaCompacta ? 340.0 : 390.0,
                       );
-                      return Wrap(
-                        spacing: gap,
-                        runSpacing: gap,
+                      final grouped = _filtroUsuario == _kFiltroTodos;
+                      if (!grouped) {
+                        return Wrap(
+                          spacing: gap,
+                          runSpacing: gap,
+                          children: [
+                            for (final t in activasMostradas)
+                              SizedBox(
+                                width: cardW,
+                                child: RepaintBoundary(
+                                  key: ValueKey('flt_mission_${t['id_tarea']}'),
+                                  child: _tarjetaActivaLobby(
+                                    idToGlobalIndex[t['id_tarea'] is int
+                                            ? t['id_tarea'] as int
+                                            : int.tryParse('${t['id_tarea']}') ?? -1] ??
+                                        0,
+                                    t,
+                                    dark,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        );
+                      }
+                      final groups = _agruparActivasMostradas(activasMostradas);
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          for (final t in activasMostradas)
-                            SizedBox(
-                              width: cardW,
-                              child: RepaintBoundary(
-                                key: ValueKey('flt_mission_${t['id_tarea']}'),
-                                child: _tarjetaActivaLobby(
-                                  idToGlobalIndex[t['id_tarea'] is int
-                                          ? t['id_tarea'] as int
-                                          : int.tryParse('${t['id_tarea']}') ?? -1] ??
-                                      0,
-                                  t,
-                                  dark,
+                          for (final e in groups) ...[
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(2, 2, 2, 6),
+                              child: Text(
+                                e.key,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  color: FluentTheme.of(context).typography.body?.color?.withValues(alpha: 0.82),
                                 ),
                               ),
                             ),
+                            Wrap(
+                              spacing: gap,
+                              runSpacing: gap,
+                              children: [
+                                for (final t in e.value)
+                                  SizedBox(
+                                    width: cardW,
+                                    child: RepaintBoundary(
+                                      key: ValueKey('flt_mission_${t['id_tarea']}'),
+                                      child: _tarjetaActivaLobby(
+                                        idToGlobalIndex[t['id_tarea'] is int
+                                                ? t['id_tarea'] as int
+                                                : int.tryParse('${t['id_tarea']}') ?? -1] ??
+                                            0,
+                                        t,
+                                        dark,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                          ],
                         ],
                       );
                     },
@@ -1693,47 +2049,61 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
 
   Widget _tabHistorial() {
     if (_loading) return const Center(child: ProgressRing());
-    final hist = _tareas.where(_esHistorialTab).toList();
-    if (hist.isEmpty) {
-      return Center(
-        child: Text(
-          'Sin misiones en historial (terminadas al 100 % o canceladas).',
-          style: TextStyle(
-            color: FluentTheme.of(
-              context,
-            ).typography.body?.color?.withValues(alpha: 0.8),
-          ),
-        ),
-      );
-    }
+    final hist = _tareas.where(esMisionCentroHistorial).toList();
+    final body =
+        hist.isEmpty
+            ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  'Sin misiones en historial (terminadas al 100 % o canceladas).',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: FluentTheme.of(
+                      context,
+                    ).typography.body?.color?.withValues(alpha: 0.8),
+                  ),
+                ),
+              ),
+            )
+            : BitacoraCalendarioPanel(
+              key: const ValueKey<String>('bitacora_hist_centro'),
+              tareasHistorial: hist,
+              tareasActivasParaProyeccion: _activasOrdenadas,
+              onReactivarTarea:
+                  _puedeControlarMisiones ? _reactivarTareaHistorial : null,
+              onEliminarTarea:
+                  _puedeControlarMisiones ? _eliminarTareaHistorial : null,
+              onTapTarea: (t) {
+                showMissionMetaSideSheet(
+                  context,
+                  t['meta'],
+                  task: Map<String, dynamic>.from(t),
+                );
+              },
+            );
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-      child: BitacoraCalendarioPanel(
-        key: const ValueKey<String>('bitacora_hist_centro'),
-        tareasHistorial: hist,
-        onTapTarea: (t) {
-          showMissionMetaSideSheet(
-            context,
-            t['meta'],
-            task: Map<String, dynamic>.from(t),
-          );
-        },
-      ),
+      child: body,
     );
   }
 
   Widget _tabAltaManual() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 860),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
           // Header con icono
           Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
                 FluentIcons.add_field,
-                size: 28,
+                size: 34,
                 color: FluentTheme.of(context).accentColor,
               ),
               const SizedBox(width: 12),
@@ -1745,13 +2115,13 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
                     style: FluentTheme.of(context)
                         .typography
                         .title
-                        ?.copyWith(fontSize: 18),
+                        ?.copyWith(fontSize: 22, fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     'Alta manual de tareas con responsable y categoría',
                     style: TextStyle(
-                      fontSize: 12,
+                      fontSize: 14,
                       color: FluentTheme.of(context)
                           .typography
                           .body
@@ -1766,6 +2136,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
           const SizedBox(height: 24),
           // Card de información
           Container(
+            width: double.infinity,
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: FluentTheme.of(context).cardColor,
@@ -1813,6 +2184,11 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
           // Botón
           FilledButton(
             onPressed: _esModoSoloLectura ? null : _abrirAltaManual,
+            style: ButtonStyle(
+              padding: WidgetStateProperty.all(
+                const EdgeInsets.symmetric(horizontal: 26, vertical: 14),
+              ),
+            ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -1827,7 +2203,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
                   _esModoSoloLectura
                       ? 'Crear misión (Deshabilitado)'
                       : 'Crear nueva misión',
-                  style: const TextStyle(fontSize: 14),
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
                 ),
               ],
             ),
@@ -1881,7 +2257,9 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
               ),
             ),
           ],
-        ],
+            ],
+          ),
+        ),
       ),
     );
   }

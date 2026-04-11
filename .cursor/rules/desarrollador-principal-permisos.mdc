@@ -1,0 +1,16 @@
+# Rol Desarrollador: prioridad máxima de permisos
+
+## Objetivo
+
+En este proyecto, el rol `desarrollador` es el rol principal técnico y debe mantener acceso total de UI/acciones administrativas de producto (excepto restricciones explícitas de seguridad que el dueño indique en el chat).
+
+## Reglas obligatorias
+
+1. Al tocar lógica RBAC (`lib/services/app_role.dart`, `main_layout`, pantallas con botones condicionales), **no restringir** al rol `desarrollador`.
+2. Si hay discrepancias de texto del rol en BD/sesión (por ejemplo `DESAROLLADOR`, `DESARROLLADOR`, `DEV`, `PROGRAMADOR`), normalizar y mapear siempre a `AppRole.desarrollador`.
+3. Si un botón/acción se habilita para ingeniería o admin rail, validar que `desarrollador` también lo vea/ejecute salvo instrucción contraria explícita.
+4. Cuando se agregue un nuevo control por rol, incluir prueba manual mínima: administrador, desarrollador, ingeniería y un rol restringido.
+
+## Nota de implementación
+
+Preferir visibilidad de controles para `desarrollador` y evitar estados "visible pero deshabilitado" para este rol, salvo dependencias externas (backend caído, carga en progreso, etc.).

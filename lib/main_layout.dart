@@ -6,9 +6,11 @@ import 'screens/auditor.dart';
 import 'screens/ayudas_visuales/ayudas_visuales_nav.dart';
 import 'screens/cad_scanner_screen.dart';
 import 'screens/catalog.dart';
+import 'screens/code_generator_screen.dart';
 import 'screens/engineering_map.dart';
 import 'screens/history.dart';
 import 'screens/impact_radar_screen.dart';
+import 'screens/internal_chat_screen.dart';
 import 'screens/lobby_screen.dart';
 import 'screens/materials_list.dart';
 import 'screens/monitoreo_tareas_screen.dart';
@@ -17,6 +19,7 @@ import 'screens/project_management.dart';
 import 'screens/qa_dashboard.dart';
 import 'screens/settings.dart';
 import 'screens/standardization.dart';
+import 'screens/version_notes_timeline_screen.dart';
 import 'screens/vin_dossier.dart';
 import 'services/app_role.dart';
 import 'services/nav_pane.dart';
@@ -32,6 +35,7 @@ NavigationPane buildIndustrialNavigationPane({
   required int? targetRevisionId,
   required void Function(NavPaneId id, {int? revisionId}) onNavigatePane,
   required NavPaneId? requestedPaneId,
+  required ValueChanged<NavPaneId?> onActiveLeafPaneChanged,
   required String userRole,
   required VoidCallback onThemeTap,
   required VoidCallback onBugTap,
@@ -48,9 +52,17 @@ NavigationPane buildIndustrialNavigationPane({
         body: ConstrainedAppBody(
           child: AyudasVisualesNav(
             canUpload: ar.ayudasCanUpload,
+            canEditCategoryImage: ar.ayudasCanEditCategoryImage,
             allowRevisionHistory: ar.ayudasShowRevisionHistory,
           ),
         ),
+      ),
+    if (ar.showsNavChatInterno)
+      const _SectionModule(
+        id: NavPaneId.chatInterno,
+        title: 'Chat interno',
+        icon: FluentIcons.chat,
+        body: InternalChatScreen(),
       ),
     if (ar.showsNavMateriales)
       const _SectionModule(
@@ -123,6 +135,15 @@ NavigationPane buildIndustrialNavigationPane({
           child: StandardizationScreen(),
         ),
       ),
+    if (ar.showsNavCatalogo)
+      const _SectionModule(
+        id: NavPaneId.generadorCodigo,
+        title: 'Generador de Código',
+        icon: FluentIcons.cube_shape,
+        body: ConstrainedAppBody(
+          child: CodeGeneratorScreen(),
+        ),
+      ),
   ];
 
   final seguimientoModules = <_SectionModule>[
@@ -134,12 +155,21 @@ NavigationPane buildIndustrialNavigationPane({
         body: HistoryScreen(),
       ),
     if (ar.showsNavQa)
-      const _SectionModule(
+      _SectionModule(
         id: NavPaneId.centroQa,
         title: 'Centro de QA',
         icon: FluentIcons.tablet,
         body: ConstrainedAppBody(
-          child: QADashboardScreen(),
+          child: QADashboardScreen(effectiveRole: userRole),
+        ),
+      ),
+    if (ar.showsNavQa)
+      const _SectionModule(
+        id: NavPaneId.notasVersion,
+        title: 'Notas de versión',
+        icon: FluentIcons.history,
+        body: ConstrainedAppBody(
+          child: VersionNotesTimelineScreen(),
         ),
       ),
   ];
@@ -155,7 +185,7 @@ NavigationPane buildIndustrialNavigationPane({
     if (ar.showsNavAnalytics)
       const _SectionModule(
         id: NavPaneId.dashboardAnalytics,
-        title: 'Dashboard analytics',
+        title: 'Estadísticas',
         icon: FluentIcons.pie_single,
         body: ConstrainedAppBody(
           child: AnalyticsScreen(),
@@ -192,6 +222,7 @@ NavigationPane buildIndustrialNavigationPane({
             sectionTitle: 'Operación diaria',
             modules: operacionModules,
             requestedPaneId: requestedPaneId,
+            onActiveLeafPaneChanged: onActiveLeafPaneChanged,
           ),
         ),
       ),
@@ -204,6 +235,7 @@ NavigationPane buildIndustrialNavigationPane({
             sectionTitle: 'Ingeniería y cambios',
             modules: ingenieriaModules,
             requestedPaneId: requestedPaneId,
+            onActiveLeafPaneChanged: onActiveLeafPaneChanged,
           ),
         ),
       ),
@@ -216,6 +248,7 @@ NavigationPane buildIndustrialNavigationPane({
             sectionTitle: 'Seguimiento e incidentes',
             modules: seguimientoModules,
             requestedPaneId: requestedPaneId,
+            onActiveLeafPaneChanged: onActiveLeafPaneChanged,
           ),
         ),
       ),
@@ -228,6 +261,7 @@ NavigationPane buildIndustrialNavigationPane({
             sectionTitle: 'Datos y catálogos',
             modules: datosModules,
             requestedPaneId: requestedPaneId,
+            onActiveLeafPaneChanged: onActiveLeafPaneChanged,
           ),
         ),
       ),
@@ -299,17 +333,28 @@ class _SectionHubScreen extends StatefulWidget {
     required this.sectionTitle,
     required this.modules,
     required this.requestedPaneId,
+    required this.onActiveLeafPaneChanged,
   });
 
   final String sectionTitle;
   final List<_SectionModule> modules;
   final NavPaneId? requestedPaneId;
+  final ValueChanged<NavPaneId?> onActiveLeafPaneChanged;
 
   @override
   State<_SectionHubScreen> createState() => _SectionHubScreenState();
 }
 
 class _SectionHubScreenState extends State<_SectionHubScreen> {
+  void _notifyLeafSelection() {
+    if (widget.modules.isEmpty) {
+      widget.onActiveLeafPaneChanged(null);
+      return;
+    }
+    final idx = _selected.clamp(0, widget.modules.length - 1);
+    widget.onActiveLeafPaneChanged(widget.modules[idx].id);
+  }
+
   int _selected = 0;
   int? _hoveredIdx;
 
@@ -330,11 +375,16 @@ class _SectionHubScreenState extends State<_SectionHubScreen> {
 
   void _applyRequested() {
     final req = widget.requestedPaneId;
-    if (req == null) return;
-    final idx = widget.modules.indexWhere((m) => m.id == req);
-    if (idx >= 0) {
-      _selected = idx;
+    if (req != null) {
+      final idx = widget.modules.indexWhere((m) => m.id == req);
+      if (idx >= 0) {
+        _selected = idx;
+      }
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _notifyLeafSelection();
+    });
   }
 
   @override
@@ -415,7 +465,10 @@ class _SectionHubScreenState extends State<_SectionHubScreen> {
                       ),
                       child: Button(
                         style: i == selectedIdx ? selectedStyle : compactStyle,
-                        onPressed: () => setState(() => _selected = i),
+                        onPressed: () => setState(() {
+                          _selected = i;
+                          _notifyLeafSelection();
+                        }),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [

@@ -258,6 +258,75 @@ def get_analytics_dashboard(id_revision: str, exclude_ids: Optional[str] = None)
         except Exception:
             total_registros_maestro_piezas = 0
 
+        # 8. KPIs de stock vs demanda (por revisión o global según scope actual)
+        cursor.execute(f"""
+            WITH DemandByCode AS (
+                SELECT
+                    E.Codigo_Pieza AS Codigo_Pieza,
+                    ISNULL(SUM(ISNULL(E.Cantidad, 0)), 0) AS Demanda,
+                    MAX(ISNULL(M.Stock_PT_Almacen, 0)) AS Stock,
+                    MAX(M.Stock_PT_Almacen_SyncAt) AS SyncAt
+                FROM Tbl_BOM_Estructura E
+                JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
+                JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
+                LEFT JOIN Tbl_Maestro_Piezas M
+                    ON LTRIM(RTRIM(E.Codigo_Pieza)) = LTRIM(RTRIM(M.Codigo_Pieza))
+                {where_clause}
+                GROUP BY E.Codigo_Pieza
+            )
+            SELECT
+                ISNULL(SUM(Demanda), 0) AS demanda_total_unidades,
+                ISNULL(SUM(Stock), 0) AS stock_total_unidades,
+                ISNULL(SUM(CASE WHEN Demanda > Stock THEN Demanda - Stock ELSE 0 END), 0) AS faltante_total_unidades,
+                ISNULL(SUM(CASE WHEN Demanda > Stock THEN 1 ELSE 0 END), 0) AS skus_con_faltante,
+                MAX(SyncAt) AS ultima_sync_stock_pt
+            FROM DemandByCode
+        """)
+        row_stock = cursor.fetchone()
+        demanda_total_unidades = float(getattr(row_stock, "demanda_total_unidades", 0) or 0)
+        stock_total_unidades = float(getattr(row_stock, "stock_total_unidades", 0) or 0)
+        faltante_total_unidades = float(getattr(row_stock, "faltante_total_unidades", 0) or 0)
+        skus_con_faltante = int(getattr(row_stock, "skus_con_faltante", 0) or 0)
+        ultima_sync_stock_pt = getattr(row_stock, "ultima_sync_stock_pt", None)
+        cobertura = 0.0
+        if demanda_total_unidades > 0:
+            cobertura = min(100.0, (stock_total_unidades / demanda_total_unidades) * 100.0)
+
+        # 9. Top brecha de stock por código
+        cursor.execute(f"""
+            WITH DemandByCode AS (
+                SELECT
+                    E.Codigo_Pieza AS Codigo_Pieza,
+                    ISNULL(SUM(ISNULL(E.Cantidad, 0)), 0) AS Demanda,
+                    MAX(ISNULL(M.Stock_PT_Almacen, 0)) AS Stock
+                FROM Tbl_BOM_Estructura E
+                JOIN Tbl_Ensambles EN ON E.ID_Ensamble = EN.ID_Ensamble
+                JOIN Tbl_Estaciones ES ON EN.ID_Estacion = ES.ID_Estacion
+                LEFT JOIN Tbl_Maestro_Piezas M
+                    ON LTRIM(RTRIM(E.Codigo_Pieza)) = LTRIM(RTRIM(M.Codigo_Pieza))
+                {where_clause}
+                GROUP BY E.Codigo_Pieza
+            )
+            SELECT TOP 10
+                Codigo_Pieza,
+                Demanda AS Demanda_Unidades,
+                Stock AS Stock_Unidades,
+                CASE WHEN Demanda > Stock THEN Demanda - Stock ELSE 0 END AS Faltante_Unidades
+            FROM DemandByCode
+            ORDER BY
+                CASE WHEN Demanda > Stock THEN Demanda - Stock ELSE 0 END DESC,
+                Demanda DESC
+        """)
+        top_brecha_stock = [
+            {
+                "Codigo_Pieza": r.Codigo_Pieza,
+                "Demanda_Unidades": float(r.Demanda_Unidades or 0),
+                "Stock_Unidades": float(r.Stock_Unidades or 0),
+                "Faltante_Unidades": float(r.Faltante_Unidades or 0),
+            }
+            for r in cursor.fetchall()
+        ]
+
         return {
             "top_piezas":            top_piezas,
             "distribucion_material": distribucion,
@@ -268,6 +337,17 @@ def get_analytics_dashboard(id_revision: str, exclude_ids: Optional[str] = None)
             "total_unidades":        total_unidades,
             "total_lineas_bom_estructura": total_lineas_bom_estructura,
             "total_registros_maestro_piezas": total_registros_maestro_piezas,
+            "stock_kpis": {
+                "demanda_total_unidades": demanda_total_unidades,
+                "stock_total_unidades": stock_total_unidades,
+                "faltante_total_unidades": faltante_total_unidades,
+                "skus_con_faltante": skus_con_faltante,
+                "porcentaje_cobertura": cobertura,
+                "ultima_sync_stock_pt": (
+                    ultima_sync_stock_pt.isoformat() if ultima_sync_stock_pt else None
+                ),
+            },
+            "top_brecha_stock": top_brecha_stock,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

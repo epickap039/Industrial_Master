@@ -4,6 +4,7 @@ from . import auth
 from . import ayudas_visuales
 from . import bom
 from . import cad
+from . import chat
 from . import catalog
 from . import config_api
 from . import engineering
@@ -24,6 +25,7 @@ __all__ = [
     'ayudas_visuales',
     'bom',
     'cad',
+    'chat',
     'catalog',
     'config_api',
     'engineering',

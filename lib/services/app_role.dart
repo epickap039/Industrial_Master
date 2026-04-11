@@ -22,13 +22,17 @@ AppRole parseAppRole(String? raw) {
       .replaceAll('Í', 'I')
       .replaceAll('Ó', 'O')
       .replaceAll('Ú', 'U');
+  final normalized = s.replaceAll(RegExp(r'[^A-Z0-9]+'), ' ').trim();
   switch (s) {
     case 'ADMIN':
     case 'ADMINISTRADOR':
       return AppRole.administrador;
     case 'DESARROLLADOR':
+    case 'DESAROLLADOR':
     case 'DESARROLLO':
     case 'DEVELOPER':
+    case 'DEV':
+    case 'PROGRAMADOR':
       return AppRole.desarrollador;
     case 'CALIDAD':
       return AppRole.calidad;
@@ -57,6 +61,23 @@ AppRole parseAppRole(String? raw) {
     case 'READONLY':
       return AppRole.userLegacy;
     default:
+      // Fallback tolerante: algunos entornos guardan rol con sufijos/prefijos
+      // (ej. "INGENIERIA IMV327", "ROL: DESARROLLADOR").
+      if (normalized.contains('INGENIERIA') || normalized.contains('METODOS')) {
+        return AppRole.ingenieriaMetodos;
+      }
+      if (normalized.contains('DESARROLLADOR') ||
+          normalized.contains('DESAROLLADOR') ||
+          normalized.contains('DESAR') ||
+          normalized.contains('DESARROLLO') ||
+          normalized.contains('DEVELOPER') ||
+          normalized.contains('DEV') ||
+          normalized.contains('PROGRAMADOR')) {
+        return AppRole.desarrollador;
+      }
+      if (normalized.contains('ADMIN')) return AppRole.administrador;
+      if (normalized.contains('CALIDAD')) return AppRole.calidad;
+      if (normalized.contains('PRODUCCION')) return AppRole.produccion;
       return AppRole.otro;
   }
 }
@@ -150,6 +171,9 @@ extension AppRoleAccess on AppRole {
         _ => _fullEngineering || this == AppRole.userLegacy || this == AppRole.otro,
       };
 
+  /// Chat interno habilitado para Ingeniería, Ingeniería Métodos y Desarrollo.
+  bool get showsNavChatInterno => _fullEngineering;
+
   bool get showsNavAnalytics => switch (this) {
         AppRole.qaLegacy => false,
         AppRole.direccion => true,
@@ -224,6 +248,12 @@ extension AppRoleAccess on AppRole {
   bool get catalogCanSelectColumns =>
       this != AppRole.produccion && this != AppRole.calidad;
 
+  /// Stock físico PT (hoja inventario) y utilidades de sync: roles de ingeniería completos.
+  bool get catalogShowsStockPtAlmacen => _fullEngineering;
+
+  /// Visibilidad de controles de stock en catálogo (todos lo ven; no todos lo ejecutan).
+  bool get catalogCanSeeStockPtActions => true;
+
   bool get catalogHideModificadoPor => this == AppRole.calidad;
 
   bool get catalogHideRutaArchivo => this == AppRole.calidad || this == AppRole.produccion;
@@ -239,11 +269,17 @@ extension AppRoleAccess on AppRole {
         _ => false,
       };
 
+  bool get ayudasCanEditCategoryImage =>
+      this == AppRole.desarrollador ||
+      this == AppRole.ingenieriaMetodos ||
+      this == AppRole.administrador;
+
   bool get ayudasShowRevisionHistory => this != AppRole.produccion;
 
   bool get monitoreoCanControlMisiones => _fullEngineering;
 
-  bool get isAdminRail => this == AppRole.administrador;
+  bool get isAdminRail =>
+      this == AppRole.administrador || this == AppRole.desarrollador;
 
   /// Pie del menú: entrada «Configuración» (ajustes del sistema). Sin Calidad ni Producción.
   bool get showsFooterConfiguracion =>
@@ -251,5 +287,9 @@ extension AppRoleAccess on AppRole {
 }
 
 extension AppRoleAdmin on AppRole {
-  bool get isAdmin => this == AppRole.administrador;
+  bool get isAdmin =>
+      this == AppRole.administrador || this == AppRole.desarrollador;
+
+  /// Limpiezas destructivas (BD): historial QA, etc.
+  bool get qaCanPurgeDb => this == AppRole.desarrollador;
 }

@@ -1,0 +1,25 @@
+---
+description: Hoja Google Inventario PT — IDs canónicos; lectura única; nunca alterar datos en la hoja al consultar
+alwaysApply: true
+---
+
+# Inventario PT (Google Sheets): regla estricta
+
+## Fuente canónica (no sustituir)
+
+- **Enlace de edición (referencia humana):**  
+  `https://docs.google.com/spreadsheets/d/1Y2e-JgPqasjqlKu_wTW5vFYHbyWO0ctTQk6QfwioBGc/edit?gid=1451349253#gid=1451349253`
+- **Spreadsheet ID:** `1Y2e-JgPqasjqlKu_wTW5vFYHbyWO0ctTQk6QfwioBGc`
+- **GID pestaña:** `1451349253`
+
+## Obligaciones para el agente / desarrollo
+
+1. **No eliminar ni modificar** en el código los valores por defecto anteriores (ID, GID, ni URL de export CSV derivada) salvo que el **dueño del proyecto** lo pida **por escrito de forma explícita** en el chat. No “mejorar” cambiando de hoja, no unificar con otra fuente, no quitar el fallback por variables de entorno vacías.
+2. **Solo lectura hacia Google (incluida cualquier “consulta” o sync):** al leer datos de esa hoja (sincronizar stock, listar huérfanos, scripts, pruebas), el código **no debe en ningún caso modificar, borrar, vaciar, sobrescribir, añadir filas ni editar celdas** dentro del documento de Google. Efectos permitidos: **únicamente peticiones de lectura** (p. ej. `GET` al `export?format=csv` o equivalente de solo lectura). Cualquier actualización de negocio sigue siendo **solo en base de datos local** (`Tbl_Maestro_Piezas`, etc.), nunca reflejar cambios de vuelta en la hoja salvo orden explícita del dueño.
+3. **Prohibido** integrar APIs de Google Sheets con permisos de escritura (`values.update`, `batchUpdate`, borrado de hojas, etc.) contra este spreadsheet salvo instrucción explícita del dueño.
+4. Si hace falta otra hoja para pruebas, usar **solo** variables de entorno (`GOOGLE_SHEET_INVENTARIO_PT_ID`, `GOOGLE_SHEET_INVENTARIO_PT_GID`) en entornos locales/staging, **sin** cambiar los defaults del repo que apuntan a la hoja canónica.
+
+## Archivos donde suele aparecer (revisar al tocar sync inventario)
+
+- `backend/routers/catalog.py`
+- `scripts/google_sheet_inventario_codigo_stock.py`

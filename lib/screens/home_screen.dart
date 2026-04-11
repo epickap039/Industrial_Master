@@ -159,7 +159,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           widget.onNavigate(15), // MRP (índice panel principal)
                 ),
                 _buildQuickCard(
-                  title: 'Dashboard Analytics',
+                  title: 'Estadísticas',
                   description: 'Métricas e inteligencia de negocio.',
                   icon: FluentIcons.pie_single,
                   color: Colors.orange,

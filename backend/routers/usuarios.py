@@ -661,7 +661,7 @@ def obtener_usuarios_lista():
             id,
             username,
             rol,
-            COALESCE(color_hex, '#FF8C00') as color_hex
+            COALESCE(color_hex, '#7F7F7F') as color_hex
         FROM dbo.Tbl_Usuarios
         ORDER BY username ASC
         """
@@ -677,7 +677,7 @@ def obtener_usuarios_lista():
                 "id": m.get("id"),
                 "username": m.get("username"),
                 "rol": m.get("rol"),
-                "color_hex": m.get("color_hex", "#FF8C00")
+                "color_hex": m.get("color_hex", "#7F7F7F")
             })
 
         cur.close()
@@ -760,21 +760,23 @@ def actualizar_color_usuario(
             )
 
         # Evitar colores repetidos entre usuarios distintos.
-        cur.execute(
-            """
-            SELECT TOP 1 username
-            FROM dbo.Tbl_Usuarios
-            WHERE UPPER(ISNULL(color_hex, '')) = UPPER(?)
-              AND username <> ?
-            """,
-            (payload.color_hex, target),
-        )
-        dup = cur.fetchone()
-        if dup:
-            raise HTTPException(
-                status_code=409,
-                detail=f"El color {payload.color_hex} ya está asignado a '{dup[0]}'.",
+        # Excepción: gris temporal (#7F7F7F) puede repetirse.
+        if payload.color_hex.strip().upper() != "#7F7F7F":
+            cur.execute(
+                """
+                SELECT TOP 1 username
+                FROM dbo.Tbl_Usuarios
+                WHERE UPPER(ISNULL(color_hex, '')) = UPPER(?)
+                  AND username <> ?
+                """,
+                (payload.color_hex, target),
             )
+            dup = cur.fetchone()
+            if dup:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"El color {payload.color_hex} ya está asignado a '{dup[0]}'.",
+                )
 
         # Actualizar color
         update_query = """
@@ -812,7 +814,7 @@ def colores_ocupados():
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT username, COALESCE(color_hex, '#FF8C00') as color_hex
+            SELECT username, COALESCE(color_hex, '#7F7F7F') as color_hex
             FROM dbo.Tbl_Usuarios
             ORDER BY username ASC
             """
@@ -823,7 +825,7 @@ def colores_ocupados():
             out.append(
                 {
                     "username": str(r[0] or "").strip(),
-                    "color_hex": str(r[1] or "#FF8C00").strip().upper(),
+                    "color_hex": str(r[1] or "#7F7F7F").strip().upper(),
                 }
             )
         cur.close()
@@ -864,7 +866,7 @@ def obtener_color_usuario(username: str):
         query = """
         SELECT
             username,
-            COALESCE(color_hex, '#FF8C00') as color_hex
+            COALESCE(color_hex, '#7F7F7F') as color_hex
         FROM dbo.Tbl_Usuarios
         WHERE username = ?
         """
@@ -885,7 +887,7 @@ def obtener_color_usuario(username: str):
 
         return UsuarioColorResponse(
             usuario_login=m.get("username"),
-            color_hex=m.get("color_hex", "#FF8C00")
+            color_hex=m.get("color_hex", "#7F7F7F")
         )
 
     except HTTPException:

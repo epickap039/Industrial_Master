@@ -28,6 +28,129 @@ import state
 
 router = APIRouter()
 
+
+def _ensure_manual_table(cursor: Any) -> None:
+    cursor.execute(
+        """
+        IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'Tbl_App_Manual')
+        BEGIN
+            CREATE TABLE dbo.Tbl_App_Manual (
+                ID_Manual INT IDENTITY(1,1) PRIMARY KEY,
+                Modulo NVARCHAR(80) NOT NULL UNIQUE,
+                Titulo NVARCHAR(200) NOT NULL,
+                Contenido NVARCHAR(MAX) NOT NULL,
+                Actualizado_Por NVARCHAR(120) NULL,
+                Actualizado_En DATETIME2(0) NOT NULL CONSTRAINT DF_Tbl_App_Manual_ActualizadoEn DEFAULT (SYSUTCDATETIME())
+            );
+        END
+        """
+    )
+
+
+def _can_edit_manual(cursor: Any, usuario: str) -> bool:
+    u = (usuario or "").strip()
+    if not u:
+        return False
+    cursor.execute(
+        """
+        SELECT TOP 1 Rol
+        FROM Tbl_Usuarios
+        WHERE Username = ? OR Nombre = ?
+        """,
+        (u, u),
+    )
+    row = cursor.fetchone()
+    if not row:
+        return False
+    rol = str(row[0] or "").strip().upper()
+    return rol in {"ADMIN", "ADMINISTRADOR", "DESARROLLADOR", "INGENIERIA_METODOS", "INGENIERIA"}
+
+
+class ManualEntryPayload(BaseModel):
+    titulo: str
+    contenido: str
+
+
+@router.get("/api/config/manual")
+def get_manual_entries():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        _ensure_manual_table(cursor)
+        conn.commit()
+        cursor.execute(
+            """
+            SELECT Modulo, Titulo, Contenido, Actualizado_Por, Actualizado_En
+            FROM Tbl_App_Manual
+            ORDER BY Modulo
+            """
+        )
+        rows = cursor.fetchall()
+        return [
+            {
+                "modulo": str(r.Modulo),
+                "titulo": str(r.Titulo),
+                "contenido": str(r.Contenido),
+                "actualizado_por": r.Actualizado_Por,
+                "actualizado_en": r.Actualizado_En.isoformat() if r.Actualizado_En else None,
+            }
+            for r in rows
+        ]
+    finally:
+        conn.close()
+
+
+@router.put("/api/config/manual/{modulo}")
+def upsert_manual_entry(
+    modulo: str,
+    payload: ManualEntryPayload,
+    x_usuario: Optional[str] = Header(None, alias="X-Usuario"),
+):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        _ensure_manual_table(cursor)
+        usuario = (x_usuario or "").strip()
+        if not _can_edit_manual(cursor, usuario):
+            raise HTTPException(status_code=403, detail="Solo admin/desarrollador/ingeniería pueden editar el manual")
+
+        mod = modulo.strip().lower()
+        if not mod:
+            raise HTTPException(status_code=400, detail="Módulo inválido")
+        titulo = payload.titulo.strip()
+        contenido = payload.contenido.strip()
+        if not titulo or not contenido:
+            raise HTTPException(status_code=400, detail="Título y contenido son obligatorios")
+
+        cursor.execute("SELECT 1 FROM Tbl_App_Manual WHERE Modulo = ?", (mod,))
+        if cursor.fetchone():
+            cursor.execute(
+                """
+                UPDATE Tbl_App_Manual
+                SET Titulo = ?, Contenido = ?, Actualizado_Por = ?, Actualizado_En = SYSUTCDATETIME()
+                WHERE Modulo = ?
+                """,
+                (titulo, contenido, usuario or None, mod),
+            )
+        else:
+            cursor.execute(
+                """
+                INSERT INTO Tbl_App_Manual (Modulo, Titulo, Contenido, Actualizado_Por)
+                VALUES (?, ?, ?, ?)
+                """,
+                (mod, titulo, contenido, usuario or None),
+            )
+        conn.commit()
+        return {"ok": True, "modulo": mod}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
 @router.get("/api/config/materiales")
 def get_materiales():
     conn = get_db_connection()

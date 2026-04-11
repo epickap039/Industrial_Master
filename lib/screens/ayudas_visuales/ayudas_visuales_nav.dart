@@ -8,10 +8,12 @@ class AyudasVisualesNav extends StatelessWidget {
   const AyudasVisualesNav({
     super.key,
     required this.canUpload,
+    this.canEditCategoryImage = false,
     this.allowRevisionHistory = true,
   });
 
   final bool canUpload;
+  final bool canEditCategoryImage;
   final bool allowRevisionHistory;
 
   @override
@@ -22,6 +24,7 @@ class AyudasVisualesNav extends StatelessWidget {
           settings: settings,
           builder: (_) => AyudasMenuScreen(
             canUpload: canUpload,
+            canEditCategoryImage: canEditCategoryImage,
             allowRevisionHistory: allowRevisionHistory,
           ),
         );

@@ -21,22 +21,12 @@ EdgeInsets pagePadding() => const EdgeInsets.fromLTRB(
 /// Fondo del rail + [NavigationAppBar]. En modo oscuro, más oscuro que el
 /// scaffold para un aspecto tipo “modo noche” clásico.
 Color shellNavChromeBackground(FluentThemeData theme) {
-  final base = theme.micaBackgroundColor;
   if (theme.brightness == Brightness.dark) {
-    // Shell oscuro real: negro/azul marino profundo.
-    final nearBlack = Color.alphaBlend(
-      const Color(0xFF02060F).withValues(alpha: 0.72),
-      base,
-    );
-    return Color.alphaBlend(
-      const Color(0xFF0A1730).withValues(alpha: 0.28),
-      nearBlack,
-    );
+    // En oscuro: gris profundo para barra lateral + superior.
+    return const Color(0xFF111827);
   }
-  return Color.alphaBlend(
-    const Color(0xFF000000).withValues(alpha: 0.1),
-    base,
-  );
+  // En claro, mantener chrome oscuro para evitar apariencia lavada.
+  return const Color(0xFF031226);
 }
 
 /// Token palette shared across operational screens.
@@ -104,15 +94,37 @@ UiSurfacePalette uiSurfacePaletteOf(BuildContext context) {
     );
   }
 
+  final accent = theme.accentColor;
+  final baseSurface = Color.alphaBlend(
+    accent.withValues(alpha: 0.05),
+    theme.scaffoldBackgroundColor,
+  );
+  final cardSurface = Color.alphaBlend(
+    theme.micaBackgroundColor.withValues(alpha: 0.18),
+    theme.cardColor,
+  );
+  final elevatedSurface = Color.alphaBlend(
+    Colors.white.withValues(alpha: 0.72),
+    theme.cardColor,
+  );
+  final stripe = Color.alphaBlend(
+    accent.withValues(alpha: 0.08),
+    cardSurface,
+  );
+  final border = Color.alphaBlend(
+    accent.withValues(alpha: 0.22),
+    theme.resources.controlStrokeColorDefault,
+  );
+
   return UiSurfacePalette(
-    surfaceBase: const Color(0xFFF2F5FA),
-    surfaceCard: const Color(0xFFF8FAFD),
-    surfaceElevated: const Color(0xFFFFFFFF),
-    borderSubtle: const Color(0xFFD3DCE8),
+    surfaceBase: baseSurface,
+    surfaceCard: cardSurface,
+    surfaceElevated: elevatedSurface,
+    borderSubtle: border,
     textPrimary: body,
     textSecondary: caption,
-    tableStripe: const Color(0xFFF0F4F9),
-    actionInfo: const Color(0xFF2563EB),
+    tableStripe: stripe,
+    actionInfo: accent,
     actionEdit: const Color(0xFFB45309),
     actionLink: const Color(0xFF0F766E),
     actionCopy: const Color(0xFF6B21A8),

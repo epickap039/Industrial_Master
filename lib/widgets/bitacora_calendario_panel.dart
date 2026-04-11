@@ -7,22 +7,56 @@ import 'package:table_calendar/table_calendar.dart';
 
 import '../screens/monitoreo/widgets/task_display_utils.dart';
 
+List<String> _usuariosAsignadosBitacora(Map<String, dynamic> t) {
+  final raw = t['usuarios_asignados'];
+  final out = <String>[];
+  final seen = <String>{};
+  if (raw is List) {
+    for (final item in raw) {
+      final u = '${item ?? ''}'.trim();
+      if (u.isEmpty) continue;
+      final k = u.toLowerCase();
+      if (seen.contains(k)) continue;
+      seen.add(k);
+      out.add(u);
+    }
+  }
+  if (out.isEmpty) {
+    final u = asignadoMision(t).trim();
+    if (u.isNotEmpty && u != 'Sin asignar') out.add(u);
+  }
+  return out;
+}
+
+Color _colorUsuarioBitacora(String user) {
+  const palette = <Color>[
+    Color(0xFF1565C0),
+    Color(0xFF0D47A1),
+    Color(0xFF6A1B9A),
+    Color(0xFF4527A0),
+    Color(0xFFAD1457),
+    Color(0xFFC2185B),
+    Color(0xFFE65100),
+    Color(0xFF8E24AA),
+    Color(0xFF0277BD),
+  ];
+  var hash = 0;
+  for (final c in user.codeUnits) {
+    hash = (hash * 31 + c) & 0xFFFFFFFF;
+  }
+  return palette[hash.abs() % palette.length];
+}
+
 /// Color de indicador / tarjeta por misión (calendario y panel del día).
 Color colorBarraBitacoraParaTarea(Map<String, dynamic> t) {
-  if (esCancelada(t)) return const Color(0xFFE65100);
-  final id = t['id_tarea'];
-  final h = id is int ? id : int.tryParse('$id') ?? 0;
-  const palette = <Color>[
-    Color(0xFF0D47A1),
-    Color(0xFF1B5E20),
-    Color(0xFF4A148C),
-    Color(0xFF006064),
-    Color(0xFFB71C1C),
-    Color(0xFF4E342E),
-    Color(0xFF01579B),
-    Color(0xFF33691E),
-  ];
-  return palette[h.abs() % palette.length];
+  final users = _usuariosAsignadosBitacora(t);
+  if (users.length > 1) {
+    // Multiusuario: neutral para no privilegiar un color concreto.
+    return const Color(0xFF394B63);
+  }
+  if (users.length == 1) return _colorUsuarioBitacora(users.first);
+  if (esCancelada(t)) return const Color(0xFF6D4C41);
+  return const Color(0xFF455A64);
 }
 
 /// Bitacora Pro: calendario de misiones finalizadas/canceladas + panel del dia.
@@ -32,10 +66,16 @@ class BitacoraCalendarioPanel extends StatefulWidget {
     super.key,
     required this.tareasHistorial,
     required this.onTapTarea,
+    this.tareasActivasParaProyeccion = const [],
+    this.onReactivarTarea,
+    this.onEliminarTarea,
   });
 
   final List<Map<String, dynamic>> tareasHistorial;
+  final List<Map<String, dynamic>> tareasActivasParaProyeccion;
   final void Function(Map<String, dynamic> tarea) onTapTarea;
+  final Future<void> Function(Map<String, dynamic> tarea)? onReactivarTarea;
+  final Future<void> Function(Map<String, dynamic> tarea)? onEliminarTarea;
 
   @override
   State<BitacoraCalendarioPanel> createState() =>
@@ -170,6 +210,7 @@ class _BitacoraCalendarioPanelState extends State<BitacoraCalendarioPanel> {
           Expanded(
             child: _BitacoraEstadisticasPanelStateful(
               tareas: widget.tareasHistorial,
+              tareasActivas: widget.tareasActivasParaProyeccion,
             ),
           )
         else
@@ -205,7 +246,7 @@ class _BitacoraCalendarioPanelState extends State<BitacoraCalendarioPanel> {
                         CalendarFormat.week: 'Semana',
                       },
                       rowHeight:
-                          _calendarFormat == CalendarFormat.week ? 76 : 92,
+                          _calendarFormat == CalendarFormat.week ? 72 : 82,
                       daysOfWeekHeight: 26,
                       shouldFillViewport:
                           _calendarFormat == CalendarFormat.month,
@@ -237,7 +278,7 @@ class _BitacoraCalendarioPanelState extends State<BitacoraCalendarioPanel> {
                         outsideDaysVisible: true,
                         markersMaxCount: 8,
                         markersAlignment: Alignment.bottomCenter,
-                        markersOffset: const PositionedOffset(bottom: 4),
+                        markersOffset: const PositionedOffset(bottom: 18),
                         markerMargin: EdgeInsets.zero,
                         cellMargin: const EdgeInsets.symmetric(
                           horizontal: 2,
@@ -347,6 +388,8 @@ class _BitacoraCalendarioPanelState extends State<BitacoraCalendarioPanel> {
                   tareas: delDia,
                   onTapTarea: widget.onTapTarea,
                   fecha: _selectedDay,
+                  onReactivarTarea: widget.onReactivarTarea,
+                  onEliminarTarea: widget.onEliminarTarea,
                 );
 
                 if (narrow) {
@@ -401,14 +444,14 @@ Widget _marcadoresCeldaBitacora(BuildContext context, List<dynamic> events) {
   if (list.isEmpty) return const SizedBox.shrink();
 
   final oscuro = FluentTheme.of(context).brightness == Brightness.dark;
-  const maxTags = 3;
+  const maxTags = 6;
   final n = list.length;
 
   return Positioned(
     left: 1,
     right: 1,
-    bottom: 2,
-    height: 28,
+    bottom: 18,
+    height: 30,
     child: Center(
       child: Wrap(
         spacing: 2,
@@ -667,10 +710,30 @@ String _fmtHoras(double h) {
   return '${h.toStringAsFixed(1)} h';
 }
 
+List<MapEntry<String, int>> _cargaActivaPorUsuario(
+  List<Map<String, dynamic>> tasks,
+) {
+  final byUser = <String, int>{};
+  for (final t in tasks) {
+    final u = asignadoMision(t);
+    if (u.trim().isEmpty || u == 'Sin asignar') continue;
+    final rem = minutosRestantesEstimados(t);
+    if (rem == null || rem <= 0) continue;
+    byUser[u] = (byUser[u] ?? 0) + rem;
+  }
+  final out = byUser.entries.toList()
+    ..sort((a, b) => b.value.compareTo(a.value));
+  return out;
+}
+
 class _BitacoraEstadisticasPanelStateful extends StatefulWidget {
-  const _BitacoraEstadisticasPanelStateful({required this.tareas});
+  const _BitacoraEstadisticasPanelStateful({
+    required this.tareas,
+    this.tareasActivas = const [],
+  });
 
   final List<Map<String, dynamic>> tareas;
+  final List<Map<String, dynamic>> tareasActivas;
 
   @override
   State<_BitacoraEstadisticasPanelStateful> createState() =>
@@ -693,6 +756,7 @@ class _BitacoraEstadisticasPanelStatefulState
     final theme = FluentTheme.of(context);
     final oscuro = theme.brightness == Brightness.dark;
     final agg = _calcularAgg(tareas);
+    final cargaActiva = _cargaActivaPorUsuario(widget.tareasActivas);
 
     if (agg.total == 0) {
       return Center(
@@ -782,6 +846,46 @@ class _BitacoraEstadisticasPanelStatefulState
                   ),
                 ],
               ),
+              if (cargaActiva.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Card(
+                  child: ColoredBox(
+                    color: _statsSurface(oscuro),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Estimado de fin por responsable (activas)',
+                            style: theme.typography.bodyStrong?.copyWith(
+                              fontSize: 14.5,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          for (final e in cargaActiva.take(8)) ...[
+                            Text(
+                              (() {
+                                final fin = estimadoFinLaboralDesdeAhoraEtiqueta(e.value);
+                                if (fin == null) return '${e.key} - sin estimación';
+                                return '${e.key} - finaliza sus actividades el $fin';
+                              })(),
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w600,
+                                color: oscuro ? const Color(0xFFECEFF1) : const Color(0xFF263238),
+                                height: 1.35,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 16),
               Card(
                 child: ColoredBox(
@@ -1304,11 +1408,15 @@ class _DiaDetallePanel extends StatelessWidget {
     required this.tareas,
     required this.onTapTarea,
     required this.fecha,
+    this.onReactivarTarea,
+    this.onEliminarTarea,
   });
 
   final List<Map<String, dynamic>> tareas;
   final void Function(Map<String, dynamic> tarea) onTapTarea;
   final DateTime? fecha;
+  final Future<void> Function(Map<String, dynamic> tarea)? onReactivarTarea;
+  final Future<void> Function(Map<String, dynamic> tarea)? onEliminarTarea;
 
   @override
   Widget build(BuildContext context) {
@@ -1585,6 +1693,30 @@ class _DiaDetallePanel extends StatelessWidget {
                                             color: colorCuerpo,
                                           ),
                                         ),
+                                      ),
+                                    ],
+                                    if (onReactivarTarea != null || onEliminarTarea != null) ...[
+                                      const SizedBox(height: 10),
+                                      Wrap(
+                                        spacing: 8,
+                                        runSpacing: 8,
+                                        children: [
+                                          if (onReactivarTarea != null)
+                                            Button(
+                                              onPressed: () => onReactivarTarea!(t),
+                                              child: const Text('Reactivar'),
+                                            ),
+                                          if (onEliminarTarea != null)
+                                            FilledButton(
+                                              style: ButtonStyle(
+                                                backgroundColor: WidgetStateProperty.all(
+                                                  const Color(0xFFB71C1C),
+                                                ),
+                                              ),
+                                              onPressed: () => onEliminarTarea!(t),
+                                              child: const Text('Eliminar'),
+                                            ),
+                                        ],
                                       ),
                                     ],
                                   ],

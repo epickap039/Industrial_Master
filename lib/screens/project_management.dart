@@ -573,13 +573,30 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
                                   ),
                                 ),
                                 onPressed: () => onSelect(item),
-                                trailing: IconButton(
-                                  icon: Icon(
-                                    FluentIcons.delete,
-                                    color: Colors.red.withValues(alpha: 0.6),
-                                    size: 12,
-                                  ),
-                                  onPressed: () => onDelete(item['id']),
+                                trailing: Builder(
+                                  builder: (context) {
+                                    final dark =
+                                        FluentTheme.of(context).brightness ==
+                                        Brightness.dark;
+                                    return Container(
+                                      decoration: BoxDecoration(
+                                        color: dark
+                                            ? const Color(0xFFB71C1C)
+                                            : const Color(0xFFFFEBEE),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: IconButton(
+                                        icon: Icon(
+                                          FluentIcons.delete,
+                                          color: dark
+                                              ? Colors.white
+                                              : const Color(0xFFB71C1C),
+                                          size: 13,
+                                        ),
+                                        onPressed: () => onDelete(item['id']),
+                                      ),
+                                    );
+                                  },
                                 ),
                               ),
                             );

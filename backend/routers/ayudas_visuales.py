@@ -40,6 +40,10 @@ class CategoriaCreatePayload(BaseModel):
     icono: str = ""
     icono_png_base64: Optional[str] = None
 
+class CategoriaUpdatePayload(BaseModel):
+    icono: Optional[str] = None
+    icono_png_base64: Optional[str] = None
+
 class EditarSubcategoriaPayload(BaseModel):
     id_categoria: int
     nombre_antiguo: Optional[str] = None
@@ -76,8 +80,60 @@ def _has_column(cur: Any, table_name: str, column_name: str) -> bool:
     )
     return cur.fetchone() is not None
 
+def _ensure_categoria_png_column(cur: Any) -> None:
+    cur.execute(
+        """
+        IF COL_LENGTH('dbo.Tbl_Ayudas_Categorias', 'Icono_Png_Base64') IS NULL
+        BEGIN
+            ALTER TABLE dbo.Tbl_Ayudas_Categorias
+            ADD Icono_Png_Base64 NVARCHAR(MAX) NULL;
+        END
+        """
+    )
+
 def _normalize_consecutivo(raw: str) -> str:
     return re.sub(r"\s+", "", (raw or "").strip()).upper()
+
+def _normalize_role(raw: str) -> str:
+    s = (raw or "").strip().upper()
+    s = (
+        s.replace("Á", "A")
+        .replace("É", "E")
+        .replace("Í", "I")
+        .replace("Ó", "O")
+        .replace("Ú", "U")
+    )
+    return re.sub(r"[^A-Z0-9]+", " ", s).strip()
+
+def _assert_can_edit_categoria_imagen(cur: Any, username: str) -> None:
+    user = (username or "").strip()
+    if not user:
+        raise HTTPException(status_code=403, detail="Usuario no identificado")
+    cur.execute(
+        "SELECT TOP 1 rol FROM dbo.Tbl_Usuarios WHERE username = ?",
+        (user,),
+    )
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=403, detail="Usuario no encontrado para validar permisos")
+    rol = _normalize_role(str(row[0] or ""))
+    allow = (
+        "ADMIN" in rol
+        or "ADMINISTRADOR" in rol
+        or "ADMINISTRACION" in rol
+        or "DESARROLLADOR" in rol
+        or "DESAROLLADOR" in rol
+        or "DESARROLLO" in rol
+        or "DESAR" in rol
+        or "DEV" in rol
+        or "INGENIERIA" in rol
+        or "METODOS" in rol
+    )
+    if not allow:
+        raise HTTPException(
+            status_code=403,
+            detail="Solo Desarrollador e Ingenieria pueden editar la imagen de categoria",
+        )
 
 def _next_consecutivo_from_values(values: List[str]) -> str:
     max_n = 0
@@ -198,6 +254,7 @@ def crear_categoria(
     conn = get_db_connection()
     cur = conn.cursor()
     try:
+        _ensure_categoria_png_column(cur)
         has_png_col = _has_column(cur, "dbo.Tbl_Ayudas_Categorias", "Icono_Png_Base64")
         if has_png_col:
             cur.execute(
@@ -222,6 +279,82 @@ def crear_categoria(
         registrar_log_global(cur, "AYUDAS", "CREAR_CATEGORIA_AYUDAS", "", detalle, usr)
         conn.commit()
         return {"ok": True, "id_categoria": new_id}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+@router.put("/api/ayudas/categorias/{id_categoria}")
+def editar_categoria(
+    id_categoria: int,
+    payload: CategoriaUpdatePayload,
+    authorization: Optional[str] = Header(None),
+    x_usuario: Optional[str] = Header(None, alias="X-Usuario"),
+):
+    icono = (payload.icono or "").strip()
+    icono_png = (payload.icono_png_base64 or "").strip()
+
+    if payload.icono is None and payload.icono_png_base64 is None:
+        raise HTTPException(status_code=400, detail="Debe enviar al menos un campo a actualizar")
+
+    if icono_png:
+        try:
+            raw = base64.b64decode(icono_png, validate=True)
+        except Exception:
+            raise HTTPException(status_code=400, detail="icono_png_base64 inválido")
+        if len(raw) > 512 * 1024:
+            raise HTTPException(status_code=400, detail="Ícono PNG excede 512KB")
+
+    usr = resolve_actor_user(authorization, x_usuario)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        _ensure_categoria_png_column(cur)
+        _assert_can_edit_categoria_imagen(cur, usr)
+        cur.execute(
+            "SELECT Nombre_Categoria FROM Tbl_Ayudas_Categorias WHERE ID_Categoria = ?",
+            (id_categoria,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Categoría no encontrada")
+
+        has_png_col = _has_column(cur, "dbo.Tbl_Ayudas_Categorias", "Icono_Png_Base64")
+        if payload.icono_png_base64 is not None and icono_png and not has_png_col:
+            raise HTTPException(
+                status_code=400,
+                detail="La BD no soporta Icono_Png_Base64 en Tbl_Ayudas_Categorias",
+            )
+
+        updates: List[str] = []
+        params: List[Any] = []
+
+        if payload.icono is not None:
+            updates.append("Icono_Codigo = ?")
+            params.append(icono or None)
+        if payload.icono_png_base64 is not None and has_png_col:
+            updates.append("Icono_Png_Base64 = ?")
+            params.append(icono_png or None)
+
+        if not updates:
+            return {"ok": True, "id_categoria": id_categoria, "updated": False}
+
+        sql = f"UPDATE Tbl_Ayudas_Categorias SET {', '.join(updates)} WHERE ID_Categoria = ?"
+        params.append(id_categoria)
+        cur.execute(sql, tuple(params))
+
+        detalle = (
+            f"id={id_categoria};nombre={row[0]};"
+            f"icono={(icono if payload.icono is not None else '[sin-cambio]') or '-'};"
+            f"icono_png={'actualizado' if payload.icono_png_base64 is not None else 'sin-cambio'}"
+        )
+        registrar_log_global(cur, "AYUDAS", "EDITAR_CATEGORIA_AYUDAS", "", detalle, usr)
+        conn.commit()
+        return {"ok": True, "id_categoria": id_categoria, "updated": True}
+    except HTTPException:
+        conn.rollback()
+        raise
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))

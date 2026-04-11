@@ -1,5 +1,6 @@
 """API router: catalog."""
 import ast
+import csv
 import io
 import json
 import math
@@ -11,6 +12,8 @@ import subprocess
 import sys
 import traceback
 import uuid
+import urllib.error
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -87,6 +90,118 @@ def get_catalog_pieza_by_codigo(codigo: str):
     except HTTPException:
         raise
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.get("/api/catalog/procesos")
+def listar_procesos_catalogo():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """
+            SELECT DISTINCT p
+            FROM (
+                SELECT LTRIM(RTRIM(ISNULL(Proceso_Primario, ''))) AS p FROM Tbl_Maestro_Piezas
+                UNION ALL
+                SELECT LTRIM(RTRIM(ISNULL(Proceso_1, ''))) AS p FROM Tbl_Maestro_Piezas
+                UNION ALL
+                SELECT LTRIM(RTRIM(ISNULL(Proceso_2, ''))) AS p FROM Tbl_Maestro_Piezas
+                UNION ALL
+                SELECT LTRIM(RTRIM(ISNULL(Proceso_3, ''))) AS p FROM Tbl_Maestro_Piezas
+            ) q
+            WHERE p <> ''
+            ORDER BY p
+            """
+        )
+        return [str(r[0]).strip() for r in cursor.fetchall() if r and str(r[0]).strip()]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.post("/api/catalog/generador/crear")
+def crear_pieza_desde_generador(payload: CodigoGeneradorPayload):
+    codigo = (payload.codigo or "").strip().upper()
+    if not codigo:
+        raise HTTPException(status_code=400, detail="Código obligatorio")
+    procesos = [str(p or "").strip().upper() for p in (payload.procesos or []) if str(p or "").strip()]
+    if not procesos:
+        raise HTTPException(status_code=400, detail="Debe indicar al menos un proceso")
+
+    desc = (payload.descripcion or "").strip()
+    material = (payload.material or "").strip().upper()
+    usuario = (payload.usuario or "GeneradorCodigo").strip() or "GeneradorCodigo"
+    sim = "SI" if payload.simetria else "NO"
+    detalle_sim = (payload.detalle_simetria or "").strip()
+    ref_plano = (payload.referencia_plano or "").strip()
+
+    medidas = []
+    if payload.largo is not None:
+        medidas.append(f"L:{payload.largo:g}")
+    if payload.ancho is not None:
+        medidas.append(f"A:{payload.ancho:g}")
+    if payload.espesor is not None:
+        medidas.append(f"E:{payload.espesor:g}")
+    medida_txt = " | ".join(medidas)
+
+    extras = []
+    if detalle_sim:
+        extras.append(f"Simetría: {detalle_sim}")
+    if ref_plano:
+        extras.append(f"Plano: {ref_plano}")
+    if extras:
+        desc = f"{desc} {' | '.join(extras)}".strip()
+
+    p0 = procesos[0] if len(procesos) > 0 else ""
+    p1 = procesos[1] if len(procesos) > 1 else ""
+    p2 = procesos[2] if len(procesos) > 2 else ""
+    p3 = procesos[3] if len(procesos) > 3 else ""
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "SELECT TOP 1 Codigo_Pieza FROM Tbl_Maestro_Piezas WHERE Codigo_Pieza = ?",
+            (codigo,),
+        )
+        if cursor.fetchone():
+            raise HTTPException(status_code=409, detail="El código ya existe en catálogo maestro")
+
+        cursor.execute(
+            """
+            INSERT INTO Tbl_Maestro_Piezas
+            (
+                Codigo_Pieza, Codigo, Descripcion, Medida, Material, Simetria,
+                Proceso_Primario, Proceso_1, Proceso_2, Proceso_3,
+                Link_Drive, Ultima_Actualizacion, Modificado_Por
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', GETDATE(), ?)
+            """,
+            (
+                codigo,
+                codigo,
+                desc,
+                medida_txt,
+                material,
+                sim,
+                p0,
+                p1,
+                p2,
+                p3,
+                usuario,
+            ),
+        )
+        conn.commit()
+        return {"status": "ok", "codigo": codigo, "message": "Pieza creada en catálogo maestro"}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
@@ -248,6 +363,182 @@ async def update_material(request: Request, payload: Dict[str, Any]):
         conn.rollback()
         print(f"ERROR UPDATE: {e}")
         raise HTTPException(status_code=500, detail=f"SQL Error: {str(e)}")
+    finally:
+        conn.close()
+
+
+# --- Inventario PT (Google Sheet → columna Stock_PT_Almacen en Tbl_Maestro_Piezas) ---
+
+_COL_SKU_CSV = 2  # C
+_COL_STOCK_CSV = 8  # I
+
+
+def _sheet_inventario_pt_export_url() -> str:
+    sid = os.environ.get(
+        "GOOGLE_SHEET_INVENTARIO_PT_ID",
+        "1Y2e-JgPqasjqlKu_wTW5vFYHbyWO0ctTQk6QfwioBGc",
+    ).strip()
+    gid = os.environ.get("GOOGLE_SHEET_INVENTARIO_PT_GID", "1451349253").strip()
+    return f"https://docs.google.com/spreadsheets/d/{sid}/export?format=csv&gid={gid}"
+
+
+def _fetch_inventario_pt_csv(timeout: int = 90) -> str:
+    url = _sheet_inventario_pt_export_url()
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": "IndustrialManagerBackend/1.0 (stock-pt)"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"No se pudo descargar la hoja (HTTP {e.code}). Revise ID/GID y permisos del enlace.",
+        ) from e
+    except urllib.error.URLError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Error de red al leer Google Sheets: {e.reason!r}",
+        ) from e
+
+
+def _parse_inventario_pt_codigo_stock(csv_text: str) -> List[tuple[str, int]]:
+    reader = csv.reader(io.StringIO(csv_text))
+    rows = list(reader)
+    start = 0
+    for i, row in enumerate(rows):
+        if len(row) > _COL_SKU_CSV and row[_COL_SKU_CSV].strip().upper() == "SKU":
+            start = i + 1
+            break
+    out: List[tuple[str, int]] = []
+    for row in rows[start:]:
+        if len(row) <= max(_COL_SKU_CSV, _COL_STOCK_CSV):
+            continue
+        cod = row[_COL_SKU_CSV].strip()
+        if not cod or cod.upper() == "SKU":
+            continue
+        raw = row[_COL_STOCK_CSV].strip()
+        try:
+            stock = int(float(raw.replace(",", "")))
+        except (TypeError, ValueError):
+            continue
+        out.append((cod, stock))
+    return out
+
+
+def _ensure_maestro_stock_pt_columns(cursor) -> None:
+    for name, ddl in (
+        ("Stock_PT_Almacen", "INT NOT NULL CONSTRAINT DF_Tbl_Maestro_Piezas_Stock_PT_Almacen DEFAULT (0)"),
+        ("Stock_PT_Almacen_SyncAt", "DATETIME2(0) NULL"),
+    ):
+        try:
+            cursor.execute(f"SELECT [{name}] FROM dbo.Tbl_Maestro_Piezas WHERE 1=0")
+        except Exception:
+            cursor.execute(f"ALTER TABLE dbo.Tbl_Maestro_Piezas ADD [{name}] {ddl}")
+    # Backfill defensivo para instalaciones existentes con NULL.
+    cursor.execute(
+        """
+        UPDATE dbo.Tbl_Maestro_Piezas
+        SET Stock_PT_Almacen = 0
+        WHERE Stock_PT_Almacen IS NULL
+        """
+    )
+
+
+@router.post("/api/catalog/stock-pt/sync")
+def sync_stock_pt_desde_google_sheet():
+    """
+    Lee CSV público de la hoja Inventario, actualiza Stock_PT_Almacen y fecha de sync
+    solo donde Codigo_Pieza coincide exactamente.
+    """
+    csv_text = _fetch_inventario_pt_csv()
+    pairs = _parse_inventario_pt_codigo_stock(csv_text)
+    if not pairs:
+        raise HTTPException(
+            status_code=400,
+            detail="No se obtuvieron filas SKU/Stock del CSV. Revise formato de la hoja.",
+        )
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        _ensure_maestro_stock_pt_columns(cursor)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="No se pudieron asegurar columnas Stock_PT_* en Tbl_Maestro_Piezas",
+        )
+    try:
+        updated = 0
+        # Base para cálculos: todo catálogo inicia en 0 y luego se sobreescribe
+        # con lo que exista en la hoja.
+        cursor.execute(
+            """
+            UPDATE dbo.Tbl_Maestro_Piezas
+            SET Stock_PT_Almacen = 0, Stock_PT_Almacen_SyncAt = SYSUTCDATETIME()
+            """
+        )
+        for codigo, stock in pairs:
+            cursor.execute(
+                """
+                UPDATE dbo.Tbl_Maestro_Piezas
+                SET Stock_PT_Almacen = ?, Stock_PT_Almacen_SyncAt = SYSUTCDATETIME()
+                WHERE Codigo_Pieza = ?
+                """,
+                (stock, codigo),
+            )
+            try:
+                rc = cursor.rowcount
+            except Exception:
+                rc = 0
+            if rc and rc > 0:
+                updated += 1
+        conn.commit()
+        return {
+            "status": "ok",
+            "filas_hoja": len(pairs),
+            "registros_catalogo_actualizados": updated,
+        }
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.get("/api/catalog/stock-pt/orphans")
+def list_inventario_pt_sin_catalogo():
+    """
+    Códigos en la hoja (SKU con stock numérico) que no existen en Tbl_Maestro_Piezas
+    (comparación sin distinguir mayúsculas).
+    """
+    csv_text = _fetch_inventario_pt_csv()
+    pairs = _parse_inventario_pt_codigo_stock(csv_text)
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT Codigo_Pieza FROM dbo.Tbl_Maestro_Piezas")
+        rows = cursor.fetchall()
+        catalog_upper = {
+            str(r[0]).strip().upper()
+            for r in rows
+            if r is not None and r[0] is not None and str(r[0]).strip()
+        }
+        items: List[Dict[str, Any]] = []
+        for codigo, stock in pairs:
+            if stock <= 0:
+                continue
+            if codigo.upper() not in catalog_upper:
+                items.append({"codigo": codigo, "stock": stock})
+        items.sort(key=lambda x: (x["codigo"] or "").upper())
+        return {"count": len(items), "items": items}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
 

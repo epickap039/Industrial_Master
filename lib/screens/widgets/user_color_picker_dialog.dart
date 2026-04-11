@@ -58,6 +58,10 @@ class _UserColorPickerDialogContentState
 
   @override
   Widget build(BuildContext context) {
+    final infoBg =
+        FluentTheme.of(context).brightness == Brightness.dark
+            ? const Color(0xFF2A2A2A)
+            : const Color(0xFFE8ECF2);
     return ContentDialog(
       title: const Text('Selecciona tu color'),
       content: SizedBox(
@@ -124,7 +128,7 @@ class _UserColorPickerDialogContentState
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.grey[800],
+                color: infoBg,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: const Row(

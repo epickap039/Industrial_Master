@@ -18,6 +18,7 @@ from routers import (
     ayudas_visuales,
     bom,
     cad,
+    chat,
     catalog,
     config_api,
     engineering,
@@ -76,6 +77,7 @@ for _router in (
     historial.router,
     limpieza.router,
     qa.router,
+    chat.router,
     cad.router,
     ayudas_visuales.router,
 ):

@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../services/api_client.dart';
+import '../../widgets/contextual_bug_report.dart';
 import 'ayudas_api_models.dart';
 import 'ayudas_visor_screen.dart';
 
@@ -446,7 +447,9 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
           content: material.TextField(
             controller: passCtrl,
             obscureText: true,
-            decoration: const material.InputDecoration(labelText: 'Contraseña'),
+            decoration: const material.InputDecoration(
+              labelText: 'Clave maestra',
+            ),
           ),
           actions: [
             material.TextButton(
@@ -463,7 +466,7 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
                     '/api/ayudas/documento/$idAyuda',
                     headers: {
                       'X-Usuario': user,
-                      ApiClient.adminMasterPasswordHeader: passCtrl.text,
+                      ApiClient.adminMasterPasswordHeader: passCtrl.text.trim(),
                     },
                   );
                   await _cargar();
@@ -493,6 +496,14 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
         ),
         title: Text(widget.nombreCategoria),
         actions: [
+          material.IconButton(
+            icon: const material.Icon(material.Icons.bug_report_outlined),
+            onPressed: () => showContextualBugReportDialog(
+              context,
+              modulo: 'Ayudas Visuales',
+              contextoPantalla: 'ayudas_categoria',
+            ),
+          ),
           material.IconButton(
             icon: const material.Icon(material.Icons.refresh),
             onPressed: _loading ? null : _cargar,

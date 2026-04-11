@@ -647,13 +647,19 @@ class _ImpactRadarScreenState extends State<ImpactRadarScreen> {
           .map((raw) {
             final e = Map<String, dynamic>.from(raw as Map);
             final g = e['grupo']?.toString().trim();
+            final ensamble =
+                e['nombre_ensamble']?.toString().trim() ??
+                e['ensamble']?.toString().trim() ??
+                '';
             final ts = e['texto_secundario']?.toString().trim() ?? '';
+            final grupoFallback =
+                ensamble.isNotEmpty ? 'Ensamble: $ensamble' : kGrupoJerarquiaIndefinida;
             return {
               'nombre': e['nombre']?.toString() ?? 'Tarea',
               'minutos': e['minutos'] is int
                   ? e['minutos']
                   : int.tryParse('${e['minutos']}') ?? 0,
-              'grupo': (g != null && g.isNotEmpty) ? g : kGrupoJerarquiaIndefinida,
+              'grupo': (g != null && g.isNotEmpty) ? g : grupoFallback,
               if (ts.isNotEmpty) 'texto_secundario': ts,
             };
           })
