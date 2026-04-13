@@ -120,7 +120,7 @@ class ActualizarEstadoPayload(BaseModel):
     estado: str = Field(..., min_length=1, max_length=100)
     motivo_pausa: Optional[str] = Field(
         default=None,
-        description="Obligatorio si el estado es pausa (Falta material | Avería | Aprobación).",
+        description="Obligatorio si el estado es pausa; debe ser un motivo válido (p. ej. Prioridad baja, Falta de tiempo, No definido).",
     )
 
 
@@ -129,6 +129,9 @@ _REASON_ID_TEXTO: Dict[int, str] = {
     2: "Avería",
     3: "Aprobación",
     4: "Prioridad Urgente asignada",
+    5: "Prioridad baja",
+    6: "Falta de tiempo",
+    7: "No definido",
 }
 
 
@@ -137,6 +140,9 @@ _MOTIVOS_PAUSA_VALIDOS = (
     "Avería",
     "Aprobación",
     "Prioridad Urgente asignada",
+    "Prioridad baja",
+    "Falta de tiempo",
+    "No definido",
 )
 
 
@@ -147,6 +153,9 @@ def _motivo_pausa_a_reason_id(motivo: str) -> int:
         "Avería": 2,
         "Aprobación": 3,
         "Prioridad Urgente asignada": 4,
+        "Prioridad baja": 5,
+        "Falta de tiempo": 6,
+        "No definido": 7,
     }
     return mapping.get(m, 0)
 
@@ -256,6 +265,61 @@ def _guardar_asignados_tarea(cur: Any, id_tarea: int, usuarios: List[str]) -> No
             """,
             (id_tarea, u),
         )
+
+
+def _usuarios_asignados_desde_meta_val(meta_val: Any) -> List[str]:
+    """Lista en meta.usuarios_asignados (alta manual multi-responsable)."""
+    if meta_val is None:
+        return []
+    try:
+        if isinstance(meta_val, str):
+            s = meta_val.strip()
+            if not s:
+                return []
+            jd = json.loads(s)
+        elif isinstance(meta_val, dict):
+            jd = meta_val
+        else:
+            return []
+        if not isinstance(jd, dict):
+            return []
+        raw = jd.get("usuarios_asignados")
+        if not isinstance(raw, list):
+            return []
+        out: List[str] = []
+        seen: set[str] = set()
+        for item in raw:
+            u = str(item or "").strip()
+            if not u:
+                continue
+            key = u.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(u)
+        return out
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return []
+
+
+def _merge_usuarios_asignados_tabla_meta(
+    desde_tabla: List[str],
+    desde_meta: List[str],
+) -> List[str]:
+    """Sin duplicados: orden tabla Tbl_Gestor_Tarea_Asignados y luego meta."""
+    seen: set[str] = set()
+    out: List[str] = []
+    for grupo in (desde_tabla, desde_meta):
+        for u in grupo:
+            s = (u or "").strip()
+            if not s:
+                continue
+            k = s.lower()
+            if k in seen:
+                continue
+            seen.add(k)
+            out.append(s)
+    return out
 
 
 def _resolver_asignados_payload(
@@ -957,6 +1021,19 @@ def crear_tarea_manual(
             insert_cols.append(col_hora_inicio)
             insert_vals.append(hora_actual)
 
+        # Prioridad normal por defecto (rank 2 = azul en UI; 0–1 reservados a orden crítico/alto).
+        col_pr_new = _pick(
+            t_cols,
+            "PriorityRank",
+            "Prioridad_Orden",
+            "Sort_Order",
+            "Priority_Rank",
+            "Prioridad",
+        )
+        if col_pr_new:
+            insert_cols.append(col_pr_new)
+            insert_vals.append(2)
+
         if not insert_cols:
             raise HTTPException(status_code=500, detail="No se pudo mapear columnas para insertar tarea")
 
@@ -1351,7 +1428,7 @@ def actualizar_estado_tarea(
         if not payload.motivo_pausa or not payload.motivo_pausa.strip():
             raise HTTPException(
                 status_code=400,
-                detail="motivo_pausa es obligatorio al pausar (Falta material | Avería | Aprobación).",
+                detail="motivo_pausa es obligatorio al pausar; elija un motivo válido en la lista.",
             )
         mp = payload.motivo_pausa.strip()
         if mp not in _MOTIVOS_PAUSA_VALIDOS:
@@ -1783,7 +1860,12 @@ def listar_tareas():
             ua_raw = m.get(t_usuario_asignado) if t_usuario_asignado else None
             usuario_asignado_val = _norm_cell(ua_raw)
             ca_cell = _norm_cell(m.get(t_current_assignee)) if t_current_assignee else None
-            usuarios_asignados = asignados_por_tarea.get(task_id, [])
+            usuarios_desde_tabla = asignados_por_tarea.get(task_id, [])
+            usuarios_desde_meta = _usuarios_asignados_desde_meta_val(m.get(t_meta))
+            usuarios_asignados = _merge_usuarios_asignados_tabla_meta(
+                usuarios_desde_tabla,
+                usuarios_desde_meta,
+            )
             asignado_display = ca_cell or usuario_asignado_val
             if usuarios_asignados:
                 asignado_display = usuarios_asignados[0]

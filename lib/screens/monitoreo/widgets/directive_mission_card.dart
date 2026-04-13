@@ -6,6 +6,9 @@ import 'package:flutter/material.dart' as material;
 
 import 'task_display_utils.dart';
 
+/// Azul prioridad normal / acento manual en monitoreo (menos saturado que Blue A400).
+const Color _kMonitoreoAzulPrioridadNormal = Color(0xFF3A6FB3);
+
 bool _tieneMetaUtil(Map<String, dynamic> task) {
   final m = task['meta'];
   if (m == null) return false;
@@ -41,6 +44,46 @@ bool _esPausaPorPrioridadUrgente(Map<String, dynamic> task) {
     if (m.contains('prioridad urgente')) return true;
   }
   return false;
+}
+
+/// Valor corto para pastilla de tiempo (p. ej. "T. est.: n/a" -> "n/a").
+String tiempoEtiquetaCortaParaPill(String tiempoCorto) {
+  final parts = tiempoCorto.split(':');
+  if (parts.length >= 2) {
+    return parts.sublist(1).join(':').trim();
+  }
+  return tiempoCorto.trim();
+}
+
+/// Ancho común de Pausar/Finalizar cuando se apilan (2+ involucrados).
+const double _kLobbyStackedActionWidth = 138;
+
+/// Separación vertical entre Pausar y Finalizar (sin IntrinsicHeight / LayoutBuilder).
+const double _kLobbyStackedActionGap = 6;
+
+Widget _lobbyStackedInkAction({
+  required double width,
+  required double height,
+  required VoidCallback? onPressed,
+  required Color backgroundColor,
+  required Widget child,
+}) {
+  return material.Material(
+    type: material.MaterialType.transparency,
+    child: material.InkWell(
+      onTap: onPressed,
+      borderRadius: BorderRadius.circular(12),
+      child: material.Ink(
+        decoration: material.BoxDecoration(
+          color: backgroundColor,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        width: width,
+        height: height,
+        child: material.Center(child: child),
+      ),
+    ),
+  );
 }
 
 Color _onUserBg(Color c) => c.computeLuminance() > 0.45 ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC);
@@ -179,13 +222,13 @@ class _DirectiveMissionCardState extends State<DirectiveMissionCard> {
     final n = r is int ? r : int.tryParse('$r');
     final pRank = (n != null) ? n + 1 : 0;
 
-    material.Color andonBar = const material.Color(0xFF90A4AE);
+    material.Color andonBar =
+        material.Color(_kMonitoreoAzulPrioridadNormal.value);
     if (pRank == 1) {
       andonBar = const material.Color(0xFFE53935);
-    } else if (pRank == 2)
+    } else if (pRank == 2) {
       andonBar = const material.Color(0xFFFF9800);
-    else if (pRank == 3)
-      andonBar = const material.Color(0xFF2979FF);
+    }
 
     final bg =
         widget.isDark
@@ -280,6 +323,22 @@ class _DirectiveMissionCardState extends State<DirectiveMissionCard> {
 }
 
 class _DirectiveMissionCardInternal extends StatelessWidget {
+  /// Sin alteración de color (evita rama duplicada junto a [ColorFiltered]).
+  static const ColorFilter _lobbyColorIdentity = ColorFilter.matrix(<double>[
+    1, 0, 0, 0, 0,
+    0, 1, 0, 0, 0,
+    0, 0, 1, 0, 0,
+    0, 0, 0, 1, 0,
+  ]);
+
+  /// Tarjeta lobby pausada: aspecto “desactivado” (solo [Reanudar] queda a color).
+  static const ColorFilter _lobbyPausadaGrayscale = ColorFilter.matrix(<double>[
+    0.2126, 0.7152, 0.0722, 0, 0,
+    0.2126, 0.7152, 0.0722, 0, 0,
+    0.2126, 0.7152, 0.0722, 0, 0,
+    0, 0, 0, 1, 0,
+  ]);
+
   const _DirectiveMissionCardInternal({
     required this.task,
     required this.canControl,
@@ -360,7 +419,7 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
   static const Color _kGreen = Color(0xFF00E676);
   static const Color _kYellow = Color(0xFFFFC107);
   static const Color _kRed = Color(0xFFE53935);
-  static const Color _kBlue = Color(0xFF2979FF);
+  static const Color _kBlue = _kMonitoreoAzulPrioridadNormal;
   static const Color _kNeutral = Color(0xFF78909C);
 
   /// PriorityRank en servidor: 0 = máxima prioridad (primera en grid).
@@ -374,11 +433,11 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
 
   Color _colorAndonPrioridad() {
     final br = _andonPrioridad1Based();
-    if (br == null || br < 1) return const Color(0xFF90A4AE);
+    // priority_rank 0–1 = primeros puestos (crítico / alta); 2+ o sin dato = normal (azul).
+    if (br == null || br < 1) return _kBlue;
     if (br == 1) return const Color(0xFFE53935);
     if (br == 2) return const Color(0xFFFF9800);
-    if (br == 3) return const Color(0xFF2979FF);
-    return const Color(0xFF90A4AE);
+    return _kBlue;
   }
 
   Color _colorSemaforo() {
@@ -412,41 +471,43 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
             .toList();
     final titulo = tituloMision(task);
     final asignado = asignadoMision(task);
-    final usuariosAsignados = (() {
-      final raw = task['usuarios_asignados'];
-      if (raw is! List) return <String>[];
-      final out = <String>[];
-      final seen = <String>{};
-      for (final item in raw) {
-        final u = '${item ?? ''}'.trim();
-        if (u.isEmpty) continue;
-        final key = u.toLowerCase();
-        if (seen.contains(key)) continue;
-        seen.add(key);
-        out.add(u);
-      }
-      return out;
-    })();
+    final usuariosAsignados = usuariosAsignadosLista(task);
     final avatarLabel = (() {
       final hasTodos = usuariosAsignados.any((u) {
         final n = u.trim().toUpperCase();
         return n == '__TODOS__' || n == 'TODOS';
       });
-      if (hasTodos) return 'TODOS';
+      if (hasTodos) return inicialesNombreUsuario('TODOS');
       if (usuariosAsignados.length > 2) return '+${usuariosAsignados.length}';
+      if (usuariosAsignados.length == 2) {
+        String ch(String name) {
+          final ini = inicialesNombreUsuario(name);
+          if (ini.isEmpty) return '?';
+          return ini[0].toUpperCase();
+        }
+
+        return '${ch(usuariosAsignados[0])}${ch(usuariosAsignados[1])}';
+      }
       final base =
           usuariosAsignados.isNotEmpty ? usuariosAsignados.first : asignado;
-      if (base.trim().isEmpty || base == 'Sin asignar') return '??';
-      final parts = base.trim().split(RegExp(r'[\s_]+'));
-      if (parts.length >= 2) {
-        return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
-      }
-      return base.substring(0, base.length >= 2 ? 2 : 1).toUpperCase();
+      return inicialesNombreUsuario(
+        base.trim().isEmpty || base == 'Sin asignar' ? 'Sin asignar' : base,
+      );
     })();
     final stroke = _colorSemaforo();
     final andonBar = _colorAndonPrioridad();
     final cancelada = esCancelada(task);
     final pausada = esPausada(task);
+    final lobbyPausedMuted =
+        lobbyStyle && vistaMisionesActivas && pausada && !cancelada;
+    final andonBarLobby =
+        lobbyPausedMuted
+            ? (isDark ? const Color(0xFF585C65) : const Color(0xFF98A2B0))
+            : andonBar;
+    final lobbyCardStroke =
+        lobbyPausedMuted
+            ? (isDark ? const Color(0xFF6B7079) : const Color(0xFF8892A0))
+            : stroke;
     final pausadaPorUrgente = _esPausaPorPrioridadUrgente(task);
     final criticaTarjeta =
         esCritica(task) && !cancelada && vistaMisionesActivas;
@@ -484,7 +545,7 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
               )
               : null,
       color: (!pausada && criticaTarjeta) ? null : bg,
-      border: Border(left: BorderSide(width: 8.0, color: andonBar)),
+      border: Border(left: BorderSide(width: 8.0, color: andonBarLobby)),
     );
     final fg = pausada
         ? (isDark ? const Color(0xFFD1D5DB) : const Color(0xFF4B5563))
@@ -542,72 +603,97 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
       ),
     );
 
+    Widget iconTile(String tooltip, IconData icon, VoidCallback? onPressed) {
+      return Tooltip(
+        message: tooltip,
+        child: SizedBox(
+          width: 34,
+          height: 34,
+          child: IconButton(
+            icon: Icon(icon, size: 16),
+            onPressed: onPressed,
+          ),
+        ),
+      );
+    }
+
+    final iconRowUtilityChildren = <Widget>[
+      if (onShowMeta != null && tieneDetalleInfo)
+        iconTile(
+          'Nombre, descripción al crear la misión y, si aplica, datos técnicos (Radar / auditoría).',
+          FluentIcons.info_solid,
+          onShowMeta,
+        ),
+      if (tieneImagenAdjunta)
+        iconTile(
+          'Ver imagen adjunta a la mision',
+          FluentIcons.attach,
+          () => mostrarImagenAdjuntaMision(context, task),
+        ),
+      if (vistaMisionesActivas &&
+          canControl &&
+          !cancelada &&
+          !pausada &&
+          p < 100 &&
+          onAbrirDialogoPrioridad != null)
+        iconTile(
+          'Asignar prioridad (1 Crítico, 2 Alta, 3 Normal)',
+          FluentIcons.sort,
+          () => onAbrirDialogoPrioridad!(idTarea),
+        ),
+    ];
+
+    final iconRowChildren = <Widget>[
+      ...iconRowUtilityChildren,
+      if (vistaMisionesActivas && canControl && onCancel != null)
+        iconTile('Cancelar misión', FluentIcons.delete, onCancel),
+    ];
+
+    final buttonRowChildren = <Widget>[
+      if (vistaMisionesActivas &&
+          canControl &&
+          !cancelada &&
+          !pausada &&
+          p < 100)
+        Button(onPressed: onPause, child: const Text('Pausar')),
+      if (vistaMisionesActivas && canControl && pausada && p < 100)
+        Button(onPressed: onResume, child: const Text('Reanudar')),
+      if (esManualSource(task) &&
+          canControl &&
+          !cancelada &&
+          !pausada &&
+          p < 100 &&
+          onFinalizarManual != null)
+        Button(onPressed: onFinalizarManual, child: const Text('Finalizar')),
+    ];
+
     final actionWrap = Align(
-      alignment: Alignment.centerRight,
-      child: Wrap(
-        spacing: 6,
-        runSpacing: 6,
-        alignment: WrapAlignment.end,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          Tooltip(
-            message: 'Guía rápida de color y estados de la tarjeta.',
-            child: IconButton(
-              icon: const Icon(FluentIcons.info, size: 16),
-              onPressed: () => _showCardColorLegend(context),
-            ),
-          ),
-          if (onShowMeta != null && tieneDetalleInfo)
-            Tooltip(
-              message:
-                  'Nombre, descripción al crear la misión y, si aplica, datos técnicos (Radar / auditoría).',
-              child: IconButton(
-                icon: const Icon(FluentIcons.info_solid, size: 15),
-                onPressed: onShowMeta,
+      alignment: Alignment.topRight,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 200),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (iconRowChildren.isNotEmpty)
+              Wrap(
+                spacing: 2,
+                runSpacing: 2,
+                alignment: WrapAlignment.end,
+                children: iconRowChildren,
               ),
-            ),
-        if (tieneImagenAdjunta)
-          Tooltip(
-            message: 'Ver imagen adjunta a la mision',
-            child: IconButton(
-              icon: const Icon(FluentIcons.attach, size: 16),
-              onPressed: () => mostrarImagenAdjuntaMision(context, task),
-            ),
-          ),
-        if (vistaMisionesActivas &&
-            canControl &&
-            !cancelada &&
-            !pausada &&
-            p < 100 &&
-            onAbrirDialogoPrioridad != null)
-          Tooltip(
-            message: 'Asignar prioridad (1 Crítico, 2 Alta, 3 Normal)',
-            child: IconButton(
-              icon: const Icon(FluentIcons.sort, size: 16),
-              onPressed: () => onAbrirDialogoPrioridad!(idTarea),
-            ),
-          ),
-        if (vistaMisionesActivas &&
-            canControl &&
-            !cancelada &&
-            !pausada &&
-            p < 100)
-          Button(onPressed: onPause, child: const Text('Pausar')),
-        if (vistaMisionesActivas && canControl && pausada && p < 100)
-          Button(onPressed: onResume, child: const Text('Reanudar')),
-        if (esManualSource(task) &&
-            canControl &&
-            !cancelada &&
-            !pausada &&
-            p < 100 &&
-            onFinalizarManual != null)
-          Button(onPressed: onFinalizarManual, child: const Text('Finalizar')),
-        if (vistaMisionesActivas && canControl && onCancel != null)
-          IconButton(
-            icon: const Icon(FluentIcons.delete, size: 16),
-            onPressed: onCancel,
-          ),
-        ],
+            if (buttonRowChildren.isNotEmpty) ...[
+              if (iconRowChildren.isNotEmpty) const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                alignment: WrapAlignment.end,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: buttonRowChildren,
+              ),
+            ],
+          ],
+        ),
       ),
     );
 
@@ -625,8 +711,8 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(child: checklistTile),
-        const SizedBox(width: 8),
-        Flexible(child: actionWrap),
+        const SizedBox(width: 10),
+        Flexible(fit: FlexFit.loose, child: actionWrap),
       ],
     );
 
@@ -799,282 +885,859 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
     if (lobbyStyle && vistaMisionesActivas) {
       final idx = lobbyIndex ?? 0;
       final n = lobbyCount ?? 1;
-      return material.Card(
-        elevation: 4,
-        color: material.Colors.transparent,
-        shadowColor: stroke.withValues(alpha: 0.4),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: stroke.withValues(alpha: 0.55), width: 1.4),
-        ),
-        clipBehavior: Clip.antiAlias,
-        // No usar Row+stretch aquí: en Wrap/SingleChildScrollView la altura es ∞ y falla el layout.
-        child: DecoratedBox(
-          decoration: lobbySurface,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            mainAxisSize: MainAxisSize.min,
+      final tiempoPillTxt = tiempoEtiquetaCortaParaPill(tiempoCorto);
+      Widget lobbyMetaPill(String text) {
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            color: fgSec.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: fgSec.withValues(alpha: 0.45)),
+          ),
+          child: Text(
+            text.toUpperCase(),
+            style: TextStyle(
+              color: fgSec,
+              fontSize: 9,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.35,
+            ),
+          ),
+        );
+      }
+
+      final lobbyUtilityIcons = <Widget>[...iconRowUtilityChildren];
+
+      material.Color lobbyHeaderAvatarMatteFill() {
+        final list =
+            usuariosAsignados.isNotEmpty ? usuariosAsignados : <String>[asignado];
+        final hasTodos = list.any((u) {
+          final n = u.trim().toUpperCase();
+          return n == '__TODOS__' || n == 'TODOS';
+        });
+        final nameForColor =
+            hasTodos
+                ? (asignado.trim().isNotEmpty ? asignado : 'Todos')
+                : (list.isEmpty || list.first.trim().isEmpty
+                    ? asignado
+                    : list.first.trim());
+        final base = colorUsuario(nameForColor);
+        return monitoreoUserMatteAvatarFill(base, isDark: isDark);
+      }
+
+      final headerAvatarFill = lobbyHeaderAvatarMatteFill();
+      final headerAvatarFg =
+          headerAvatarFill.computeLuminance() > 0.52
+              ? const material.Color(0xFF0F172A)
+              : material.Colors.white;
+
+      Widget lobbyUserPill() {
+        final list =
+            usuariosAsignados.isNotEmpty ? usuariosAsignados : <String>[asignado];
+        final hasTodos = list.any((u) {
+          final name = u.trim().toUpperCase();
+          return name == '__TODOS__' || name == 'TODOS';
+        });
+        if (hasTodos) {
+          final v = monitoreoUserVividAccent(stroke, isDark: isDark);
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            decoration: BoxDecoration(
+              color: v.withValues(alpha: isDark ? 0.10 : 0.08),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: v, width: 1.35),
+            ),
+            child: Text(
+              'TODOS',
+              style: TextStyle(
+                color: isDark ? material.Colors.white : material.Colors.black87,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.35,
+              ),
+            ),
+          );
+        }
+        if (list.isEmpty || (list.length == 1 && list.first.trim().isEmpty)) {
+          return lobbyMetaPill('SIN ASIGNAR');
+        }
+        return Align(
+          alignment: Alignment.centerLeft,
+          child: Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              if (showMotivoHistorialBanner)
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+              for (final rawName in list)
+                if (rawName.trim().isNotEmpty)
+                  Builder(
+                    builder: (context) {
+                      final name = rawName.trim();
+                      final uSoft = monitoreoUserVividAccent(
+                        colorUsuario(name),
+                        isDark: isDark,
+                      );
+                      return ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 200),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: uSoft.withValues(
+                              alpha: isDark ? 0.10 : 0.08,
+                            ),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: uSoft, width: 1.35),
+                          ),
+                          child: Text(
+                            name.toUpperCase(),
+                            style: TextStyle(
+                              color:
+                                  isDark
+                                      ? material.Colors.white
+                                      : material.Colors.black87,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.25,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+            ],
+          ),
+        );
+      }
+
+      int lobbyFooterAssignedUserCount() {
+        final list =
+            usuariosAsignados.isNotEmpty ? usuariosAsignados : <String>[asignado];
+        if (list.any((u) {
+          final n = u.trim().toUpperCase();
+          return n == '__TODOS__' || n == 'TODOS';
+        })) {
+          return 99;
+        }
+        return list.map((e) => e.trim()).where((e) => e.isNotEmpty).length;
+      }
+
+      /// Altura de cada botón apilado: reparte ~la mitad del alto estimado de chips
+      /// (sin medir intrínsecos: evita IntrinsicHeight + LayoutBuilder).
+      double lobbyFooterStackedButtonSlotHeight() {
+        var n = lobbyFooterAssignedUserCount();
+        if (n >= 99) n = 8;
+        const chipRow = 34.0;
+        const runSp = 6.0;
+        final assumedRows = n <= 2 ? 1 : (n + 1) ~/ 2;
+        final leftH =
+            assumedRows * chipRow +
+            (assumedRows > 1 ? (assumedRows - 1) * runSp : 0.0);
+        return ((leftH - _kLobbyStackedActionGap) / 2).clamp(40.0, 58.0);
+      }
+
+      final lobbyStackedSlotH = lobbyFooterStackedButtonSlotHeight();
+
+      final lobbyShowPause =
+          vistaMisionesActivas &&
+          canControl &&
+          !cancelada &&
+          !pausada &&
+          p < 100;
+      final lobbyShowResume =
+          vistaMisionesActivas && canControl && pausada && p < 100;
+      final lobbyShowFinalize =
+          esManualSource(task) &&
+          canControl &&
+          !cancelada &&
+          !pausada &&
+          p < 100 &&
+          onFinalizarManual != null;
+
+      final lobbyStackActionsVertically =
+          lobbyFooterAssignedUserCount() >= 2 &&
+          lobbyShowFinalize &&
+          (lobbyShowPause || lobbyShowResume);
+
+      Widget lobbyStackedFirstForHeight(double h) {
+        if (lobbyShowPause) {
+          final fg = isDark ? Colors.white : const Color(0xFF111827);
+          final bg = isDark ? const Color(0xFF2D3139) : const Color(0xFFE5E7EB);
+          return _lobbyStackedInkAction(
+            width: _kLobbyStackedActionWidth,
+            height: h,
+            onPressed: onPause,
+            backgroundColor: bg,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                material.Icon(material.Icons.pause, size: 14, color: fg),
+                const SizedBox(width: 8),
+                Text(
+                  'Pausar',
+                  style: TextStyle(color: fg, fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          );
+        }
+        if (lobbyShowResume) {
+          final fg =
+              isDark ? const Color(0xFFDCFCE7) : const Color(0xFF065F46);
+          final bg =
+              isDark ? const Color(0xFF14532D) : const Color(0xFFD1FAE5);
+          return _lobbyStackedInkAction(
+            width: _kLobbyStackedActionWidth,
+            height: h,
+            onPressed: onResume,
+            backgroundColor: bg,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                material.Icon(material.Icons.play_arrow, size: 16, color: fg),
+                const SizedBox(width: 6),
+                Text(
+                  'Reanudar',
+                  style: TextStyle(color: fg, fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          );
+        }
+        return SizedBox(width: _kLobbyStackedActionWidth, height: h);
+      }
+
+      Widget lobbyStackedFinalizeForHeight(double h) {
+        if (!lobbyShowFinalize) {
+          return SizedBox(width: _kLobbyStackedActionWidth, height: h);
+        }
+        if (isDark) {
+          return _lobbyStackedInkAction(
+            width: _kLobbyStackedActionWidth,
+            height: h,
+            onPressed: onFinalizarManual,
+            backgroundColor: Colors.white,
+            child: const Text(
+              'Finalizar',
+              style: TextStyle(
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.5,
+                color: Colors.black,
+              ),
+            ),
+          );
+        }
+        final accent = FluentTheme.of(context).accentColor;
+        return _lobbyStackedInkAction(
+          width: _kLobbyStackedActionWidth,
+          height: h,
+          onPressed: onFinalizarManual,
+          backgroundColor: accent,
+          child: const Text(
+            'Finalizar',
+            style: TextStyle(
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.5,
+              color: Colors.white,
+            ),
+          ),
+        );
+      }
+
+      final lobbyPrimaryActions = <Widget>[];
+      if (vistaMisionesActivas &&
+          canControl &&
+          !cancelada &&
+          !pausada &&
+          p < 100) {
+        lobbyPrimaryActions.add(
+          Button(
+            onPressed: onPause,
+            style: ButtonStyle(
+              backgroundColor: WidgetStateProperty.all(
+                isDark ? const Color(0xFF2D3139) : const Color(0xFFE5E7EB),
+              ),
+              foregroundColor: WidgetStateProperty.all(
+                isDark ? Colors.white : const Color(0xFF111827),
+              ),
+              padding: const WidgetStatePropertyAll(
+                EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              ),
+              shape: WidgetStatePropertyAll(
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                material.Icon(
+                  material.Icons.pause,
+                  size: 14,
+                  color: isDark ? Colors.white : const Color(0xFF111827),
+                ),
+                const SizedBox(width: 8),
+                const Text('Pausar'),
+              ],
+            ),
+          ),
+        );
+      }
+      if (vistaMisionesActivas && canControl && pausada && p < 100) {
+        lobbyPrimaryActions.add(
+          Button(
+            onPressed: onResume,
+            style: ButtonStyle(
+              backgroundColor: WidgetStateProperty.all(
+                isDark ? const Color(0xFF14532D) : const Color(0xFFD1FAE5),
+              ),
+              foregroundColor: WidgetStateProperty.all(
+                isDark ? const Color(0xFFDCFCE7) : const Color(0xFF065F46),
+              ),
+              padding: const WidgetStatePropertyAll(
+                EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              ),
+              shape: WidgetStatePropertyAll(
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                material.Icon(
+                  material.Icons.play_arrow,
+                  size: 16,
                   color:
                       isDark
-                          ? const Color(0xFF4A1C1C)
-                          : const Color(0xFFFFEBEE),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Motivo de cancelación',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
-                          color:
-                              isDark
-                                  ? const Color(0xFFFFCDD2)
-                                  : const Color(0xFFB71C1C),
-                          letterSpacing: 0.3,
-                        ),
+                          ? const Color(0xFFDCFCE7)
+                          : const Color(0xFF065F46),
+                ),
+                const SizedBox(width: 6),
+                const Text('Reanudar'),
+              ],
+            ),
+          ),
+        );
+      }
+      if (esManualSource(task) &&
+          canControl &&
+          !cancelada &&
+          !pausada &&
+          p < 100 &&
+          onFinalizarManual != null) {
+        lobbyPrimaryActions.add(
+          isDark
+              ? FilledButton(
+                  onPressed: onFinalizarManual,
+                  style: ButtonStyle(
+                    backgroundColor: WidgetStateProperty.all(Colors.white),
+                    foregroundColor: WidgetStateProperty.all(Colors.black),
+                    padding: const WidgetStatePropertyAll(
+                      EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    ),
+                    shape: WidgetStatePropertyAll(
+                      RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                      const SizedBox(height: 6),
-                      Text(
-                        motivoCancelacionTxt,
-                        style: TextStyle(
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w600,
-                          height: 1.35,
-                          color:
-                              isDark
-                                  ? const Color(0xFFFFE0E0)
-                                  : const Color(0xFF3E2723),
-                        ),
+                    ),
+                  ),
+                  child: const Text(
+                    'Finalizar',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                )
+              : FilledButton(
+                  onPressed: onFinalizarManual,
+                  style: ButtonStyle(
+                    padding: const WidgetStatePropertyAll(
+                      EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    ),
+                    shape: WidgetStatePropertyAll(
+                      RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                    ],
+                    ),
+                  ),
+                  child: const Text(
+                    'Finalizar',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.5,
+                    ),
                   ),
                 ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 12, 10, 10),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (onReorderByDelta != null)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 4),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              icon: const Icon(FluentIcons.sort_up, size: 15),
-                              onPressed:
-                                  idx > 0
-                                      ? () => onReorderByDelta!(idx, -1)
-                                      : null,
-                            ),
-                            IconButton(
-                              icon: const Icon(FluentIcons.sort_down, size: 15),
-                              onPressed:
-                                  idx < n - 1
-                                      ? () => onReorderByDelta!(idx, 1)
-                                      : null,
-                            ),
-                          ],
-                        ),
-                      ),
-                    Container(
-                      width: 50,
-                      height: 50,
-                      decoration: BoxDecoration(
-                        color: stroke.withValues(alpha: 0.22),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      alignment: Alignment.center,
-                      child: Text(
-                        avatarLabel,
-                        maxLines: 1,
-                        overflow: TextOverflow.fade,
-                        style: TextStyle(
-                          fontSize: avatarLabel.length > 3 ? 10 : 16,
-                          fontWeight: FontWeight.w900,
-                          color: stroke,
-                          letterSpacing: 0.3,
+        );
+      }
+
+      final progressTrackColor = isDark
+          ? const material.Color(0xFF3A3D45)
+          : const material.Color(0xFFD6D6D6);
+
+      final Widget? lobbyDeleteIcon =
+          (vistaMisionesActivas && canControl && onCancel != null)
+              ? (lobbyPausedMuted
+                  ? ColorFiltered(
+                    colorFilter: _lobbyPausadaGrayscale,
+                    child: Tooltip(
+                      message: 'Cancelar misión',
+                      child: SizedBox(
+                        width: 40,
+                        height: 40,
+                        child: IconButton(
+                          icon: const Icon(FluentIcons.delete, size: 16),
+                          onPressed: onCancel,
                         ),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                  )
+                  : Tooltip(
+                    message: 'Cancelar misión',
+                    child: SizedBox(
+                      width: 40,
+                      height: 40,
+                      child: IconButton(
+                        icon: const Icon(FluentIcons.delete, size: 16),
+                        onPressed: onCancel,
+                      ),
+                    ),
+                  ))
+              : null;
+
+      return material.Card(
+        elevation: isDark ? 6 : 4,
+        color: material.Colors.transparent,
+        shadowColor: lobbyCardStroke.withValues(alpha: 0.35),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(
+            color: lobbyCardStroke.withValues(alpha: isDark ? 0.26 : 0.58),
+            width: 1.35,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: DecoratedBox(
+          decoration: lobbySurface,
+          child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (showMotivoHistorialBanner)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                    color:
+                        isDark
+                            ? const Color(0xFF4A1C1C)
+                            : const Color(0xFFFFEBEE),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Motivo de cancelación',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color:
+                                isDark
+                                    ? const Color(0xFFFFCDD2)
+                                    : const Color(0xFFB71C1C),
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          motivoCancelacionTxt,
+                          style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w600,
+                            height: 1.35,
+                            color:
+                                isDark
+                                    ? const Color(0xFFFFE0E0)
+                                    : const Color(0xFF3E2723),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 10, 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      ColorFiltered(
+                        colorFilter:
+                            lobbyPausedMuted
+                                ? _lobbyPausadaGrayscale
+                                : _lobbyColorIdentity,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                      // ── Header: flechas (≤42) | iniciales | título | editar | estado ──
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  titulo,
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 16,
-                                    color: fg,
-                                    height: 1.15,
-                                  ),
-                                  maxLines: 3,
-                                  overflow: TextOverflow.ellipsis,
+                          if (onReorderByDelta != null)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 6),
+                              child: SizedBox(
+                                height: 42,
+                                width: 24,
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  mainAxisSize: MainAxisSize.max,
+                                  children: [
+                                    SizedBox(
+                                      height: 20,
+                                      width: 24,
+                                      child: IconButton(
+                                        icon: const Icon(
+                                          FluentIcons.sort_up,
+                                          size: 11,
+                                        ),
+                                        onPressed:
+                                            idx > 0
+                                                ? () =>
+                                                    onReorderByDelta!(idx, -1)
+                                                : null,
+                                      ),
+                                    ),
+                                    SizedBox(
+                                      height: 20,
+                                      width: 24,
+                                      child: IconButton(
+                                        icon: const Icon(
+                                          FluentIcons.sort_down,
+                                          size: 11,
+                                        ),
+                                        onPressed:
+                                            idx < n - 1
+                                                ? () =>
+                                                    onReorderByDelta!(idx, 1)
+                                                : null,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              const SizedBox(width: 6),
-                              if (criticaTarjeta) ...[
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 6,
-                                    vertical: 2,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFB71C1C),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: const Text(
-                                    'CRÍTICO',
-                                    style: TextStyle(
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.w900,
-                                      color: Color(0xFFFFEBEE),
-                                      letterSpacing: 0.6,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                              ],
-                              if (canEditManualMission)
-                                Tooltip(
-                                  message: 'Editar checklist o imagen de la misión manual',
-                                  child: IconButton(
-                                    icon: const Icon(FluentIcons.edit, size: 16),
-                                    onPressed: onEditManual,
-                                  ),
-                                ),
-                              _pill(context, _pillEstado(), stroke),
-                              if (pausadaPorUrgente) ...[
-                                const SizedBox(width: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 6,
-                                    vertical: 2,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF6D4C41),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: const Text(
-                                    'SUSPENDIDA',
-                                    style: TextStyle(
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.w800,
-                                      color: Color(0xFFFFF3E0),
-                                      letterSpacing: 0.45,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ],
+                            ),
+                          Container(
+                            width: 42,
+                            height: 42,
+                            margin: const EdgeInsets.only(right: 10),
+                            decoration: BoxDecoration(
+                              color: headerAvatarFill,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              avatarLabel,
+                              maxLines: 1,
+                              overflow: TextOverflow.fade,
+                              style: TextStyle(
+                                fontSize: avatarLabel.length > 3 ? 8.5 : 14,
+                                fontWeight: FontWeight.w900,
+                                color: headerAvatarFg,
+                                letterSpacing: 0.2,
+                              ),
+                            ),
                           ),
-                          if (showMotivoInline) ...[
-                            const SizedBox(height: 6),
-                            Text(
-                              'Motivo: $motivo',
-                              style: const TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFFFF8A80),
+                          Expanded(
+                            child: Text(
+                              titulo.toUpperCase(),
+                              style: TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 14,
+                                color: fg,
                                 height: 1.2,
+                                letterSpacing: 0.2,
                               ),
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                             ),
-                          ],
-                          const SizedBox(height: 12),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: material.LinearProgressIndicator(
-                              value: (p / 100).clamp(0.0, 1.0),
-                              minHeight: 10,
-                              color: barColor,
-                              backgroundColor:
-                                  isDark
-                                      ? const material.Color(0xFF1E1E22)
-                                      : const material.Color(0xFFE0E0E0),
-                            ),
                           ),
-                          const SizedBox(height: 5),
-                          Text(
-                            cancelada
-                                ? 'Progreso: $p% (Cancelada)'
-                                : 'Progreso: $p%',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: fgSec,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          if (descCard.isNotEmpty) ...[
-                            const SizedBox(height: 6),
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    descCard,
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      color: fg,
-                                      height: 1.24,
-                                    ),
-                                    maxLines: 3,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            fit: FlexFit.loose,
+                            child: Align(
+                              alignment: AlignmentDirectional.centerEnd,
+                              child: SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (canEditManualMission)
+                                      Tooltip(
+                                        message:
+                                            'Editar checklist o imagen de la misión manual',
+                                        child: SizedBox(
+                                          width: 30,
+                                          height: 30,
+                                          child: IconButton(
+                                            icon: const Icon(
+                                              FluentIcons.edit,
+                                              size: 14,
+                                            ),
+                                            onPressed: onEditManual,
+                                          ),
+                                        ),
+                                      ),
+                                    if (criticaTarjeta) ...[
+                                      if (canEditManualMission)
+                                        const SizedBox(width: 4),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 6,
+                                          vertical: 2,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFB71C1C),
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: const Text(
+                                          'CRÍTICO',
+                                          style: TextStyle(
+                                            fontSize: 9,
+                                            fontWeight: FontWeight.w900,
+                                            color: Color(0xFFFFEBEE),
+                                            letterSpacing: 0.6,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                    if (pausadaPorUrgente) ...[
+                                      if (canEditManualMission || criticaTarjeta)
+                                        const SizedBox(width: 4),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 6,
+                                          vertical: 2,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF6D4C41),
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: const Text(
+                                          'SUSPENDIDA',
+                                          style: TextStyle(
+                                            fontSize: 9,
+                                            fontWeight: FontWeight.w800,
+                                            color: Color(0xFFFFF3E0),
+                                            letterSpacing: 0.45,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                    if (canEditManualMission ||
+                                        criticaTarjeta ||
+                                        pausadaPorUrgente)
+                                      const SizedBox(width: 4),
+                                    _pill(context, _pillEstado(), stroke),
+                                  ],
                                 ),
-                                if (descCard.length > 90) ...[
-                                  const SizedBox(width: 4),
-                                  Tooltip(
-                                    message: 'Ver descripción completa',
-                                    child: IconButton(
-                                      icon: const Icon(FluentIcons.read, size: 15),
-                                      onPressed: () =>
-                                          _showMissionDescriptionDialog(context, descCard),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (showMotivoInline) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          'Motivo: $motivo',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFFFF8A80),
+                            height: 1.2,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                      // ── Progress section ──
+                      const SizedBox(height: 18),
+                      Text(
+                        cancelada
+                            ? 'PROGRESO: $p% (CANCELADA)'
+                            : 'PROGRESO: $p%',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: fgSec,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.4,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: material.LinearProgressIndicator(
+                          value: (p / 100).clamp(0.0, 1.0),
+                          minHeight: 4,
+                          color: p > 0 ? barColor : progressTrackColor,
+                          backgroundColor: progressTrackColor,
+                        ),
+                      ),
+                      // ── Descripción + tiempo (pastilla a la derecha) ──
+                      const SizedBox(height: 22),
+                      SizedBox(
+                        height: 36,
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: descCard.isEmpty
+                                  ? const SizedBox.shrink()
+                                  : Align(
+                                      alignment: Alignment.topLeft,
+                                      child: Text(
+                                        descCard.toUpperCase(),
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: fgSec,
+                                          height: 1.25,
+                                          letterSpacing: 0.15,
+                                        ),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
                                     ),
-                                  ),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.only(left: 8, top: 0),
+                              child: Tooltip(
+                                message:
+                                    totalMeta != null
+                                        ? 'Tiempo restante estimado = presupuesto ($totalMeta min) × (1 − progreso/100).'
+                                        : 'Tiempo estimado / restante de la misión.',
+                                child: lobbyMetaPill(tiempoPillTxt),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      // ── Checklist + utility icons ──
+                      const SizedBox(height: 10),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(child: checklistTile),
+                          const SizedBox(width: 8),
+                          Wrap(
+                            alignment: WrapAlignment.end,
+                            spacing: 2,
+                            runSpacing: 2,
+                            children: lobbyUtilityIcons,
+                          ),
+                        ],
+                      ),
+                      if (bitacoraHistorial != null) ...[
+                        const SizedBox(height: 10),
+                        bitacoraHistorial,
+                      ],
+                          ],
+                        ),
+                      ),
+                      // ── Footer: user pill + actions (Reanudar sin filtro en pausa) ──
+                      const SizedBox(height: 16),
+                      if (lobbyStackActionsVertically)
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Expanded(
+                              child: Align(
+                                alignment: Alignment.topLeft,
+                                child:
+                                    lobbyPausedMuted
+                                        ? ColorFiltered(
+                                          colorFilter: _lobbyPausadaGrayscale,
+                                          child: lobbyUserPill(),
+                                        )
+                                        : lobbyUserPill(),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    SizedBox(
+                                      width: _kLobbyStackedActionWidth,
+                                      height: lobbyStackedSlotH,
+                                      child: lobbyStackedFirstForHeight(
+                                        lobbyStackedSlotH,
+                                      ),
+                                    ),
+                                    const SizedBox(
+                                      height: _kLobbyStackedActionGap,
+                                    ),
+                                    SizedBox(
+                                      width: _kLobbyStackedActionWidth,
+                                      height: lobbyStackedSlotH,
+                                      child: lobbyStackedFinalizeForHeight(
+                                        lobbyStackedSlotH,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                if (lobbyDeleteIcon != null) ...[
+                                  const SizedBox(width: 6),
+                                  lobbyDeleteIcon,
                                 ],
                               ],
                             ),
                           ],
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    controlesInferiores,
-                    if (bitacoraHistorial != null) ...[
-                      const SizedBox(height: 6),
-                      bitacoraHistorial,
+                        )
+                      else
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Expanded(
+                              child:
+                                  lobbyPausedMuted
+                                      ? ColorFiltered(
+                                        colorFilter: _lobbyPausadaGrayscale,
+                                        child: lobbyUserPill(),
+                                      )
+                                      : lobbyUserPill(),
+                            ),
+                            const SizedBox(width: 8),
+                            if (lobbyPrimaryActions.isNotEmpty ||
+                                lobbyDeleteIcon != null)
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  for (
+                                    var i = 0;
+                                    i < lobbyPrimaryActions.length;
+                                    i++
+                                  ) ...[
+                                    if (i > 0) const SizedBox(width: 8),
+                                    lobbyPrimaryActions[i],
+                                  ],
+                                  if (lobbyDeleteIcon != null) ...[
+                                    if (lobbyPrimaryActions.isNotEmpty)
+                                      const SizedBox(width: 6),
+                                    lobbyDeleteIcon,
+                                  ],
+                                ],
+                              ),
+                          ],
+                        ),
                     ],
-                    const Divider(),
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: footerRow,
-                    ),
-                  ],
+                  ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
         ),
       );
     }
@@ -1169,16 +1832,22 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Text(
-                                  titulo,
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
-                                    color: fg,
-                                    height: 1.2,
+                                SizedBox(
+                                  height: 38,
+                                  child: Align(
+                                    alignment: Alignment.topLeft,
+                                    child: Text(
+                                      titulo,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14,
+                                        color: fg,
+                                        height: 1.2,
+                                      ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
                                   ),
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
                                 ),
                                 if (showMotivoInline) ...[
                                   const SizedBox(height: 6),
@@ -1273,38 +1942,42 @@ class _DirectiveMissionCardInternal extends StatelessWidget {
                             : 'Progreso: $p%',
                         style: TextStyle(fontSize: 11, color: fgSec),
                       ),
-                      if (descCard.isNotEmpty) ...[
-                        const SizedBox(height: 4),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: Text(
-                                descCard,
-                                style: TextStyle(
-                                  fontSize: 12.4,
-                                  fontWeight: FontWeight.w600,
-                                  color: fg,
-                                  height: 1.2,
-                                ),
-                                maxLines: 3,
-                                overflow: TextOverflow.ellipsis,
+                      const SizedBox(height: 4),
+                      SizedBox(
+                        height: 34,
+                        child: descCard.isEmpty
+                            ? const SizedBox.shrink()
+                            : Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      descCard,
+                                      style: TextStyle(
+                                        fontSize: 12.4,
+                                        fontWeight: FontWeight.w600,
+                                        color: fg,
+                                        height: 1.2,
+                                      ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  Tooltip(
+                                    message: 'Ver descripción completa',
+                                    child: SizedBox(
+                                      width: 32,
+                                      height: 32,
+                                      child: IconButton(
+                                        icon: const Icon(FluentIcons.read, size: 14),
+                                        onPressed: () =>
+                                            _showMissionDescriptionDialog(context, descCard),
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ),
-                            if (descCard.length > 90) ...[
-                              const SizedBox(width: 2),
-                              Tooltip(
-                                message: 'Ver descripción completa',
-                                child: IconButton(
-                                  icon: const Icon(FluentIcons.read, size: 14),
-                                  onPressed: () =>
-                                      _showMissionDescriptionDialog(context, descCard),
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ],
+                      ),
                       if (vistaHistorial &&
                           (fcHist.isNotEmpty || ucHist.isNotEmpty)) ...[
                         const SizedBox(height: 8),
@@ -2002,34 +2675,6 @@ void _showMissionDescriptionDialog(BuildContext context, String descripcion) {
   );
 }
 
-void _showCardColorLegend(BuildContext context) {
-  showDialog(
-    context: context,
-    builder: (ctx) => ContentDialog(
-      title: const Text('Guía de colores - Tarjeta'),
-      content: const SizedBox(
-        width: 560,
-        child: Text(
-          'Barra izquierda:\n'
-          '• Rojo: prioridad crítica\n'
-          '• Naranja: prioridad alta\n'
-          '• Azul: prioridad normal\n'
-          '• Gris: sin prioridad definida\n\n'
-          'Estados visuales:\n'
-          '• Contorno más intenso: tarjeta activa en foco\n'
-          '• Sombreada + etiqueta SUSPENDIDA: pausada por prioridad crítica\n'
-          '• Etiqueta de usuario: color identificador del responsable\n'
-          '• Progreso: barra con porcentaje actual del checklist',
-          style: TextStyle(fontSize: 12.5, height: 1.35),
-        ),
-      ),
-      actions: [
-        Button(child: const Text('Entendido'), onPressed: () => Navigator.pop(ctx)),
-      ],
-    ),
-  );
-}
-
 /// Resultado de [showAsignarPrioridadMissionDialog].
 class PrioridadMisionDialogResult {
   PrioridadMisionDialogResult({
@@ -2119,7 +2764,7 @@ class _PrioridadMisionDialogContentState
             children: [
               _opt(1, '1 — Crítico', const material.Color(0xFFE53935)),
               _opt(2, '2 — Alta', const material.Color(0xFFFF9800)),
-              _opt(3, '3 — Normal', const material.Color(0xFF2979FF)),
+              _opt(3, '3 — Normal', _kMonitoreoAzulPrioridadNormal),
               if (_sel == 1) ...[
                 const SizedBox(height: 12),
                 Row(

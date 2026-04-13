@@ -941,7 +941,13 @@ class _ManualInfoDialogState extends State<_ManualInfoDialog> {
           'Gestiona tareas activas con prioridades, checklist y bitácora.\n'
               '• Alta manual: crea misiones con responsable, tiempo y evidencia.\n'
               '• Historial: reactivar o eliminar misiones cerradas con control administrativo.\n'
-              '• Buzón: revisa asignaciones pendientes y marca notificaciones como leídas.',
+              '• Buzón: revisa asignaciones pendientes y marca notificaciones como leídas.\n'
+              'Colores en la tarjeta (barra vertical izquierda):\n'
+              '• Rojo: primer puesto del orden (crítico).\n'
+              '• Naranja: segundo puesto (alta).\n'
+              '• Azul: resto de puestos y prioridad normal por defecto.\n'
+              'Estados visuales: contorno más intenso indica foco; tarjeta sombreada y etiqueta SUSPENDIDA si hubo pausa por prioridad urgente; etiqueta de usuario usa color identificador; la barra de progreso refleja el checklist.\n'
+              'En cada tarjeta, el icono de información (i relleno) abre nombre, descripción y datos técnicos de la misión.',
     },
     'ayudas_visuales': {
       'titulo': 'Ayudas visuales',

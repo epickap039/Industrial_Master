@@ -1,5 +1,26 @@
 [
   {
+    "build": 331,
+    "v": "331.0",
+    "tipo": "parche",
+    "fecha": "2026-04-13",
+    "notas": "Monitoreo lobby: pie apilado sin IntrinsicHeight+LayoutBuilder (assert Flutter); altura de botones estimada por nº de involucrados."
+  },
+  {
+    "build": 330,
+    "v": "330.0",
+    "tipo": "parche",
+    "fecha": "2026-04-13",
+    "notas": "Monitoreo lobby: con 2+ involucrados, Pausar y Finalizar se apilan a la misma anchura, altura repartida igual que la columna de usuarios; borrar centrado verticalmente."
+  },
+  {
+    "build": 329,
+    "v": "329.0",
+    "tipo": "parche",
+    "fecha": "2026-04-13",
+    "notas": "Monitoreo: tarjeta lobby muestra chip por cada involucrado; editar misión manual incluye días/horas/minutos, responsable y multiasignación como en el alta (PUT con responsables)."
+  },
+  {
     "build": 328,
     "v": "328.0",
     "tipo": "parche",

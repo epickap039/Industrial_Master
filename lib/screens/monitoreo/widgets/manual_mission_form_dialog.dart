@@ -323,7 +323,7 @@ class _ManualMissionDialogState extends State<_ManualMissionDialog> {
                         enabled: !_sinTiempoEstimado && !_enviando,
                         keyboardType: TextInputType.number,
                         decoration: const InputDecoration(
-                          labelText: 'Tiempo estimado (días)',
+                          labelText: 'Días',
                           border: OutlineInputBorder(),
                           hintText: 'p. ej. 1',
                         ),
@@ -336,7 +336,7 @@ class _ManualMissionDialogState extends State<_ManualMissionDialog> {
                         enabled: !_sinTiempoEstimado && !_enviando,
                         keyboardType: TextInputType.number,
                         decoration: const InputDecoration(
-                          labelText: 'Tiempo estimado (horas)',
+                          labelText: 'Horas',
                           border: OutlineInputBorder(),
                           hintText: 'p. ej. 2',
                         ),
@@ -349,7 +349,7 @@ class _ManualMissionDialogState extends State<_ManualMissionDialog> {
                         enabled: !_sinTiempoEstimado && !_enviando,
                         keyboardType: TextInputType.number,
                         decoration: const InputDecoration(
-                          labelText: 'Tiempo estimado (minutos)',
+                          labelText: 'Minutos',
                           border: OutlineInputBorder(),
                           hintText: 'p. ej. 120',
                         ),

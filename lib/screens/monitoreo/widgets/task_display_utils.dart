@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:flutter/material.dart' as material;
+
 String normEst(Map<String, dynamic> t) {
   return '${t['Estado'] ?? t['estado'] ?? ''}'.trim().toLowerCase();
 }
@@ -519,6 +521,37 @@ Map<String, dynamic>? metaMapTarea(Map<String, dynamic> t) {
   return null;
 }
 
+/// Responsables múltiples: API (`usuarios_asignados`) + respaldo en `meta.usuarios_asignados`.
+List<String> usuariosAsignadosLista(Map<String, dynamic> t) {
+  final out = <String>[];
+  final seen = <String>{};
+  void addOne(String u) {
+    final s = u.trim();
+    if (s.isEmpty) return;
+    final k = s.toLowerCase();
+    if (seen.contains(k)) return;
+    seen.add(k);
+    out.add(s);
+  }
+
+  final raw = t['usuarios_asignados'];
+  if (raw is List) {
+    for (final item in raw) {
+      addOne('$item');
+    }
+  }
+  final mm = metaMapTarea(t);
+  if (mm != null) {
+    final ar = mm['usuarios_asignados'];
+    if (ar is List) {
+      for (final item in ar) {
+        addOne('$item');
+      }
+    }
+  }
+  return out;
+}
+
 /// Base64 crudo de imagen guardada en meta (alta manual u otras extensiones).
 String? imagenAdjuntaBase64Tarea(Map<String, dynamic> t) {
   final mm = metaMapTarea(t);
@@ -747,4 +780,51 @@ String tiempoEstimadoEtiqueta(Map<String, dynamic> task) {
     return 'Tiempo estimado: ${d} d ${h} h ${m} min';
   }
   return 'Tiempo estimado: $h hrs $m min';
+}
+
+/// Iniciales (máx. 2) para avatares y chips de monitoreo.
+String inicialesNombreUsuario(String name) {
+  final t = name.trim();
+  if (t.isEmpty || t.toLowerCase() == 'sin asignar') return '??';
+  final up = t.toUpperCase();
+  if (up == '__TODOS__' || up == 'TODOS') return 'TD';
+  final parts = t.split(RegExp(r'[\s_]+'));
+  if (parts.length >= 2) {
+    return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+  }
+  return t.substring(0, t.length >= 2 ? 2 : 1).toUpperCase();
+}
+
+/// Acento de usuario para bordes (saturación moderada, sin neón; legible claro/oscuro).
+material.Color monitoreoUserVividAccent(
+  material.Color seed, {
+  required bool isDark,
+}) {
+  final hsl = material.HSLColor.fromColor(seed);
+  var s = hsl.saturation;
+  if (s < 0.42) {
+    s = (s + 0.16).clamp(0.40, 0.56);
+  } else {
+    s = s.clamp(0.38, 0.56);
+  }
+  var l = hsl.lightness;
+  if (isDark) {
+    l = (l < 0.42 ? 0.56 : l * 0.92 + 0.05).clamp(0.50, 0.68);
+  } else {
+    l = (l > 0.54 ? 0.40 : l * 0.94).clamp(0.34, 0.50);
+  }
+  return hsl.withSaturation(s).withLightness(l.clamp(0.0, 1.0)).toColor();
+}
+
+/// Fondo opaco mate para iniciales en cabecera (sin transparencia ni halo).
+material.Color monitoreoUserMatteAvatarFill(
+  material.Color seed, {
+  required bool isDark,
+}) {
+  final hsl = material.HSLColor.fromColor(seed);
+  final s = (hsl.saturation * 0.5 + 0.06).clamp(0.14, 0.42);
+  final l = isDark
+      ? (0.36 + hsl.lightness * 0.1).clamp(0.30, 0.46)
+      : (0.68 + hsl.lightness * 0.06).clamp(0.58, 0.80);
+  return hsl.withSaturation(s).withLightness(l).toColor();
 }

@@ -19,7 +19,11 @@ import 'monitoreo/widgets/mission_meta_sheet.dart';
 import 'monitoreo/widgets/task_display_utils.dart';
 import '../services/app_role.dart';
 
-const List<String> _kMotivosPausa = ['Falta material', 'Avería', 'Aprobación'];
+const List<String> _kMotivosPausa = [
+  'Prioridad baja',
+  'Falta de tiempo',
+  'No definido',
+];
 
 /// Centro de Comando Directivo Industrial (Radar + Manual, sin IA predictiva).
 class MonitoreoTareasScreen extends StatefulWidget {
@@ -499,12 +503,42 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
     final task = Map<String, dynamic>.from(_tareas[idx]);
     if (!esManualSource(task)) return;
 
+    var responsablesLista = List<String>.from(kResponsablesMisionFallback);
+    try {
+      dynamic raw;
+      try {
+        raw = await ApiClient.get('/api/usuarios/all');
+      } catch (_) {
+        raw = await ApiClient.get('/api/usuarios/lista');
+      }
+      if (raw is List && raw.isNotEmpty) {
+        final nom =
+            raw
+                .map((e) => Map<String, dynamic>.from(e as Map))
+                .map((u) {
+                  final w = '${u['username'] ?? ''}'.trim();
+                  if (w.isNotEmpty) return w;
+                  return '${u['nombre'] ?? ''}'.trim();
+                })
+                .where((s) => s.isNotEmpty)
+                .toList();
+        if (nom.isNotEmpty) responsablesLista = nom;
+      }
+    } catch (_) {}
+
+    if (!mounted) return;
+
     final tituloCtrl = TextEditingController(text: tituloMision(task));
     final descCtrl = TextEditingController(text: descripcionMision(task));
     final minsRaw = task['minutos_estimados'] ?? task['Duracion_Minutos'] ?? 0;
     final minsVal = minsRaw is int ? minsRaw : int.tryParse('$minsRaw') ?? 0;
-    final daysCtrl = TextEditingController(text: '${minsVal ~/ (24 * 60)}');
-    final minsCtrl = TextEditingController(text: '${minsVal % (24 * 60)}');
+    final d = minsVal ~/ (24 * 60);
+    final rem = minsVal % (24 * 60);
+    final h = rem ~/ 60;
+    final mi = rem % 60;
+    final daysCtrl = TextEditingController(text: '$d');
+    final horasCtrl = TextEditingController(text: '$h');
+    final minsCtrl = TextEditingController(text: '$mi');
     final rawChecks = (task['checklist'] as List<dynamic>? ?? [])
         .map((e) => Map<String, dynamic>.from((e as Map).map((k, v) => MapEntry('$k', v))))
         .toList();
@@ -515,9 +549,47 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
           .join('\n'),
     );
     final meta = metaMapTarea(task) ?? <String, dynamic>{};
-    bool sinTiempo = meta['sin_tiempo_estimado'] == true;
-    bool quitarImagen = false;
+    var sinTiempo = meta['sin_tiempo_estimado'] == true;
+    var quitarImagen = false;
     String? nuevaImagen;
+
+    final asignadosLista = usuariosAsignadosLista(task);
+    final asignadoTxt = asignadoMision(task);
+    final upperTodos = kTodosResponsablesToken.toUpperCase();
+    var asignarATodos = asignadosLista.any(
+      (u) =>
+          u.trim().toUpperCase() == upperTodos ||
+          u.trim().toUpperCase() == 'TODOS',
+    );
+    final seleccionados = <String>{
+      for (final u in asignadosLista)
+        if (u.trim().toUpperCase() != '__TODOS__' &&
+            u.trim().toUpperCase() != 'TODOS')
+          u.trim(),
+    };
+    for (final u in asignadosLista) {
+      if (!responsablesLista.contains(u)) {
+        responsablesLista = [...responsablesLista, u];
+      }
+    }
+    String? responsableSel;
+    if (asignarATodos) {
+      responsableSel =
+          responsablesLista.contains(kTodosResponsablesToken)
+              ? kTodosResponsablesToken
+              : (responsablesLista.isNotEmpty ? responsablesLista.first : null);
+    } else if (asignadoTxt.isNotEmpty && asignadoTxt != 'Sin asignar') {
+      responsableSel = asignadoTxt;
+    } else if (seleccionados.isNotEmpty) {
+      responsableSel = seleccionados.first;
+    } else if (responsablesLista.isNotEmpty) {
+      responsableSel = responsablesLista.first;
+    }
+    if (responsableSel != null &&
+        !responsablesLista.contains(responsableSel)) {
+      responsablesLista = [responsableSel!, ...responsablesLista];
+    }
+    var asignarMultiples = asignarATodos || seleccionados.length > 1;
 
     try {
       final ok = await showDialog<bool>(
@@ -528,83 +600,229 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
               return ContentDialog(
                 title: Text('Editar misión manual #$idTarea'),
                 content: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 640),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      TextBox(controller: tituloCtrl, placeholder: 'Título'),
-                      const SizedBox(height: 8),
-                      TextBox(
-                        controller: descCtrl,
-                        placeholder: 'Descripción',
-                        maxLines: 3,
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextBox(
-                              controller: daysCtrl,
-                              enabled: !sinTiempo,
-                              placeholder: 'Días estimados',
-                            ),
+                  constraints: const BoxConstraints(maxWidth: 640, maxHeight: 560),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        TextBox(controller: tituloCtrl, placeholder: 'Título'),
+                        const SizedBox(height: 8),
+                        TextBox(
+                          controller: descCtrl,
+                          placeholder: 'Descripción',
+                          maxLines: 3,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Tiempo estimado',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                            color: FluentTheme.of(ctx).typography.body?.color,
                           ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: TextBox(
-                              controller: minsCtrl,
-                              enabled: !sinTiempo,
-                              placeholder: 'Minutos estimados',
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Días',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: FluentTheme.of(
+                                        ctx,
+                                      ).inactiveColor,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  TextBox(
+                                    controller: daysCtrl,
+                                    enabled: !sinTiempo,
+                                  ),
+                                ],
+                              ),
                             ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Horas',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: FluentTheme.of(
+                                        ctx,
+                                      ).inactiveColor,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  TextBox(
+                                    controller: horasCtrl,
+                                    enabled: !sinTiempo,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Minutos',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: FluentTheme.of(
+                                        ctx,
+                                      ).inactiveColor,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  TextBox(
+                                    controller: minsCtrl,
+                                    enabled: !sinTiempo,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Checkbox(
+                          checked: sinTiempo,
+                          content: const Text('No aplica tiempo'),
+                          onChanged:
+                              (v) => setLocal(() => sinTiempo = v ?? false),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Responsable (usuario de sistema)',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: FluentTheme.of(ctx).inactiveColor,
                           ),
-                          const SizedBox(width: 8),
+                        ),
+                        const SizedBox(height: 4),
+                        ComboBox<String>(
+                          value: responsableSel,
+                          isExpanded: true,
+                          placeholder: const Text('Seleccione'),
+                          items:
+                              responsablesLista
+                                  .map(
+                                    (e) => ComboBoxItem(
+                                      value: e,
+                                      child: Text(e),
+                                    ),
+                                  )
+                                  .toList(),
+                          onChanged: (v) {
+                            setLocal(() {
+                              responsableSel = v;
+                              final sv = (v ?? '').trim();
+                              if (sv.isNotEmpty) {
+                                seleccionados.add(sv);
+                              }
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 8),
+                        Checkbox(
+                          checked: asignarMultiples,
+                          content: const Text('Asignar a más de una persona'),
+                          onChanged:
+                              (v) => setLocal(() => asignarMultiples = v ?? false),
+                        ),
+                        if (asignarMultiples) ...[
                           Checkbox(
-                            checked: sinTiempo,
-                            content: const Text('No aplica tiempo'),
-                            onChanged: (v) => setLocal(() => sinTiempo = v ?? false),
+                            checked: asignarATodos,
+                            content: const Text(
+                              'Asignar a todos los usuarios del sistema',
+                            ),
+                            onChanged:
+                                (v) => setLocal(() => asignarATodos = v ?? false),
                           ),
+                          if (!asignarATodos)
+                            Container(
+                              constraints: const BoxConstraints(maxHeight: 140),
+                              decoration: BoxDecoration(
+                                border: Border.all(
+                                  color: FluentTheme.of(ctx).resources.dividerStrokeColorDefault,
+                                ),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: ListView(
+                                shrinkWrap: true,
+                                children: [
+                                  for (final usr in responsablesLista)
+                                    Checkbox(
+                                      checked: seleccionados.contains(usr),
+                                      content: Text(usr),
+                                      onChanged:
+                                          (v) => setLocal(() {
+                                            if (v == true) {
+                                              seleccionados.add(usr);
+                                            } else {
+                                              seleccionados.remove(usr);
+                                            }
+                                          }),
+                                    ),
+                                ],
+                              ),
+                            ),
                         ],
-                      ),
-                      const SizedBox(height: 8),
-                      TextBox(
-                        controller: checksCtrl,
-                        placeholder: 'Checklist (1 línea por ítem)',
-                        maxLines: 7,
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          Button(
-                            onPressed: () async {
-                              final picked = await FilePicker.platform.pickFiles(
-                                type: FileType.image,
-                                withData: true,
-                              );
-                              final bytes =
-                                  (picked == null || picked.files.isEmpty)
-                                      ? null
-                                      : picked.files.first.bytes;
-                              if (bytes == null || bytes.isEmpty) return;
-                              setLocal(() {
-                                nuevaImagen = base64Encode(bytes);
-                                quitarImagen = false;
-                              });
-                            },
-                            child: const Text('Cambiar imagen'),
-                          ),
-                          ToggleSwitch(
-                            checked: quitarImagen,
-                            onChanged: (v) => setLocal(() => quitarImagen = v),
-                            content: const Text('Quitar imagen actual'),
-                          ),
-                          if (nuevaImagen != null)
-                            const Text('Imagen nueva lista para guardar'),
-                        ],
-                      ),
-                    ],
+                        const SizedBox(height: 8),
+                        TextBox(
+                          controller: checksCtrl,
+                          placeholder: 'Checklist (1 línea por ítem)',
+                          maxLines: 7,
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            Button(
+                              onPressed: () async {
+                                final picked =
+                                    await FilePicker.platform.pickFiles(
+                                      type: FileType.image,
+                                      withData: true,
+                                    );
+                                final bytes =
+                                    (picked == null || picked.files.isEmpty)
+                                        ? null
+                                        : picked.files.first.bytes;
+                                if (bytes == null || bytes.isEmpty) return;
+                                setLocal(() {
+                                  nuevaImagen = base64Encode(bytes);
+                                  quitarImagen = false;
+                                });
+                              },
+                              child: const Text('Cambiar imagen'),
+                            ),
+                            ToggleSwitch(
+                              checked: quitarImagen,
+                              onChanged:
+                                  (v) => setLocal(() => quitarImagen = v),
+                              content: const Text('Quitar imagen actual'),
+                            ),
+                            if (nuevaImagen != null)
+                              const Text('Imagen nueva lista para guardar'),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
                 actions: [
@@ -624,6 +842,39 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
       );
       if (ok != true || !mounted) return;
 
+      final principal = (responsableSel ?? '').trim();
+      if (principal.isEmpty && !asignarATodos) {
+        displayInfoBar(
+          context,
+          builder:
+              (c, close) => InfoBar(
+                title: const Text('Responsable'),
+                content: const Text('Seleccione un responsable principal.'),
+                severity: InfoBarSeverity.warning,
+                onClose: close,
+              ),
+        );
+        return;
+      }
+      if (asignarMultiples &&
+          !asignarATodos &&
+          seleccionados.isEmpty &&
+          principal.isEmpty) {
+        displayInfoBar(
+          context,
+          builder:
+              (c, close) => InfoBar(
+                title: const Text('Responsables'),
+                content: const Text(
+                  'Marque al menos un usuario o el responsable principal.',
+                ),
+                severity: InfoBarSeverity.warning,
+                onClose: close,
+              ),
+        );
+        return;
+      }
+
       final lines = checksCtrl.text
           .split(RegExp(r'[\r\n]+'))
           .map((s) => s.trim())
@@ -638,14 +889,27 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
             },
           )
           .toList();
+
+      final List<String> responsablesBody;
+      if (asignarATodos) {
+        responsablesBody = [kTodosResponsablesToken];
+      } else if (asignarMultiples) {
+        responsablesBody = seleccionados.toList();
+      } else {
+        responsablesBody = <String>[];
+      }
+
       await ApiClient.put(
         '/api/tareas/manual/$idTarea',
         body: {
           'titulo': tituloCtrl.text.trim(),
           'descripcion': descCtrl.text.trim(),
+          'responsable': principal,
+          'responsables': responsablesBody,
           'minutos_estimados': sinTiempo
               ? 0
               : ((int.tryParse(daysCtrl.text.trim()) ?? 0) * 24 * 60) +
+                  ((int.tryParse(horasCtrl.text.trim()) ?? 0) * 60) +
                   (int.tryParse(minsCtrl.text.trim()) ?? 0),
           'sin_tiempo_estimado': sinTiempo,
           'checklist': checklist,
@@ -660,7 +924,9 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
         context,
         builder: (c, close) => InfoBar(
           title: const Text('Misión actualizada'),
-          content: const Text('Checklist e imagen editados correctamente.'),
+          content: const Text(
+            'Datos, responsables, tiempo, checklist e imagen guardados.',
+          ),
           severity: InfoBarSeverity.success,
           onClose: close,
         ),
@@ -680,6 +946,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
       tituloCtrl.dispose();
       descCtrl.dispose();
       daysCtrl.dispose();
+      horasCtrl.dispose();
       minsCtrl.dispose();
       checksCtrl.dispose();
     }
@@ -831,7 +1098,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
   }
 
   Future<void> _dialogoPausar(int idTarea) async {
-    String motivo = _kMotivosPausa.first;
+    String motivo = _kMotivosPausa.last;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) {
@@ -1460,7 +1727,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
             )
           : null,
       floatingActionButtonLocation:
-          material.FloatingActionButtonLocation.startFloat,
+          material.FloatingActionButtonLocation.endFloat,
       body: Column(
         children: [
           Container(
@@ -1591,11 +1858,8 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
       return _activasOrdenadas
           .where((t) {
             if (asignadoMision(t).trim().toLowerCase() == me) return true;
-            final raw = t['usuarios_asignados'];
-            if (raw is List) {
-              for (final u in raw) {
-                if ('$u'.trim().toLowerCase() == me) return true;
-              }
+            for (final u in usuariosAsignadosLista(t)) {
+              if (u.toLowerCase() == me) return true;
             }
             return false;
           })
@@ -1994,10 +2258,26 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
     String? initials,
   }) {
     final theme = FluentTheme.of(context);
+    final dark = _isDark(context);
     final baseBorder = theme.resources.controlStrokeColorDefault.withValues(
       alpha: 0.45,
     );
     final selColor = theme.accentColor;
+    material.Color? vivid;
+    if (avatarColor != null) {
+      vivid = monitoreoUserVividAccent(avatarColor, isDark: dark);
+    }
+    final chipBorder =
+        selected
+            ? selColor.withValues(alpha: 0.72)
+            : (vivid ?? baseBorder);
+    final chipBorderW = (!selected && vivid != null) ? 1.25 : 1.0;
+    final iniColor =
+        vivid != null
+            ? (vivid.computeLuminance() > 0.52
+                ? const material.Color(0xFF0F172A)
+                : material.Colors.white)
+            : Colors.white;
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
@@ -2005,30 +2285,35 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
         curve: Curves.easeOut,
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
         decoration: BoxDecoration(
-          color: selected ? selColor.withValues(alpha: 0.18) : theme.cardColor,
+          color:
+              selected
+                  ? selColor.withValues(alpha: 0.18)
+                  : (vivid != null
+                      ? vivid.withValues(alpha: dark ? 0.12 : 0.08)
+                      : theme.cardColor),
           borderRadius: BorderRadius.circular(999),
-          border: Border.all(
-            color: selected ? selColor.withValues(alpha: 0.6) : baseBorder,
-          ),
+          border: Border.all(color: chipBorder, width: chipBorderW),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (avatarColor != null && initials != null) ...[
+            if (avatarColor != null && initials != null && vivid != null) ...[
               Container(
-                width: 18,
-                height: 18,
+                width: 20,
+                height: 20,
                 decoration: BoxDecoration(
-                  color: avatarColor,
+                  color: vivid.withValues(alpha: dark ? 0.22 : 0.18),
                   borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: vivid, width: 1.25),
                 ),
                 alignment: Alignment.center,
                 child: Text(
                   initials,
-                  style: const TextStyle(
-                    fontSize: 9,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white,
+                  style: TextStyle(
+                    fontSize: initials.length > 2 ? 7.5 : 9,
+                    fontWeight: FontWeight.w900,
+                    color: iniColor,
+                    height: 1,
                   ),
                 ),
               ),
@@ -2039,6 +2324,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
               style: TextStyle(
                 fontSize: 12.5,
                 fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                color: vivid != null && !selected ? vivid : null,
               ),
             ),
           ],

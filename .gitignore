@@ -67,6 +67,13 @@ verbose.txt
 build_logs*.txt
 dart_analyze.log
 
+# Certificados de firma (nunca subir la clave privada .pfx)
+scripts/certs/*.pfx
+*.pfx
+
+# Artefactos de release locales (zip, apk, carpetas portables)
+releases/
+
 # Scripts de debug locales
 delete_vins.py
 check.py
