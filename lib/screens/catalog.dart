@@ -1649,6 +1649,22 @@ class _CatalogScreenState extends State<CatalogScreen> {
     );
   }
 
+  Widget _tabletActionIconButton({
+    required Widget icon,
+    required VoidCallback? onPressed,
+  }) {
+    return IconButton(
+      icon: icon,
+      onPressed: onPressed,
+      style: ButtonStyle(
+        padding: WidgetStateProperty.all(const EdgeInsets.all(10)),
+        shape: WidgetStateProperty.all(
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      ),
+    );
+  }
+
   Widget _buildCommandBar() {
     final role = parseAppRole(_userRole);
     return ConstrainedBox(
@@ -1669,21 +1685,21 @@ class _CatalogScreenState extends State<CatalogScreen> {
             if (role.catalogCanSelectColumns)
               Tooltip(
                 message: "Seleccionar Columnas",
-                child: IconButton(
+                child: _tabletActionIconButton(
                   icon: const Icon(FluentIcons.column_options),
                   onPressed: _showColumnSelector,
                 ),
               ),
             Tooltip(
               message: "Refrescar Datos",
-              child: IconButton(
+              child: _tabletActionIconButton(
                 icon: const Icon(FluentIcons.refresh),
                 onPressed: _fetchData,
               ),
             ),
             Tooltip(
               message: "Limpiar Filtros",
-              child: IconButton(
+              child: _tabletActionIconButton(
                 icon: const Icon(FluentIcons.clear_filter),
                 onPressed: _clearFilters,
               ),
@@ -1691,7 +1707,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
             if (role.catalogCanSearchDxf)
               Tooltip(
                 message: "Buscar DXF",
-                child: IconButton(
+                child: _tabletActionIconButton(
                   icon: const Icon(FluentIcons.search),
                   onPressed: _searchDXF,
                 ),
@@ -1699,7 +1715,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
             if (role.catalogCanExportExcel)
               Tooltip(
                 message: "Exportar a Excel",
-                child: IconButton(
+                child: _tabletActionIconButton(
                   icon: const Icon(FluentIcons.excel_logo),
                   onPressed: _filteredData.isNotEmpty ? _exportToExcel : null,
                 ),
@@ -1707,14 +1723,14 @@ class _CatalogScreenState extends State<CatalogScreen> {
             if (role.catalogCanExportPdf)
               Tooltip(
                 message: "Exportar PDF (sin columnas privadas)",
-                child: IconButton(
+                child: _tabletActionIconButton(
                   icon: const Icon(FluentIcons.pdf, size: 14),
                   onPressed: _filteredData.isNotEmpty ? _exportToPdf : null,
                 ),
               ),
             Tooltip(
               message: "Reportar fallo del catálogo",
-              child: IconButton(
+              child: _tabletActionIconButton(
                 icon: const Icon(FluentIcons.bug),
                 onPressed: () => showContextualBugReportDialog(
                   context,
@@ -1729,7 +1745,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                     role.catalogShowsStockPtAlmacen
                         ? 'Actualizar stock desde hoja externa'
                         : 'Solo Ingeniería y Desarrollador pueden ejecutar este botón',
-                child: IconButton(
+                child: _tabletActionIconButton(
                   onPressed:
                       !role.catalogShowsStockPtAlmacen
                           ? null
@@ -1753,7 +1769,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                     role.catalogShowsStockPtAlmacen
                         ? 'Ver códigos con stock no registrados en catálogo'
                         : 'Solo Ingeniería y Desarrollador pueden ejecutar este botón',
-                child: IconButton(
+                child: _tabletActionIconButton(
                   onPressed:
                       !role.catalogShowsStockPtAlmacen
                           ? null
@@ -2082,26 +2098,26 @@ class _CatalogScreenState extends State<CatalogScreen> {
                         children: [
                           Tooltip(
                             message: 'Ordenar por $col',
-                            child: IconButton(
+                            child: _tabletActionIconButton(
                               icon: Icon(
                                 _columnaOrden == col
                                     ? (_ordenAscendente
                                         ? FluentIcons.sort_up
                                         : FluentIcons.sort_down)
                                     : FluentIcons.sort,
-                                size: 10,
+                                size: 14,
                               ),
                               onPressed: () => _ordenarTabla(col),
                             ),
                           ),
                           Tooltip(
                             message: 'Filtro desplegable (estilo Excel)',
-                            child: IconButton(
+                            child: _tabletActionIconButton(
                               icon: Icon(
                                 _selectedValueFilters[col]?.isNotEmpty == true
                                     ? FluentIcons.filter_solid
                                     : FluentIcons.filter,
-                                size: 10,
+                                size: 14,
                                 color:
                                     _selectedValueFilters[col]?.isNotEmpty == true
                                     ? FluentTheme.of(context).accentColor
@@ -2162,10 +2178,10 @@ class _CatalogScreenState extends State<CatalogScreen> {
               children: [
                 Tooltip(
                   message: 'Información',
-                  child: IconButton(
+                  child: _tabletActionIconButton(
                     icon: Icon(
                       FluentIcons.info,
-                      size: 14,
+                      size: 18,
                       color: palette.actionInfo,
                     ), // BLUE
                     onPressed: () => _showInfoDetails(row),
@@ -2174,10 +2190,10 @@ class _CatalogScreenState extends State<CatalogScreen> {
                 if (parseAppRole(_userRole).catalogCanEditRows)
                   Tooltip(
                     message: 'Editar',
-                    child: IconButton(
+                    child: _tabletActionIconButton(
                       icon: Icon(
                         FluentIcons.edit,
-                        size: 14,
+                        size: 18,
                         color: palette.actionEdit,
                       ), // NARANJA VIBRANTE
                       onPressed: () => _showEditDialog(row),
@@ -2187,10 +2203,10 @@ class _CatalogScreenState extends State<CatalogScreen> {
                 if (hasLink)
                   Tooltip(
                     message: 'Abrir Drive/Plano',
-                    child: IconButton(
+                    child: _tabletActionIconButton(
                       icon: Icon(
                         FluentIcons.cloud,
-                        size: 14,
+                        size: 18,
                         color: palette.actionLink,
                       ), // TEAL (VERDE PASTEL VIBRANTE)
                       onPressed:
@@ -2202,10 +2218,10 @@ class _CatalogScreenState extends State<CatalogScreen> {
 
                 Tooltip(
                   message: 'Copiar Código',
-                  child: IconButton(
+                  child: _tabletActionIconButton(
                     icon: Icon(
                       FluentIcons.copy,
-                      size: 14,
+                      size: 18,
                       color: palette.actionCopy,
                     ), // MAGENTA/MORADO PARA RESALTAR
                     onPressed: () {
@@ -2231,10 +2247,10 @@ class _CatalogScreenState extends State<CatalogScreen> {
                 if (parseAppRole(_userRole).catalogCanEditRows)
                   Tooltip(
                     message: 'Eliminar Pieza',
-                    child: IconButton(
+                    child: _tabletActionIconButton(
                       icon: Icon(
                         FluentIcons.delete,
-                        size: 14,
+                        size: 18,
                         color: palette.actionDanger,
                       ),
                       onPressed:

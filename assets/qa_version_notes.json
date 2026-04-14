@@ -1,5 +1,26 @@
 [
   {
+    "build": 334,
+    "v": "334.0",
+    "tipo": "parche",
+    "fecha": "2026-04-13",
+    "notas": "Ayudas/Catálogo para tablet: modo solo visualización por rol en acciones críticas, mejoras táctiles de navegación rápida, y fallback offline en Ayudas con snapshot local + caché LRU de PDFs para continuidad sin red."
+  },
+  {
+    "build": 333,
+    "v": "333.0",
+    "tipo": "actualizacion",
+    "fecha": "2026-04-14",
+    "notas": "Ayudas visuales: rediseño oscuro adaptable a tablet, tarjetas con imagen de fondo configurable por categoría (sin perder icono/alta/edición) y nuevo visor dual para comparar revisiones manteniendo historial, subida y zoom."
+  },
+  {
+    "build": 332,
+    "v": "332.0",
+    "tipo": "parche",
+    "fecha": "2026-04-13",
+    "notas": "Corrección crash al cargar monitoreo: buzón de misiones iteraba la lista mientras insertaba recordatorios (Concurrent modification)."
+  },
+  {
     "build": 331,
     "v": "331.0",
     "tipo": "parche",

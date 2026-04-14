@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../services/api_client.dart';
+import '../../services/ayudas_offline_cache_service.dart';
 import '../../services/main_nav.dart';
 import '../../theme/app_themes.dart';
 import '../../widgets/compact_page_header.dart';
@@ -42,6 +43,14 @@ IconData _obtenerIcono(String? codigo) {
 }
 
 Uint8List? _decodeIconPng(dynamic raw) {
+  return _decodeImageBase64(raw);
+}
+
+Uint8List? _decodeIconIco(dynamic raw) {
+  return _decodeImageBase64(raw);
+}
+
+Uint8List? _decodeImageBase64(dynamic raw) {
   final s = raw == null ? '' : raw.toString().trim();
   if (s.isEmpty) return null;
   try {
@@ -51,19 +60,52 @@ Uint8List? _decodeIconPng(dynamic raw) {
   }
 }
 
-String? _validateCategoriaPng(Uint8List bytes) {
-  const maxBytes = 512 * 1024;
-  if (bytes.isEmpty) return 'La imagen está vacía.';
+String? _validateCategoriaIco(Uint8List bytes) {
+  const maxBytes = 256 * 1024;
+  if (bytes.isEmpty) return 'El archivo ICO está vacío.';
   if (bytes.lengthInBytes > maxBytes) {
-    return 'La imagen excede 512KB. Selecciona una imagen PNG más ligera.';
+    return 'El ICO excede 256KB. Usa un icono de menos tamaños embebidos.';
   }
-  if (bytes.lengthInBytes < 8) return 'Archivo PNG inválido.';
-  const sig = <int>[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
-  for (var i = 0; i < sig.length; i++) {
-    if (bytes[i] != sig[i]) {
-      return 'Formato inválido: solo se permiten imágenes PNG válidas.';
-    }
+  if (bytes.lengthInBytes < 22) return 'Archivo ICO demasiado corto.';
+  if (bytes[0] != 0 || bytes[1] != 0 || bytes[2] != 1 || bytes[3] != 0) {
+    return 'Formato inválido: se espera un archivo .ico (tipo icono 1).';
   }
+  return null;
+}
+
+Color _ayudaCategoryIconTint(
+  BuildContext context,
+  bool isCyberpunk,
+  String titulo,
+) {
+  final isDark =
+      material.Theme.of(context).brightness == material.Brightness.dark;
+  final neonColors = <Color>[
+    const Color(0xFF00E5FF),
+    const Color(0xFFFF00D4),
+    const Color(0xFFB7FF00),
+  ];
+  final neonIndex =
+      titulo.runes.fold<int>(0, (a, b) => a + b) % neonColors.length;
+  if (isCyberpunk) return neonColors[neonIndex];
+  if (isDark) return material.Theme.of(context).colorScheme.secondary;
+  return material.Theme.of(context).primaryColor;
+}
+
+Widget _themedAyudaIcoImage(Uint8List bytes, Color tint) {
+  return ColorFiltered(
+    colorFilter: ColorFilter.mode(tint, BlendMode.srcIn),
+    child: Image.memory(bytes, fit: BoxFit.contain),
+  );
+}
+
+String? _validateBackgroundImage(Uint8List bytes) {
+  const maxBytes = 2 * 1024 * 1024;
+  if (bytes.isEmpty) return 'La imagen de fondo está vacía.';
+  if (bytes.lengthInBytes > maxBytes) {
+    return 'La imagen de fondo excede 2MB.';
+  }
+  if (bytes.lengthInBytes < 8) return 'Archivo de fondo inválido.';
   return null;
 }
 
@@ -91,6 +133,7 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
 
   bool _loading = true;
   String? _error;
+  bool _usingOfflineSnapshot = false;
   List<dynamic> _categorias = [];
   bool _loadingIndice = false;
   List<Map<String, dynamic>> _todosDocumentos = [];
@@ -151,16 +194,29 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
     setState(() {
       _loading = true;
       _error = null;
+      _usingOfflineSnapshot = false;
     });
     try {
       final data = await ApiClient.get('/api/ayudas/categorias');
       final list = data is List ? data : <dynamic>[];
+      await AyudasOfflineCacheService.instance.saveCategoriasSnapshot(list);
       setState(() {
         _categorias = list;
         _loading = false;
       });
       await _cargarIndiceDocumentos();
     } catch (e) {
+      final cached = await AyudasOfflineCacheService.instance
+          .readCategoriasSnapshot();
+      if (cached != null) {
+        setState(() {
+          _categorias = cached;
+          _loading = false;
+          _usingOfflineSnapshot = true;
+        });
+        await _cargarIndiceDocumentos();
+        return;
+      }
       setState(() {
         _error = e.toString();
         _loading = false;
@@ -176,23 +232,35 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
     setState(() => _loadingIndice = true);
     try {
       final futures = <Future<List<Map<String, dynamic>>>>[];
+      var usedOfflineDocs = false;
       for (final c in _categorias) {
         if (c is! Map<String, dynamic>) continue;
         final idRaw = c['ID_Categoria'];
         final idCat = idRaw is int ? idRaw : int.tryParse('$idRaw') ?? 0;
         final nombre = (c['Nombre_Categoria'] ?? '').toString();
         futures.add(() async {
-          final data = await ApiClient.get('/api/ayudas/lista/$idCat');
-          final raw = data is List ? data : <dynamic>[];
-          return raw
-              .whereType<Map>()
-              .map((d) {
-                final m = Map<String, dynamic>.from(d);
-                m['_id_categoria'] = idCat;
-                m['_nombre_categoria'] = nombre;
-                return m;
-              })
-              .toList();
+          List<dynamic> raw = const <dynamic>[];
+          try {
+            final data = await ApiClient.get('/api/ayudas/lista/$idCat');
+            raw = data is List ? data : <dynamic>[];
+            await AyudasOfflineCacheService.instance.saveCategoriaListaSnapshot(
+              idCat,
+              raw,
+            );
+          } catch (_) {
+            final cached = await AyudasOfflineCacheService.instance
+                .readCategoriaListaSnapshot(idCat);
+            if (cached != null) {
+              raw = cached;
+              usedOfflineDocs = true;
+            }
+          }
+          return raw.whereType<Map>().map((d) {
+            final m = Map<String, dynamic>.from(d);
+            m['_id_categoria'] = idCat;
+            m['_nombre_categoria'] = nombre;
+            return m;
+          }).toList();
         }());
       }
       final lists = await Future.wait(futures);
@@ -204,6 +272,7 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
         setState(() {
           _todosDocumentos = flat;
           _loadingIndice = false;
+          _usingOfflineSnapshot = _usingOfflineSnapshot || usedOfflineDocs;
         });
       }
     } catch (_) {
@@ -366,8 +435,10 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
   Future<void> _dialogoNuevaCategoria() async {
     final nombreCtrl = TextEditingController();
     final iconoCtrl = TextEditingController();
-    Uint8List? iconoPngBytes;
-    String? iconoPngB64;
+    Uint8List? iconoIcoBytes;
+    String? iconoIcoB64;
+    Uint8List? fondoBytes;
+    String? fondoB64;
     try {
       await showDialog<void>(
         context: context,
@@ -389,7 +460,15 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
                   placeholder: 'mecanico, electrico…',
                 ),
                 const SizedBox(height: 12),
-                const Text('Ícono PNG (opcional)'),
+                const Text('Ícono .ico (opcional, monocromo / transparente)'),
+                const SizedBox(height: 4),
+                Text(
+                  'Se pinta con el color del tema (como los iconos vectoriales).',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: FluentTheme.of(context).resources.textFillColorSecondary,
+                  ),
+                ),
                 const SizedBox(height: 6),
                 Row(
                   children: [
@@ -403,18 +482,28 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
                         ),
                       ),
                       clipBehavior: Clip.antiAlias,
-                      child: iconoPngBytes == null
+                      alignment: Alignment.center,
+                      child: iconoIcoBytes == null
                           ? const Icon(FluentIcons.picture, size: 14)
-                          : Image.memory(iconoPngBytes!, fit: BoxFit.cover),
+                          : _themedAyudaIcoImage(
+                              iconoIcoBytes!,
+                              _ayudaCategoryIconTint(
+                                context,
+                                _esModoCiberpunk(context),
+                                nombreCtrl.text.trim().isEmpty
+                                    ? 'Cat'
+                                    : nombreCtrl.text.trim(),
+                              ),
+                            ),
                     ),
                     const SizedBox(width: 8),
                     Button(
-                      child: const Text('Seleccionar PNG'),
+                      child: const Text('Seleccionar .ico'),
                       onPressed: () async {
                         final r = await FilePicker.platform.pickFiles(
                           type: FileType.custom,
                           allowMultiple: false,
-                          allowedExtensions: ['png'],
+                          allowedExtensions: ['ico'],
                           withData: true,
                         );
                         if (r == null || r.files.isEmpty) return;
@@ -424,17 +513,87 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
                           bytes = await File(path).readAsBytes();
                         }
                         if (bytes == null || bytes.isEmpty) return;
-                        final validation = _validateCategoriaPng(bytes);
+                        final validation = _validateCategoriaIco(bytes);
                         if (validation != null) {
                           _showIconValidationError(validation);
                           return;
                         }
                         final b64 = base64Encode(bytes);
-                        iconoPngBytes = bytes;
-                        iconoPngB64 = b64;
+                        iconoIcoBytes = bytes;
+                        iconoIcoB64 = b64;
                         (ctx as Element).markNeedsBuild();
                       },
                     ),
+                    if (iconoIcoBytes != null) ...[
+                      const SizedBox(width: 6),
+                      IconButton(
+                        icon: const Icon(FluentIcons.clear, size: 14),
+                        onPressed: () {
+                          iconoIcoBytes = null;
+                          iconoIcoB64 = null;
+                          (ctx as Element).markNeedsBuild();
+                        },
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 12),
+                const Text('Imagen de fondo (opcional)'),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Container(
+                      width: 56,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: FluentTheme.of(context).inactiveColor,
+                        ),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: fondoBytes == null
+                          ? const Icon(FluentIcons.picture, size: 14)
+                          : Image.memory(fondoBytes!, fit: BoxFit.cover),
+                    ),
+                    const SizedBox(width: 8),
+                    Button(
+                      child: const Text('Seleccionar fondo'),
+                      onPressed: () async {
+                        final r = await FilePicker.platform.pickFiles(
+                          type: FileType.custom,
+                          allowMultiple: false,
+                          allowedExtensions: ['png', 'jpg', 'jpeg', 'webp'],
+                          withData: true,
+                        );
+                        if (r == null || r.files.isEmpty) return;
+                        Uint8List? bytes = r.files.single.bytes;
+                        final path = r.files.single.path;
+                        if (bytes == null && path != null && path.isNotEmpty) {
+                          bytes = await File(path).readAsBytes();
+                        }
+                        if (bytes == null || bytes.isEmpty) return;
+                        final validation = _validateBackgroundImage(bytes);
+                        if (validation != null) {
+                          _showIconValidationError(validation);
+                          return;
+                        }
+                        fondoBytes = bytes;
+                        fondoB64 = base64Encode(bytes);
+                        (ctx as Element).markNeedsBuild();
+                      },
+                    ),
+                    if (fondoBytes != null) ...[
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: const Icon(FluentIcons.clear, size: 14),
+                        onPressed: () {
+                          fondoBytes = null;
+                          fondoB64 = '';
+                          (ctx as Element).markNeedsBuild();
+                        },
+                      ),
+                    ],
                   ],
                 ),
               ],
@@ -468,8 +627,9 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
                       body: {
                         'nombre': n,
                         'icono': iconoCtrl.text.trim(),
-                        if (iconoPngB64 != null && iconoPngB64!.isNotEmpty)
-                          'icono_png_base64': iconoPngB64,
+                        if (iconoIcoB64 != null && iconoIcoB64!.isNotEmpty)
+                          'icono_ico_base64': iconoIcoB64,
+                        if (fondoB64 != null) 'fondo_base64': fondoB64,
                       },
                       headers: {'X-Usuario': user},
                     );
@@ -518,9 +678,20 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
     final iconoCtrl = TextEditingController(
       text: (row['Icono_Codigo'] ?? '').toString(),
     );
+    Uint8List? iconoIcoBytes =
+        _decodeIconIco(row['Icono_Ico_Base64'] ?? row['icono_ico_base64']);
+    String? iconoIcoB64 =
+        iconoIcoBytes == null ? null : base64Encode(iconoIcoBytes);
     Uint8List? iconoPngBytes =
         _decodeIconPng(row['Icono_Png_Base64'] ?? row['icono_png_base64']);
     String? iconoPngB64 = iconoPngBytes == null ? null : base64Encode(iconoPngBytes);
+    if (iconoIcoBytes != null) {
+      iconoPngBytes = null;
+      iconoPngB64 = null;
+    }
+    Uint8List? fondoBytes =
+        _decodeImageBase64(row['Fondo_Base64'] ?? row['fondo_base64']);
+    String? fondoB64 = fondoBytes == null ? null : base64Encode(fondoBytes);
     try {
       await showDialog<void>(
         context: context,
@@ -528,7 +699,7 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
           return StatefulBuilder(
             builder: (context, setLocalState) {
               return ContentDialog(
-                title: Text('Editar imagen: $nombre'),
+                title: Text('Editar estilo: $nombre'),
                 content: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   mainAxisSize: MainAxisSize.min,
@@ -537,7 +708,17 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
                     const SizedBox(height: 6),
                     TextBox(controller: iconoCtrl, placeholder: 'mecanico, electrico…'),
                     const SizedBox(height: 12),
-                    const Text('Ícono PNG (opcional)'),
+                    const Text('Ícono .ico (opcional, monocromo / transparente)'),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Se pinta con el color del tema. Sustituye al PNG en categorías nuevas.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: FluentTheme.of(context)
+                            .resources
+                            .textFillColorSecondary,
+                      ),
+                    ),
                     const SizedBox(height: 6),
                     Row(
                       children: [
@@ -551,18 +732,26 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
                             ),
                           ),
                           clipBehavior: Clip.antiAlias,
-                          child: iconoPngBytes == null
+                          alignment: Alignment.center,
+                          child: iconoIcoBytes == null
                               ? const Icon(FluentIcons.picture, size: 16)
-                              : Image.memory(iconoPngBytes!, fit: BoxFit.cover),
+                              : _themedAyudaIcoImage(
+                                  iconoIcoBytes!,
+                                  _ayudaCategoryIconTint(
+                                    context,
+                                    _esModoCiberpunk(context),
+                                    nombre,
+                                  ),
+                                ),
                         ),
                         const SizedBox(width: 8),
                         Button(
-                          child: const Text('Cambiar PNG'),
+                          child: const Text('Cambiar .ico'),
                           onPressed: () async {
                             final r = await FilePicker.platform.pickFiles(
                               type: FileType.custom,
                               allowMultiple: false,
-                              allowedExtensions: ['png'],
+                              allowedExtensions: ['ico'],
                               withData: true,
                             );
                             if (r == null || r.files.isEmpty) return;
@@ -572,25 +761,115 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
                               bytes = await File(path).readAsBytes();
                             }
                             if (bytes == null || bytes.isEmpty) return;
-                            final validation = _validateCategoriaPng(bytes);
+                            final validation = _validateCategoriaIco(bytes);
                             if (validation != null) {
                               _showIconValidationError(validation);
                               return;
                             }
                             setLocalState(() {
-                              iconoPngBytes = bytes;
-                              iconoPngB64 = base64Encode(bytes!);
+                              iconoIcoBytes = bytes;
+                              iconoIcoB64 = base64Encode(bytes!);
+                              iconoPngBytes = null;
+                              iconoPngB64 = null;
                             });
                           },
                         ),
                         const SizedBox(width: 8),
-                        if (iconoPngBytes != null)
+                        if (iconoIcoBytes != null)
                           IconButton(
                             icon: const Icon(FluentIcons.clear, size: 14),
                             onPressed: () {
                               setLocalState(() {
-                                iconoPngBytes = null;
-                                iconoPngB64 = '';
+                                iconoIcoBytes = null;
+                                iconoIcoB64 = '';
+                              });
+                            },
+                          ),
+                      ],
+                    ),
+                    if (iconoPngBytes != null && iconoIcoBytes == null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Esta categoría aún usa un PNG antiguo (sin tinte de tema). '
+                        'Sube un .ico para alinearlo con el tema.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: FluentTheme.of(context)
+                              .resources
+                              .textFillColorSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: SizedBox(
+                          width: 42,
+                          height: 42,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.memory(
+                              iconoPngBytes!,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    const Text('Imagen de fondo (opcional)'),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Container(
+                          width: 68,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: FluentTheme.of(context).inactiveColor,
+                            ),
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: fondoBytes == null
+                              ? const Icon(FluentIcons.picture, size: 16)
+                              : Image.memory(fondoBytes!, fit: BoxFit.cover),
+                        ),
+                        const SizedBox(width: 8),
+                        Button(
+                          child: const Text('Cambiar fondo'),
+                          onPressed: () async {
+                            final r = await FilePicker.platform.pickFiles(
+                              type: FileType.custom,
+                              allowMultiple: false,
+                              allowedExtensions: ['png', 'jpg', 'jpeg', 'webp'],
+                              withData: true,
+                            );
+                            if (r == null || r.files.isEmpty) return;
+                            Uint8List? bytes = r.files.single.bytes;
+                            final path = r.files.single.path;
+                            if (bytes == null && path != null && path.isNotEmpty) {
+                              bytes = await File(path).readAsBytes();
+                            }
+                            if (bytes == null || bytes.isEmpty) return;
+                            final validation = _validateBackgroundImage(bytes);
+                            if (validation != null) {
+                              _showIconValidationError(validation);
+                              return;
+                            }
+                            setLocalState(() {
+                              fondoBytes = bytes;
+                              fondoB64 = base64Encode(bytes!);
+                            });
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                        if (fondoBytes != null)
+                          IconButton(
+                            icon: const Icon(FluentIcons.clear, size: 14),
+                            onPressed: () {
+                              setLocalState(() {
+                                fondoBytes = null;
+                                fondoB64 = '';
                               });
                             },
                           ),
@@ -622,8 +901,14 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
                         final body = <String, dynamic>{
                           'icono': iconoCtrl.text.trim(),
                         };
+                        if (iconoIcoB64 != null) {
+                          body['icono_ico_base64'] = iconoIcoB64;
+                        }
                         if (iconoPngB64 != null) {
                           body['icono_png_base64'] = iconoPngB64;
+                        }
+                        if (fondoB64 != null) {
+                          body['fondo_base64'] = fondoB64;
                         }
                         await ApiClient.put(
                           '/api/ayudas/categorias/$idCategoria',
@@ -672,7 +957,7 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
         return StatefulBuilder(
           builder: (context, setLocalState) {
             return ContentDialog(
-              title: const Text('Editar imagen de categoría'),
+              title: const Text('Editar estilo de categoría'),
               content: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 mainAxisSize: MainAxisSize.min,
@@ -776,6 +1061,17 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
                   : Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        if (_usingOfflineSnapshot)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                            child: InfoBar(
+                              title: const Text('Sin conexión'),
+                              content: const Text(
+                                'Mostrando la última copia guardada de ayudas visuales.',
+                              ),
+                              severity: InfoBarSeverity.warning,
+                            ),
+                          ),
                         Padding(
                           padding: const EdgeInsets.fromLTRB(20, 6, 20, 8),
                           child: material.Material(
@@ -786,15 +1082,41 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
                               children: [
                                 material.TextField(
                                   controller: _searchCtrl,
+                                  style: const material.TextStyle(
+                                    color: Color(0xFFE2E4E9),
+                                  ),
                                   decoration: material.InputDecoration(
                                     hintText:
                                         'Buscar en todas las categorías: título, VIN, #etiqueta…',
+                                    hintStyle: const material.TextStyle(
+                                      color: Color(0xFF9499A5),
+                                    ),
                                     prefixIcon: const material.Icon(
                                       material.Icons.search,
+                                      color: Color(0xFF9499A5),
                                     ),
+                                    filled: true,
+                                    fillColor: const Color(0xFF0F1113),
                                     border: material.OutlineInputBorder(
                                       borderRadius:
                                           material.BorderRadius.circular(12),
+                                      borderSide: const material.BorderSide(
+                                        color: Color(0xFF2D3139),
+                                      ),
+                                    ),
+                                    enabledBorder: material.OutlineInputBorder(
+                                      borderRadius:
+                                          material.BorderRadius.circular(12),
+                                      borderSide: const material.BorderSide(
+                                        color: Color(0xFF2D3139),
+                                      ),
+                                    ),
+                                    focusedBorder: material.OutlineInputBorder(
+                                      borderRadius:
+                                          material.BorderRadius.circular(12),
+                                      borderSide: const material.BorderSide(
+                                        color: Color(0xFFE5A50A),
+                                      ),
                                     ),
                                     isDense: true,
                                   ),
@@ -852,18 +1174,21 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
                             child: _searchCtrl.text.trim().isEmpty
                                 ? LayoutBuilder(
                                     builder: (context, c) {
-                                      final cols = c.maxWidth >= 1000
+                                      final cols = c.maxWidth >= 1300
                                           ? 4
-                                          : c.maxWidth >= 700
+                                          : c.maxWidth >= 900
                                               ? 3
-                                              : 2;
+                                              : c.maxWidth >= 640
+                                                  ? 2
+                                                  : 1;
                                       return GridView.builder(
                                         gridDelegate:
                                             SliverGridDelegateWithFixedCrossAxisCount(
                                           crossAxisCount: cols,
                                           mainAxisSpacing: 16,
                                           crossAxisSpacing: 16,
-                                          childAspectRatio: 1.15,
+                                          childAspectRatio:
+                                              c.maxWidth >= 900 ? 1.18 : 1.02,
                                         ),
                                         itemCount: _categorias.length,
                                         itemBuilder: (context, i) {
@@ -876,14 +1201,24 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
                                                   .toString();
                                           final icono =
                                               row['Icono_Codigo']?.toString();
+                                          final iconoIco = _decodeIconIco(
+                                            row['Icono_Ico_Base64'] ??
+                                                row['icono_ico_base64'],
+                                          );
                                           final iconoPng = _decodeIconPng(
                                             row['Icono_Png_Base64'] ??
                                                 row['icono_png_base64'],
                                           );
+                                          final fondo = _decodeImageBase64(
+                                            row['Fondo_Base64'] ??
+                                                row['fondo_base64'],
+                                          );
                                           return _CategoriaTile(
                                             titulo: nombre,
                                             icon: _obtenerIcono(icono),
-                                            iconPng: iconoPng,
+                                            iconIco: iconoIco,
+                                            iconPng: iconoIco != null ? null : iconoPng,
+                                            fondo: fondo,
                                             isCyberpunk: isCyberpunk,
                                             onTap: () {
                                               Navigator.of(context).push(
@@ -931,7 +1266,7 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
                         borderRadius: material.BorderRadius.circular(24.0),
                       ),
                       icon: const Icon(material.Icons.photo_camera_outlined),
-                      label: const Text('Editar imagen categoría'),
+                      label: const Text('Editar estilo categoría'),
                     ),
                     const SizedBox(height: 10),
                   ],
@@ -958,76 +1293,112 @@ class _CategoriaTile extends StatelessWidget {
   const _CategoriaTile({
     required this.titulo,
     required this.icon,
+    required this.iconIco,
     required this.iconPng,
+    required this.fondo,
     required this.isCyberpunk,
     required this.onTap,
   });
 
   final String titulo;
   final IconData icon;
+  final Uint8List? iconIco;
   final Uint8List? iconPng;
+  final Uint8List? fondo;
   final bool isCyberpunk;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final isDark = material.Theme.of(context).brightness == material.Brightness.dark;
     final borderRadius = material.BorderRadius.circular(
       isCyberpunk ? 4.0 : 24.0,
     );
-    final neonColors = <Color>[
-      const Color(0xFF00E5FF), // cyan
-      const Color(0xFFFF00D4), // magenta
-      const Color(0xFFB7FF00), // lima
-    ];
-    final neonIndex = titulo.runes.fold<int>(0, (a, b) => a + b) %
-        neonColors.length;
-    final iconColor = isCyberpunk
-        ? neonColors[neonIndex]
-        : isDark
-            ? material.Theme.of(context).colorScheme.secondary
-            : material.Theme.of(context).primaryColor;
+    final iconColor =
+        _ayudaCategoryIconTint(context, isCyberpunk, titulo);
 
     return material.Card(
-      elevation: 4.0,
+      elevation: 3.0,
+      color: const Color(0xFF1A1D21),
       shape: material.RoundedRectangleBorder(
         borderRadius: borderRadius,
+        side: const BorderSide(color: Color(0xFF2D3139)),
       ),
       child: material.InkWell(
         onTap: onTap,
         borderRadius: borderRadius,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              if (iconPng != null)
-                Container(
-                  width: 58,
-                  height: 58,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: iconColor.withValues(alpha: 0.4)),
-                  ),
-                  clipBehavior: Clip.antiAlias,
-                  child: Image.memory(iconPng!, fit: BoxFit.cover),
-                )
-              else
-                Icon(
-                  icon,
-                  size: 56.0,
-                  color: iconColor,
-                ),
-              const SizedBox(height: 12),
-              Text(
-                titulo,
-                textAlign: TextAlign.center,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                style: FluentTheme.of(context).typography.bodyStrong,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (fondo != null)
+              Image.memory(
+                fondo!,
+                fit: BoxFit.cover,
+                filterQuality: FilterQuality.low,
               ),
-            ],
-          ),
+            Container(
+              decoration: BoxDecoration(
+                borderRadius: borderRadius,
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    const Color(0xFF0F1113).withValues(alpha: 0.08),
+                    const Color(0xFF0F1113).withValues(alpha: 0.78),
+                    const Color(0xFF0F1113).withValues(alpha: 0.92),
+                  ],
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0F1113).withValues(alpha: 0.82),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFF2D3139)),
+                    ),
+                    alignment: Alignment.center,
+                    child: iconIco != null
+                        ? ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Padding(
+                              padding: const EdgeInsets.all(4),
+                              child: _themedAyudaIcoImage(iconIco!, iconColor),
+                            ),
+                          )
+                        : iconPng != null
+                            ? ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: Image.memory(iconPng!, fit: BoxFit.cover),
+                              )
+                            : Icon(
+                                icon,
+                                size: 22.0,
+                                color: iconColor,
+                              ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    titulo,
+                    textAlign: TextAlign.start,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: FluentTheme.of(context).typography.bodyStrong?.copyWith(
+                          color: const Color(0xFFE2E4E9),
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

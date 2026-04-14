@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../services/api_client.dart';
+import '../../services/ayudas_offline_cache_service.dart';
 import '../../widgets/contextual_bug_report.dart';
 import 'ayudas_api_models.dart';
 import 'ayudas_visor_screen.dart';
@@ -35,6 +36,7 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
 
   bool _loading = true;
   String? _error;
+  bool _usingOfflineSnapshot = false;
   List<dynamic> _docs = [];
   List<String> _tagsEnCategoria = [];
 
@@ -48,9 +50,14 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
     setState(() {
       _loading = true;
       _error = null;
+      _usingOfflineSnapshot = false;
     });
     try {
       final data = await ApiClient.get('/api/ayudas/lista/${widget.idCategoria}');
+      await AyudasOfflineCacheService.instance.saveCategoriaListaSnapshot(
+        widget.idCategoria,
+        data is List ? data : const <dynamic>[],
+      );
       List<String> tagsApi = [];
       try {
         final tjson = await ApiClient.get('/api/ayudas/tags/${widget.idCategoria}');
@@ -64,6 +71,24 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
         _loading = false;
       });
     } catch (e) {
+      final cached = await AyudasOfflineCacheService.instance
+          .readCategoriaListaSnapshot(widget.idCategoria);
+      if (cached != null) {
+        final tags = <String>{..._kSeedTags};
+        for (final d in cached) {
+          if (d is Map<String, dynamic>) {
+            tags.addAll(ayudasTags(d));
+          }
+        }
+        setState(() {
+          _docs = cached;
+          _tagsEnCategoria = tags.toList()
+            ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+          _loading = false;
+          _usingOfflineSnapshot = true;
+        });
+        return;
+      }
       setState(() {
         _error = e.toString();
         _loading = false;
@@ -93,6 +118,7 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
   }
 
   Future<void> _dialogoNuevoDocumento() async {
+    if (!widget.canUpload) return;
     final tituloCtrl = TextEditingController();
     final subcategoriaCtrl = TextEditingController();
     final revCtrl = TextEditingController();
@@ -364,6 +390,7 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
   }
 
   Future<void> _dialogoEditarSubcategoria(String nombreActual) async {
+    if (!widget.canUpload) return;
     final ctrl = TextEditingController(text: nombreActual);
     try {
       await showDialog<void>(
@@ -438,6 +465,7 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
   }
 
   Future<void> _eliminarDocumento(int idAyuda, String titulo) async {
+    if (!widget.canUpload) return;
     final passCtrl = TextEditingController();
     try {
       await showDialog<void>(
@@ -488,8 +516,13 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
   Widget build(BuildContext context) {
     final grouped = _groupedDocs();
     final textColor = material.Theme.of(context).textTheme.bodyMedium?.color;
+    const bg = material.Color(0xFF0F1113);
+    const surface = material.Color(0xFF1A1D21);
+    const border = material.Color(0xFF2D3139);
     return material.Scaffold(
+      backgroundColor: bg,
       appBar: material.AppBar(
+        backgroundColor: surface,
         leading: material.IconButton(
           icon: const material.Icon(material.Icons.arrow_back),
           onPressed: () => Navigator.of(context).pop(),
@@ -521,9 +554,27 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
                       : ListView(
                           padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
                           children: [
+                            if (_usingOfflineSnapshot)
+                              const Padding(
+                                padding: EdgeInsets.only(bottom: 8),
+                                child: InfoBar(
+                                  title: Text('Sin conexión'),
+                                  content: Text(
+                                    'Mostrando la última copia guardada de esta categoría.',
+                                  ),
+                                  severity: InfoBarSeverity.warning,
+                                ),
+                              ),
                             ...grouped.entries.map((entry) {
                               return material.Card(
+                                color: surface,
+                                shape: material.RoundedRectangleBorder(
+                                  borderRadius: material.BorderRadius.circular(12),
+                                  side: const material.BorderSide(color: border),
+                                ),
                                 child: material.ExpansionTile(
+                                  collapsedBackgroundColor: surface,
+                                  backgroundColor: surface,
                                   title: Row(
                                     children: [
                                       Expanded(
@@ -535,18 +586,20 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
                                           ),
                                         ),
                                       ),
-                                      material.IconButton(
-                                        icon: Icon(
-                                          material.Icons.edit,
-                                          size: 18,
-                                          color: material.Theme.of(
-                                            context,
-                                          ).primaryColor,
+                                      if (widget.canUpload)
+                                        material.IconButton(
+                                          icon: Icon(
+                                            material.Icons.edit,
+                                            size: 18,
+                                            color: material.Theme.of(
+                                              context,
+                                            ).primaryColor,
+                                          ),
+                                          tooltip: 'Editar subcategoría',
+                                          onPressed: () => _dialogoEditarSubcategoria(
+                                            entry.key,
+                                          ),
                                         ),
-                                        tooltip: 'Editar subcategoría',
-                                        onPressed: () =>
-                                            _dialogoEditarSubcategoria(entry.key),
-                                      ),
                                     ],
                                   ),
                                   children: entry.value.map((m) {
@@ -575,15 +628,21 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
                                     final hintColor =
                                         material.Theme.of(context).hintColor;
                                     return material.Card(
+                                      color: const material.Color(0xFF151920),
                                       margin: const material.EdgeInsets.fromLTRB(
                                         12,
                                         4,
                                         12,
                                         8,
                                       ),
+                                      shape: material.RoundedRectangleBorder(
+                                        borderRadius: material.BorderRadius.circular(10),
+                                        side: const material.BorderSide(color: border),
+                                      ),
                                       child: material.ListTile(
                                         isThreeLine: true,
-                                        dense: true,
+                                        dense: false,
+                                        minVerticalPadding: 12,
                                         leading: Icon(
                                           FluentIcons.pdf,
                                           color: FluentTheme.of(context).accentColor,
@@ -641,16 +700,21 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
                                             ),
                                           ],
                                         ),
-                                        trailing: material.IconButton(
-                                          icon: Icon(
-                                            material.Icons.delete_outline,
-                                            color: material.Theme.of(
-                                              context,
-                                            ).colorScheme.error,
-                                          ),
-                                          onPressed: () =>
-                                              _eliminarDocumento(idAyuda, titulo),
-                                        ),
+                                        trailing: widget.canUpload
+                                            ? material.IconButton(
+                                                icon: Icon(
+                                                  material.Icons.delete_outline,
+                                                  color: material.Theme.of(
+                                                    context,
+                                                  ).colorScheme.error,
+                                                ),
+                                                onPressed: () =>
+                                                    _eliminarDocumento(
+                                                      idAyuda,
+                                                      titulo,
+                                                    ),
+                                              )
+                                            : null,
                                         onTap: () {
                                           Navigator.of(context).push(
                                             material.MaterialPageRoute<void>(

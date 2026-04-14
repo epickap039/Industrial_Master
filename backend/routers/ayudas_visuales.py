@@ -3,13 +3,16 @@ Ayudas visuales (PDFs por categoría y revisiones).
 
 Esquema SQL (nombres exactos):
 
-    Tbl_Ayudas_Categorias: ID_Categoria, Nombre_Categoria, Activo, Icono_Codigo
+    Tbl_Ayudas_Categorias: ID_Categoria, Nombre_Categoria, Activo, Icono_Codigo,
+                          Icono_Png_Base64 (legado), Icono_Ico_Base64 (tintado en app)
     Tbl_Ayudas_Maestro: Id_Ayuda, Id_Categoria, Titulo_Documento, Fecha_Creacion, VIN,
                           Subcategoria, Tags (JSON array de #hashtags, NVARCHAR(MAX))
-    Tbl_Ayudas_Revisiones: Id_Revision, Id_Ayuda, Numero_Revision, Ruta_PDF,
+    Tbl_Ayudas_Revisiones: Id_Revision, Id_Ayuda, Numero_Revision, Ruta_PDF, Pdf_Binario (opcional),
                           Fecha_Subida, Es_Vigente, Usuario_Subida
 
 Archivos físicos: Z:\\Ayudas_Visuales\\<NombreCategoria_Sanitizado>\\
+  (copia en disco; además cada nueva revisión guarda el PDF en Pdf_Binario cuando la columna existe).
+  GET /api/ayudas/ver prioriza Pdf_Binario sobre el archivo de Ruta_PDF.
 """
 from __future__ import annotations
 
@@ -22,7 +25,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 from admin_master_password import assert_admin_master_password_matches
@@ -39,10 +42,14 @@ class CategoriaCreatePayload(BaseModel):
     nombre: str = Field(..., min_length=1)
     icono: str = ""
     icono_png_base64: Optional[str] = None
+    icono_ico_base64: Optional[str] = None
+    fondo_base64: Optional[str] = None
 
 class CategoriaUpdatePayload(BaseModel):
     icono: Optional[str] = None
     icono_png_base64: Optional[str] = None
+    icono_ico_base64: Optional[str] = None
+    fondo_base64: Optional[str] = None
 
 class EditarSubcategoriaPayload(BaseModel):
     id_categoria: int
@@ -90,6 +97,105 @@ def _ensure_categoria_png_column(cur: Any) -> None:
         END
         """
     )
+
+
+def _ensure_categoria_ico_column(cur: Any) -> None:
+    cur.execute(
+        """
+        IF COL_LENGTH('dbo.Tbl_Ayudas_Categorias', 'Icono_Ico_Base64') IS NULL
+        BEGIN
+            ALTER TABLE dbo.Tbl_Ayudas_Categorias
+            ADD Icono_Ico_Base64 NVARCHAR(MAX) NULL;
+        END
+        """
+    )
+
+
+def _ensure_categoria_fondo_column(cur: Any) -> None:
+    cur.execute(
+        """
+        IF COL_LENGTH('dbo.Tbl_Ayudas_Categorias', 'Fondo_Base64') IS NULL
+        BEGIN
+            ALTER TABLE dbo.Tbl_Ayudas_Categorias
+            ADD Fondo_Base64 NVARCHAR(MAX) NULL;
+        END
+        """
+    )
+
+
+def _validate_background_image_base64(raw_b64: str) -> str:
+    s = (raw_b64 or "").strip()
+    if not s:
+        return ""
+    try:
+        raw = base64.b64decode(s, validate=True)
+    except Exception:
+        raise HTTPException(status_code=400, detail="fondo_base64 inválido")
+    if len(raw) > 2 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Fondo excede 2MB")
+    if len(raw) < 8:
+        raise HTTPException(status_code=400, detail="Fondo inválido")
+    return s
+
+
+def _validate_categoria_ico_base64(raw_b64: str) -> str:
+    """Valida ICO (cabecera estándar) y devuelve el mismo base64 recortado para guardar."""
+    s = (raw_b64 or "").strip()
+    if not s:
+        return ""
+    try:
+        raw = base64.b64decode(s, validate=True)
+    except Exception:
+        raise HTTPException(status_code=400, detail="icono_ico_base64 inválido")
+    if len(raw) > 256 * 1024:
+        raise HTTPException(status_code=400, detail="Ícono ICO excede 256KB")
+    if len(raw) < 22:
+        raise HTTPException(status_code=400, detail="Archivo ICO demasiado corto")
+    if raw[0:2] != b"\x00\x00" or raw[2:4] != b"\x01\x00":
+        raise HTTPException(
+            status_code=400,
+            detail="Formato ICO inválido (se espera tipo icono 1)",
+        )
+    return s
+
+
+def _categoria_select_columns_sql(cur: Any) -> str:
+    parts = ["ID_Categoria", "Nombre_Categoria", "Activo", "Icono_Codigo"]
+    if _has_column(cur, "dbo.Tbl_Ayudas_Categorias", "Icono_Png_Base64"):
+        parts.append("Icono_Png_Base64")
+    if _has_column(cur, "dbo.Tbl_Ayudas_Categorias", "Icono_Ico_Base64"):
+        parts.append("Icono_Ico_Base64")
+    if _has_column(cur, "dbo.Tbl_Ayudas_Categorias", "Fondo_Base64"):
+        parts.append("Fondo_Base64")
+    return ", ".join(parts)
+
+
+def _ensure_pdf_binario_column(cur: Any) -> None:
+    cur.execute(
+        """
+        IF COL_LENGTH('dbo.Tbl_Ayudas_Revisiones', 'Pdf_Binario') IS NULL
+        BEGIN
+            ALTER TABLE dbo.Tbl_Ayudas_Revisiones
+            ADD Pdf_Binario VARBINARY(MAX) NULL;
+        END
+        """
+    )
+
+
+def _coerce_pdf_binario(raw: Any) -> Optional[bytes]:
+    if raw is None:
+        return None
+    if isinstance(raw, memoryview):
+        b = raw.tobytes()
+    elif isinstance(raw, (bytes, bytearray)):
+        b = bytes(raw)
+    else:
+        try:
+            b = bytes(raw)
+        except Exception:
+            return None
+    return b if len(b) > 0 else None
+
 
 def _normalize_consecutivo(raw: str) -> str:
     return re.sub(r"\s+", "", (raw or "").strip()).upper()
@@ -204,25 +310,15 @@ def list_categorias_activas():
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        has_png = _has_column(cur, "dbo.Tbl_Ayudas_Categorias", "Icono_Png_Base64")
-        if has_png:
-            cur.execute(
-                """
-                SELECT ID_Categoria, Nombre_Categoria, Activo, Icono_Codigo, Icono_Png_Base64
-                FROM Tbl_Ayudas_Categorias
-                WHERE Activo = 1
-                ORDER BY Nombre_Categoria
-                """
-            )
-        else:
-            cur.execute(
-                """
-                SELECT ID_Categoria, Nombre_Categoria, Activo, Icono_Codigo
-                FROM Tbl_Ayudas_Categorias
-                WHERE Activo = 1
-                ORDER BY Nombre_Categoria
-                """
-            )
+        col_sql = _categoria_select_columns_sql(cur)
+        cur.execute(
+            f"""
+            SELECT {col_sql}
+            FROM Tbl_Ayudas_Categorias
+            WHERE Activo = 1
+            ORDER BY Nombre_Categoria
+            """
+        )
         rows = cur.fetchall()
         return [_row_to_dict(cur, r) for r in rows]
     except Exception as e:
@@ -240,9 +336,14 @@ def crear_categoria(
     nombre = (payload.nombre or "").strip()
     icono = (payload.icono or "").strip()
     icono_png = (payload.icono_png_base64 or "").strip()
+    icono_ico = (payload.icono_ico_base64 or "").strip()
+    fondo_b64 = _validate_background_image_base64(payload.fondo_base64 or "")
     if not nombre:
         raise HTTPException(status_code=400, detail="nombre es obligatorio")
-    if icono_png:
+    if icono_ico:
+        icono_ico = _validate_categoria_ico_base64(icono_ico)
+        icono_png = ""
+    elif icono_png:
         try:
             raw = base64.b64decode(icono_png, validate=True)
         except Exception:
@@ -255,25 +356,34 @@ def crear_categoria(
     cur = conn.cursor()
     try:
         _ensure_categoria_png_column(cur)
+        _ensure_categoria_ico_column(cur)
+        _ensure_categoria_fondo_column(cur)
         has_png_col = _has_column(cur, "dbo.Tbl_Ayudas_Categorias", "Icono_Png_Base64")
+        has_ico_col = _has_column(cur, "dbo.Tbl_Ayudas_Categorias", "Icono_Ico_Base64")
+        has_fondo_col = _has_column(cur, "dbo.Tbl_Ayudas_Categorias", "Fondo_Base64")
+        cols = ["Nombre_Categoria", "Icono_Codigo"]
+        params_ins: List[Any] = [nombre, icono or None]
         if has_png_col:
-            cur.execute(
-                """
-                INSERT INTO Tbl_Ayudas_Categorias (Nombre_Categoria, Icono_Codigo, Icono_Png_Base64, Activo)
-                OUTPUT INSERTED.ID_Categoria
-                VALUES (?, ?, ?, 1)
-                """,
-                (nombre, icono or None, icono_png or None),
-            )
-        else:
-            cur.execute(
-                """
-                INSERT INTO Tbl_Ayudas_Categorias (Nombre_Categoria, Icono_Codigo, Activo)
-                OUTPUT INSERTED.ID_Categoria
-                VALUES (?, ?, 1)
-                """,
-                (nombre, icono or None),
-            )
+            cols.append("Icono_Png_Base64")
+            params_ins.append(icono_png or None)
+        if has_ico_col:
+            cols.append("Icono_Ico_Base64")
+            params_ins.append(icono_ico or None)
+        if has_fondo_col:
+            cols.append("Fondo_Base64")
+            params_ins.append(fondo_b64 or None)
+        cols.append("Activo")
+        params_ins.append(1)
+        col_sql = ", ".join(cols)
+        ph = ", ".join(["?"] * len(params_ins))
+        cur.execute(
+            f"""
+            INSERT INTO Tbl_Ayudas_Categorias ({col_sql})
+            OUTPUT INSERTED.ID_Categoria
+            VALUES ({ph})
+            """,
+            tuple(params_ins),
+        )
         new_id = int(cur.fetchone()[0])
         detalle = f"id={new_id};nombre={nombre};icono={icono or '-'}"
         registrar_log_global(cur, "AYUDAS", "CREAR_CATEGORIA_AYUDAS", "", detalle, usr)
@@ -294,9 +404,22 @@ def editar_categoria(
 ):
     icono = (payload.icono or "").strip()
     icono_png = (payload.icono_png_base64 or "").strip()
+    icono_ico = (payload.icono_ico_base64 or "").strip()
+    fondo_b64 = _validate_background_image_base64(payload.fondo_base64 or "")
 
-    if payload.icono is None and payload.icono_png_base64 is None:
+    if (
+        payload.icono is None
+        and payload.icono_png_base64 is None
+        and payload.icono_ico_base64 is None
+        and payload.fondo_base64 is None
+    ):
         raise HTTPException(status_code=400, detail="Debe enviar al menos un campo a actualizar")
+
+    if icono_png and icono_ico:
+        raise HTTPException(
+            status_code=400,
+            detail="No enviar ícono PNG e ICO con datos a la vez; use solo uno",
+        )
 
     if icono_png:
         try:
@@ -306,11 +429,16 @@ def editar_categoria(
         if len(raw) > 512 * 1024:
             raise HTTPException(status_code=400, detail="Ícono PNG excede 512KB")
 
+    if icono_ico:
+        icono_ico = _validate_categoria_ico_base64(icono_ico)
+
     usr = resolve_actor_user(authorization, x_usuario)
     conn = get_db_connection()
     cur = conn.cursor()
     try:
         _ensure_categoria_png_column(cur)
+        _ensure_categoria_ico_column(cur)
+        _ensure_categoria_fondo_column(cur)
         _assert_can_edit_categoria_imagen(cur, usr)
         cur.execute(
             "SELECT Nombre_Categoria FROM Tbl_Ayudas_Categorias WHERE ID_Categoria = ?",
@@ -321,10 +449,22 @@ def editar_categoria(
             raise HTTPException(status_code=404, detail="Categoría no encontrada")
 
         has_png_col = _has_column(cur, "dbo.Tbl_Ayudas_Categorias", "Icono_Png_Base64")
+        has_ico_col = _has_column(cur, "dbo.Tbl_Ayudas_Categorias", "Icono_Ico_Base64")
+        has_fondo_col = _has_column(cur, "dbo.Tbl_Ayudas_Categorias", "Fondo_Base64")
         if payload.icono_png_base64 is not None and icono_png and not has_png_col:
             raise HTTPException(
                 status_code=400,
                 detail="La BD no soporta Icono_Png_Base64 en Tbl_Ayudas_Categorias",
+            )
+        if payload.icono_ico_base64 is not None and icono_ico and not has_ico_col:
+            raise HTTPException(
+                status_code=400,
+                detail="La BD no soporta Icono_Ico_Base64 en Tbl_Ayudas_Categorias",
+            )
+        if payload.fondo_base64 is not None and fondo_b64 and not has_fondo_col:
+            raise HTTPException(
+                status_code=400,
+                detail="La BD no soporta Fondo_Base64 en Tbl_Ayudas_Categorias",
             )
 
         updates: List[str] = []
@@ -336,6 +476,18 @@ def editar_categoria(
         if payload.icono_png_base64 is not None and has_png_col:
             updates.append("Icono_Png_Base64 = ?")
             params.append(icono_png or None)
+            if icono_png and has_ico_col:
+                updates.append("Icono_Ico_Base64 = ?")
+                params.append(None)
+        if payload.icono_ico_base64 is not None and has_ico_col:
+            updates.append("Icono_Ico_Base64 = ?")
+            params.append(icono_ico or None)
+            if icono_ico and has_png_col:
+                updates.append("Icono_Png_Base64 = ?")
+                params.append(None)
+        if payload.fondo_base64 is not None and has_fondo_col:
+            updates.append("Fondo_Base64 = ?")
+            params.append(fondo_b64 or None)
 
         if not updates:
             return {"ok": True, "id_categoria": id_categoria, "updated": False}
@@ -347,7 +499,9 @@ def editar_categoria(
         detalle = (
             f"id={id_categoria};nombre={row[0]};"
             f"icono={(icono if payload.icono is not None else '[sin-cambio]') or '-'};"
-            f"icono_png={'actualizado' if payload.icono_png_base64 is not None else 'sin-cambio'}"
+            f"icono_png={'actualizado' if payload.icono_png_base64 is not None else 'sin-cambio'};"
+            f"icono_ico={'actualizado' if payload.icono_ico_base64 is not None else 'sin-cambio'};"
+            f"fondo={'actualizado' if payload.fondo_base64 is not None else 'sin-cambio'}"
         )
         registrar_log_global(cur, "AYUDAS", "EDITAR_CATEGORIA_AYUDAS", "", detalle, usr)
         conn.commit()
@@ -721,6 +875,9 @@ async def subir_revision_pdf(
     conn = get_db_connection()
     cur = conn.cursor()
     try:
+        _ensure_pdf_binario_column(cur)
+        has_pdf_binario_col = _has_column(cur, "dbo.Tbl_Ayudas_Revisiones", "Pdf_Binario")
+
         id_ayuda_int: Optional[int] = None
         id_cat_int: Optional[int] = None
         nombre_categoria: str = ""
@@ -840,18 +997,54 @@ async def subir_revision_pdf(
 
         ahora_subida = datetime.now()
         if has_consec_col:
+            if has_pdf_binario_col:
+                cur.execute(
+                    """
+                    INSERT INTO Tbl_Ayudas_Revisiones
+                        (Id_Ayuda, Numero_Revision, Consecutivo_Unico, Ruta_PDF, Pdf_Binario, Fecha_Subida, Es_Vigente, Usuario_Subida)
+                    OUTPUT INSERTED.Id_Revision
+                    VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+                    """,
+                    (
+                        id_ayuda_int,
+                        numero_revision.strip(),
+                        consec_norm,
+                        dest_path,
+                        body,
+                        ahora_subida,
+                        usuario_limpio,
+                    ),
+                )
+            else:
+                cur.execute(
+                    """
+                    INSERT INTO Tbl_Ayudas_Revisiones
+                        (Id_Ayuda, Numero_Revision, Consecutivo_Unico, Ruta_PDF, Fecha_Subida, Es_Vigente, Usuario_Subida)
+                    OUTPUT INSERTED.Id_Revision
+                    VALUES (?, ?, ?, ?, ?, 1, ?)
+                    """,
+                    (
+                        id_ayuda_int,
+                        numero_revision.strip(),
+                        consec_norm,
+                        dest_path,
+                        ahora_subida,
+                        usuario_limpio,
+                    ),
+                )
+        elif has_pdf_binario_col:
             cur.execute(
                 """
                 INSERT INTO Tbl_Ayudas_Revisiones
-                    (Id_Ayuda, Numero_Revision, Consecutivo_Unico, Ruta_PDF, Fecha_Subida, Es_Vigente, Usuario_Subida)
+                    (Id_Ayuda, Numero_Revision, Ruta_PDF, Pdf_Binario, Fecha_Subida, Es_Vigente, Usuario_Subida)
                 OUTPUT INSERTED.Id_Revision
                 VALUES (?, ?, ?, ?, ?, 1, ?)
                 """,
                 (
                     id_ayuda_int,
-                    numero_revision.strip(),
                     consec_norm,
                     dest_path,
+                    body,
                     ahora_subida,
                     usuario_limpio,
                 ),
@@ -935,18 +1128,42 @@ def ver_pdf_revision(id_revision: int):
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        cur.execute(
-            """
-            SELECT Ruta_PDF
-            FROM Tbl_Ayudas_Revisiones
-            WHERE Id_Revision = ?
-            """,
-            (id_revision,),
-        )
+        _ensure_pdf_binario_column(cur)
+        has_bin = _has_column(cur, "dbo.Tbl_Ayudas_Revisiones", "Pdf_Binario")
+        if has_bin:
+            cur.execute(
+                """
+                SELECT Ruta_PDF, Pdf_Binario
+                FROM Tbl_Ayudas_Revisiones
+                WHERE Id_Revision = ?
+                """,
+                (id_revision,),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT Ruta_PDF
+                FROM Tbl_Ayudas_Revisiones
+                WHERE Id_Revision = ?
+                """,
+                (id_revision,),
+            )
         row = cur.fetchone()
-        if not row or not row[0]:
+        if not row:
             raise HTTPException(status_code=404, detail="Revisión no encontrada")
-        path = str(row[0]).strip()
+        path = str(row[0] or "").strip()
+        if has_bin and len(row) > 1:
+            blob = _coerce_pdf_binario(row[1])
+            if blob is not None:
+                return Response(
+                    content=blob,
+                    media_type="application/pdf",
+                    headers={
+                        "Content-Disposition": f'inline; filename="ayuda_{id_revision}.pdf"'
+                    },
+                )
+        if not path:
+            raise HTTPException(status_code=404, detail="Revisión no encontrada")
         if not os.path.isfile(path):
             raise HTTPException(
                 status_code=404,

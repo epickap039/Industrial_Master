@@ -270,7 +270,8 @@ class CmdInboxStore {
     final now = DateTime.now();
     var mutated = false;
 
-    for (final n in all) {
+    // Copia fija: no modificar [all] (insert) mientras se itera la misma lista.
+    for (final n in List<CmdInboxEntry>.from(all)) {
       if (n.tipo != kMissionAssignedType || n.idTarea == null) continue;
       final taskId = n.idTarea!;
       final task = byId[taskId];

@@ -7,7 +7,9 @@ BEGIN
         Nombre_Categoria NVARCHAR(200) NOT NULL,
         Activo           BIT NOT NULL DEFAULT 1,
         Icono_Codigo     NVARCHAR(50) NULL,
-        Icono_Png_Base64 NVARCHAR(MAX) NULL
+        Icono_Png_Base64 NVARCHAR(MAX) NULL,
+        Icono_Ico_Base64 NVARCHAR(MAX) NULL,
+        Fondo_Base64     NVARCHAR(MAX) NULL
     );
 END
 GO
@@ -32,6 +34,7 @@ BEGIN
         Numero_Revision NVARCHAR(80) NOT NULL,
         Consecutivo_Unico NVARCHAR(80) NULL,
         Ruta_PDF        NVARCHAR(1000) NOT NULL,
+        Pdf_Binario     VARBINARY(MAX) NULL,
         Fecha_Subida    DATETIME2(0) NOT NULL DEFAULT SYSUTCDATETIME(),
         Es_Vigente      BIT NOT NULL DEFAULT 1,
         Usuario_Subida  NVARCHAR(200) NULL

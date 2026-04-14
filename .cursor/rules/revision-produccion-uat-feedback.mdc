@@ -1,0 +1,20 @@
+---
+description: Recordatorio al tocar módulos cubiertos por el plan de revisión en producción / UAT
+alwaysApply: true
+---
+
+# Revisión producción y retroalimentación de usuarios
+
+Hay un **plan de revisión / UAT** en Cursor: `.cursor/plans/revisión_producción_app_e25ec699.plan.md` (mismo nombre en la carpeta de planes del equipo). Relacionado: `.cursor/plans/lobby_accesos_personalizables_5d2cd2e6.plan.md` para lobby + zumbido + BOM.
+
+## Al editar código de estos dominios
+
+Cuando se **aborda** un módulo que el instructivo lista como pendiente de validación o mejora (lobby, ayudas visuales, chat interno, monitoreo/tareas, catálogo maestro, MRP, BOM, materiales oficiales, radar, mapa de ingeniería, VIN, generador, historial, Centro QA, etc.):
+
+1. **Priorizar** ajustes alineados con **retroalimentación real de usuarios** (sesiones UAT, fricción §4 del plan, reportes **Centro QA** abiertos).
+2. No asumir “solo refactor estético”: si el plan o QA señalan tiempo de reacción, claridad de pasos o permisos, enlazar el cambio a ese criterio cuando aplique.
+3. Tras corregir un bug reportado por QA en esas áreas, seguir [qa-centro-notas.mdc](qa-centro-notas.mdc) y, si toca, una línea en `assets/qa_version_notes.json`.
+
+## Alcance
+
+Esto **no** sustituye decisiones de negocio ni el plan completo; sirve para que el agente recuerde el acuerdo del equipo: **correcciones guiadas por feedback** al trabajar esos módulos.

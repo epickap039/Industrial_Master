@@ -1771,6 +1771,14 @@ class _LobbyScreenState extends State<LobbyScreen> {
             ),
             _quickActionCard(
               theme: theme,
+              icon: FluentIcons.page_list,
+              title: 'Ayudas visuales',
+              subtitle: 'Consulta de instructivos',
+              detail: 'Acceso directo a PDFs por categoría y revisión.',
+              onTap: () => widget.onNavigatePane(NavPaneId.ayudasVisuales),
+            ),
+            _quickActionCard(
+              theme: theme,
               icon: FluentIcons.map_layers,
               title: 'Mapa de ingeniería',
               subtitle: 'Navega la estructura del producto',
@@ -1792,14 +1800,6 @@ class _LobbyScreenState extends State<LobbyScreen> {
               subtitle: 'Carga masiva de cambios',
               detail: 'Entrada rápida para actualización operativa del catálogo.',
               onTap: () => widget.onNavigatePane(NavPaneId.importarExcel),
-            ),
-            _quickActionCard(
-              theme: theme,
-              icon: FluentIcons.page_list,
-              title: 'Ayudas visuales',
-              subtitle: 'Consulta de instructivos',
-              detail: 'Acceso directo a PDFs por categoría y revisión.',
-              onTap: () => widget.onNavigatePane(NavPaneId.ayudasVisuales),
             ),
           ]
         : <Widget>[

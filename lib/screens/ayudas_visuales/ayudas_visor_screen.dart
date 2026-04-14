@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart' as material;
 import 'package:fluent_ui/fluent_ui.dart';
@@ -5,17 +7,12 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 
-import '../../config/app_config.dart';
 import '../../services/api_client.dart';
+import '../../services/ayudas_offline_cache_service.dart';
 import '../../widgets/contextual_bug_report.dart';
 import 'ayudas_api_models.dart';
 
-String _pdfUrlForRevision(int idRevision) {
-  final base = kApiBaseUrl.endsWith('/')
-      ? kApiBaseUrl.substring(0, kApiBaseUrl.length - 1)
-      : kApiBaseUrl;
-  return '$base/api/ayudas/ver/$idRevision';
-}
+enum _DualFocusState { principal, dual, secundaria }
 
 /// Pantalla 3: PDF (≈80%) + línea de tiempo de revisiones (≈20%).
 class AyudasVisorScreen extends StatefulWidget {
@@ -47,30 +44,21 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
   String? _errorHist;
   List<dynamic> _historial = [];
   late int _idRevisionSeleccionada;
-  Map<String, String> _pdfHeaders = {};
+  int? _idRevisionSecundaria;
+  _DualFocusState _focusState = _DualFocusState.dual;
   bool _sidebarColapsada = false;
+  bool _showOfflineBanner = false;
 
   @override
   void initState() {
     super.initState();
     _idRevisionSeleccionada = widget.idRevisionInicial;
-    _cargarHeaders();
     if (widget.allowRevisionHistory) {
       _cargarHistorial();
     } else {
       _historial = [];
       _loadingHist = false;
     }
-  }
-
-  Future<void> _cargarHeaders() async {
-    final prefs = await SharedPreferences.getInstance();
-    final t = prefs.getString('access_token');
-    final h = <String, String>{};
-    if (t != null && t.isNotEmpty) {
-      h['Authorization'] = 'Bearer $t';
-    }
-    if (mounted) setState(() => _pdfHeaders = h);
   }
 
   Future<void> _cargarHistorial() async {
@@ -80,16 +68,95 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
     });
     try {
       final data = await ApiClient.get('/api/ayudas/historial/${widget.idAyuda}');
+      await AyudasOfflineCacheService.instance.saveHistorialSnapshot(
+        widget.idAyuda,
+        data is List ? data : const <dynamic>[],
+      );
       setState(() {
         _historial = data is List ? data : [];
+        final validIds = _historial
+            .whereType<Map<String, dynamic>>()
+            .map(ayudasIdRevision)
+            .toSet();
+        if (_idRevisionSecundaria != null &&
+            !validIds.contains(_idRevisionSecundaria)) {
+          _idRevisionSecundaria = null;
+          _focusState = _DualFocusState.dual;
+        }
         _loadingHist = false;
       });
     } catch (e) {
+      final cached = await AyudasOfflineCacheService.instance.readHistorialSnapshot(
+        widget.idAyuda,
+      );
+      if (cached != null) {
+        setState(() {
+          _historial = cached;
+          _loadingHist = false;
+          _showOfflineBanner = true;
+        });
+        return;
+      }
       setState(() {
         _errorHist = e.toString();
         _loadingHist = false;
       });
     }
+  }
+
+  bool get _splitActivo =>
+      _idRevisionSecundaria != null &&
+      _idRevisionSecundaria != _idRevisionSeleccionada;
+
+  Future<void> _seleccionarRevisionSecundaria() async {
+    if (!_historial.whereType<Map<String, dynamic>>().any((m) {
+      return ayudasIdRevision(m) != _idRevisionSeleccionada;
+    })) {
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        return ContentDialog(
+          title: const Text('Seleccionar vista secundaria'),
+          content: SizedBox(
+            width: 420,
+            child: ListView(
+              shrinkWrap: true,
+              children: _historial
+                  .whereType<Map<String, dynamic>>()
+                  .where((m) => ayudasIdRevision(m) != _idRevisionSeleccionada)
+                  .map((m) {
+                final id = ayudasIdRevision(m);
+                final numR = ayudasNumeroRevision(m);
+                final vig = ayudasEsVigente(m);
+                return material.Card(
+                  margin: const material.EdgeInsets.only(bottom: 6),
+                  child: material.ListTile(
+                    selected: _idRevisionSecundaria == id,
+                    title: Text('Rev. $numR'),
+                    subtitle: Text(vig ? 'Vigente' : 'Histórica'),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      setState(() {
+                        _idRevisionSecundaria = id;
+                        _focusState = _DualFocusState.dual;
+                      });
+                    },
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+          actions: [
+            Button(
+              child: const Text('Cancelar'),
+              onPressed: () => Navigator.pop(ctx),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<void> _dialogoSubirRevision() async {
@@ -352,8 +419,6 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final url = _pdfUrlForRevision(_idRevisionSeleccionada);
-
     return material.Scaffold(
       appBar: material.AppBar(
         toolbarHeight: 44,
@@ -380,22 +445,38 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
           ),
         ],
       ),
-      body: LayoutBuilder(
-        builder: (context, c) {
-          final narrow = c.maxWidth < 800;
-          if (narrow) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(
-                  flex: 3,
-                  child: _PdfPane(
-                    key: ValueKey<int>(_idRevisionSeleccionada),
-                    url: url,
-                    headers: _pdfHeaders,
-                    revisionKey: _idRevisionSeleccionada,
-                  ),
+      body: Column(
+        children: [
+          if (_showOfflineBanner)
+            const Padding(
+              padding: material.EdgeInsets.fromLTRB(12, 6, 12, 0),
+              child: InfoBar(
+                title: Text('Sin conexión'),
+                content: Text(
+                  'Mostrando última copia local guardada de este documento.',
                 ),
+                severity: InfoBarSeverity.warning,
+              ),
+            ),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, c) {
+                final narrow = c.maxWidth < 960;
+                final canShowDualControls = widget.allowRevisionHistory && !narrow;
+                if (narrow) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: _PdfPane(
+                          key: ValueKey<int>(_idRevisionSeleccionada),
+                          revisionKey: _idRevisionSeleccionada,
+                          idRevision: _idRevisionSeleccionada,
+                          onOfflineFallback:
+                              (fromCache) => _setOfflineBanner(fromCache),
+                        ),
+                      ),
                 if (widget.allowRevisionHistory) ...[
                   const Divider(),
                   SizedBox(
@@ -407,99 +488,226 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
                       idSeleccionada: _idRevisionSeleccionada,
                       canUpload: widget.canUpload,
                       onSelect: (id) =>
-                          setState(() => _idRevisionSeleccionada = id),
+                          setState(() {
+                            _idRevisionSeleccionada = id;
+                            if (_idRevisionSecundaria == id) {
+                              _idRevisionSecundaria = null;
+                            }
+                          }),
                       onSubir: _dialogoSubirRevision,
                       onDeleteRevision: _borrarRevision,
+                      canDeleteRevision: widget.canUpload,
                     ),
                   ),
                 ],
-              ],
-            );
-          }
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(
-                child: Stack(
-                  clipBehavior: Clip.hardEdge,
+                    ],
+                  );
+                }
+                final showMain = !_splitActivo ||
+                    _focusState == _DualFocusState.principal ||
+                    _focusState == _DualFocusState.dual;
+                final showSecondary = _splitActivo &&
+                    (_focusState == _DualFocusState.secundaria ||
+                        _focusState == _DualFocusState.dual);
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Positioned.fill(
-                      child: _PdfPane(
-                        key: ValueKey<int>(_idRevisionSeleccionada),
-                        url: url,
-                        headers: _pdfHeaders,
-                        revisionKey: _idRevisionSeleccionada,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                    if (canShowDualControls)
+                      Container(
+                        height: 44,
+                        color: const material.Color(0xFF262A30),
+                        padding: const material.EdgeInsets.symmetric(
+                          horizontal: 10,
+                        ),
+                        child: Row(
+                          children: [
+                            if (_splitActivo)
+                              material.SegmentedButton<_DualFocusState>(
+                                segments: const [
+                                  material.ButtonSegment(
+                                    value: _DualFocusState.principal,
+                                    label: Text('Principal'),
+                                  ),
+                                  material.ButtonSegment(
+                                    value: _DualFocusState.dual,
+                                    label: Text('Dual'),
+                                  ),
+                                  material.ButtonSegment(
+                                    value: _DualFocusState.secundaria,
+                                    label: Text('Secundaria'),
+                                  ),
+                                ],
+                                selected: {_focusState},
+                                onSelectionChanged: (v) {
+                                  if (v.isEmpty) return;
+                                  setState(() => _focusState = v.first);
+                                },
+                              ),
+                            if (_splitActivo) const SizedBox(width: 8),
+                            FilledButton(
+                              onPressed: () {
+                                if (_splitActivo) {
+                                  setState(() {
+                                    _idRevisionSecundaria = null;
+                                    _focusState = _DualFocusState.dual;
+                                  });
+                                  return;
+                                }
+                                _seleccionarRevisionSecundaria();
+                              },
+                              child: Text(
+                                _splitActivo
+                                    ? 'Cerrar split'
+                                    : 'Seleccionar secundaria',
+                              ),
+                            ),
+                            const Spacer(),
+                            if (_splitActivo && _idRevisionSecundaria != null)
+                              Text(
+                                'Secundaria: Rev. ${_idRevisionSecundaria!}',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                          ],
+                        ),
+                      ),
+                    Expanded(
+                      child: Row(
+                        children: [
+                          if (showMain)
+                            Expanded(
+                              flex: showSecondary ? 1 : 10,
+                              child: _PdfPane(
+                                key: ValueKey<int>(_idRevisionSeleccionada),
+                                idRevision: _idRevisionSeleccionada,
+                                revisionKey: _idRevisionSeleccionada,
+                                onOfflineFallback:
+                                    (fromCache) => _setOfflineBanner(fromCache),
+                              ),
+                            ),
+                          if (showMain && showSecondary)
+                            const material.VerticalDivider(width: 8),
+                          if (showSecondary)
+                            Expanded(
+                              flex: showMain ? 1 : 10,
+                              child: Stack(
+                                children: [
+                                  Positioned.fill(
+                                    child: _PdfPane(
+                                      key: ValueKey<int>(_idRevisionSecundaria!),
+                                      idRevision: _idRevisionSecundaria!,
+                                      revisionKey: _idRevisionSecundaria!,
+                                      onOfflineFallback:
+                                          (fromCache) =>
+                                              _setOfflineBanner(fromCache),
+                                    ),
+                                  ),
+                                  Positioned(
+                                    left: 8,
+                                    top: 8,
+                                    child: DecoratedBox(
+                                      decoration: BoxDecoration(
+                                        color: const material.Color(
+                                          0xAA000000,
+                                        ),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: const Padding(
+                                        padding: material.EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 4,
+                                        ),
+                                        child: Text(
+                                          'Vista secundaria',
+                                          style: TextStyle(fontSize: 11),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                        ],
                       ),
                     ),
                     if (widget.allowRevisionHistory)
-                      Positioned(
-                        top: 8,
-                        right: 0,
-                        child: material.Material(
-                          elevation: 2,
-                          borderRadius: const material.BorderRadius.horizontal(
-                            left: material.Radius.circular(10),
-                          ),
-                          child: material.InkWell(
-                            borderRadius: const material.BorderRadius.horizontal(
-                              left: material.Radius.circular(10),
+                      SizedBox(
+                        width: 28,
+                        child: Center(
+                          child: IconButton(
+                            icon: Icon(
+                              _sidebarColapsada
+                                  ? material.Icons.chevron_left
+                                  : material.Icons.chevron_right,
                             ),
-                            onTap: () => setState(
+                            onPressed: () => setState(
                               () => _sidebarColapsada = !_sidebarColapsada,
-                            ),
-                            child: Padding(
-                              padding: const material.EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 10,
-                              ),
-                              child: Icon(
-                                _sidebarColapsada
-                                    ? material.Icons.chevron_left
-                                    : material.Icons.chevron_right,
-                                size: 22,
-                              ),
                             ),
                           ),
                         ),
                       ),
+                    if (widget.allowRevisionHistory &&
+                        !_sidebarColapsada)
+                      SizedBox(
+                        width: _kSidebarWidth,
+                        child: _TimelinePane(
+                          loading: _loadingHist,
+                          error: _errorHist,
+                          historial: _historial,
+                          idSeleccionada: _idRevisionSeleccionada,
+                          canUpload: widget.canUpload,
+                          canDeleteRevision: widget.canUpload,
+                          onSelect: (id) => setState(() {
+                            _idRevisionSeleccionada = id;
+                            if (_idRevisionSecundaria == id) {
+                              _idRevisionSecundaria = null;
+                            }
+                          }),
+                          onSubir: _dialogoSubirRevision,
+                          onDeleteRevision: _borrarRevision,
+                        ),
+                      ),
                   ],
-                ),
-              ),
-              if (widget.allowRevisionHistory &&
-                  !_sidebarColapsada)
-                SizedBox(
-                  width: _kSidebarWidth,
-                  child: _TimelinePane(
-                    loading: _loadingHist,
-                    error: _errorHist,
-                    historial: _historial,
-                    idSeleccionada: _idRevisionSeleccionada,
-                    canUpload: widget.canUpload,
-                    onSelect: (id) =>
-                        setState(() => _idRevisionSeleccionada = id),
-                    onSubir: _dialogoSubirRevision,
-                    onDeleteRevision: _borrarRevision,
-                  ),
-                ),
-            ],
-          );
-        },
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
+
+  void _setOfflineBanner(bool fromCache) {
+    if (!mounted) return;
+    if (_showOfflineBanner == fromCache) return;
+    setState(() => _showOfflineBanner = fromCache);
+  }
+}
+
+class _PdfLoadResult {
+  const _PdfLoadResult({required this.bytes, required this.fromCache});
+
+  final Uint8List bytes;
+  final bool fromCache;
 }
 
 class _PdfPane extends StatefulWidget {
   const _PdfPane({
     super.key,
-    required this.url,
-    required this.headers,
+    required this.idRevision,
     required this.revisionKey,
+    required this.onOfflineFallback,
   });
 
-  final String url;
-  final Map<String, String> headers;
+  final int idRevision;
   final int revisionKey;
+  final ValueChanged<bool> onOfflineFallback;
 
   @override
   State<_PdfPane> createState() => _PdfPaneState();
@@ -507,6 +715,34 @@ class _PdfPane extends StatefulWidget {
 
 class _PdfPaneState extends State<_PdfPane> {
   late final PdfViewerController _pdfController = PdfViewerController();
+  late Future<_PdfLoadResult> _loadFuture = _loadPdfBytes();
+
+  @override
+  void didUpdateWidget(covariant _PdfPane oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.idRevision != widget.idRevision) {
+      _loadFuture = _loadPdfBytes();
+    }
+  }
+
+  Future<_PdfLoadResult> _loadPdfBytes() async {
+    try {
+      final fresh = await AyudasOfflineCacheService.instance.fetchAndCachePdfBytes(
+        widget.idRevision,
+      );
+      widget.onOfflineFallback(false);
+      return _PdfLoadResult(bytes: fresh, fromCache: false);
+    } catch (_) {
+      final cached = await AyudasOfflineCacheService.instance.readCachedPdfBytes(
+        widget.idRevision,
+      );
+      if (cached != null) {
+        widget.onOfflineFallback(true);
+        return _PdfLoadResult(bytes: cached, fromCache: true);
+      }
+      rethrow;
+    }
+  }
 
   @override
   void dispose() {
@@ -516,23 +752,64 @@ class _PdfPaneState extends State<_PdfPane> {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox.expand(
-      child: material.Card(
-        margin: material.EdgeInsets.zero,
-        clipBehavior: material.Clip.antiAlias,
-        elevation: 0,
-        child: SfPdfViewer.network(
-          widget.url,
-          key: ValueKey<int>(widget.revisionKey),
-          headers: widget.headers.isEmpty ? null : widget.headers,
-          controller: _pdfController,
-          pageLayoutMode: PdfPageLayoutMode.single,
-          maxZoomLevel: 5,
-          canShowScrollHead: true,
-          canShowScrollStatus: true,
-          interactionMode: PdfInteractionMode.pan,
-        ),
-      ),
+    return FutureBuilder<_PdfLoadResult>(
+      future: _loadFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Center(child: ProgressRing());
+        }
+        if (snapshot.hasError || !snapshot.hasData) {
+          return Center(
+            child: Text(
+              'No se pudo cargar este PDF. Verifica la conexión y vuelve a intentar.',
+              style: TextStyle(color: FluentTheme.of(context).resources.textFillColorSecondary),
+              textAlign: TextAlign.center,
+            ),
+          );
+        }
+        final data = snapshot.data!;
+        return SizedBox.expand(
+          child: material.Card(
+            margin: material.EdgeInsets.zero,
+            clipBehavior: material.Clip.antiAlias,
+            elevation: 0,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                SfPdfViewer.memory(
+                  data.bytes,
+                  key: ValueKey<int>(widget.revisionKey),
+                  controller: _pdfController,
+                  pageLayoutMode: PdfPageLayoutMode.single,
+                  maxZoomLevel: 5,
+                  canShowScrollHead: true,
+                  canShowScrollStatus: true,
+                  interactionMode: PdfInteractionMode.pan,
+                ),
+                if (data.fromCache)
+                  Positioned(
+                    left: 8,
+                    top: 8,
+                    child: Container(
+                      padding: const material.EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const material.Color(0xAA000000),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Text(
+                        'Copia local',
+                        style: TextStyle(fontSize: 11),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -544,6 +821,7 @@ class _TimelinePane extends StatelessWidget {
     required this.historial,
     required this.idSeleccionada,
     required this.canUpload,
+    required this.canDeleteRevision,
     required this.onSelect,
     required this.onSubir,
     required this.onDeleteRevision,
@@ -554,6 +832,7 @@ class _TimelinePane extends StatelessWidget {
   final List<dynamic> historial;
   final int idSeleccionada;
   final bool canUpload;
+  final bool canDeleteRevision;
   final void Function(int id) onSelect;
   final VoidCallback onSubir;
   final void Function(int idRevision) onDeleteRevision;
@@ -686,17 +965,18 @@ class _TimelinePane extends StatelessWidget {
                                       ),
                                     ),
                                   ),
-                                  material.IconButton(
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(
-                                      minWidth: 36,
-                                      minHeight: 36,
+                                  if (canDeleteRevision)
+                                    material.IconButton(
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(
+                                        minWidth: 36,
+                                        minHeight: 36,
+                                      ),
+                                      iconSize: 22,
+                                      icon: const Icon(material.Icons.delete),
+                                      color: material.Colors.red.shade700,
+                                      onPressed: () => onDeleteRevision(id),
                                     ),
-                                    iconSize: 22,
-                                    icon: const Icon(material.Icons.delete),
-                                    color: material.Colors.red.shade700,
-                                    onPressed: () => onDeleteRevision(id),
-                                  ),
                                 ],
                               ),
                             );

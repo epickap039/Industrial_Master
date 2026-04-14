@@ -443,7 +443,9 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
     } catch (e) {
       if (mounted) {
         setState(() {
-          if (snapshotTask != null && snapshotTaskIndex >= 0) {
+          if (snapshotTask != null &&
+              snapshotTaskIndex >= 0 &&
+              snapshotTaskIndex < _tareas.length) {
             _tareas[snapshotTaskIndex] = Map<String, dynamic>.from(snapshotTask!);
             _activasOrdenadas =
                 _tareas
