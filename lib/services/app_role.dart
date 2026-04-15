@@ -108,6 +108,12 @@ extension AppRoleAccess on AppRole {
         _ => true,
       };
 
+  /// Generador de código: no Producción ni Calidad (solo consulta catálogo / ayudas).
+  bool get showsNavGeneradorCodigo =>
+      showsNavCatalogo &&
+      this != AppRole.produccion &&
+      this != AppRole.calidad;
+
   bool get showsNavMateriales =>
       this != AppRole.qaLegacy && _fullEngineering;
 
@@ -266,6 +272,8 @@ extension AppRoleAccess on AppRole {
 
   bool get catalogHideDxfColumns => this == AppRole.produccion;
 
+  /// Subir/borrar revisiones y demás mutaciones en Ayudas (API + UI).
+  /// Solo **Administrador**, **Desarrollador** e **Ingeniería / métodos**; Calidad y Producción solo lectura.
   bool get ayudasCanUpload => switch (this) {
         AppRole.administrador => true,
         AppRole.desarrollador => true,
@@ -273,13 +281,19 @@ extension AppRoleAccess on AppRole {
         _ => false,
       };
 
+  /// Edición de icono/fondo de categoría en Ayudas (mismo criterio que [ayudasCanUpload]).
   bool get ayudasCanEditCategoryImage =>
       this == AppRole.desarrollador ||
       this == AppRole.ingenieriaMetodos ||
       this == AppRole.administrador;
 
-  /// Producción puede comparar dos revisiones (solo lectura); subir/borrar sigue en [ayudasCanUpload].
-  bool get ayudasShowRevisionHistory => true;
+  /// Timeline y revisiones anteriores del **mismo** documento.
+  /// **Producción**: desactivado (solo revisión vigente + comparar otras ayudas vigentes).
+  /// **Calidad**: sí puede consultar historial; no puede mutar (ver [ayudasCanUpload]).
+  bool get ayudasShowRevisionHistory => this != AppRole.produccion;
+
+  /// Barra «Comparar» / dual usando API de ayudas vigentes (p. ej. Producción sin historial).
+  bool get ayudasAllowCrossDocumentCompare => showsNavAyudas;
 
   bool get monitoreoCanControlMisiones => _fullEngineering;
 

@@ -1,5 +1,19 @@
 [
   {
+    "build": 345,
+    "v": "345.0",
+    "tipo": "parche",
+    "fecha": "2026-04-15",
+    "notas": "Ayudas por rol: Calidad ve historial de revisiones; Producción no. Subir/borrar/editar ayudas solo Administrador/Desarrollador/Ingeniería (Calidad y Producción solo lectura). Lobby accesos rápidos y generador acotados por rol (build anterior)."
+  },
+  {
+    "build": 344,
+    "v": "344.0",
+    "tipo": "parche",
+    "fecha": "2026-04-15",
+    "notas": "Ayudas visuales (tablet/APK): botón pantalla completa en el visor PDF (navigator raíz, volver atrás cierra), zoom +/- en modo completo; AppBar del visor más compacta (primary:false) y menos padding en franja de pestañas del hub."
+  },
+  {
     "build": 343,
     "v": "343.0",
     "tipo": "parche",

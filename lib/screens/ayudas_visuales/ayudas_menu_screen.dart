@@ -115,11 +115,13 @@ class AyudasMenuScreen extends StatefulWidget {
     required this.canUpload,
     this.canEditCategoryImage = false,
     this.allowRevisionHistory = true,
+    this.allowCrossDocumentCompare = true,
   });
 
   final bool canUpload;
   final bool canEditCategoryImage;
   final bool allowRevisionHistory;
+  final bool allowCrossDocumentCompare;
 
   @override
   State<AyudasMenuScreen> createState() => _AyudasMenuScreenState();
@@ -190,6 +192,7 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
             idRevisionInicial: intent.idRevision,
             canUpload: widget.canUpload,
             allowRevisionHistory: widget.allowRevisionHistory,
+            allowCrossDocumentCompare: widget.allowCrossDocumentCompare,
           ),
         ),
       );
@@ -433,6 +436,7 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
                       idRevisionInicial: idRev,
                       canUpload: widget.canUpload,
                       allowRevisionHistory: widget.allowRevisionHistory,
+                      allowCrossDocumentCompare: widget.allowCrossDocumentCompare,
                     ),
                   ),
                 );
@@ -1320,6 +1324,9 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
                                                           widget.canUpload,
                                                       allowRevisionHistory: widget
                                                           .allowRevisionHistory,
+                                                      allowCrossDocumentCompare:
+                                                          widget
+                                                              .allowCrossDocumentCompare,
                                                     ),
                                                   ),
                                                 );

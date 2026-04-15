@@ -103,9 +103,6 @@ class LobbyQuickActionsPrefs {
     return const [
       NavPaneId.catalogoMaestro,
       NavPaneId.ayudasVisuales,
-      NavPaneId.radarImpacto,
-      NavPaneId.gestionProyectos,
-      NavPaneId.materialesOficiales,
     ];
   }
 
@@ -115,7 +112,7 @@ class LobbyQuickActionsPrefs {
   }
 
   static bool _isVisibleForRole(NavPaneId id, AppRole role) {
-    return navIndexForPane(id, role) >= 0;
+    return navLeafRoleAllowed(id, role);
   }
 
   static List<NavPaneId> sanitize(

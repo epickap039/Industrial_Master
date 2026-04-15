@@ -10,11 +10,13 @@ class AyudasVisualesNav extends StatelessWidget {
     required this.canUpload,
     this.canEditCategoryImage = false,
     this.allowRevisionHistory = true,
+    this.allowCrossDocumentCompare = true,
   });
 
   final bool canUpload;
   final bool canEditCategoryImage;
   final bool allowRevisionHistory;
+  final bool allowCrossDocumentCompare;
 
   @override
   Widget build(BuildContext context) {
@@ -26,6 +28,7 @@ class AyudasVisualesNav extends StatelessWidget {
             canUpload: canUpload,
             canEditCategoryImage: canEditCategoryImage,
             allowRevisionHistory: allowRevisionHistory,
+            allowCrossDocumentCompare: allowCrossDocumentCompare,
           ),
         );
       },

@@ -58,6 +58,7 @@ NavigationPane buildIndustrialNavigationPane({
           canUpload: ar.ayudasCanUpload,
           canEditCategoryImage: ar.ayudasCanEditCategoryImage,
           allowRevisionHistory: ar.ayudasShowRevisionHistory,
+          allowCrossDocumentCompare: ar.ayudasAllowCrossDocumentCompare,
         ),
       ),
     if (ar.showsNavChatInterno)
@@ -138,7 +139,7 @@ NavigationPane buildIndustrialNavigationPane({
           child: StandardizationScreen(),
         ),
       ),
-    if (ar.showsNavCatalogo)
+    if (ar.showsNavGeneradorCodigo)
       const _SectionModule(
         id: NavPaneId.generadorCodigo,
         title: 'Generador de Código',
@@ -502,7 +503,7 @@ class _SectionHubScreenState extends State<_SectionHubScreen> {
           child: Padding(
             padding: const EdgeInsets.symmetric(
               horizontal: 10,
-              vertical: 2,
+              vertical: 1,
             ),
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -569,7 +570,7 @@ class _SectionHubScreenState extends State<_SectionHubScreen> {
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(
             horizontal: 12,
-            vertical: 4,
+            vertical: 2,
           ),
           child: Row(
             children: [

@@ -67,7 +67,7 @@ bool _shows(NavPaneId id, AppRole r) => switch (id) {
       NavPaneId.radarImpacto => r.showsNavRadar,
       NavPaneId.requerimientosMrp => r.showsNavMrp,
       NavPaneId.optimizarCorteMp => r.showsNavOptimizarCorteMp,
-      NavPaneId.generadorCodigo => r.showsNavCatalogo,
+      NavPaneId.generadorCodigo => r.showsNavGeneradorCodigo,
       NavPaneId.centroMonitoreo => r.showsNavMonitoreo,
     };
 
@@ -129,3 +129,6 @@ NavPaneId? navPaneAtIndex(int index, AppRole r) {
   if (index < 0 || index >= v.length) return null;
   return v[index];
 }
+
+/// Acceso real al panel [id] (no basta con ver el hub contenedor).
+bool navLeafRoleAllowed(NavPaneId id, AppRole r) => _shows(id, r);

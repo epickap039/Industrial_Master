@@ -82,12 +82,14 @@ class AyudasCategoriaScreen extends StatefulWidget {
     required this.nombreCategoria,
     required this.canUpload,
     this.allowRevisionHistory = true,
+    this.allowCrossDocumentCompare = true,
   });
 
   final int idCategoria;
   final String nombreCategoria;
   final bool canUpload;
   final bool allowRevisionHistory;
+  final bool allowCrossDocumentCompare;
 
   @override
   State<AyudasCategoriaScreen> createState() => _AyudasCategoriaScreenState();
@@ -934,6 +936,8 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
                                                 canUpload: widget.canUpload,
                                                 allowRevisionHistory:
                                                     widget.allowRevisionHistory,
+                                                allowCrossDocumentCompare: widget
+                                                    .allowCrossDocumentCompare,
                                               ),
                                             ),
                                           );

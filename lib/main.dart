@@ -199,7 +199,7 @@ class _MyAppState extends State<MyApp> {
       if (role.showsNavChatInterno) 'Chat interno',
       if (role.showsNavRadar) 'Radar de impacto',
       if (role.showsNavCatalogo) 'Catálogo maestro',
-      if (role.showsNavCatalogo) 'Generador de Código',
+      if (role.showsNavGeneradorCodigo) 'Generador de Código',
       if (role.showsNavMateriales) 'Materiales oficiales',
       if (role.showsNavCadScanner) 'Escáner CAD',
       if (role.showsNavImportarExcel) 'Importar Excel',

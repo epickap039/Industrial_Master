@@ -23,6 +23,7 @@ class AyudasVisorScreen extends StatefulWidget {
     required this.idRevisionInicial,
     required this.canUpload,
     this.allowRevisionHistory = true,
+    this.allowCrossDocumentCompare = true,
   });
 
   final int idAyuda;
@@ -32,6 +33,9 @@ class AyudasVisorScreen extends StatefulWidget {
 
   /// Si es false, no se carga historial ni comparación dual (casos muy restringidos).
   final bool allowRevisionHistory;
+
+  /// Barra Comparar / dual sin historial (p. ej. Producción: solo otras ayudas vigentes).
+  final bool allowCrossDocumentCompare;
 
   @override
   State<AyudasVisorScreen> createState() => _AyudasVisorScreenState();
@@ -115,18 +119,20 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
   Future<List<Map<String, dynamic>>> _opcionesSecundaria() async {
     final out = <Map<String, dynamic>>[];
     final usedRevisions = <int>{};
-    for (final m in _historial.whereType<Map<String, dynamic>>()) {
-      final rev = ayudasIdRevision(m);
-      if (rev == _idRevisionSeleccionada) continue;
-      if (usedRevisions.contains(rev)) continue;
-      usedRevisions.add(rev);
-      out.add({
-        'id_ayuda': widget.idAyuda,
-        'id_revision': rev,
-        'titulo': widget.tituloDocumento,
-        'numero_revision': ayudasNumeroRevision(m),
-        'scope': 'revision',
-      });
+    if (widget.allowRevisionHistory) {
+      for (final m in _historial.whereType<Map<String, dynamic>>()) {
+        final rev = ayudasIdRevision(m);
+        if (rev == _idRevisionSeleccionada) continue;
+        if (usedRevisions.contains(rev)) continue;
+        usedRevisions.add(rev);
+        out.add({
+          'id_ayuda': widget.idAyuda,
+          'id_revision': rev,
+          'titulo': widget.tituloDocumento,
+          'numero_revision': ayudasNumeroRevision(m),
+          'scope': 'revision',
+        });
+      }
     }
     try {
       final remote = await ApiClient.get(
@@ -507,25 +513,58 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
     };
   }
 
+  /// PDF sobre el navigator raíz (cubre hub/shell) para máximo área útil en tablet/APK.
+  void _abrirPdfPantallaCompleta() {
+    Navigator.of(context, rootNavigator: true).push<void>(
+      material.MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (ctx) => AyudasPdfFullscreenViewer(
+          idRevision: _idRevisionSeleccionada,
+          titulo: widget.tituloDocumento,
+          onOfflineFallback: _setOfflineBanner,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenW = MediaQuery.sizeOf(context).width;
     final compactAppBar = ayudasPdfUseImmersiveChrome(screenW);
     return material.Scaffold(
       appBar: material.AppBar(
-        toolbarHeight: compactAppBar ? 36 : 44,
-        titleSpacing: compactAppBar ? 2 : 6,
+        primary: false,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        surfaceTintColor: material.Colors.transparent,
+        toolbarHeight: compactAppBar ? 30 : 40,
+        titleSpacing: compactAppBar ? 0 : 4,
+        leadingWidth: compactAppBar ? 42 : 48,
         leading: material.IconButton(
+          padding: compactAppBar
+              ? const material.EdgeInsetsDirectional.only(start: 4)
+              : null,
+          constraints: BoxConstraints(
+            minWidth: compactAppBar ? 40 : 48,
+            minHeight: compactAppBar ? 40 : 48,
+          ),
           icon: const material.Icon(material.Icons.arrow_back),
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: material.Text(
           widget.tituloDocumento,
           style: material.TextStyle(
-            fontSize: compactAppBar ? 15 : 16,
+            fontSize: compactAppBar ? 14.5 : 16,
             fontWeight: FontWeight.w600,
           ),
         ),
+        actions: [
+          material.IconButton(
+            tooltip: 'Pantalla completa',
+            icon: const material.Icon(material.Icons.fullscreen),
+            onPressed: _abrirPdfPantallaCompleta,
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -557,7 +596,10 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
                 final dualBarMuted = dark
                     ? material.Colors.white70
                     : const material.Color(0xFF4C6078);
-                final canShowDualControls = widget.allowRevisionHistory && !narrow;
+                final canShowDualControls =
+                    !narrow &&
+                    (widget.allowRevisionHistory ||
+                        widget.allowCrossDocumentCompare);
                 if (narrow) {
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -619,7 +661,7 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
                         color: dualBarBg,
                         padding: material.EdgeInsets.symmetric(
                           horizontal: immersive ? 6 : 10,
-                          vertical: immersive ? 2 : 4,
+                          vertical: immersive ? 0 : 4,
                         ),
                         child: Row(
                           children: [
@@ -1170,6 +1212,139 @@ class _TimelinePane extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Modal a pantalla completa (navigator raíz): máximo área para el PDF; **Volver** o gesto Atrás cierra.
+class AyudasPdfFullscreenViewer extends StatefulWidget {
+  const AyudasPdfFullscreenViewer({
+    super.key,
+    required this.idRevision,
+    required this.titulo,
+    this.onOfflineFallback,
+  });
+
+  final int idRevision;
+  final String titulo;
+  final ValueChanged<bool>? onOfflineFallback;
+
+  @override
+  State<AyudasPdfFullscreenViewer> createState() =>
+      _AyudasPdfFullscreenViewerState();
+}
+
+class _AyudasPdfFullscreenViewerState extends State<AyudasPdfFullscreenViewer> {
+  late final Future<_PdfLoadResult> _loadFuture = _loadPdf();
+  final PdfViewerController _pdfController = PdfViewerController();
+
+  Future<_PdfLoadResult> _loadPdf() async {
+    try {
+      final fresh =
+          await AyudasOfflineCacheService.instance.fetchAndCachePdfBytes(
+        widget.idRevision,
+      );
+      widget.onOfflineFallback?.call(false);
+      return _PdfLoadResult(bytes: fresh, fromCache: false);
+    } catch (_) {
+      final cached = await AyudasOfflineCacheService.instance.readCachedPdfBytes(
+        widget.idRevision,
+      );
+      if (cached != null) {
+        widget.onOfflineFallback?.call(true);
+        return _PdfLoadResult(bytes: cached, fromCache: true);
+      }
+      rethrow;
+    }
+  }
+
+  @override
+  void dispose() {
+    _pdfController.dispose();
+    super.dispose();
+  }
+
+  void _zoomBy(double factor) {
+    final z = _pdfController.zoomLevel;
+    final next = (z * factor).clamp(0.5, 15.0);
+    if (next != z) _pdfController.zoomLevel = next;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sw = MediaQuery.sizeOf(context).width;
+    final immersive = ayudasPdfUseImmersiveChrome(sw);
+    return material.Scaffold(
+      primary: false,
+      appBar: material.AppBar(
+        primary: false,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        surfaceTintColor: material.Colors.transparent,
+        toolbarHeight: immersive ? 30 : 42,
+        titleSpacing: immersive ? 0 : 4,
+        leading: material.IconButton(
+          icon: const material.Icon(material.Icons.arrow_back),
+          tooltip: 'Volver',
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: material.Text(
+          widget.titulo,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        actions: [
+          material.IconButton(
+            tooltip: 'Alejar',
+            icon: const material.Icon(material.Icons.zoom_out),
+            onPressed: () => _zoomBy(1 / 1.25),
+          ),
+          material.IconButton(
+            tooltip: 'Acercar',
+            icon: const material.Icon(material.Icons.zoom_in),
+            onPressed: () => _zoomBy(1.25),
+          ),
+        ],
+      ),
+      body: FutureBuilder<_PdfLoadResult>(
+        future: _loadFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) {
+            return const Center(child: ProgressRing());
+          }
+          if (snapshot.hasError || !snapshot.hasData) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  'No se pudo cargar el PDF.',
+                  style: TextStyle(
+                    color: FluentTheme.of(context)
+                        .resources
+                        .textFillColorSecondary,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            );
+          }
+          final data = snapshot.data!;
+          return material.ColoredBox(
+            color: material.Theme.of(context).scaffoldBackgroundColor,
+            child: SfPdfViewer.memory(
+              data.bytes,
+              key: ValueKey<int>(widget.idRevision),
+              controller: _pdfController,
+              pageLayoutMode: PdfPageLayoutMode.single,
+              maxZoomLevel: 15,
+              initialZoomLevel: ayudasPdfInitialZoom(sw).clamp(1.0, 2.5),
+              canShowScrollHead: true,
+              canShowScrollStatus: true,
+              interactionMode: PdfInteractionMode.pan,
+            ),
+          );
+        },
       ),
     );
   }
