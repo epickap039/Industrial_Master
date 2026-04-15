@@ -1,0 +1,2 @@
+﻿ID_Escenario,Rol_Usuario,Objetivo,Ruta_Navegacion,Pasos_Numerados,Resultado_Esperado,T1_Apertura_s,T2_Carga_s,T3_AccionCritica_s,Percepcion_Lentitud,Resultado_Paso,Fallo_Error,HTTP_Codigo,Dificultad_1a5,Que_No_Gusto,Sugerencia_Mejora,Reporte_QA_ID,Estado_QA,Fecha_Hora_Registro,Facilitador,Tecnico
+ENG-01,ingenieria_metodos,,,,,,,,,PENDIENTE,,,,,,,,,

@@ -6,11 +6,25 @@ import '../utils/excel_helper.dart';
 import '../services/api_client.dart';
 import '../theme/ui_tokens.dart';
 import '../widgets/compact_page_header.dart';
+import '../services/app_role.dart';
 
 import 'dart:io';
 
+enum MRPViewMode {
+  requerimientos,
+  optimizacionCorte,
+}
+
 class MRPScreen extends StatefulWidget {
-  const MRPScreen({super.key});
+  const MRPScreen({
+    super.key,
+    this.mode = MRPViewMode.requerimientos,
+    this.effectiveRole,
+  });
+
+  final MRPViewMode mode;
+  /// Rol efectivo (p. ej. simulación admin) para notas solo desarrollo.
+  final String? effectiveRole;
 
   @override
   State<MRPScreen> createState() => _MRPScreenState();
@@ -32,12 +46,31 @@ class _MRPScreenState extends State<MRPScreen> {
   String _filtroRiesgo = 'Todos';
   bool _soloConBrecha = false;
   String _filtroTexto = '';
+  bool _isOptimizingCut = false;
+  final Set<int> _optRevisionIds = <int>{};
+  List<Map<String, dynamic>> _optFabricables = [];
+  List<Map<String, dynamic>> _optSobrestock = [];
+  String _optMaterial = '';
+  String _optCalibre = '';
+  String _optDisponible = '';
+  /// Medidas del retazo/chapa disponible (mm). Si ambas > 0, cantidad = nº de piezas de ese tamaño.
+  String _optLargoMp = '';
+  String _optAnchoMp = '';
+  bool _optExcluirStockPositivo = false;
+  List<Map<String, dynamic>> _optDescartadasMedida = [];
+  Map<String, dynamic>? _optResumenCut;
+  double? _optAreaDisponibleMm2;
 
   // Tab index: 0 = Materia Prima, 1 = Comerciales, 2 = Huérfanos
   int _tabIndex = 0;
 
   final NumberFormat _numFormat = NumberFormat('#,##0', 'en_US');
   final NumberFormat _decFormat = NumberFormat('#,##0.00', 'en_US');
+
+  bool get _showDevCorteNotaCorteMp {
+    final r = parseAppRole(widget.effectiveRole);
+    return r == AppRole.desarrollador || r == AppRole.administrador;
+  }
 
   /// API MRPII: `material_oficial` (maestro); `Material` se mantiene por compatibilidad.
   String _materialOficialMP(Map<String, dynamic> row) {
@@ -80,6 +113,43 @@ class _MRPScreenState extends State<MRPScreen> {
       }
       return true;
     }).toList();
+  }
+
+  List<String> get _optMaterialOptions {
+    final materiales = _mrpData
+        .map(_materialOficialMP)
+        .map((v) => v.trim())
+        .where((v) => v.isNotEmpty && v.toUpperCase() != 'N/A')
+        .toSet()
+        .toList()
+      ..sort();
+    return materiales;
+  }
+
+  List<String> get _optCalibreOptions {
+    final materialSel = _optMaterial.trim();
+    Iterable<Map<String, dynamic>> src = _mrpData;
+    if (materialSel.isNotEmpty) {
+      src = src.where((row) => _materialOficialMP(row).trim() == materialSel);
+    }
+    final calibres = src
+        .map((row) => (row['Calibre_Espesor'] ?? '').toString().trim())
+        .where((v) => v.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
+    return calibres;
+  }
+
+  void _syncOptSelectorsWithData() {
+    final materiales = _optMaterialOptions;
+    if (_optMaterial.isNotEmpty && !materiales.contains(_optMaterial)) {
+      _optMaterial = '';
+    }
+    final calibres = _optCalibreOptions;
+    if (_optCalibre.isNotEmpty && !calibres.contains(_optCalibre)) {
+      _optCalibre = '';
+    }
   }
 
   @override
@@ -160,6 +230,7 @@ class _MRPScreenState extends State<MRPScreen> {
             _resumenStockMrp = data['resumen_stock_mrp'] is Map
                 ? Map<String, dynamic>.from(data['resumen_stock_mrp'])
                 : null;
+            _syncOptSelectorsWithData();
           });
         }
       } else {
@@ -169,6 +240,106 @@ class _MRPScreenState extends State<MRPScreen> {
       if (mounted) setState(() => _errorMessage = e.toString());
     } finally {
       if (mounted) setState(() => _isCalculating = false);
+    }
+  }
+
+  Future<void> _optimizarCorteMp() async {
+    final disponible =
+        double.tryParse(_optDisponible.trim().replaceAll(',', '.'));
+    if (disponible == null || disponible <= 0) {
+      setState(() {
+        _errorMessage = 'Ingrese una cantidad disponible válida (> 0).';
+      });
+      return;
+    }
+    final tl = _optLargoMp.trim();
+    final ta = _optAnchoMp.trim();
+    final tieneL = tl.isNotEmpty;
+    final tieneA = ta.isNotEmpty;
+    if (tieneL != tieneA) {
+      setState(() {
+        _errorMessage =
+            'Indique largo y ancho de la materia prima (mm), o deje ambos vacíos.';
+      });
+      return;
+    }
+    double? lm;
+    double? wm;
+    if (tieneL && tieneA) {
+      lm = double.tryParse(tl.replaceAll(',', '.'));
+      wm = double.tryParse(ta.replaceAll(',', '.'));
+      if (lm == null || wm == null || lm <= 0 || wm <= 0) {
+        setState(() {
+          _errorMessage = 'Largo y ancho deben ser números mayores que 0 (mm).';
+        });
+        return;
+      }
+    }
+    if (_optMaterial.trim().isEmpty) {
+      setState(() {
+        _errorMessage = 'Seleccione un material oficial.';
+      });
+      return;
+    }
+    if (_optRevisionIds.isEmpty && _selectedRevisionId != null) {
+      _optRevisionIds.add(_selectedRevisionId!);
+    }
+    if (_optRevisionIds.isEmpty) {
+      setState(() {
+        _errorMessage = 'Seleccione al menos una revisión para optimizar.';
+      });
+      return;
+    }
+    setState(() {
+      _isOptimizingCut = true;
+      _errorMessage = null;
+      _optFabricables = [];
+      _optSobrestock = [];
+      _optDescartadasMedida = [];
+      _optResumenCut = null;
+      _optAreaDisponibleMm2 = null;
+    });
+    try {
+      final res = await ApiClient.post(
+        '/api/mrp/optimizar_uso_material',
+        body: {
+          'material_oficial': _optMaterial.trim(),
+          'calibre_espesor': _optCalibre.trim().isEmpty ? null : _optCalibre.trim(),
+          'cantidad_disponible': disponible,
+          'id_revisiones': _optRevisionIds.toList()..sort(),
+          'excluir_si_stock_gt_cero': _optExcluirStockPositivo,
+          if (lm != null && wm != null) 'largo_materia_prima_mm': lm,
+          if (lm != null && wm != null) 'ancho_materia_prima_mm': wm,
+        },
+      );
+      if (res is Map<String, dynamic>) {
+        setState(() {
+          _optFabricables =
+              List<Map<String, dynamic>>.from(res['fabricables'] ?? const []);
+          _optSobrestock =
+              List<Map<String, dynamic>>.from(res['sobrestock'] ?? const []);
+          _optDescartadasMedida = List<Map<String, dynamic>>.from(
+              res['descartadas_por_medida'] ?? const []);
+          _optResumenCut = res['resumen'] is Map
+              ? Map<String, dynamic>.from(res['resumen'] as Map)
+              : null;
+          final ad = res['area_disponible_mm2'];
+          _optAreaDisponibleMm2 =
+              ad == null ? null : double.tryParse(ad.toString());
+        });
+      } else {
+        setState(() {
+          _errorMessage = 'Respuesta inválida en optimización de corte.';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Error optimizando uso de material: $e';
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _isOptimizingCut = false);
+      }
     }
   }
 
@@ -371,7 +542,9 @@ class _MRPScreenState extends State<MRPScreen> {
       padding: const EdgeInsets.only(top: 8),
       header: CompactPageHeader(
         title: Text(
-          'MRPII: Requerimiento de Materiales',
+          widget.mode == MRPViewMode.optimizacionCorte
+              ? 'MRPII: Optimización de corte MP'
+              : 'MRPII: Requerimiento de Materiales',
           style: FluentTheme.of(context).typography.title,
         ),
         commandBar: Wrap(
@@ -425,6 +598,18 @@ class _MRPScreenState extends State<MRPScreen> {
                               _comercialesData = [];
                               _orphanData = [];
                               _resumenStockMrp = null;
+                              _optFabricables = [];
+                              _optSobrestock = [];
+                              _optDescartadasMedida = [];
+                              _optResumenCut = null;
+                              _optAreaDisponibleMm2 = null;
+                              _optMaterial = '';
+                              _optCalibre = '';
+                              _optLargoMp = '';
+                              _optAnchoMp = '';
+                              if (_optRevisionIds.isEmpty) {
+                                _optRevisionIds.add(val);
+                              }
                               _errorMessage = null;
                               _tabIndex = 0;
                             });
@@ -505,7 +690,10 @@ class _MRPScreenState extends State<MRPScreen> {
       );
     }
 
-    if (_mrpData.isEmpty && _comercialesData.isEmpty && _orphanData.isEmpty) {
+    if (widget.mode == MRPViewMode.requerimientos &&
+        _mrpData.isEmpty &&
+        _comercialesData.isEmpty &&
+        _orphanData.isEmpty) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -558,14 +746,16 @@ class _MRPScreenState extends State<MRPScreen> {
               ),
             ),
 
-          // ── Pestañas ─────────────────────────────────────────────────────
-          _buildTabBar(),
-          const SizedBox(height: 12),
-          _buildFiltrosOperativos(),
-          const SizedBox(height: 8),
-
-          // ── Panel activo ─────────────────────────────────────────────────
-          Expanded(child: _buildActivePanel()),
+          if (widget.mode == MRPViewMode.requerimientos) ...[
+            // ── Pestañas ───────────────────────────────────────────────────
+            _buildTabBar(),
+            const SizedBox(height: 12),
+            _buildFiltrosOperativos(),
+            const SizedBox(height: 8),
+            Expanded(child: _buildActivePanel()),
+          ] else ...[
+            Expanded(child: _buildOptimizarCortePanel()),
+          ],
         ],
       ),
     );
@@ -792,6 +982,285 @@ class _MRPScreenState extends State<MRPScreen> {
           _buildOrphanHeaderRow(),
           const Divider(),
           ..._orphanData.map((row) => _buildOrphanDataRow(row)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOptimizarCortePanel() {
+    final revisionItems = _revisionsList
+        .map((e) => Map<String, dynamic>.from(e))
+        .where((e) => e['id'] is int)
+        .toList();
+    final materialOptions = _optMaterialOptions;
+    final calibreOptions = _optCalibreOptions;
+    final hasCatalogOptions = materialOptions.isNotEmpty;
+    return Container(
+      decoration: _cardDecoration(),
+      child: ListView(
+        padding: const EdgeInsets.all(12),
+        children: [
+          Text(
+            'Optimización de uso de materia prima',
+            style: FluentTheme.of(context).typography.subtitle,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Indica el retazo o chapa (largo × ancho en mm) y cuántas piezas iguales tienes; '
+            'solo se sugieren cortes que caben en esa medida (como en retacería). '
+            'Si dejas largo/ancho vacíos, la cantidad se interpreta como mm² totales (modo anterior).',
+            style: FluentTheme.of(context).typography.body,
+          ),
+          const SizedBox(height: 10),
+          InfoBar(
+            title: const Text('En desarrollo'),
+            content: const Text(
+              'La optimización de corte MP aún no está completa. '
+              'Los resultados son orientativos; no sustituyen criterio de taller ni ingeniería.',
+            ),
+            severity: InfoBarSeverity.warning,
+          ),
+          if (_showDevCorteNotaCorteMp) ...[
+            const SizedBox(height: 8),
+            InfoBar(
+              title: const Text('Nota interna (desarrollo)'),
+              content: const Text(
+                'Falta ajustar la lógica de optimización / nesting y validación con casos reales.',
+              ),
+              severity: InfoBarSeverity.info,
+            ),
+          ],
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              SizedBox(
+                width: 290,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Material oficial'),
+                    const SizedBox(height: 4),
+                    ComboBox<String>(
+                      isExpanded: true,
+                      value: _optMaterial.isEmpty ? null : _optMaterial,
+                      placeholder: Text(
+                        hasCatalogOptions
+                            ? 'Selecciona material'
+                            : 'Sin materiales disponibles',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      items: materialOptions
+                          .map(
+                            (m) => ComboBoxItem<String>(
+                              value: m,
+                              child: Text(m, overflow: TextOverflow.ellipsis),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: hasCatalogOptions
+                          ? (v) {
+                              if (v == null) return;
+                              setState(() {
+                                _optMaterial = v;
+                                final calibres = _optCalibreOptions;
+                                if (_optCalibre.isNotEmpty &&
+                                    !calibres.contains(_optCalibre)) {
+                                  _optCalibre = '';
+                                }
+                              });
+                            }
+                          : null,
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(
+                width: 180,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Calibre (opcional)'),
+                    const SizedBox(height: 4),
+                    ComboBox<String>(
+                      isExpanded: true,
+                      value: _optCalibre.isEmpty ? null : _optCalibre,
+                      placeholder: const Text(
+                        'Todos',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      items: calibreOptions
+                          .map(
+                            (c) => ComboBoxItem<String>(
+                              value: c,
+                              child: Text(c, overflow: TextOverflow.ellipsis),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: calibreOptions.isNotEmpty
+                          ? (v) => setState(() => _optCalibre = v ?? '')
+                          : null,
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(
+                width: 120,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Largo MP (mm)'),
+                    const SizedBox(height: 4),
+                    TextBox(
+                      placeholder: 'Ej. 3000',
+                      onChanged: (v) => _optLargoMp = v,
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(
+                width: 120,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Ancho MP (mm)'),
+                    const SizedBox(height: 4),
+                    TextBox(
+                      placeholder: 'Ej. 1500',
+                      onChanged: (v) => _optAnchoMp = v,
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(
+                width: 200,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _optLargoMp.trim().isNotEmpty && _optAnchoMp.trim().isNotEmpty
+                          ? 'Nº chapas / retazos'
+                          : 'Cantidad (mm² o nº chapas)',
+                      style: FluentTheme.of(context).typography.body,
+                    ),
+                    const SizedBox(height: 4),
+                    TextBox(
+                      placeholder: _optLargoMp.trim().isNotEmpty ? 'Ej. 1' : 'mm² o cantidad',
+                      onChanged: (v) => _optDisponible = v,
+                    ),
+                  ],
+                ),
+              ),
+              ToggleSwitch(
+                checked: _optExcluirStockPositivo,
+                content: const Text('Sobrestock si stock > 0'),
+                onChanged: (v) => setState(() => _optExcluirStockPositivo = v),
+              ),
+              FilledButton(
+                onPressed: _isOptimizingCut ? null : _optimizarCorteMp,
+                child: _isOptimizingCut
+                    ? const ProgressRing(strokeWidth: 2)
+                    : const Text('Optimizar'),
+              ),
+            ],
+          ),
+          if (!hasCatalogOptions)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                'No hay catálogo de materiales/calibres para esta revisión. '
+                'Selecciona otra revisión o recalcula MRP.',
+                style: FluentTheme.of(context).typography.caption,
+              ),
+            ),
+          if (_optAreaDisponibleMm2 != null && _optAreaDisponibleMm2! > 0) ...[
+            const SizedBox(height: 10),
+            Text(
+              'Superficie disponible estimada: ${_formatArea(_optAreaDisponibleMm2!)}',
+              style: FluentTheme.of(context).typography.caption,
+            ),
+          ],
+          const SizedBox(height: 12),
+          Expander(
+            header: const Text('Revisiones incluidas'),
+            content: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (final rev in revisionItems)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Checkbox(
+                      checked: _optRevisionIds.contains(rev['id'] as int),
+                      onChanged: (v) {
+                        final id = rev['id'] as int;
+                        setState(() {
+                          if (v == true) {
+                            _optRevisionIds.add(id);
+                          } else {
+                            _optRevisionIds.remove(id);
+                          }
+                        });
+                      },
+                      content: Text(
+                        rev['name']?.toString() ?? 'Revisión',
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'Fabricables (${_optFabricables.length})',
+            style: FluentTheme.of(context).typography.bodyStrong,
+          ),
+          const SizedBox(height: 6),
+          for (final row in _optFabricables)
+            ListTile.selectable(
+              title: Text('${row['codigo_pieza'] ?? '-'} · ${row['descripcion'] ?? ''}'),
+              subtitle: Text(
+                'Sugerida: ${row['cantidad_sugerida_fabricar'] ?? 0} · '
+                'Consumo: ${_decFormat.format(_d(row['material_consumido_estimado']))}',
+              ),
+            ),
+          if (_optFabricables.isEmpty)
+            const Text('Sin piezas fabricables para los parámetros actuales.'),
+          if (_optDescartadasMedida.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Text(
+              'No caben en la medida ingresada (${_optDescartadasMedida.length})',
+              style: FluentTheme.of(context).typography.bodyStrong,
+            ),
+            const SizedBox(height: 6),
+            for (final row in _optDescartadasMedida)
+              ListTile.selectable(
+                title: Text('${row['codigo_pieza'] ?? '-'} · ${row['descripcion'] ?? ''}'),
+                subtitle: Text(
+                  row['motivo'] == 'sin_medidas_cad'
+                      ? 'Sin largo/ancho en maestro (CAD/DXF)'
+                      : 'Pieza más grande que el retazo (con giro)',
+                ),
+              ),
+          ],
+          const SizedBox(height: 14),
+          Text(
+            'Sobrestock (${_optSobrestock.length})',
+            style: FluentTheme.of(context).typography.bodyStrong,
+          ),
+          const SizedBox(height: 6),
+          for (final row in _optSobrestock)
+            ListTile.selectable(
+              title: Text('${row['codigo_pieza'] ?? '-'} · ${row['descripcion'] ?? ''}'),
+              subtitle: Text(
+                'Stock: ${_decFormat.format(_d(row['stock_pt']))} · '
+                'Demanda: ${_decFormat.format(_d(row['demanda_en_revisiones']))}',
+              ),
+            ),
+          if (_optSobrestock.isEmpty)
+            const Text('Sin piezas en sobrestock con la regla seleccionada.'),
         ],
       ),
     );

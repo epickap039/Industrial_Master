@@ -1,0 +1,12 @@
+﻿{
+  "ventana_mantenimiento": {
+    "permitida": true,
+    "evitar_horario_prueba": true,
+    "items": [
+      "Profile endpoints de tareas/lista, chat/conversaciones y dashboard lobby",
+      "Verificar polling y frecuencia por pantalla",
+      "Revisar N+1 en endpoints con joins frecuentes",
+      "Medir latencia p50/p95 con usuarios activos"
+    ]
+  }
+}

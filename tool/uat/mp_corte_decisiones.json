@@ -1,0 +1,8 @@
+﻿{
+  "unidad_disponible": "mm2",
+  "proyectos_equivalen_a": "id_revisiones",
+  "umbral_sobrestock_default": "stock>=demanda",
+  "alternativa_umbral": "stock>0",
+  "algoritmo_v1": "greedy por menor consumo_unitario",
+  "nota": "Actualizar estos acuerdos con dueño de proceso antes de liberar v2"
+}

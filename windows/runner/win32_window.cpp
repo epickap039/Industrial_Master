@@ -179,6 +179,18 @@ Win32Window::MessageHandler(HWND hwnd,
                             WPARAM const wparam,
                             LPARAM const lparam) noexcept {
   switch (message) {
+    case WM_CREATE: {
+      // Icono en barra de título: en algunos entornos solo hIcon de WNDCLASS no basta.
+      HINSTANCE module = GetModuleHandle(nullptr);
+      HICON app_icon = LoadIcon(module, MAKEINTRESOURCE(IDI_APP_ICON));
+      if (app_icon) {
+        SendMessage(hwnd, WM_SETICON, ICON_SMALL,
+                    reinterpret_cast<LPARAM>(app_icon));
+        SendMessage(hwnd, WM_SETICON, ICON_BIG,
+                    reinterpret_cast<LPARAM>(app_icon));
+      }
+      break;
+    }
     case WM_DESTROY:
       window_handle_ = nullptr;
       Destroy();

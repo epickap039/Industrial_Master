@@ -1972,7 +1972,8 @@ class _CatalogScreenState extends State<CatalogScreen> {
           builder: (context, constraints) {
             final textScale =
                 MediaQuery.textScalerOf(context).scale(1.0).clamp(1.0, 1.45);
-            final double actionsWidth = 145.0 * textScale;
+            final canEditRows = parseAppRole(_userRole).catalogCanEditRows;
+            final double actionsWidth = (canEditRows ? 210.0 : 160.0) * textScale;
             final widths = _computeColumnWidthsForViewport(
               context,
               activeCols,

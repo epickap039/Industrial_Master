@@ -640,6 +640,86 @@ def historial_revisiones(id_ayuda: int):
     finally:
         conn.close()
 
+
+@router.get("/api/ayudas/secundaria-opciones/{id_ayuda}")
+def opciones_secundaria_misma_categoria(id_ayuda: int):
+    """Opciones de comparación secundaria: ayudas vigentes de la misma categoría."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT TOP 1 Id_Categoria
+            FROM Tbl_Ayudas_Maestro
+            WHERE Id_Ayuda = ?
+            """,
+            (id_ayuda,),
+        )
+        row_cat = cur.fetchone()
+        if not row_cat:
+            raise HTTPException(status_code=404, detail="Ayuda no encontrada")
+        id_categoria = int(row_cat[0])
+        has_consec = _has_column(cur, "dbo.Tbl_Ayudas_Revisiones", "Consecutivo_Unico")
+        if has_consec:
+            cur.execute(
+                """
+                SELECT
+                    m.Id_Ayuda,
+                    m.Id_Categoria,
+                    m.Titulo_Documento,
+                    m.Subcategoria,
+                    m.VIN,
+                    m.Tags,
+                    r.Id_Revision,
+                    r.Numero_Revision,
+                    r.Consecutivo_Unico,
+                    r.Fecha_Subida,
+                    r.Es_Vigente,
+                    r.Ruta_PDF,
+                    r.Usuario_Subida
+                FROM Tbl_Ayudas_Maestro m
+                INNER JOIN Tbl_Ayudas_Revisiones r
+                    ON r.Id_Ayuda = m.Id_Ayuda AND r.Es_Vigente = 1
+                WHERE m.Id_Categoria = ?
+                  AND m.Id_Ayuda <> ?
+                ORDER BY m.Titulo_Documento
+                """,
+                (id_categoria, id_ayuda),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT
+                    m.Id_Ayuda,
+                    m.Id_Categoria,
+                    m.Titulo_Documento,
+                    m.Subcategoria,
+                    m.VIN,
+                    m.Tags,
+                    r.Id_Revision,
+                    r.Numero_Revision,
+                    r.Fecha_Subida,
+                    r.Es_Vigente,
+                    r.Ruta_PDF,
+                    r.Usuario_Subida
+                FROM Tbl_Ayudas_Maestro m
+                INNER JOIN Tbl_Ayudas_Revisiones r
+                    ON r.Id_Ayuda = m.Id_Ayuda AND r.Es_Vigente = 1
+                WHERE m.Id_Categoria = ?
+                  AND m.Id_Ayuda <> ?
+                ORDER BY m.Titulo_Documento
+                """,
+                (id_categoria, id_ayuda),
+            )
+        rows = cur.fetchall()
+        return [_row_to_dict(cur, r) for r in rows]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
 @router.put("/api/ayudas/subcategoria/editar")
 def editar_subcategoria_masiva(
     payload: EditarSubcategoriaPayload,

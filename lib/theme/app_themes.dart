@@ -5,8 +5,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// Paletas profesionales: Corporate Light, Industrial Dark, Ops Neon, Cyberpunk.
 enum AppThemeMode {
   corporateLight,
-  roseLight,
-  skyLight,
   industrialDark,
   highContrast,
   cyberpunk,
@@ -36,8 +34,9 @@ class ThemeProvider extends ChangeNotifier {
       'AppThemeMode.cyberpunk': AppThemeMode.cyberpunk,
       'AppThemeMode.highContrast': AppThemeMode.highContrast,
       'AppThemeMode.corporateLight': AppThemeMode.corporateLight,
-      'AppThemeMode.roseLight': AppThemeMode.roseLight,
-      'AppThemeMode.skyLight': AppThemeMode.skyLight,
+      // Temas retirados: migran a Corporate Light.
+      'AppThemeMode.roseLight': AppThemeMode.corporateLight,
+      'AppThemeMode.skyLight': AppThemeMode.corporateLight,
       'AppThemeMode.industrialDark': AppThemeMode.industrialDark,
     };
     final mapped = legacy[saved];
@@ -73,10 +72,6 @@ class ThemeProvider extends ChangeNotifier {
     switch (_currentMode) {
       case AppThemeMode.corporateLight:
         return AppThemes.corporateLightTheme;
-      case AppThemeMode.roseLight:
-        return AppThemes.roseLightTheme;
-      case AppThemeMode.skyLight:
-        return AppThemes.skyLightTheme;
       case AppThemeMode.highContrast:
         return AppThemes.highContrastTheme;
       case AppThemeMode.cyberpunk:
@@ -208,40 +203,6 @@ class AppThemes {
           RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       ),
-    ),
-  );
-
-  /// GRAY LIGHT (slot roseLight) - neutro suave sin deslumbrar.
-  static final FluentThemeData roseLightTheme = FluentThemeData(
-    brightness: Brightness.light,
-    accentColor: _corporateBlue,
-    scaffoldBackgroundColor: const Color(0xFFF3F4F6),
-    cardColor: const Color(0xFFF8FAFC),
-    micaBackgroundColor: const Color(0xFFE5E7EB),
-    typography: const Typography.raw(
-      body: TextStyle(color: Color(0xFF1F2937)),
-      bodyStrong: TextStyle(color: Color(0xFF111827), fontWeight: FontWeight.w700),
-      bodyLarge: TextStyle(color: Color(0xFF111827)),
-      title: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.w700),
-      subtitle: TextStyle(color: Color(0xFF334155)),
-      caption: TextStyle(color: Color(0xFF64748B)),
-    ),
-  );
-
-  /// COOL GRAY LIGHT (slot skyLight) - gris frío con contraste cómodo.
-  static final FluentThemeData skyLightTheme = FluentThemeData(
-    brightness: Brightness.light,
-    accentColor: _corporateBlue,
-    scaffoldBackgroundColor: const Color(0xFFF1F5F9),
-    cardColor: const Color(0xFFF8FAFC),
-    micaBackgroundColor: const Color(0xFFE2E8F0),
-    typography: const Typography.raw(
-      body: TextStyle(color: Color(0xFF1E293B)),
-      bodyStrong: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.w700),
-      bodyLarge: TextStyle(color: Color(0xFF0F172A)),
-      title: TextStyle(color: Color(0xFF020617), fontWeight: FontWeight.w700),
-      subtitle: TextStyle(color: Color(0xFF334155)),
-      caption: TextStyle(color: Color(0xFF64748B)),
     ),
   );
 
@@ -445,10 +406,6 @@ extension AppThemeModeLabel on AppThemeMode {
     switch (this) {
       case AppThemeMode.corporateLight:
         return 'Corporate Light';
-      case AppThemeMode.roseLight:
-        return 'Gris Suave';
-      case AppThemeMode.skyLight:
-        return 'Gris Frío';
       case AppThemeMode.industrialDark:
         return 'Industrial Dark';
       case AppThemeMode.highContrast:

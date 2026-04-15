@@ -1,5 +1,68 @@
 [
   {
+    "build": 343,
+    "v": "343.0",
+    "tipo": "parche",
+    "fecha": "2026-04-15",
+    "notas": "Ayudas visuales: cabecera tipo barra de herramientas (menos aire, sin heredar tipografía título en el buscador), gutter derecho ~10px para scrollbar y FAB; tarjetas con imagen más nítida, encuadre alto y degradado más limpio + placeholder sin foto; visor dual puede abrir otra ayuda vigente de la misma categoría."
+  },
+  {
+    "build": 342,
+    "v": "342.0",
+    "tipo": "parche",
+    "fecha": "2026-04-14",
+    "notas": "Distribución: script EMPAQUETAR_RELEASE_PARA_RED.bat deja en carpeta Release el .exe, APK (industrial_manager_v15_5-release.apk) y ACTUALIZAR_Y_ABRIR_DESDE_RED.bat para espejo robocopy sin perder archivos."
+  },
+  {
+    "build": 341,
+    "v": "341.0",
+    "tipo": "parche",
+    "fecha": "2026-04-14",
+    "notas": "MRP Optimizar corte MP: avisos 'en desarrollo' en pantalla; nota interna solo admin/desarrollador; fix layout checkbox revisiones."
+  },
+  {
+    "build": 340,
+    "v": "340.0",
+    "tipo": "parche",
+    "fecha": "2026-04-14",
+    "notas": "Chat interno: menor carga por recargas (WS con refresh diferido), filtro de usuarios y burbujas con hora; MRP corte MP: nesting heurístico rápido por placa y acceso 'Optimizar corte MP' restringido a roles de ingeniería; actualizador .bat ahora limpia archivos obsoletos de la app local."
+  },
+  {
+    "build": 339,
+    "v": "339.0",
+    "tipo": "parche",
+    "fecha": "2026-04-14",
+    "notas": "MRP Optimizar corte MP: campos largo/ancho (mm) del retazo y filtro geométrico de piezas; cantidad = nº de chapas iguales; lista de piezas que no caben o sin medidas en maestro."
+  },
+  {
+    "build": 338,
+    "v": "338.0",
+    "tipo": "parche",
+    "fecha": "2026-04-14",
+    "notas": "Windows: icono en barra de título vía WM_SETICON; MRP optimización corte: corrección overflow en lista de revisiones (checkboxes con texto largo)."
+  },
+  {
+    "build": 337,
+    "v": "337.0",
+    "tipo": "parche",
+    "fecha": "2026-04-14",
+    "notas": "MRP: 'Optimizar corte MP' ahora es subcategoría independiente en Datos y catálogos (no dentro de pestañas), con acceso temporal solo para Desarrollador; además Material oficial y Calibre se seleccionan desde desplegables de valores existentes."
+  },
+  {
+    "build": 336,
+    "v": "336.0",
+    "tipo": "parche",
+    "fecha": "2026-04-14",
+    "notas": "BOM (Gestor de listas): la edición de cantidad ahora se puede confirmar con botón Guardar además de Enter en vista de ensamble y vista plana; también se amplió el espaciado de columnas de procesos para mejorar legibilidad antes de aprobar y auditar cambios."
+  },
+  {
+    "build": 335,
+    "v": "335.0",
+    "tipo": "parche",
+    "fecha": "2026-04-14",
+    "notas": "Monitoreo (misión manual): el modo de 3 tarjetas ahora aprovecha el ancho total con tarjetas completas, checklist e imagen (pegar/subir) por cada tarjeta; además se regeneraron los iconos de launcher para asegurar el nuevo logo en Windows y Android."
+  },
+  {
     "build": 334,
     "v": "334.0",
     "tipo": "parche",

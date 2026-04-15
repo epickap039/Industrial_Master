@@ -1,0 +1,69 @@
+﻿[
+  {
+    "rol": "produccion",
+    "escenarios": [
+      {
+        "id": "OP-AYUDAS-01",
+        "objetivo": "Consultar una ayuda visual vigente",
+        "ruta": ["Lobby", "Ayudas visuales", "Categoría", "Visor PDF"],
+        "pasos": [
+          "Iniciar sesión con usuario Producción",
+          "Abrir Ayudas visuales desde Lobby o menú",
+          "Seleccionar categoría y abrir PDF",
+          "Validar lectura y volver al listado"
+        ]
+      },
+      {
+        "id": "OP-CAT-01",
+        "objetivo": "Consultar pieza y plano en catálogo",
+        "ruta": ["Datos y catálogos", "Catálogo maestro"],
+        "pasos": [
+          "Buscar pieza por código",
+          "Abrir fila",
+          "Validar datos visibles por rol"
+        ]
+      }
+    ]
+  },
+  {
+    "rol": "ingenieria_metodos",
+    "escenarios": [
+      {
+        "id": "ENG-BOM-01",
+        "objetivo": "Editar cantidad de pieza en BOM",
+        "ruta": ["Mapa de ingeniería", "BOM Manager", "Estructura"],
+        "pasos": [
+          "Abrir revisión editable",
+          "Modificar cantidad de pieza",
+          "Guardar y recargar",
+          "Validar persistencia y auditoría"
+        ]
+      },
+      {
+        "id": "ENG-RADAR-01",
+        "objetivo": "Abrir Radar de impacto y consultar tareas",
+        "ruta": ["Operación diaria", "Radar de impacto"],
+        "pasos": [
+          "Entrar al radar",
+          "Filtrar resultados",
+          "Ver detalle de tarea"
+        ]
+      }
+    ]
+  },
+  {
+    "rol": "calidad",
+    "escenarios": [
+      {
+        "id": "QA-01",
+        "objetivo": "Registrar y cerrar reporte en Centro QA",
+        "ruta": ["Seguimiento e incidentes", "Centro QA"],
+        "pasos": [
+          "Abrir bandeja",
+          "Crear reporte",
+          "Validar estados y cierre"
+        ]
+      }
+    ]
+  }
+]

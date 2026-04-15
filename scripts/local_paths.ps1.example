@@ -1,0 +1,5 @@
+# Copiar a "local_paths.ps1" en esta misma carpeta (scripts/local_paths.ps1).
+# Ese archivo no se versiona; sirve cuando Flutter no esta en el PATH global.
+#
+# Ejemplo (ajusta la ruta a tu instalacion):
+#   $env:FLUTTER_ROOT = 'C:\src\flutter'

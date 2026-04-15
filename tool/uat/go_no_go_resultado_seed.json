@@ -1,0 +1,13 @@
+﻿{
+  "go": false,
+  "motivo": "pendiente_ejecucion_uat",
+  "bloqueantes": [],
+  "mejoras_ux_priorizadas": [],
+  "checklist_tecnico": {
+    "api_base_url_ok": false,
+    "ws_chat_ok": false,
+    "backup_bd_ok": false,
+    "version_notes_ok": false,
+    "runbook_ok": false
+  }
+}

@@ -214,6 +214,10 @@ extension AppRoleAccess on AppRole {
         _ => _fullEngineering || this == AppRole.userLegacy || this == AppRole.otro,
       };
 
+  /// Optimización de corte avanzada (retacería/nesting ligero):
+  /// visible solo para roles de ingeniería completos.
+  bool get showsNavOptimizarCorteMp => _fullEngineering;
+
   bool get showsNavMonitoreo => switch (this) {
         AppRole.qaLegacy => false,
         AppRole.gestion => false,
@@ -274,7 +278,8 @@ extension AppRoleAccess on AppRole {
       this == AppRole.ingenieriaMetodos ||
       this == AppRole.administrador;
 
-  bool get ayudasShowRevisionHistory => this != AppRole.produccion;
+  /// Producción puede comparar dos revisiones (solo lectura); subir/borrar sigue en [ayudasCanUpload].
+  bool get ayudasShowRevisionHistory => true;
 
   bool get monitoreoCanControlMisiones => _fullEngineering;
 

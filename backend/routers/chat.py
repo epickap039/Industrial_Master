@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set
 
@@ -15,6 +16,23 @@ router = APIRouter()
 _WS_CLIENTS: Dict[str, Set[WebSocket]] = {}
 _WS_LOCK = asyncio.Lock()
 _GROUP_CHAT_ROOM = "__CHAT_GRUPAL__"
+
+
+@router.get("/api/chat/ws_health")
+def ws_health():
+    has_websockets = importlib.util.find_spec("websockets") is not None
+    has_wsproto = importlib.util.find_spec("wsproto") is not None
+    connected_users = len(_WS_CLIENTS)
+    total_sockets = sum(len(v) for v in _WS_CLIENTS.values())
+    return {
+        "ok": has_websockets or has_wsproto,
+        "websocket_library": {
+            "websockets": has_websockets,
+            "wsproto": has_wsproto,
+        },
+        "connected_users": connected_users,
+        "connected_sockets": total_sockets,
+    }
 
 
 class ChatSendPayload(BaseModel):

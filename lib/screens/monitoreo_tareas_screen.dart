@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_client.dart';
 import '../services/audio_recording_service.dart';
 import '../services/notification_inbox_service.dart';
+import '../services/usuarios_lookup_service.dart';
 import '../theme/ui_tokens.dart';
 import '../widgets/bitacora_calendario_panel.dart';
 import '../widgets/voice_task_confirmation_dialog.dart';
@@ -24,6 +25,7 @@ const List<String> _kMotivosPausa = [
   'Falta de tiempo',
   'No definido',
 ];
+const int _kMinutosPorJornadaLaboral = 9 * 60;
 
 /// Centro de Comando Directivo Industrial (Radar + Manual, sin IA predictiva).
 class MonitoreoTareasScreen extends StatefulWidget {
@@ -505,28 +507,8 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
     final task = Map<String, dynamic>.from(_tareas[idx]);
     if (!esManualSource(task)) return;
 
-    var responsablesLista = List<String>.from(kResponsablesMisionFallback);
-    try {
-      dynamic raw;
-      try {
-        raw = await ApiClient.get('/api/usuarios/all');
-      } catch (_) {
-        raw = await ApiClient.get('/api/usuarios/lista');
-      }
-      if (raw is List && raw.isNotEmpty) {
-        final nom =
-            raw
-                .map((e) => Map<String, dynamic>.from(e as Map))
-                .map((u) {
-                  final w = '${u['username'] ?? ''}'.trim();
-                  if (w.isNotEmpty) return w;
-                  return '${u['nombre'] ?? ''}'.trim();
-                })
-                .where((s) => s.isNotEmpty)
-                .toList();
-        if (nom.isNotEmpty) responsablesLista = nom;
-      }
-    } catch (_) {}
+    var responsablesLista = await UsuariosLookupService.instance
+        .getResponsables();
 
     if (!mounted) return;
 
@@ -534,8 +516,8 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
     final descCtrl = TextEditingController(text: descripcionMision(task));
     final minsRaw = task['minutos_estimados'] ?? task['Duracion_Minutos'] ?? 0;
     final minsVal = minsRaw is int ? minsRaw : int.tryParse('$minsRaw') ?? 0;
-    final d = minsVal ~/ (24 * 60);
-    final rem = minsVal % (24 * 60);
+    final d = minsVal ~/ _kMinutosPorJornadaLaboral;
+    final rem = minsVal % _kMinutosPorJornadaLaboral;
     final h = rem ~/ 60;
     final mi = rem % 60;
     final daysCtrl = TextEditingController(text: '$d');

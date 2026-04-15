@@ -8,9 +8,71 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../services/api_client.dart';
 import '../../services/ayudas_offline_cache_service.dart';
-import '../../widgets/contextual_bug_report.dart';
 import 'ayudas_api_models.dart';
 import 'ayudas_visor_screen.dart';
+
+/// Máximo de tags generados en un solo rango (evita cuelgues y payloads enormes).
+const int kAyudasTagsRangoMaximo = 500;
+
+/// Genera etiquetas **sin** `#` (misma convención que chips y API: se guardan sin almohadilla).
+/// Ej.: prefijo `JAVH0`, desde `197`, hasta `200` → `JAVH0197` … `JAVH0200`.
+/// El ancho de ceros a la izquierda sigue el máximo entre las longitudes de [desdeStr] y [hastaStr].
+({List<String> tags, String? error}) ayudasTagsDesdeRango({
+  required String prefijoRaw,
+  required String desdeStr,
+  required String hastaStr,
+  int maxCantidad = kAyudasTagsRangoMaximo,
+}) {
+  final prefijo =
+      prefijoRaw.trim().replaceAll('#', '').replaceAll(RegExp(r'\s+'), '');
+  final ds = desdeStr.trim();
+  final hs = hastaStr.trim();
+  if (prefijo.isEmpty) {
+    return (tags: const <String>[], error: 'Indica el código base (ej. JAVH0).');
+  }
+  if (ds.isEmpty || hs.isEmpty) {
+    return (tags: const <String>[], error: 'Completa "Desde" y "Hasta" con números.');
+  }
+  final numRe = RegExp(r'^\d+$');
+  if (!numRe.hasMatch(ds) || !numRe.hasMatch(hs)) {
+    return (tags: const <String>[], error: 'Desde y hasta deben ser solo dígitos (0-9).');
+  }
+  final d = int.tryParse(ds);
+  final h = int.tryParse(hs);
+  if (d == null || h == null) {
+    return (tags: const <String>[], error: 'Números inválidos en el rango.');
+  }
+  if (d > h) {
+    return (tags: const <String>[], error: '"Desde" no puede ser mayor que "Hasta".');
+  }
+  final n = h - d + 1;
+  if (n > maxCantidad) {
+    return (
+      tags: const <String>[],
+      error: 'El rango tiene $n etiquetas; el máximo permitido es $maxCantidad.',
+    );
+  }
+  final pad = ds.length > hs.length ? ds.length : hs.length;
+  final out = <String>[];
+  for (var i = d; i <= h; i++) {
+    out.add('$prefijo${i.toString().padLeft(pad, '0')}');
+  }
+  return (tags: out, error: null);
+}
+
+/// Tags tipo identificador de hoja (p. ej. `JAVH0197`): no se usan como "sugeridos".
+/// Heurística: al menos 2 letras seguidas solo de dígitos (mín. 3) hasta el final.
+bool ayudasTagEsCodigoHojaIdentificador(String tag) {
+  final t = tag.trim().replaceAll('#', '');
+  if (t.length < 5) return false;
+  return RegExp(r'^[A-Za-z]{2,}\d{3,}$').hasMatch(t);
+}
+
+Iterable<String> _ayudasTagsSinCodigosHoja(Iterable<String> tags) sync* {
+  for (final t in tags) {
+    if (!ayudasTagEsCodigoHojaIdentificador(t)) yield t;
+  }
+}
 
 /// Pantalla 2: documentos de una categoría + nuevo documento.
 class AyudasCategoriaScreen extends StatefulWidget {
@@ -124,15 +186,24 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
     final revCtrl = TextEditingController();
     final vinCtrl = TextEditingController();
     final nuevoTagCtrl = TextEditingController();
+    final prefijoRangoCtrl = TextEditingController();
+    final desdeRangoCtrl = TextEditingController();
+    final hastaRangoCtrl = TextEditingController();
     String suggestedConsec = '';
     String? pathPdf;
-    final poolTags = <String>{..._kSeedTags, ..._tagsEnCategoria};
+    final poolTags = <String>{
+      ..._ayudasTagsSinCodigosHoja(_kSeedTags),
+      ..._ayudasTagsSinCodigosHoja(_tagsEnCategoria),
+    };
     for (final d in _docs) {
-      if (d is Map<String, dynamic>) poolTags.addAll(ayudasTags(d));
+      if (d is Map<String, dynamic>) {
+        poolTags.addAll(_ayudasTagsSinCodigosHoja(ayudasTags(d)));
+      }
     }
     final tagsOrdenados = poolTags.toList()
       ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     final seleccionTags = <String>{};
+    var mostrarSugerencias = true;
 
     try {
       final raw = await ApiClient.get('/api/ayudas/consecutivo/siguiente');
@@ -226,26 +297,61 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
                         style: material.Theme.of(context).textTheme.titleSmall,
                       ),
                     ),
+                    const SizedBox(height: 4),
+                    material.SwitchListTile(
+                      contentPadding: material.EdgeInsets.zero,
+                      dense: true,
+                      title: const Text('Mostrar sugerencias'),
+                      subtitle: const Text(
+                        'Semilla, categoría y tags de otros PDFs. Los códigos de hoja (p. ej. JAVH0197) no se sugieren.',
+                        style: material.TextStyle(fontSize: 12),
+                      ),
+                      value: mostrarSugerencias,
+                      onChanged: (v) => setLocal(() => mostrarSugerencias = v),
+                    ),
                     const SizedBox(height: 6),
-                    material.Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: tagsOrdenados.map((tag) {
-                        final sel = seleccionTags.contains(tag);
-                        return material.FilterChip(
-                          label: Text('#$tag'),
-                          selected: sel,
-                          onSelected: (v) {
-                            setLocal(() {
-                              if (v) {
-                                seleccionTags.add(tag);
-                              } else {
-                                seleccionTags.remove(tag);
-                              }
-                            });
-                          },
+                    Builder(
+                      builder: (context) {
+                        final chips = <String>{...seleccionTags};
+                        if (mostrarSugerencias) {
+                          chips.addAll(tagsOrdenados);
+                        }
+                        final ordenados = chips.toList()
+                          ..sort(
+                            (a, b) => a.toLowerCase().compareTo(b.toLowerCase()),
+                          );
+                        if (ordenados.isEmpty) {
+                          return Text(
+                            mostrarSugerencias
+                                ? 'Sin etiquetas. Crea una o usa el rango.'
+                                : 'Sin etiquetas seleccionadas. Activa sugerencias, crea un # o usa el rango.',
+                            style: material.TextStyle(
+                              fontSize: 12,
+                              color: material.Theme.of(context).hintColor,
+                            ),
+                          );
+                        }
+                        return material.Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: ordenados.map((tag) {
+                            final sel = seleccionTags.contains(tag);
+                            return material.FilterChip(
+                              label: Text('#$tag'),
+                              selected: sel,
+                              onSelected: (v) {
+                                setLocal(() {
+                                  if (v) {
+                                    seleccionTags.add(tag);
+                                  } else {
+                                    seleccionTags.remove(tag);
+                                  }
+                                });
+                              },
+                            );
+                          }).toList(),
                         );
-                      }).toList(),
+                      },
                     ),
                     const SizedBox(height: 8),
                     material.TextField(
@@ -290,6 +396,105 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
                           nuevoTagCtrl.clear();
                         });
                       },
+                    ),
+                    const SizedBox(height: 14),
+                    material.Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: Text(
+                        'Rango de #tags (opcional)',
+                        style: material.Theme.of(context).textTheme.titleSmall,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Añade varios códigos a la vez (ej. base JAVH0 + de 197 a 200 → JAVH0197…JAVH0200). '
+                      'Suma al método manual de arriba.',
+                      style: material.TextStyle(
+                        fontSize: 12,
+                        color: material.Theme.of(context).hintColor,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    material.Row(
+                      children: [
+                        Expanded(
+                          flex: 2,
+                          child: material.TextField(
+                            controller: prefijoRangoCtrl,
+                            style: material.TextStyle(
+                              color: material.Theme.of(context).textTheme.bodyLarge?.color,
+                            ),
+                            decoration: _inputDec(
+                              context,
+                              'Código base',
+                              hint: 'Ej: JAVH0',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: material.TextField(
+                            controller: desdeRangoCtrl,
+                            keyboardType: material.TextInputType.number,
+                            style: material.TextStyle(
+                              color: material.Theme.of(context).textTheme.bodyLarge?.color,
+                            ),
+                            decoration: _inputDec(
+                              context,
+                              'Desde',
+                              hint: '197',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: material.TextField(
+                            controller: hastaRangoCtrl,
+                            keyboardType: material.TextInputType.number,
+                            style: material.TextStyle(
+                              color: material.Theme.of(context).textTheme.bodyLarge?.color,
+                            ),
+                            decoration: _inputDec(
+                              context,
+                              'Hasta',
+                              hint: '200',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    material.Align(
+                      alignment: AlignmentDirectional.centerEnd,
+                      child: material.OutlinedButton.icon(
+                        icon: const material.Icon(material.Icons.playlist_add, size: 18),
+                        label: const Text('Agregar # del rango'),
+                        onPressed: () {
+                          final res = ayudasTagsDesdeRango(
+                            prefijoRaw: prefijoRangoCtrl.text,
+                            desdeStr: desdeRangoCtrl.text,
+                            hastaStr: hastaRangoCtrl.text,
+                          );
+                          if (res.error != null) {
+                            displayInfoBar(
+                              ctx,
+                              builder: (c, close) => InfoBar(
+                                title: const Text('Rango de tags'),
+                                content: Text(res.error!),
+                                severity: InfoBarSeverity.warning,
+                                onClose: close,
+                              ),
+                            );
+                            return;
+                          }
+                          if (res.tags.isEmpty) return;
+                          setLocal(() {
+                            for (final t in res.tags) {
+                              seleccionTags.add(t);
+                            }
+                          });
+                        },
+                      ),
                     ),
                     const SizedBox(height: 12),
                     material.OutlinedButton(
@@ -387,6 +592,9 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
     revCtrl.dispose();
     vinCtrl.dispose();
     nuevoTagCtrl.dispose();
+    prefijoRangoCtrl.dispose();
+    desdeRangoCtrl.dispose();
+    hastaRangoCtrl.dispose();
   }
 
   Future<void> _dialogoEditarSubcategoria(String nombreActual) async {
@@ -516,9 +724,16 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
   Widget build(BuildContext context) {
     final grouped = _groupedDocs();
     final textColor = material.Theme.of(context).textTheme.bodyMedium?.color;
-    const bg = material.Color(0xFF0F1113);
-    const surface = material.Color(0xFF1A1D21);
-    const border = material.Color(0xFF2D3139);
+    final isDark = FluentTheme.of(context).brightness == Brightness.dark;
+    final bg = isDark
+        ? const material.Color(0xFF0F1113)
+        : const material.Color(0xFFF3F5F9);
+    final surface = isDark
+        ? const material.Color(0xFF1A1D21)
+        : const material.Color(0xFFFFFFFF);
+    final border = isDark
+        ? const material.Color(0xFF2D3139)
+        : const material.Color(0xFFD4DCE8);
     return material.Scaffold(
       backgroundColor: bg,
       appBar: material.AppBar(
@@ -529,14 +744,6 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
         ),
         title: Text(widget.nombreCategoria),
         actions: [
-          material.IconButton(
-            icon: const material.Icon(material.Icons.bug_report_outlined),
-            onPressed: () => showContextualBugReportDialog(
-              context,
-              modulo: 'Ayudas Visuales',
-              contextoPantalla: 'ayudas_categoria',
-            ),
-          ),
           material.IconButton(
             icon: const material.Icon(material.Icons.refresh),
             onPressed: _loading ? null : _cargar,
@@ -570,7 +777,7 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
                                 color: surface,
                                 shape: material.RoundedRectangleBorder(
                                   borderRadius: material.BorderRadius.circular(12),
-                                  side: const material.BorderSide(color: border),
+                                  side: material.BorderSide(color: border),
                                 ),
                                 child: material.ExpansionTile(
                                   collapsedBackgroundColor: surface,
@@ -628,7 +835,9 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
                                     final hintColor =
                                         material.Theme.of(context).hintColor;
                                     return material.Card(
-                                      color: const material.Color(0xFF151920),
+                                      color: isDark
+                                          ? const material.Color(0xFF151920)
+                                          : const material.Color(0xFFF8FAFD),
                                       margin: const material.EdgeInsets.fromLTRB(
                                         12,
                                         4,
@@ -637,7 +846,7 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
                                       ),
                                       shape: material.RoundedRectangleBorder(
                                         borderRadius: material.BorderRadius.circular(10),
-                                        side: const material.BorderSide(color: border),
+                                        side: material.BorderSide(color: border),
                                       ),
                                       child: material.ListTile(
                                         isThreeLine: true,

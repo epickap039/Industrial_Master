@@ -1,0 +1,15 @@
+﻿{
+  "ejecuciones": [
+    {
+      "id_escenario": "ENG-01",
+      "usuario": "",
+      "rol": "",
+      "resultado": "pendiente",
+      "t1_s": null,
+      "t2_s": null,
+      "t3_s": null,
+      "error": "",
+      "qa_ticket": ""
+    }
+  ]
+}

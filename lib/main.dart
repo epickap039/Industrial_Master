@@ -21,6 +21,7 @@ import 'services/app_role.dart';
 import 'services/chat_windows_notification_service.dart';
 import 'services/main_nav.dart';
 import 'services/nav_pane.dart';
+import 'services/navigation_usage_service.dart';
 import 'main_layout.dart';
 import 'screens/monitoreo/widgets/notification_inbox_panel.dart';
 import 'services/notification_inbox_service.dart';
@@ -573,6 +574,15 @@ class _MyAppState extends State<MyApp> {
     });
     final ar = MainNav.currentRole;
     final pane = navPaneAtIndex(index, ar);
+    final paneForTelemetry = paneId ?? pane;
+    if (paneForTelemetry != null) {
+      unawaited(
+        NavigationUsageService.instance.record(
+          paneId: paneForTelemetry,
+          roleRaw: _effectiveRole,
+        ),
+      );
+    }
     if (pane == NavPaneId.importarExcel || paneId == NavPaneId.importarExcel) {
       ArbitrationBridge.notifyConsumePending();
     }
@@ -609,6 +619,10 @@ class _MyAppState extends State<MyApp> {
                     );
                     MainNav.registerRole(_userRole);
                     MainNav.setSimulatedRole(_simulatedRoleOverride);
+                    final navNarrowRailSelectedLabel =
+                        _navPaneDisplayMode == PaneDisplayMode.compact;
+                    final shellW = MediaQuery.sizeOf(navContext).width;
+                    final compactShellChrome = shellW < 1100;
                     return SimulationModeShell(
                       active:
                           _simulatedRoleOverride != null &&
@@ -618,6 +632,12 @@ class _MyAppState extends State<MyApp> {
                         data: NavigationPaneThemeData(
                           backgroundColor: paneBg,
                           overlayBackgroundColor: paneBg,
+                          iconPadding: navNarrowRailSelectedLabel
+                              ? const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 2,
+                                )
+                              : null,
                           tileColor: WidgetStateProperty.resolveWith((states) {
                             if (states.isPressed) {
                               return navChromeFg.withValues(alpha: 0.14);
@@ -661,7 +681,7 @@ class _MyAppState extends State<MyApp> {
                         ),
                         child: NavigationView(
                           appBar: NavigationAppBar(
-                            height: 42,
+                            height: compactShellChrome ? 36 : 42,
                             backgroundColor: paneBg,
                             title: Builder(
                               builder: (appBarCtx) {
@@ -689,22 +709,19 @@ class _MyAppState extends State<MyApp> {
                                   children: [
                                     Tooltip(
                                       message:
-                                          _navPaneDisplayMode ==
-                                                  PaneDisplayMode.compact
-                                              ? 'Expandir menú lateral'
-                                              : 'Comprimir menú a íconos',
+                                          navNarrowRailSelectedLabel
+                                              ? 'Expandir menú (ancho completo con títulos)'
+                                              : 'Menú estrecho: solo iconos (nombre en tooltip al pasar el ratón)',
                                       child: IconButton(
                                         icon: Icon(
-                                          _navPaneDisplayMode ==
-                                                  PaneDisplayMode.compact
+                                          navNarrowRailSelectedLabel
                                               ? FluentIcons.global_nav_button
                                               : FluentIcons.chrome_close,
                                         ),
                                         onPressed: () {
                                           setState(() {
                                             _navPaneDisplayMode =
-                                                _navPaneDisplayMode ==
-                                                        PaneDisplayMode.compact
+                                                navNarrowRailSelectedLabel
                                                     ? PaneDisplayMode.open
                                                     : PaneDisplayMode.compact;
                                           });
@@ -815,7 +832,11 @@ class _MyAppState extends State<MyApp> {
                                 navContext,
                                 paneId: null,
                               ),
-                          displayMode: _navPaneDisplayMode,
+                          displayMode: navNarrowRailSelectedLabel
+                              ? PaneDisplayMode.open
+                              : _navPaneDisplayMode,
+                          narrowRailSelectedLabelOnly:
+                              navNarrowRailSelectedLabel,
                           toggleable: false,
                           targetRevisionId: targetRevisionId,
                           requestedPaneId: _requestedPaneId,

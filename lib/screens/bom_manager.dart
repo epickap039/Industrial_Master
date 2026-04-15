@@ -47,6 +47,45 @@ class BOMManagerScreen extends StatefulWidget {
 
 class _BOMManagerScreenState extends State<BOMManagerScreen>
     with BomManagerControllerMixin {
+  Future<void> _guardarCantidadDesdeTexto(
+    dynamic idEstructuraRaw,
+    String valor,
+  ) async {
+    final cant = double.tryParse(valor.trim());
+    if (cant == null || cant <= 0) {
+      _showError("Cantidad inválida o igual a 0");
+      return;
+    }
+    final id = (idEstructuraRaw as num?)?.toInt();
+    if (id == null) {
+      _showError("Sin id_estructura");
+      return;
+    }
+    await _updateCantidadPieza(id, cant);
+  }
+
+  Widget _cantidadSaveButton({
+    required bool enabled,
+    required Future<void> Function() onSave,
+  }) {
+    return Tooltip(
+      message: "Guardar cantidad",
+      child: IconButton(
+        icon: Icon(
+          FluentIcons.accept,
+          size: 11,
+          color: enabled ? _accentColor : Colors.grey,
+        ),
+        onPressed:
+            enabled
+                ? () async {
+                  await onSave();
+                }
+                : null,
+      ),
+    );
+  }
+
   Future<void> _abrirCrearListaNueva() async {
     final revIdRaw = _selectedRevision?['id_revision'];
     final revId = revIdRaw is int ? revIdRaw : int.tryParse('$revIdRaw');
@@ -414,7 +453,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen>
                               ),
                             ),
                             SizedBox(
-                              width: _kBomPiezaColCant,
+                              width: _kBomPiezaColCant + 30,
                               child: Text(
                                 "Cant.",
                                 textAlign: TextAlign.center,
@@ -431,7 +470,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen>
                               ),
                             ),
                             Expanded(
-                              flex: 2,
+                              flex: 3,
                               child: Text(
                                 "Procesos",
                                 style: TextStyle(
@@ -568,6 +607,9 @@ class _BOMManagerScreenState extends State<BOMManagerScreen>
                                         (themeRow.brightness == Brightness.dark
                                             ? const Color(0xFFE8E8E8)
                                             : const Color(0xFF242424));
+                                    final cantidadCtrl = TextEditingController(
+                                      text: pieza['cantidad']?.toString() ?? '0',
+                                    );
 
                                     return Container(
                                       padding: const EdgeInsets.symmetric(
@@ -614,57 +656,52 @@ class _BOMManagerScreenState extends State<BOMManagerScreen>
                                             ),
                                           ),
                                           SizedBox(
-                                            width: _kBomPiezaColCant,
-                                            child: Align(
-                                              alignment: Alignment.center,
-                                              child: TextBox(
-                                                controller:
-                                                    TextEditingController(
-                                                      text:
-                                                          pieza['cantidad']
-                                                              ?.toString() ??
-                                                          '0',
+                                            width: _kBomPiezaColCant + 30,
+                                            child: Row(
+                                              children: [
+                                                Expanded(
+                                                  child: TextBox(
+                                                    controller: cantidadCtrl,
+                                                    keyboardType:
+                                                        TextInputType.number,
+                                                    textInputAction:
+                                                        TextInputAction.done,
+                                                    enabled: !isAprobada,
+                                                    placeholder: "Cant.",
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          horizontal: 6,
+                                                        ),
+                                                    textAlign: TextAlign.center,
+                                                    style: TextStyle(
+                                                      fontSize: 11,
+                                                      color: bodyColor,
                                                     ),
-                                                keyboardType:
-                                                    TextInputType.number,
-                                                textInputAction:
-                                                    TextInputAction.done,
-                                                enabled: !isAprobada,
-                                                placeholder: "Cant.",
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      horizontal: 6,
+                                                    placeholderStyle: TextStyle(
+                                                      fontSize: 10,
+                                                      color: obsMuted,
                                                     ),
-                                                textAlign: TextAlign.center,
-                                                style: TextStyle(
-                                                  fontSize: 11,
-                                                  color: bodyColor,
+                                                    onSubmitted: (value) async {
+                                                      await _guardarCantidadDesdeTexto(
+                                                        pieza['id_estructura'],
+                                                        value,
+                                                      );
+                                                    },
+                                                  ),
                                                 ),
-                                                placeholderStyle: TextStyle(
-                                                  fontSize: 10,
-                                                  color: obsMuted,
+                                                _cantidadSaveButton(
+                                                  enabled: !isAprobada,
+                                                  onSave:
+                                                      () => _guardarCantidadDesdeTexto(
+                                                        pieza['id_estructura'],
+                                                        cantidadCtrl.text,
+                                                      ),
                                                 ),
-                                                onSubmitted: (value) {
-                                                  final cant = double.tryParse(
-                                                    value,
-                                                  );
-                                                  if (cant != null &&
-                                                      cant > 0) {
-                                                    _updateCantidadPieza(
-                                                      pieza['id_estructura'],
-                                                      cant,
-                                                    );
-                                                  } else {
-                                                    _showError(
-                                                      "Cantidad inválida o igual a 0",
-                                                    );
-                                                  }
-                                                },
-                                              ),
+                                              ],
                                             ),
                                           ),
                                           Expanded(
-                                            flex: 2,
+                                            flex: 3,
                                             child: Tooltip(
                                               message: strProcesos,
                                               child: Text(
@@ -820,11 +857,11 @@ class _BOMManagerScreenState extends State<BOMManagerScreen>
     const int flexCodigo = 2;
     const int flexMedida = 3;
     const int flexCantidad = 1;
-    const int flexMaterial = 5;
+    const int flexMaterial = 4;
     const int flexSimetria = 1;
-    const int flexPPrim = 3;
-    const int flexP1 = 3;
-    const int flexP2 = 3;
+    const int flexPPrim = 4;
+    const int flexP1 = 4;
+    const int flexP2 = 4;
     const int flexLargo = 2;
     const int flexAncho = 2;
     const int flexEspesor = 2;
@@ -988,7 +1025,7 @@ class _BOMManagerScreenState extends State<BOMManagerScreen>
             builder: (context, bx) {
               final double parentW =
                   bx.maxWidth.isFinite && bx.maxWidth > 0 ? bx.maxWidth : 1200;
-              final double tableW = parentW < 1280 ? 1280 : parentW;
+              final double tableW = parentW < 1420 ? 1420 : parentW;
               return SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: SizedBox(
@@ -1118,6 +1155,9 @@ class _BOMManagerScreenState extends State<BOMManagerScreen>
                                         .toStringAsFixed(2)
                                         .replaceAll(RegExp(r'\.?0+$'), '')
                                     : '';
+                            final cantidadCtrl = TextEditingController(
+                              text: cantStr,
+                            );
 
                             final medidaTxt = row['medida']?.toString() ?? '';
                             final matTxt = row['material']?.toString() ?? '';
@@ -1186,54 +1226,48 @@ class _BOMManagerScreenState extends State<BOMManagerScreen>
                                       ),
                                       child:
                                           nivel == 3
-                                              ? TextBox(
-                                                controller:
-                                                    TextEditingController(
-                                                      text: cantStr,
+                                              ? Row(
+                                                children: [
+                                                  Expanded(
+                                                    child: TextBox(
+                                                      controller: cantidadCtrl,
+                                                      keyboardType:
+                                                          TextInputType.number,
+                                                      enabled: _esEditable,
+                                                      textAlign: TextAlign.center,
+                                                      style: TextStyle(
+                                                        color: bodyColor,
+                                                        fontSize: 12,
+                                                      ),
+                                                      cursorColor:
+                                                          theme.accentColor,
+                                                      placeholderStyle: TextStyle(
+                                                        color:
+                                                            res.textFillColorSecondary,
+                                                        fontSize: 11,
+                                                      ),
+                                                      padding:
+                                                          const EdgeInsets.symmetric(
+                                                            horizontal: 6,
+                                                          ),
+                                                      onSubmitted:
+                                                          (value) async {
+                                                        await _guardarCantidadDesdeTexto(
+                                                          row['id_estructura'],
+                                                          value,
+                                                        );
+                                                      },
                                                     ),
-                                                keyboardType:
-                                                    TextInputType.number,
-                                                enabled: _esEditable,
-                                                textAlign: TextAlign.center,
-                                                style: TextStyle(
-                                                  color: bodyColor,
-                                                  fontSize: 12,
-                                                ),
-                                                cursorColor: theme.accentColor,
-                                                placeholderStyle: TextStyle(
-                                                  color:
-                                                      res.textFillColorSecondary,
-                                                  fontSize: 11,
-                                                ),
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      horizontal: 6,
-                                                    ),
-                                                onSubmitted: (value) async {
-                                                  final cant = double.tryParse(
-                                                    value,
-                                                  );
-                                                  if (cant != null &&
-                                                      cant > 0) {
-                                                    final idEst =
-                                                        row['id_estructura'];
-                                                    if (idEst != null) {
-                                                      await _updateCantidadPieza(
-                                                        (idEst as num).toInt(),
-                                                        cant,
-                                                      );
-                                                      if (!mounted) return;
-                                                    } else {
-                                                      _showError(
-                                                        "Sin id_estructura",
-                                                      );
-                                                    }
-                                                  } else {
-                                                    _showError(
-                                                      "Cantidad inválida",
-                                                    );
-                                                  }
-                                                },
+                                                  ),
+                                                  _cantidadSaveButton(
+                                                    enabled: _esEditable,
+                                                    onSave:
+                                                        () => _guardarCantidadDesdeTexto(
+                                                          row['id_estructura'],
+                                                          cantidadCtrl.text,
+                                                        ),
+                                                  ),
+                                                ],
                                               )
                                               : Text(
                                                 cantStr,

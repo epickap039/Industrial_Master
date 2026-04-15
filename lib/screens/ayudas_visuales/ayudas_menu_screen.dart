@@ -13,7 +13,6 @@ import '../../services/ayudas_offline_cache_service.dart';
 import '../../services/main_nav.dart';
 import '../../theme/app_themes.dart';
 import '../../widgets/compact_page_header.dart';
-import '../../widgets/contextual_bug_report.dart';
 import 'ayudas_api_models.dart';
 import 'ayudas_categoria_screen.dart';
 import 'ayudas_search_utils.dart';
@@ -129,6 +128,9 @@ class AyudasMenuScreen extends StatefulWidget {
 class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
   static const List<String> _kSeedTags = ['Soldadura', 'Ensamble', 'Pintura'];
 
+  /// Hueco fijo a la derecha para que el thumb de la barra no tape la última columna.
+  static const double _kScrollbarEndGutter = 10;
+
   late final VoidCallback _lobbyOpenListener;
 
   bool _loading = true;
@@ -138,6 +140,8 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
   bool _loadingIndice = false;
   List<Map<String, dynamic>> _todosDocumentos = [];
   final material.TextEditingController _searchCtrl = material.TextEditingController();
+  final material.ScrollController _scrollCategoriasGrid = material.ScrollController();
+  final material.ScrollController _scrollBusquedaLista = material.ScrollController();
 
   void _showIconValidationError(String msg) {
     if (!mounted) return;
@@ -168,6 +172,8 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
   void dispose() {
     MainNav.ayudaLobbyOpenSignal.removeListener(_lobbyOpenListener);
     _searchCtrl.dispose();
+    _scrollCategoriasGrid.dispose();
+    _scrollBusquedaLista.dispose();
     super.dispose();
   }
 
@@ -344,91 +350,97 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
         ),
       );
     }
-    return material.ListView.separated(
-      itemCount: filtrados.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 6),
-      itemBuilder: (context, i) {
-        final m = filtrados[i];
-        final titulo = ayudasTituloDocumento(m);
-        final idAyuda = ayudasIdAyuda(m);
-        final idRev = ayudasIdRevision(m);
-        final cat =
-            (m['_nombre_categoria'] ?? '').toString();
-        final fechaStr = _fechaSubidaStr(m);
-        final tags = ayudasTags(m);
-        return material.Card(
-          margin: material.EdgeInsets.zero,
-          child: material.ListTile(
-            dense: true,
-            leading: Icon(
-              FluentIcons.pdf,
-              color: FluentTheme.of(context).accentColor,
-            ),
-            title: material.Text(
-              titulo,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-            subtitle: Column(
-              crossAxisAlignment: material.CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (cat.isNotEmpty)
-                  material.Text(
-                    cat,
-                    style: material.TextStyle(
-                      fontSize: 12,
-                      fontWeight: material.FontWeight.w600,
-                      color: material.Theme.of(context).colorScheme.secondary,
-                    ),
-                  ),
-                material.Wrap(
-                  spacing: 6,
-                  runSpacing: 4,
-                  crossAxisAlignment: material.WrapCrossAlignment.center,
-                  children: [
-                    if (fechaStr.isNotEmpty)
-                      material.Text(
-                        fechaStr,
-                        style: material.TextStyle(
-                          fontSize: 12.5,
-                          color: material.Theme.of(context)
-                              .textTheme
-                              .bodySmall
-                              ?.color,
-                        ),
-                      ),
-                    ...tags.map(
-                      (tg) => material.Text(
-                        '#$tg',
-                        style: material.TextStyle(
-                          fontSize: 10,
-                          height: 1.2,
-                          color: hintColor,
-                          fontWeight: material.FontWeight.w500,
-                        ),
+    return material.Scrollbar(
+      controller: _scrollBusquedaLista,
+      thickness: 10,
+      child: material.ListView.separated(
+        controller: _scrollBusquedaLista,
+        padding: const EdgeInsets.only(right: _kScrollbarEndGutter),
+        itemCount: filtrados.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 6),
+        itemBuilder: (context, i) {
+          final m = filtrados[i];
+          final titulo = ayudasTituloDocumento(m);
+          final idAyuda = ayudasIdAyuda(m);
+          final idRev = ayudasIdRevision(m);
+          final cat =
+              (m['_nombre_categoria'] ?? '').toString();
+          final fechaStr = _fechaSubidaStr(m);
+          final tags = ayudasTags(m);
+          return material.Card(
+            margin: material.EdgeInsets.zero,
+            child: material.ListTile(
+              dense: true,
+              leading: Icon(
+                FluentIcons.pdf,
+                color: FluentTheme.of(context).accentColor,
+              ),
+              title: material.Text(
+                titulo,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              subtitle: Column(
+                crossAxisAlignment: material.CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (cat.isNotEmpty)
+                    material.Text(
+                      cat,
+                      style: material.TextStyle(
+                        fontSize: 12,
+                        fontWeight: material.FontWeight.w600,
+                        color: material.Theme.of(context).colorScheme.secondary,
                       ),
                     ),
-                  ],
-                ),
-              ],
-            ),
-            onTap: () {
-              Navigator.of(context).push(
-                material.MaterialPageRoute<void>(
-                  builder: (_) => AyudasVisorScreen(
-                    idAyuda: idAyuda,
-                    tituloDocumento: titulo,
-                    idRevisionInicial: idRev,
-                    canUpload: widget.canUpload,
-                    allowRevisionHistory: widget.allowRevisionHistory,
+                  material.Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    crossAxisAlignment: material.WrapCrossAlignment.center,
+                    children: [
+                      if (fechaStr.isNotEmpty)
+                        material.Text(
+                          fechaStr,
+                          style: material.TextStyle(
+                            fontSize: 12.5,
+                            color: material.Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.color,
+                          ),
+                        ),
+                      ...tags.map(
+                        (tg) => material.Text(
+                          '#$tg',
+                          style: material.TextStyle(
+                            fontSize: 10,
+                            height: 1.2,
+                            color: hintColor,
+                            fontWeight: material.FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              );
-            },
-          ),
-        );
-      },
+                ],
+              ),
+              onTap: () {
+                Navigator.of(context).push(
+                  material.MaterialPageRoute<void>(
+                    builder: (_) => AyudasVisorScreen(
+                      idAyuda: idAyuda,
+                      tituloDocumento: titulo,
+                      idRevisionInicial: idRev,
+                      canUpload: widget.canUpload,
+                      allowRevisionHistory: widget.allowRevisionHistory,
+                    ),
+                  ),
+                );
+              },
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -1016,25 +1028,120 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
   @override
   Widget build(BuildContext context) {
     final isCyberpunk = _esModoCiberpunk(context);
+    final screenW = MediaQuery.sizeOf(context).width;
+    final compactHeader = screenW < 980;
+    final theme = FluentTheme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     return ScaffoldPage(
-      header: CompactPageHeader(
-        title: const Text('Ayudas visuales'),
-        commandBar: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              icon: const Icon(FluentIcons.bug),
-              onPressed: () => showContextualBugReportDialog(
-                context,
-                modulo: 'Ayudas Visuales',
-                contextoPantalla: 'ayudas_menu',
+      header: DecoratedBox(
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF141A24) : const Color(0xFFF7F9FC),
+          border: Border(
+            bottom: BorderSide(
+              color: isDark ? const Color(0xFF2A3444) : const Color(0xFFE2E8F0),
+            ),
+          ),
+        ),
+        child: CompactPageHeader(
+          applyTitleTypography: false,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
+          title: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Text(
+                'Ayudas visuales',
+                style: theme.typography.subtitle?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-            ),
-            IconButton(
-              icon: const Icon(FluentIcons.refresh),
-              onPressed: _loading ? null : _cargar,
-            ),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: compactHeader ? 290 : 420,
+                      minWidth: compactHeader ? 180 : 240,
+                    ),
+                    child: SizedBox(
+                      height: compactHeader ? 34 : 36,
+                      child: material.Material(
+                        color: material.Colors.transparent,
+                        child: material.TextField(
+                          controller: _searchCtrl,
+                          style: material.TextStyle(
+                            color: isDark
+                                ? const Color(0xFFE2E4E9)
+                                : const Color(0xFF1B2B44),
+                            fontSize: 13.5,
+                          ),
+                          decoration: material.InputDecoration(
+                            hintText: compactHeader
+                                ? 'Título, VIN, #etiqueta…'
+                                : 'Buscar: título, VIN, #etiqueta…',
+                            hintStyle: material.TextStyle(
+                              color: isDark
+                                  ? const Color(0xFF9AA2B3)
+                                  : const Color(0xFF6B7F9C),
+                              fontSize: 12.5,
+                            ),
+                            prefixIcon: material.Icon(
+                              material.Icons.search,
+                              color: isDark
+                                  ? const Color(0xFF9AA2B3)
+                                  : const Color(0xFF6B7F9C),
+                              size: 18,
+                            ),
+                            prefixIconConstraints: const BoxConstraints(
+                              minWidth: 34,
+                              minHeight: 34,
+                            ),
+                            filled: true,
+                            fillColor: isDark
+                                ? const Color(0xFF1A2230)
+                                : const Color(0xFFF2F6FC),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 6,
+                            ),
+                            border: material.OutlineInputBorder(
+                              borderRadius: material.BorderRadius.circular(18),
+                              borderSide: material.BorderSide(
+                                color: isDark
+                                    ? const Color(0xFF334155)
+                                    : const Color(0xFFC7D6EA),
+                              ),
+                            ),
+                            enabledBorder: material.OutlineInputBorder(
+                              borderRadius: material.BorderRadius.circular(18),
+                              borderSide: material.BorderSide(
+                                color: isDark
+                                    ? const Color(0xFF334155)
+                                    : const Color(0xFFC7D6EA),
+                              ),
+                            ),
+                            focusedBorder: material.OutlineInputBorder(
+                              borderRadius: material.BorderRadius.circular(18),
+                              borderSide: const material.BorderSide(
+                                color: Color(0xFF2F80ED),
+                              ),
+                            ),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              IconButton(
+                icon: const Icon(FluentIcons.refresh),
+                onPressed: _loading ? null : _cargar,
+              ),
           ],
+        ),
         ),
       ),
       content: Stack(
@@ -1063,7 +1170,7 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
                       children: [
                         if (_usingOfflineSnapshot)
                           Padding(
-                            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                            padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
                             child: InfoBar(
                               title: const Text('Sin conexión'),
                               content: const Text(
@@ -1072,105 +1179,64 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
                               severity: InfoBarSeverity.warning,
                             ),
                           ),
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 6, 20, 8),
-                          child: material.Material(
-                            color: material.Colors.transparent,
-                            child: Column(
+                        if (_loadingIndice)
+                          const Padding(
+                            padding: EdgeInsets.fromLTRB(12, 0, 12, 3),
+                            child: SizedBox(
+                              height: 2,
+                              child: material.LinearProgressIndicator(),
+                            ),
+                          ),
+                        if (ayudasTagSuggestionsForQuery(
+                          _searchCtrl.text,
+                          _poolTagsBusqueda(),
+                        ).isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+                            child: material.Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
-                              mainAxisSize: MainAxisSize.min,
+                              mainAxisSize: material.MainAxisSize.min,
                               children: [
-                                material.TextField(
-                                  controller: _searchCtrl,
-                                  style: const material.TextStyle(
-                                    color: Color(0xFFE2E4E9),
-                                  ),
-                                  decoration: material.InputDecoration(
-                                    hintText:
-                                        'Buscar en todas las categorías: título, VIN, #etiqueta…',
-                                    hintStyle: const material.TextStyle(
-                                      color: Color(0xFF9499A5),
-                                    ),
-                                    prefixIcon: const material.Icon(
-                                      material.Icons.search,
-                                      color: Color(0xFF9499A5),
-                                    ),
-                                    filled: true,
-                                    fillColor: const Color(0xFF0F1113),
-                                    border: material.OutlineInputBorder(
-                                      borderRadius:
-                                          material.BorderRadius.circular(12),
-                                      borderSide: const material.BorderSide(
-                                        color: Color(0xFF2D3139),
-                                      ),
-                                    ),
-                                    enabledBorder: material.OutlineInputBorder(
-                                      borderRadius:
-                                          material.BorderRadius.circular(12),
-                                      borderSide: const material.BorderSide(
-                                        color: Color(0xFF2D3139),
-                                      ),
-                                    ),
-                                    focusedBorder: material.OutlineInputBorder(
-                                      borderRadius:
-                                          material.BorderRadius.circular(12),
-                                      borderSide: const material.BorderSide(
-                                        color: Color(0xFFE5A50A),
-                                      ),
-                                    ),
-                                    isDense: true,
+                                Text(
+                                  'Sugerencias de etiquetas',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: FluentTheme.of(context).inactiveColor,
                                   ),
                                 ),
-                                if (_loadingIndice)
-                                  const Padding(
-                                    padding: EdgeInsets.only(top: 6),
-                                    child: SizedBox(
-                                      height: 2,
-                                      child: material.LinearProgressIndicator(),
-                                    ),
-                                  ),
-                                if (ayudasTagSuggestionsForQuery(
-                                      _searchCtrl.text,
-                                      _poolTagsBusqueda(),
-                                    ).isNotEmpty) ...[
-                                  const SizedBox(height: 8),
-                                  material.Align(
-                                    alignment:
-                                        AlignmentDirectional.centerStart,
-                                    child: Text(
-                                      'Sugerencias de etiquetas',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: FluentTheme.of(context)
-                                            .inactiveColor,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  material.Wrap(
-                                    spacing: 6,
-                                    runSpacing: 6,
-                                    children: ayudasTagSuggestionsForQuery(
-                                      _searchCtrl.text,
-                                      _poolTagsBusqueda(),
-                                    )
-                                        .map(
-                                          (tag) => material.ActionChip(
-                                            label: material.Text('#$tag'),
-                                            onPressed: () =>
-                                                _aplicarSugerenciaTag(tag),
+                                const SizedBox(height: 4),
+                                material.Wrap(
+                                  spacing: 4,
+                                  runSpacing: 4,
+                                  children: ayudasTagSuggestionsForQuery(
+                                    _searchCtrl.text,
+                                    _poolTagsBusqueda(),
+                                  )
+                                      .map(
+                                        (tag) => material.ActionChip(
+                                          label: material.Text(
+                                            '#$tag',
+                                            style: const material.TextStyle(
+                                              fontSize: 12,
+                                            ),
                                           ),
-                                        )
-                                        .toList(),
-                                  ),
-                                ],
+                                          materialTapTargetSize: material
+                                              .MaterialTapTargetSize
+                                              .shrinkWrap,
+                                          visualDensity:
+                                              material.VisualDensity.compact,
+                                          onPressed: () =>
+                                              _aplicarSugerenciaTag(tag),
+                                        ),
+                                      )
+                                      .toList(),
+                                ),
                               ],
                             ),
                           ),
-                        ),
                         Expanded(
                           child: Padding(
-                            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                            padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
                             child: _searchCtrl.text.trim().isEmpty
                                 ? LayoutBuilder(
                                     builder: (context, c) {
@@ -1181,67 +1247,86 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
                                               : c.maxWidth >= 640
                                                   ? 2
                                                   : 1;
-                                      return GridView.builder(
-                                        gridDelegate:
-                                            SliverGridDelegateWithFixedCrossAxisCount(
-                                          crossAxisCount: cols,
-                                          mainAxisSpacing: 16,
-                                          crossAxisSpacing: 16,
-                                          childAspectRatio:
-                                              c.maxWidth >= 900 ? 1.18 : 1.02,
-                                        ),
-                                        itemCount: _categorias.length,
-                                        itemBuilder: (context, i) {
-                                          final row = _categorias[i]
-                                              as Map<String, dynamic>;
-                                          final id = row['ID_Categoria'];
-                                          final nombre =
-                                              (row['Nombre_Categoria'] ??
-                                                      'Sin nombre')
-                                                  .toString();
-                                          final icono =
-                                              row['Icono_Codigo']?.toString();
-                                          final iconoIco = _decodeIconIco(
-                                            row['Icono_Ico_Base64'] ??
-                                                row['icono_ico_base64'],
-                                          );
-                                          final iconoPng = _decodeIconPng(
-                                            row['Icono_Png_Base64'] ??
-                                                row['icono_png_base64'],
-                                          );
-                                          final fondo = _decodeImageBase64(
-                                            row['Fondo_Base64'] ??
-                                                row['fondo_base64'],
-                                          );
-                                          return _CategoriaTile(
-                                            titulo: nombre,
-                                            icon: _obtenerIcono(icono),
-                                            iconIco: iconoIco,
-                                            iconPng: iconoIco != null ? null : iconoPng,
-                                            fondo: fondo,
-                                            isCyberpunk: isCyberpunk,
-                                            onTap: () {
-                                              Navigator.of(context).push(
-                                                material.MaterialPageRoute<void>(
-                                                  builder: (_) =>
-                                                      AyudasCategoriaScreen(
-                                                    idCategoria: id is int
-                                                        ? id
-                                                        : int.tryParse(
-                                                                '$id',
-                                                              ) ??
-                                                              0,
-                                                    nombreCategoria: nombre,
-                                                    canUpload: widget.canUpload,
-                                                    allowRevisionHistory:
-                                                        widget
-                                                            .allowRevisionHistory,
+                                      final gap =
+                                          c.maxWidth >= 900 ? 14.0 : 12.0;
+                                      final ratio = c.maxWidth >= 1100
+                                          ? 1.22
+                                          : c.maxWidth >= 900
+                                              ? 1.12
+                                              : c.maxWidth >= 640
+                                                  ? 0.98
+                                                  : 0.92;
+                                      return material.Scrollbar(
+                                        controller: _scrollCategoriasGrid,
+                                        thickness: 10,
+                                        child: GridView.builder(
+                                          controller: _scrollCategoriasGrid,
+                                          padding: const EdgeInsets.only(
+                                            right: _kScrollbarEndGutter,
+                                          ),
+                                          gridDelegate:
+                                              SliverGridDelegateWithFixedCrossAxisCount(
+                                            crossAxisCount: cols,
+                                            mainAxisSpacing: gap,
+                                            crossAxisSpacing: gap,
+                                            childAspectRatio: ratio,
+                                          ),
+                                          itemCount: _categorias.length,
+                                          itemBuilder: (context, i) {
+                                            final row = _categorias[i]
+                                                as Map<String, dynamic>;
+                                            final id = row['ID_Categoria'];
+                                            final nombre =
+                                                (row['Nombre_Categoria'] ??
+                                                        'Sin nombre')
+                                                    .toString();
+                                            final icono =
+                                                row['Icono_Codigo']?.toString();
+                                            final iconoIco = _decodeIconIco(
+                                              row['Icono_Ico_Base64'] ??
+                                                  row['icono_ico_base64'],
+                                            );
+                                            final iconoPng = _decodeIconPng(
+                                              row['Icono_Png_Base64'] ??
+                                                  row['icono_png_base64'],
+                                            );
+                                            final fondo = _decodeImageBase64(
+                                              row['Fondo_Base64'] ??
+                                                  row['fondo_base64'],
+                                            );
+                                            return _CategoriaTile(
+                                              titulo: nombre,
+                                              icon: _obtenerIcono(icono),
+                                              iconIco: iconoIco,
+                                              iconPng: iconoIco != null
+                                                  ? null
+                                                  : iconoPng,
+                                              fondo: fondo,
+                                              isCyberpunk: isCyberpunk,
+                                              onTap: () {
+                                                Navigator.of(context).push(
+                                                  material.MaterialPageRoute<
+                                                      void>(
+                                                    builder: (_) =>
+                                                        AyudasCategoriaScreen(
+                                                      idCategoria: id is int
+                                                          ? id
+                                                          : int.tryParse(
+                                                                  '$id',
+                                                                ) ??
+                                                                0,
+                                                      nombreCategoria: nombre,
+                                                      canUpload:
+                                                          widget.canUpload,
+                                                      allowRevisionHistory: widget
+                                                          .allowRevisionHistory,
+                                                    ),
                                                   ),
-                                                ),
-                                              );
-                                            },
-                                          );
-                                        },
+                                                );
+                                              },
+                                            );
+                                          },
+                                        ),
                                       );
                                     },
                                   )
@@ -1252,33 +1337,27 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
                     ),
           if (widget.canUpload || widget.canEditCategoryImage)
             Positioned(
-              right: 20,
-              bottom: 20,
+              right: 12 + _kScrollbarEndGutter,
+              bottom: 12,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   if (widget.canEditCategoryImage) ...[
-                    material.FloatingActionButton.extended(
+                    material.FloatingActionButton.small(
                       heroTag: 'ayudas_menu_editar_imagen_categoria',
                       onPressed: _abrirSelectorCategoriaEditarImagen,
-                      shape: material.RoundedRectangleBorder(
-                        borderRadius: material.BorderRadius.circular(24.0),
-                      ),
-                      icon: const Icon(material.Icons.photo_camera_outlined),
-                      label: const Text('Editar estilo categoría'),
+                      tooltip: 'Editar estilo categoría',
+                      child: const Icon(material.Icons.photo_camera_outlined),
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 8),
                   ],
                   if (widget.canUpload)
-                    material.FloatingActionButton.extended(
+                    material.FloatingActionButton.small(
                       heroTag: 'ayudas_menu_nueva_categoria',
                       onPressed: _dialogoNuevaCategoria,
-                      shape: material.RoundedRectangleBorder(
-                        borderRadius: material.BorderRadius.circular(24.0),
-                      ),
-                      icon: const Icon(material.Icons.add),
-                      label: const Text('Nueva categoría'),
+                      tooltip: 'Nueva categoría',
+                      child: const Icon(material.Icons.add),
                     ),
                 ],
               ),
@@ -1310,6 +1389,7 @@ class _CategoriaTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = FluentTheme.of(context).brightness == Brightness.dark;
     final borderRadius = material.BorderRadius.circular(
       isCyberpunk ? 4.0 : 24.0,
     );
@@ -1318,6 +1398,7 @@ class _CategoriaTile extends StatelessWidget {
 
     return material.Card(
       elevation: 3.0,
+      clipBehavior: Clip.antiAlias,
       color: const Color(0xFF1A1D21),
       shape: material.RoundedRectangleBorder(
         borderRadius: borderRadius,
@@ -1328,12 +1409,28 @@ class _CategoriaTile extends StatelessWidget {
         borderRadius: borderRadius,
         child: Stack(
           fit: StackFit.expand,
+          clipBehavior: Clip.hardEdge,
           children: [
             if (fondo != null)
               Image.memory(
                 fondo!,
                 fit: BoxFit.cover,
-                filterQuality: FilterQuality.low,
+                alignment: const Alignment(0, -0.14),
+                filterQuality: FilterQuality.medium,
+                gaplessPlayback: true,
+              )
+            else
+              ColoredBox(
+                color: isDark
+                    ? const Color(0xFF232830)
+                    : const Color(0xFF2E3540),
+                child: Center(
+                  child: Icon(
+                    material.Icons.photo_library_outlined,
+                    size: 52,
+                    color: const Color(0xFF8A93A5).withValues(alpha: 0.85),
+                  ),
+                ),
               ),
             Container(
               decoration: BoxDecoration(
@@ -1341,27 +1438,43 @@ class _CategoriaTile extends StatelessWidget {
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
+                  stops: const [0.0, 0.48, 1.0],
                   colors: [
-                    const Color(0xFF0F1113).withValues(alpha: 0.08),
-                    const Color(0xFF0F1113).withValues(alpha: 0.78),
-                    const Color(0xFF0F1113).withValues(alpha: 0.92),
+                    const Color(0xFF0F1113).withValues(alpha: 0.03),
+                    const Color(0xFF0F1113).withValues(alpha: 0.48),
+                    const Color(0xFF0F1113).withValues(alpha: 0.91),
                   ],
                 ),
               ),
             ),
             Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   Container(
-                    width: 42,
-                    height: 42,
+                    width: 40,
+                    height: 40,
                     decoration: BoxDecoration(
-                      color: const Color(0xFF0F1113).withValues(alpha: 0.82),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: const Color(0xFF2D3139)),
+                      color: isDark
+                          ? const Color(0xFF0F1113).withValues(alpha: 0.82)
+                          : const Color(0xFFF3F7FF).withValues(alpha: 0.95),
+                      borderRadius: BorderRadius.circular(11),
+                      border: Border.all(
+                        color: isDark
+                            ? const Color(0xFF2D3139)
+                            : const Color(0xFF9FB8E0),
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: isDark
+                              ? const Color(0x66000000)
+                              : const Color(0x332C5282),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
                     ),
                     alignment: Alignment.center,
                     child: iconIco != null
@@ -1383,15 +1496,17 @@ class _CategoriaTile extends StatelessWidget {
                                 color: iconColor,
                               ),
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 12),
                   Text(
                     titulo,
                     textAlign: TextAlign.start,
                     maxLines: 3,
                     overflow: TextOverflow.ellipsis,
                     style: FluentTheme.of(context).typography.bodyStrong?.copyWith(
-                          color: const Color(0xFFE2E4E9),
-                          fontSize: 18,
+                          color: isDark
+                              ? const Color(0xFFE2E4E9)
+                              : const Color(0xFFF7FBFF),
+                          fontSize: 16,
                           fontWeight: FontWeight.w700,
                         ),
                   ),

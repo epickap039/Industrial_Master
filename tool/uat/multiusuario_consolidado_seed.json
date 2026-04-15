@@ -1,0 +1,13 @@
+﻿{
+  "sesiones_multiusuario": [
+    {
+      "sesion": "MU-001",
+      "usuarios": ["", "", ""],
+      "roles": ["", "", ""],
+      "duracion_min": 60,
+      "bloqueantes": 0,
+      "inconsistencias_permisos": 0,
+      "friccion_resumen": ""
+    }
+  ]
+}

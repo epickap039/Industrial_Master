@@ -26,11 +26,16 @@ import 'services/nav_pane.dart';
 import 'theme/ui_tokens.dart';
 import 'widgets/constrained_app_body.dart';
 
+/// Ancho del panel en modo «plegado» (solo iconos + tooltip).
+/// Alineado con el rail compacto de Fluent (~50); padding extra se reduce en [main.dart] vía tema.
+const double kNavRailNarrowOpenWidth = 50;
+
 NavigationPane buildIndustrialNavigationPane({
   required int selected,
   required ValueChanged<int> onPaneChanged,
   required ValueChanged<int> onItemPressed,
   required PaneDisplayMode displayMode,
+  bool narrowRailSelectedLabelOnly = false,
   bool toggleable = false,
   required int? targetRevisionId,
   required void Function(NavPaneId id, {int? revisionId}) onNavigatePane,
@@ -49,12 +54,10 @@ NavigationPane buildIndustrialNavigationPane({
         id: NavPaneId.ayudasVisuales,
         title: 'Ayudas visuales',
         icon: FluentIcons.page_list,
-        body: ConstrainedAppBody(
-          child: AyudasVisualesNav(
-            canUpload: ar.ayudasCanUpload,
-            canEditCategoryImage: ar.ayudasCanEditCategoryImage,
-            allowRevisionHistory: ar.ayudasShowRevisionHistory,
-          ),
+        body: AyudasVisualesNav(
+          canUpload: ar.ayudasCanUpload,
+          canEditCategoryImage: ar.ayudasCanEditCategoryImage,
+          allowRevisionHistory: ar.ayudasShowRevisionHistory,
         ),
       ),
     if (ar.showsNavChatInterno)
@@ -192,19 +195,52 @@ NavigationPane buildIndustrialNavigationPane({
         ),
       ),
     if (ar.showsNavMrp)
-      const _SectionModule(
+      _SectionModule(
         id: NavPaneId.requerimientosMrp,
         title: 'Requerimientos (MRP)',
         icon: FluentIcons.shopping_cart,
-        body: MRPScreen(),
+        body: MRPScreen(effectiveRole: userRole),
+      ),
+    if (ar.showsNavOptimizarCorteMp)
+      _SectionModule(
+        id: NavPaneId.optimizarCorteMp,
+        title: 'Optimizar corte MP',
+        icon: FluentIcons.processing,
+        body: MRPScreen(
+          mode: MRPViewMode.optimizacionCorte,
+          effectiveRole: userRole,
+        ),
       ),
   ];
+  final reviewLocksEnabled = ar != AppRole.desarrollador;
+
+  PaneItem railPaneItem({
+    required IconData iconData,
+    required String label,
+    required Widget body,
+  }) {
+    return PaneItem(
+      icon: Tooltip(
+        message: label,
+        child: Icon(iconData),
+      ),
+      // Rail estrecho: sin texto en ítems (evita recortes tipo "Operació…"); el tooltip da el nombre.
+      title: narrowRailSelectedLabelOnly
+          ? null
+          : Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+      body: body,
+    );
+  }
 
   final items = <NavigationPaneItem>[
     if (ar.showsNavLobby)
-      PaneItem(
-        icon: const Icon(FluentIcons.home),
-        title: const Text('Lobby principal'),
+      railPaneItem(
+        iconData: FluentIcons.home,
+        label: 'Lobby principal',
         body: paneBody(
           LobbyScreen(
             effectiveRole: userRole,
@@ -214,69 +250,73 @@ NavigationPane buildIndustrialNavigationPane({
         ),
       ),
     if (operacionModules.isNotEmpty)
-      PaneItem(
-        icon: const Icon(FluentIcons.page_list),
-        title: const Text('Operación diaria'),
+      railPaneItem(
+        iconData: FluentIcons.page_list,
+        label: 'Operación diaria',
         body: paneBody(
           _SectionHubScreen(
             sectionTitle: 'Operación diaria',
             modules: operacionModules,
             requestedPaneId: requestedPaneId,
             onActiveLeafPaneChanged: onActiveLeafPaneChanged,
+            reviewLocksEnabled: reviewLocksEnabled,
           ),
         ),
       ),
     if (ingenieriaModules.isNotEmpty)
-      PaneItem(
-        icon: const Icon(FluentIcons.developer_tools),
-        title: const Text('Ingeniería y cambios'),
+      railPaneItem(
+        iconData: FluentIcons.developer_tools,
+        label: 'Ingeniería y cambios',
         body: paneBody(
           _SectionHubScreen(
             sectionTitle: 'Ingeniería y cambios',
             modules: ingenieriaModules,
             requestedPaneId: requestedPaneId,
             onActiveLeafPaneChanged: onActiveLeafPaneChanged,
+            reviewLocksEnabled: reviewLocksEnabled,
           ),
         ),
       ),
     if (seguimientoModules.isNotEmpty)
-      PaneItem(
-        icon: const Icon(FluentIcons.health),
-        title: const Text('Seguimiento e incidentes'),
+      railPaneItem(
+        iconData: FluentIcons.health,
+        label: 'Seguimiento e incidentes',
         body: paneBody(
           _SectionHubScreen(
             sectionTitle: 'Seguimiento e incidentes',
             modules: seguimientoModules,
             requestedPaneId: requestedPaneId,
             onActiveLeafPaneChanged: onActiveLeafPaneChanged,
+            reviewLocksEnabled: reviewLocksEnabled,
           ),
         ),
       ),
     if (datosModules.isNotEmpty)
-      PaneItem(
-        icon: const Icon(FluentIcons.database),
-        title: const Text('Datos y catálogos'),
+      railPaneItem(
+        iconData: FluentIcons.database,
+        label: 'Datos y catálogos',
         body: paneBody(
           _SectionHubScreen(
             sectionTitle: 'Datos y catálogos',
             modules: datosModules,
             requestedPaneId: requestedPaneId,
             onActiveLeafPaneChanged: onActiveLeafPaneChanged,
+            reviewLocksEnabled: reviewLocksEnabled,
           ),
         ),
       ),
     if (ar.showsNavMonitoreo)
-      PaneItem(
-        icon: const Icon(FluentIcons.activity_feed),
-        title: const Text('Centro de monitoreo'),
+      railPaneItem(
+        iconData: FluentIcons.activity_feed,
+        label: 'Centro de monitoreo',
         body: paneBody(
           MonitoreoTareasScreen(effectiveRole: userRole),
         ),
       ),
     if (ar.showsNavMapaIngenieria)
-      PaneItem(
-        icon: const Icon(FluentIcons.map_layers),
-        title: const Text('Mapa de ingeniería'),
+      railPaneItem(
+        iconData: FluentIcons.map_layers,
+        label: 'Mapa de ingeniería',
         body: paneBody(EngineeringMapScreen(targetRevisionId: targetRevisionId)),
       ),
   ];
@@ -287,23 +327,32 @@ NavigationPane buildIndustrialNavigationPane({
     onItemPressed: onItemPressed,
     displayMode: displayMode,
     toggleable: toggleable,
-    size: const NavigationPaneSize(openWidth: 256),
+    size: NavigationPaneSize(
+      openWidth: narrowRailSelectedLabelOnly ? kNavRailNarrowOpenWidth : 256,
+      compactWidth: kNavRailNarrowOpenWidth,
+    ),
     items: items,
     footerItems: [
       PaneItemAction(
-        icon: const Icon(FluentIcons.color),
-        title: const Text('Tema visual'),
+        icon: Tooltip(
+          message: 'Tema visual',
+          child: const Icon(FluentIcons.color),
+        ),
+        title: narrowRailSelectedLabelOnly ? null : const Text('Tema visual'),
         onTap: onThemeTap,
       ),
       PaneItemAction(
-        icon: const Icon(FluentIcons.bug),
-        title: const Text('Reportar bug'),
+        icon: Tooltip(
+          message: 'Reportar bug',
+          child: const Icon(FluentIcons.bug),
+        ),
+        title: narrowRailSelectedLabelOnly ? null : const Text('Reportar bug'),
         onTap: onBugTap,
       ),
       if (ar.showsFooterConfiguracion)
-        PaneItem(
-          icon: const Icon(FluentIcons.settings),
-          title: const Text('Configuración'),
+        railPaneItem(
+          iconData: FluentIcons.settings,
+          label: 'Configuración',
           body: paneBody(
             const ConstrainedAppBody(
               child: SettingsScreen(),
@@ -334,12 +383,14 @@ class _SectionHubScreen extends StatefulWidget {
     required this.modules,
     required this.requestedPaneId,
     required this.onActiveLeafPaneChanged,
+    required this.reviewLocksEnabled,
   });
 
   final String sectionTitle;
   final List<_SectionModule> modules;
   final NavPaneId? requestedPaneId;
   final ValueChanged<NavPaneId?> onActiveLeafPaneChanged;
+  final bool reviewLocksEnabled;
 
   @override
   State<_SectionHubScreen> createState() => _SectionHubScreenState();
@@ -357,6 +408,7 @@ class _SectionHubScreenState extends State<_SectionHubScreen> {
 
   int _selected = 0;
   int? _hoveredIdx;
+  final Set<int> _loadedModuleIndexes = <int>{};
 
   @override
   void initState() {
@@ -381,6 +433,14 @@ class _SectionHubScreenState extends State<_SectionHubScreen> {
         _selected = idx;
       }
     }
+    if (widget.modules.isNotEmpty) {
+      _selected = _selected.clamp(0, widget.modules.length - 1);
+      _loadedModuleIndexes.add(_selected);
+      _loadedModuleIndexes.removeWhere((i) => i >= widget.modules.length);
+    } else {
+      _selected = 0;
+      _loadedModuleIndexes.clear();
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _notifyLeafSelection();
@@ -397,104 +457,247 @@ class _SectionHubScreenState extends State<_SectionHubScreen> {
         ? const Color(0xFF2A3140)
         : theme.resources.controlStrokeColorDefault.withValues(alpha: 0.55);
     const hubTabShape = WidgetStatePropertyAll<RoundedRectangleBorder>(
-      RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+      RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(7)),
+      ),
     );
     final selectedStyle = ButtonStyle(
       padding: const WidgetStatePropertyAll(
-        EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       ),
       shape: hubTabShape,
       backgroundColor: WidgetStatePropertyAll(
-        theme.accentColor.withValues(alpha: 0.22),
+        theme.accentColor.withValues(alpha: 0.25),
       ),
       foregroundColor: WidgetStatePropertyAll(theme.accentColor),
     );
     final compactStyle = ButtonStyle(
       padding: const WidgetStatePropertyAll(
-        EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       ),
       shape: hubTabShape,
     );
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        DecoratedBox(
+    final sw = MediaQuery.sizeOf(context).width;
+    final sh = MediaQuery.sizeOf(context).height;
+    final tabletishWidth = sw < 1100 && sh >= 480;
+    final multiModule = widget.modules.length > 1;
+    final showSubmoduleTabBar = multiModule;
+    final useCompactHubStrip = multiModule && tabletishWidth;
+
+    if (widget.modules.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    Widget hubTabChrome() {
+      if (!showSubmoduleTabBar) {
+        return const SizedBox.shrink();
+      }
+      if (useCompactHubStrip) {
+        return DecoratedBox(
           decoration: BoxDecoration(
             color: hubChrome,
-            border: Border(
-              bottom: BorderSide(color: hubDivider, width: 1),
-            ),
+            border: Border(bottom: BorderSide(color: hubDivider, width: 1)),
           ),
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
+          child: Padding(
             padding: const EdgeInsets.symmetric(
-              horizontal: UiTokens.pageHPadding,
-              vertical: 6,
+              horizontal: 10,
+              vertical: 2,
             ),
-            child: Row(
-              children: [
-                for (var i = 0; i < widget.modules.length; i++) ...[
-                  if (i > 0) const SizedBox(width: 4),
-                  MouseRegion(
-                    onEnter: (_) => setState(() => _hoveredIdx = i),
-                    onExit: (_) {
-                      if (_hoveredIdx == i) setState(() => _hoveredIdx = null);
-                    },
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 130),
-                      curve: Curves.easeOut,
-                      transform:
-                          _hoveredIdx == i && i != selectedIdx
-                              ? (Matrix4.identity()..translate(0.0, -1.0))
-                              : Matrix4.identity(),
-                      decoration: BoxDecoration(
-                        boxShadow:
-                            _hoveredIdx == i && i != selectedIdx
-                                ? [
-                                  BoxShadow(
-                                    color:
-                                        theme.brightness == Brightness.dark
-                                            ? const Color(0x33000000)
-                                            : const Color(0x1F0F172A),
-                                    blurRadius: 5,
-                                    offset: const Offset(0, 2),
-                                  ),
-                                ]
-                                : null,
-                      ),
-                      child: Button(
-                        style: i == selectedIdx ? selectedStyle : compactStyle,
-                        onPressed: () => setState(() {
-                          _selected = i;
-                          _notifyLeafSelection();
-                        }),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (var i = 0; i < widget.modules.length; i++) ...[
+                    if (i > 0) const SizedBox(width: 1),
+                    Tooltip(
+                      message: widget.modules[i].title,
+                      child: IconButton(
+                        style: ButtonStyle(
+                          padding: const WidgetStatePropertyAll(
+                            EdgeInsets.all(4),
+                          ),
+                          backgroundColor: WidgetStateProperty.resolveWith((s) {
+                            if (i == selectedIdx) {
+                              return theme.accentColor.withValues(alpha: 0.22);
+                            }
+                            return null;
+                          }),
+                        ),
+                        icon: Stack(
+                          clipBehavior: Clip.none,
+                          alignment: Alignment.center,
                           children: [
-                            Icon(widget.modules[i].icon, size: 13),
-                            const SizedBox(width: 5),
-                            Text(
-                              widget.modules[i].title,
-                              style: const TextStyle(fontSize: 12),
+                            Icon(
+                              widget.modules[i].icon,
+                              size: 17,
+                              color: i == selectedIdx
+                                  ? theme.accentColor
+                                  : theme.typography.body?.color,
                             ),
+                            if (widget.reviewLocksEnabled &&
+                                navPaneUnderReview(widget.modules[i].id))
+                              const Positioned(
+                                right: -4,
+                                top: -4,
+                                child: Icon(FluentIcons.lock, size: 10),
+                              ),
                           ],
                         ),
+                        onPressed: () => setState(() {
+                          _selected = i;
+                          _loadedModuleIndexes.add(i);
+                          _notifyLeafSelection();
+                        }),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        );
+      }
+      return DecoratedBox(
+        decoration: BoxDecoration(
+          color: hubChrome,
+          border: Border(
+            bottom: BorderSide(color: hubDivider, width: 1),
+          ),
+        ),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 4,
+          ),
+          child: Row(
+            children: [
+              for (var i = 0; i < widget.modules.length; i++) ...[
+                if (i > 0) const SizedBox(width: 3),
+                MouseRegion(
+                  onEnter: (_) => setState(() => _hoveredIdx = i),
+                  onExit: (_) {
+                    if (_hoveredIdx == i) setState(() => _hoveredIdx = null);
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 130),
+                    curve: Curves.easeOut,
+                    transform:
+                        _hoveredIdx == i && i != selectedIdx
+                            ? (Matrix4.identity()..translate(0.0, -1.0))
+                            : Matrix4.identity(),
+                    decoration: BoxDecoration(
+                      boxShadow:
+                          _hoveredIdx == i && i != selectedIdx
+                              ? [
+                                BoxShadow(
+                                  color:
+                                      theme.brightness == Brightness.dark
+                                          ? const Color(0x33000000)
+                                          : const Color(0x1F0F172A),
+                                  blurRadius: 5,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ]
+                              : null,
+                    ),
+                    child: Button(
+                      style: i == selectedIdx ? selectedStyle : compactStyle,
+                      onPressed: () => setState(() {
+                        _selected = i;
+                        _loadedModuleIndexes.add(i);
+                        _notifyLeafSelection();
+                      }),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(widget.modules[i].icon, size: 12),
+                          if (widget.reviewLocksEnabled &&
+                              navPaneUnderReview(widget.modules[i].id)) ...[
+                            const SizedBox(width: 4),
+                            const Icon(FluentIcons.lock, size: 11),
+                          ],
+                          const SizedBox(width: 5),
+                          Text(
+                            widget.modules[i].title,
+                            style: const TextStyle(fontSize: 11.5),
+                          ),
+                        ],
                       ),
                     ),
                   ),
-                ],
+                ),
               ],
-            ),
+            ],
           ),
         ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        hubTabChrome(),
         Expanded(
           child: IndexedStack(
             index: selectedIdx,
-            children: widget.modules.map((m) => m.body).toList(),
+            children: [
+              for (var i = 0; i < widget.modules.length; i++)
+                if (!_loadedModuleIndexes.contains(i))
+                  const SizedBox.shrink()
+                else
+                  widget.reviewLocksEnabled &&
+                          navPaneUnderReview(widget.modules[i].id)
+                      ? _LockedModulePlaceholder(title: widget.modules[i].title)
+                      : widget.modules[i].body,
+            ],
           ),
         ),
       ],
+    );
+  }
+}
+
+class _LockedModulePlaceholder extends StatelessWidget {
+  const _LockedModulePlaceholder({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = FluentTheme.of(context);
+    return Center(
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 580),
+        margin: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: theme.resources.subtleFillColorSecondary,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: theme.resources.controlStrokeColorDefault.withValues(alpha: 0.5),
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(FluentIcons.lock, size: 24),
+            const SizedBox(height: 10),
+            Text(
+              '$title está en revisión',
+              style: theme.typography.subtitle,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Este módulo permanece bloqueado temporalmente hasta cerrar QA interno.',
+              style: theme.typography.body,
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

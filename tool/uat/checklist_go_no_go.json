@@ -1,0 +1,20 @@
+﻿{
+  "go_criterios": [
+    "Escenarios críticos aprobados sin bloqueantes",
+    "Tiempos de reacción aceptados por negocio",
+    "Instructivo ajustado con hallazgos UAT",
+    "Backlog UX priorizado"
+  ],
+  "no_go_criterios": [
+    "Error que impide flujo crítico",
+    "Guardado incorrecto de datos",
+    "Incoherencia grave de permisos"
+  ],
+  "checklist_tecnico": [
+    "API_BASE_URL correcto en build",
+    "WSS/WS operativo para chat interno",
+    "Backup BD antes de despliegue",
+    "Versión registrada en assets/qa_version_notes.json",
+    "Runbook de contingencia disponible"
+  ]
+}

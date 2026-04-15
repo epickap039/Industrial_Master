@@ -9,8 +9,8 @@ import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 
 import '../../services/api_client.dart';
 import '../../services/ayudas_offline_cache_service.dart';
-import '../../widgets/contextual_bug_report.dart';
 import 'ayudas_api_models.dart';
+import 'ayudas_layout_helpers.dart';
 
 enum _DualFocusState { principal, dual, secundaria }
 
@@ -30,7 +30,7 @@ class AyudasVisorScreen extends StatefulWidget {
   final int idRevisionInicial;
   final bool canUpload;
 
-  /// Si es false (p. ej. rol Producción), solo se muestra la revisión vigente sin panel de historial.
+  /// Si es false, no se carga historial ni comparación dual (casos muy restringidos).
   final bool allowRevisionHistory;
 
   @override
@@ -38,13 +38,13 @@ class AyudasVisorScreen extends StatefulWidget {
 }
 
 class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
-  static const double _kSidebarWidth = 280;
-
   bool _loadingHist = true;
   String? _errorHist;
   List<dynamic> _historial = [];
   late int _idRevisionSeleccionada;
   int? _idRevisionSecundaria;
+  int? _idAyudaSecundaria;
+  String? _secondaryLabel;
   _DualFocusState _focusState = _DualFocusState.dual;
   bool _sidebarColapsada = false;
   bool _showOfflineBanner = false;
@@ -79,8 +79,12 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
             .map(ayudasIdRevision)
             .toSet();
         if (_idRevisionSecundaria != null &&
+            (_idAyudaSecundaria == null ||
+                _idAyudaSecundaria == widget.idAyuda) &&
             !validIds.contains(_idRevisionSecundaria)) {
           _idRevisionSecundaria = null;
+          _idAyudaSecundaria = null;
+          _secondaryLabel = null;
           _focusState = _DualFocusState.dual;
         }
         _loadingHist = false;
@@ -108,10 +112,60 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
       _idRevisionSecundaria != null &&
       _idRevisionSecundaria != _idRevisionSeleccionada;
 
-  Future<void> _seleccionarRevisionSecundaria() async {
-    if (!_historial.whereType<Map<String, dynamic>>().any((m) {
-      return ayudasIdRevision(m) != _idRevisionSeleccionada;
-    })) {
+  Future<List<Map<String, dynamic>>> _opcionesSecundaria() async {
+    final out = <Map<String, dynamic>>[];
+    final usedRevisions = <int>{};
+    for (final m in _historial.whereType<Map<String, dynamic>>()) {
+      final rev = ayudasIdRevision(m);
+      if (rev == _idRevisionSeleccionada) continue;
+      if (usedRevisions.contains(rev)) continue;
+      usedRevisions.add(rev);
+      out.add({
+        'id_ayuda': widget.idAyuda,
+        'id_revision': rev,
+        'titulo': widget.tituloDocumento,
+        'numero_revision': ayudasNumeroRevision(m),
+        'scope': 'revision',
+      });
+    }
+    try {
+      final remote = await ApiClient.get(
+        '/api/ayudas/secundaria-opciones/${widget.idAyuda}',
+      );
+      if (remote is List) {
+        for (final item in remote.whereType<Map<String, dynamic>>()) {
+          final rev = ayudasIdRevision(item);
+          if (rev <= 0 || usedRevisions.contains(rev)) continue;
+          usedRevisions.add(rev);
+          out.add({
+            'id_ayuda': ayudasIdAyuda(item),
+            'id_revision': rev,
+            'titulo': ayudasTituloDocumento(item),
+            'numero_revision': ayudasNumeroRevision(item),
+            'scope': 'documento',
+          });
+        }
+      }
+    } catch (_) {
+      // Sin red o endpoint no disponible: al menos deja revisión del mismo documento.
+    }
+    return out;
+  }
+
+  Future<void> _seleccionarSecundaria() async {
+    final opciones = await _opcionesSecundaria();
+    if (opciones.isEmpty) {
+      if (!mounted) return;
+      displayInfoBar(context, builder: (c, close) {
+        return InfoBar(
+          title: const Text('Sin opción secundaria'),
+          content: const Text(
+            'No hay otra ayuda visual/revisión disponible para comparar.',
+          ),
+          severity: InfoBarSeverity.warning,
+          onClose: close,
+        );
+      });
       return;
     }
     await showDialog<void>(
@@ -123,23 +177,28 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
             width: 420,
             child: ListView(
               shrinkWrap: true,
-              children: _historial
-                  .whereType<Map<String, dynamic>>()
-                  .where((m) => ayudasIdRevision(m) != _idRevisionSeleccionada)
-                  .map((m) {
-                final id = ayudasIdRevision(m);
-                final numR = ayudasNumeroRevision(m);
-                final vig = ayudasEsVigente(m);
+              children: opciones.map((m) {
+                final id = (m['id_revision'] as num).toInt();
+                final idAyuda = (m['id_ayuda'] as num).toInt();
+                final numR = '${m['numero_revision'] ?? ''}';
+                final titulo = '${m['titulo'] ?? 'Sin título'}';
+                final esDocumento = (m['scope'] ?? '') == 'documento';
                 return material.Card(
                   margin: const material.EdgeInsets.only(bottom: 6),
                   child: material.ListTile(
                     selected: _idRevisionSecundaria == id,
-                    title: Text('Rev. $numR'),
-                    subtitle: Text(vig ? 'Vigente' : 'Histórica'),
+                    title: Text(titulo),
+                    subtitle: Text(
+                      esDocumento
+                          ? 'Otra ayuda visual · Rev. $numR'
+                          : 'Mismo documento · Rev. $numR',
+                    ),
                     onTap: () {
                       Navigator.pop(ctx);
                       setState(() {
                         _idRevisionSecundaria = id;
+                        _idAyudaSecundaria = idAyuda;
+                        _secondaryLabel = '$titulo · Rev. $numR';
                         _focusState = _DualFocusState.dual;
                       });
                     },
@@ -417,33 +476,56 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
     }
   }
 
+  void _onDualChromeMenu(int? v) {
+    if (v == null) return;
+    switch (v) {
+      case 0:
+        setState(() => _focusState = _DualFocusState.principal);
+        break;
+      case 1:
+        setState(() => _focusState = _DualFocusState.dual);
+        break;
+      case 2:
+        setState(() => _focusState = _DualFocusState.secundaria);
+        break;
+      case 3:
+        setState(() {
+          _idRevisionSecundaria = null;
+          _idAyudaSecundaria = null;
+          _secondaryLabel = null;
+          _focusState = _DualFocusState.dual;
+        });
+        break;
+    }
+  }
+
+  String _dualFocusShortLabel() {
+    return switch (_focusState) {
+      _DualFocusState.principal => 'Principal',
+      _DualFocusState.dual => 'Dual',
+      _DualFocusState.secundaria => 'Secundaria',
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
+    final screenW = MediaQuery.sizeOf(context).width;
+    final compactAppBar = ayudasPdfUseImmersiveChrome(screenW);
     return material.Scaffold(
       appBar: material.AppBar(
-        toolbarHeight: 44,
-        titleSpacing: 6,
+        toolbarHeight: compactAppBar ? 36 : 44,
+        titleSpacing: compactAppBar ? 2 : 6,
         leading: material.IconButton(
           icon: const material.Icon(material.Icons.arrow_back),
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: material.Text(
           widget.tituloDocumento,
-          style: const material.TextStyle(
-            fontSize: 16,
+          style: material.TextStyle(
+            fontSize: compactAppBar ? 15 : 16,
             fontWeight: FontWeight.w600,
           ),
         ),
-        actions: [
-          material.IconButton(
-            icon: const material.Icon(material.Icons.bug_report_outlined),
-            onPressed: () => showContextualBugReportDialog(
-              context,
-              modulo: 'Ayudas Visuales',
-              contextoPantalla: 'ayudas_visor',
-            ),
-          ),
-        ],
       ),
       body: Column(
         children: [
@@ -461,14 +543,27 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
           Expanded(
             child: LayoutBuilder(
               builder: (context, c) {
-                final narrow = c.maxWidth < 960;
+                final w = c.maxWidth;
+                final narrow = ayudasPdfUseStackedTimeline(w);
+                final immersive = ayudasPdfUseImmersiveChrome(w);
+                final dark = material.Theme.of(context).brightness ==
+                    material.Brightness.dark;
+                final dualBarBg = dark
+                    ? const material.Color(0xFF262A30)
+                    : const material.Color(0xFFE7EDF6);
+                final dualBarFg = dark
+                    ? material.Colors.white
+                    : const material.Color(0xFF14263D);
+                final dualBarMuted = dark
+                    ? material.Colors.white70
+                    : const material.Color(0xFF4C6078);
                 final canShowDualControls = widget.allowRevisionHistory && !narrow;
                 if (narrow) {
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Expanded(
-                        flex: 3,
+                        flex: 6,
                         child: _PdfPane(
                           key: ValueKey<int>(_idRevisionSeleccionada),
                           revisionKey: _idRevisionSeleccionada,
@@ -480,7 +575,7 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
                 if (widget.allowRevisionHistory) ...[
                   const Divider(),
                   SizedBox(
-                    height: 220,
+                    height: ayudasPdfTimelineHeight(w),
                     child: _TimelinePane(
                       loading: _loadingHist,
                       error: _errorHist,
@@ -492,6 +587,8 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
                             _idRevisionSeleccionada = id;
                             if (_idRevisionSecundaria == id) {
                               _idRevisionSecundaria = null;
+                              _idAyudaSecundaria = null;
+                              _secondaryLabel = null;
                             }
                           }),
                       onSubir: _dialogoSubirRevision,
@@ -518,58 +615,136 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
                         children: [
                     if (canShowDualControls)
                       Container(
-                        height: 44,
-                        color: const material.Color(0xFF262A30),
-                        padding: const material.EdgeInsets.symmetric(
-                          horizontal: 10,
+                        height: ayudasPdfDualBarHeight(w),
+                        color: dualBarBg,
+                        padding: material.EdgeInsets.symmetric(
+                          horizontal: immersive ? 6 : 10,
+                          vertical: immersive ? 2 : 4,
                         ),
                         child: Row(
                           children: [
-                            if (_splitActivo)
-                              material.SegmentedButton<_DualFocusState>(
-                                segments: const [
-                                  material.ButtonSegment(
-                                    value: _DualFocusState.principal,
-                                    label: Text('Principal'),
+                            if (immersive) ...[
+                              if (_splitActivo)
+                                material.PopupMenuButton<int>(
+                                  tooltip: 'Distribución de vistas',
+                                  padding: EdgeInsets.zero,
+                                  onSelected: _onDualChromeMenu,
+                                  itemBuilder: (ctx) => [
+                                    const material.PopupMenuItem(
+                                      value: 0,
+                                      child: material.Text('Vista principal'),
+                                    ),
+                                    const material.PopupMenuItem(
+                                      value: 1,
+                                      child: material.Text('Vista dual'),
+                                    ),
+                                    const material.PopupMenuItem(
+                                      value: 2,
+                                      child: material.Text('Solo secundaria'),
+                                    ),
+                                    const material.PopupMenuDivider(),
+                                    const material.PopupMenuItem(
+                                      value: 3,
+                                      child: material.Text('Cerrar comparación'),
+                                    ),
+                                  ],
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          material.Icons.view_column,
+                                          size: 18,
+                                          color: dualBarMuted,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          _dualFocusShortLabel(),
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                            color: dualBarFg,
+                                          ),
+                                        ),
+                                        Icon(
+                                          material.Icons.arrow_drop_down,
+                                          color: dualBarMuted,
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                  material.ButtonSegment(
-                                    value: _DualFocusState.dual,
-                                    label: Text('Dual'),
+                                )
+                              else
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 1),
+                                  child: FilledButton(
+                                    onPressed: _seleccionarSecundaria,
+                                    child: const Text(
+                                      'Comparar',
+                                      style: TextStyle(fontSize: 12),
+                                    ),
                                   ),
-                                  material.ButtonSegment(
-                                    value: _DualFocusState.secundaria,
-                                    label: Text('Secundaria'),
-                                  ),
-                                ],
-                                selected: {_focusState},
-                                onSelectionChanged: (v) {
-                                  if (v.isEmpty) return;
-                                  setState(() => _focusState = v.first);
+                                ),
+                            ] else ...[
+                              if (_splitActivo)
+                                material.SegmentedButton<_DualFocusState>(
+                                  segments: const [
+                                    material.ButtonSegment(
+                                      value: _DualFocusState.principal,
+                                      label: Text('Principal'),
+                                    ),
+                                    material.ButtonSegment(
+                                      value: _DualFocusState.dual,
+                                      label: Text('Dual'),
+                                    ),
+                                    material.ButtonSegment(
+                                      value: _DualFocusState.secundaria,
+                                      label: Text('Secundaria'),
+                                    ),
+                                  ],
+                                  selected: {_focusState},
+                                  onSelectionChanged: (v) {
+                                    if (v.isEmpty) return;
+                                    setState(() => _focusState = v.first);
+                                  },
+                                ),
+                              if (_splitActivo) const SizedBox(width: 8),
+                              FilledButton(
+                                onPressed: () {
+                                  if (_splitActivo) {
+                                    setState(() {
+                                      _idRevisionSecundaria = null;
+                                      _idAyudaSecundaria = null;
+                                      _secondaryLabel = null;
+                                      _focusState = _DualFocusState.dual;
+                                    });
+                                    return;
+                                  }
+                                  _seleccionarSecundaria();
                                 },
+                                child: Text(
+                                  _splitActivo
+                                      ? 'Cerrar split'
+                                      : 'Seleccionar secundaria',
+                                ),
                               ),
-                            if (_splitActivo) const SizedBox(width: 8),
-                            FilledButton(
-                              onPressed: () {
-                                if (_splitActivo) {
-                                  setState(() {
-                                    _idRevisionSecundaria = null;
-                                    _focusState = _DualFocusState.dual;
-                                  });
-                                  return;
-                                }
-                                _seleccionarRevisionSecundaria();
-                              },
-                              child: Text(
-                                _splitActivo
-                                    ? 'Cerrar split'
-                                    : 'Seleccionar secundaria',
-                              ),
-                            ),
+                            ],
                             const Spacer(),
                             if (_splitActivo && _idRevisionSecundaria != null)
-                              Text(
-                                'Secundaria: Rev. ${_idRevisionSecundaria!}',
-                                style: const TextStyle(fontSize: 12),
+                              Flexible(
+                                child: Text(
+                                  'Secundaria: ${_secondaryLabel ?? 'Rev. ${_idRevisionSecundaria!}'}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: immersive ? 11 : 12,
+                                    color: dualBarMuted,
+                                  ),
+                                ),
                               ),
                           ],
                         ),
@@ -597,7 +772,9 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
                                 children: [
                                   Positioned.fill(
                                     child: _PdfPane(
-                                      key: ValueKey<int>(_idRevisionSecundaria!),
+                                      key: ValueKey<String>(
+                                        '${_idAyudaSecundaria ?? widget.idAyuda}-${_idRevisionSecundaria!}',
+                                      ),
                                       idRevision: _idRevisionSecundaria!,
                                       revisionKey: _idRevisionSecundaria!,
                                       onOfflineFallback:
@@ -638,13 +815,14 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
                     ),
                     if (widget.allowRevisionHistory)
                       SizedBox(
-                        width: 28,
+                        width: immersive ? 24 : 28,
                         child: Center(
                           child: IconButton(
                             icon: Icon(
                               _sidebarColapsada
                                   ? material.Icons.chevron_left
                                   : material.Icons.chevron_right,
+                              size: immersive ? 18 : 22,
                             ),
                             onPressed: () => setState(
                               () => _sidebarColapsada = !_sidebarColapsada,
@@ -655,7 +833,7 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
                     if (widget.allowRevisionHistory &&
                         !_sidebarColapsada)
                       SizedBox(
-                        width: _kSidebarWidth,
+                        width: ayudasPdfSidebarWidth(w),
                         child: _TimelinePane(
                           loading: _loadingHist,
                           error: _errorHist,
@@ -665,8 +843,12 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
                           canDeleteRevision: widget.canUpload,
                           onSelect: (id) => setState(() {
                             _idRevisionSeleccionada = id;
-                            if (_idRevisionSecundaria == id) {
+                            if ((_idAyudaSecundaria == null ||
+                                    _idAyudaSecundaria == widget.idAyuda) &&
+                                _idRevisionSecundaria == id) {
                               _idRevisionSecundaria = null;
+                              _idAyudaSecundaria = null;
+                              _secondaryLabel = null;
                             }
                           }),
                           onSubir: _dialogoSubirRevision,
@@ -768,6 +950,8 @@ class _PdfPaneState extends State<_PdfPane> {
           );
         }
         final data = snapshot.data!;
+        final paneW = MediaQuery.sizeOf(context).width;
+        final immersivePdf = ayudasPdfUseImmersiveChrome(paneW);
         return SizedBox.expand(
           child: material.Card(
             margin: material.EdgeInsets.zero,
@@ -781,9 +965,10 @@ class _PdfPaneState extends State<_PdfPane> {
                   key: ValueKey<int>(widget.revisionKey),
                   controller: _pdfController,
                   pageLayoutMode: PdfPageLayoutMode.single,
-                  maxZoomLevel: 5,
-                  canShowScrollHead: true,
-                  canShowScrollStatus: true,
+                  maxZoomLevel: 15,
+                  initialZoomLevel: ayudasPdfInitialZoom(paneW),
+                  canShowScrollHead: !immersivePdf,
+                  canShowScrollStatus: !immersivePdf,
                   interactionMode: PdfInteractionMode.pan,
                 ),
                 if (data.fromCache)

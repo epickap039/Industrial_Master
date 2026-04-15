@@ -47,6 +47,10 @@ __pycache__/
 *.log
 *.txt
 !requirements.txt
+!backend/requirements-dev.txt
+
+# Rutas locales de herramientas (Flutter, etc.); ver scripts/local_paths.ps1.example
+scripts/local_paths.ps1
 
 # Archivos de base de datos locales
 *.db

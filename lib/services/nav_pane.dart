@@ -23,6 +23,7 @@ enum NavPaneId {
   notasVersion,
   radarImpacto,
   requerimientosMrp,
+  optimizarCorteMp,
   generadorCodigo,
   centroMonitoreo,
 }
@@ -65,6 +66,7 @@ bool _shows(NavPaneId id, AppRole r) => switch (id) {
       NavPaneId.notasVersion => r.showsNavQa,
       NavPaneId.radarImpacto => r.showsNavRadar,
       NavPaneId.requerimientosMrp => r.showsNavMrp,
+      NavPaneId.optimizarCorteMp => r.showsNavOptimizarCorteMp,
       NavPaneId.generadorCodigo => r.showsNavCatalogo,
       NavPaneId.centroMonitoreo => r.showsNavMonitoreo,
     };
@@ -78,6 +80,15 @@ const List<NavPaneId> kNavPaneOrder = [
   NavPaneId.centroMonitoreo,
   NavPaneId.mapaIngenieria,
 ];
+
+const Set<NavPaneId> kNavPaneIdsUnderReview = <NavPaneId>{
+  NavPaneId.expedientesVin,
+  NavPaneId.generadorCodigo,
+  NavPaneId.requerimientosMrp,
+  NavPaneId.optimizarCorteMp,
+};
+
+bool navPaneUnderReview(NavPaneId id) => kNavPaneIdsUnderReview.contains(id);
 
 List<NavPaneId> visibleNavPanes(AppRole r) =>
     kNavPaneOrder.where((id) => _shows(id, r)).toList(growable: false);
@@ -99,6 +110,7 @@ NavPaneId _ownerSectionFor(NavPaneId id) {
     NavPaneId.catalogoMaestro ||
     NavPaneId.dashboardAnalytics ||
     NavPaneId.requerimientosMrp ||
+    NavPaneId.optimizarCorteMp ||
     NavPaneId.generadorCodigo => NavPaneId.datosHub,
     _ => id,
   };

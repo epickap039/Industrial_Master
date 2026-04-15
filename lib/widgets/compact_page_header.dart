@@ -15,6 +15,8 @@ class CompactPageHeader extends StatelessWidget {
       UiTokens.pageHPadding,
       10,
     ),
+    this.applyTitleTypography = true,
+    this.crossAxisAlignment = CrossAxisAlignment.start,
   });
 
   final Widget? leading;
@@ -22,22 +24,33 @@ class CompactPageHeader extends StatelessWidget {
   final Widget? commandBar;
   final EdgeInsets padding;
 
+  /// Si es false, no se aplica [Typography.title] al área del título (útil cuando el
+  /// título es una fila con controles: evita inflar altura y espaciados del resto).
+  final bool applyTitleTypography;
+
+  /// Alineación vertical de la fila principal (p. ej. [CrossAxisAlignment.center] con buscador).
+  final CrossAxisAlignment crossAxisAlignment;
+
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
     final titleStyle = theme.typography.title;
+    final titleChild = title ?? const SizedBox.shrink();
+    final titleSlot = applyTitleTypography
+        ? DefaultTextStyle.merge(
+            style: titleStyle,
+            child: titleChild,
+          )
+        : titleChild;
 
     return Padding(
       padding: padding,
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: crossAxisAlignment,
         children: [
           if (leading != null) leading!,
           Expanded(
-            child: DefaultTextStyle.merge(
-              style: titleStyle,
-              child: title ?? const SizedBox.shrink(),
-            ),
+            child: titleSlot,
           ),
           if (commandBar != null) ...[
             const SizedBox(width: 12),

@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/material.dart' as material;
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
@@ -14,10 +15,12 @@ import '../services/main_nav.dart';
 import '../services/nav_pane.dart';
 import '../services/notification_inbox_service.dart';
 import '../services/user_avatar_service.dart';
+import '../services/lobby_quick_actions_prefs.dart';
 import '../theme/page_title_style.dart';
 import '../theme/ui_tokens.dart';
 import 'monitoreo/widgets/notification_inbox_panel.dart';
 import 'ayudas_visuales/ayudas_api_models.dart';
+import 'ayudas_visuales/ayudas_layout_helpers.dart';
 
 String _roleLabel(AppRole r) {
   return switch (r) {
@@ -94,6 +97,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
   int _totalArchivosAyudas = 0;
   int _notificacionesNoLeidas = 0;
   List<CmdInboxEntry> _notificacionesPreview = [];
+  List<NavPaneId> _quickNavIds = [];
 
   @override
   void initState() {
@@ -107,12 +111,15 @@ class _LobbyScreenState extends State<LobbyScreen> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.effectiveRole != widget.effectiveRole) {
       _userRole = widget.effectiveRole;
+      _loadQuickActionsPrefs();
       _fetchAll();
     }
   }
 
   Future<void> _bootstrap() async {
     await _loadUser();
+    if (!mounted) return;
+    await _loadQuickActionsPrefs();
     if (!mounted) return;
     await _fetchAll();
   }
@@ -175,6 +182,80 @@ class _LobbyScreenState extends State<LobbyScreen> {
         await prefs.setString('username', newLogin);
       }
     } catch (_) {}
+  }
+
+  Future<void> _loadQuickActionsPrefs() async {
+    final role = parseAppRole(_userRole);
+    final username = _loginUsername.trim().isNotEmpty
+        ? _loginUsername.trim()
+        : _userName.trim();
+    final ids = await LobbyQuickActionsPrefs.load(username, role);
+    if (!mounted) return;
+    setState(() => _quickNavIds = ids);
+  }
+
+  Future<void> _openQuickActionsDialog() async {
+    final role = parseAppRole(_userRole);
+    final available = LobbyQuickActionsPrefs.catalog.keys
+        .where((id) => navIndexForPane(id, role) >= 0)
+        .toList();
+    var local = List<NavPaneId>.from(_quickNavIds);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return ContentDialog(
+          title: const Text('Personalizar accesos rápidos'),
+          content: SizedBox(
+            width: 520,
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                for (final id in available)
+                  Checkbox(
+                    checked: local.contains(id),
+                    onChanged: (v) {
+                      if (v == true && !local.contains(id)) {
+                        local.add(id);
+                      } else if (v != true) {
+                        local.remove(id);
+                      }
+                      (ctx as Element).markNeedsBuild();
+                    },
+                    content: Text(
+                      LobbyQuickActionsPrefs.catalog[id]?.title ?? id.name,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            Button(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar'),
+            ),
+            Button(
+              onPressed: () {
+                local = LobbyQuickActionsPrefs.defaults(role);
+                (ctx as Element).markNeedsBuild();
+              },
+              child: const Text('Restaurar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Guardar'),
+            ),
+          ],
+        );
+      },
+    );
+    if (ok != true) return;
+    final safe = LobbyQuickActionsPrefs.sanitize(local, role);
+    final username = _loginUsername.trim().isNotEmpty
+        ? _loginUsername.trim()
+        : _userName.trim();
+    await LobbyQuickActionsPrefs.save(username, safe);
+    if (!mounted) return;
+    setState(() => _quickNavIds = safe);
   }
 
   Future<void> _reloadLobbyAvatar({bool silent = false}) async {
@@ -363,6 +444,42 @@ class _LobbyScreenState extends State<LobbyScreen> {
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         child: Text(label),
+      ),
+    );
+  }
+
+  /// Menú compacto (tablet): biblioteca + abrir último documento sin ocupar dos botones anchos.
+  Widget _lobbyAyudasOverflowActions({
+    required VoidCallback onIrBiblioteca,
+    VoidCallback? onAbrirUltimo,
+  }) {
+    final hasLast = onAbrirUltimo != null;
+    return material.Material(
+      color: material.Colors.transparent,
+      child: material.PopupMenuButton<int>(
+        tooltip: 'Acciones de ayudas visuales',
+        onSelected: (v) {
+          if (v == 0) onIrBiblioteca();
+          if (v == 1) {
+            final abrir = onAbrirUltimo;
+            if (abrir != null) abrir();
+          }
+        },
+        itemBuilder: (ctx) => [
+          const material.PopupMenuItem<int>(
+            value: 0,
+            child: material.Text('Ir a biblioteca de ayudas'),
+          ),
+          if (hasLast)
+            const material.PopupMenuItem<int>(
+              value: 1,
+              child: material.Text('Abrir último documento'),
+            ),
+        ],
+        child: const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+          child: Icon(FluentIcons.more_vertical, size: 20),
+        ),
       ),
     );
   }
@@ -1079,19 +1196,36 @@ class _LobbyScreenState extends State<LobbyScreen> {
             : '${latest['Usuario_Subida'] ?? latest['usuario_subida'] ?? ''}'
                 .trim();
     final nCat = _ayudasPorCategoria.length;
+    final lobbyAyudasCompact =
+        ayudasLobbyAyudasCompacto(MediaQuery.sizeOf(context).width);
     return Container(
-      padding: const EdgeInsets.all(UiTokens.cardPadding + 2),
+      padding: EdgeInsets.all(
+        lobbyAyudasCompact ? 8 : UiTokens.cardPadding + 2,
+      ),
       decoration: elevatedCardDecoration(theme),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Ayudas visuales · Resumen',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-              color: const Color(0xFF0D6EFD),
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  'Ayudas visuales · Resumen',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF0D6EFD),
+                  ),
+                ),
+              ),
+              if (lobbyAyudasCompact)
+                _lobbyAyudasOverflowActions(
+                  onIrBiblioteca: () =>
+                      widget.onNavigatePane(NavPaneId.ayudasVisuales),
+                  onAbrirUltimo: latest != null ? _openLatestAyuda : null,
+                ),
+            ],
           ),
           const SizedBox(height: 10),
           Wrap(
@@ -1169,7 +1303,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                     ],
                   ),
                 ),
-                if (latest != null)
+                if (latest != null && !lobbyAyudasCompact)
                   _lobbyFilledAction(
                     label: 'Ver documento',
                     onPressed: _openLatestAyuda,
@@ -1632,8 +1766,12 @@ class _LobbyScreenState extends State<LobbyScreen> {
                 .trim();
     final pdfTint =
         dark ? theme.accentColor.withValues(alpha: 0.9) : const Color(0xFF1565C0);
+    final lobbyAyudasCompact =
+        ayudasLobbyAyudasCompacto(MediaQuery.sizeOf(context).width);
     return Container(
-      padding: const EdgeInsets.all(UiTokens.cardPadding + 2),
+      padding: EdgeInsets.all(
+        lobbyAyudasCompact ? 8 : UiTokens.cardPadding + 2,
+      ),
       decoration: elevatedCardDecoration(theme),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1667,12 +1805,19 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   ],
                 ),
               ),
-              const SizedBox(width: 12),
-              Button(
-                onPressed: () =>
-                    widget.onNavigatePane(NavPaneId.ayudasVisuales),
-                child: const Text('Ver ayudas'),
-              ),
+              if (!lobbyAyudasCompact) ...[
+                const SizedBox(width: 12),
+                Button(
+                  onPressed: () =>
+                      widget.onNavigatePane(NavPaneId.ayudasVisuales),
+                  child: const Text('Ver ayudas'),
+                ),
+              ] else
+                _lobbyAyudasOverflowActions(
+                  onIrBiblioteca: () =>
+                      widget.onNavigatePane(NavPaneId.ayudasVisuales),
+                  onAbrirUltimo: latest != null ? _openLatestAyuda : null,
+                ),
             ],
           ),
           const SizedBox(height: 10),
@@ -1732,7 +1877,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                     ],
                   ),
                 ),
-                if (latest != null)
+                if (latest != null && !lobbyAyudasCompact)
                   _lobbyFilledAction(
                     label: 'Ver documento',
                     onPressed: _openLatestAyuda,
@@ -1747,116 +1892,48 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
   Widget _buildQuickActions(FluentThemeData theme) {
     final role = parseAppRole(_userRole);
-    final isEngineeringLobby =
-        role == AppRole.ingenieriaMetodos ||
-        role == AppRole.desarrollador ||
-        role == AppRole.administrador;
-    final cards = isEngineeringLobby
-        ? <Widget>[
-            _quickActionCard(
-              theme: theme,
-              icon: FluentIcons.cube_shape,
-              title: 'Escáner CAD',
-              subtitle: 'Escaneo y validación rápida',
-              detail: 'Punto de entrada para carga/normalización de piezas.',
-              onTap: () => widget.onNavigatePane(NavPaneId.escanerCad),
-            ),
-            _quickActionCard(
-              theme: theme,
-              icon: FluentIcons.database,
-              title: 'Catálogo Maestro',
-              subtitle: 'Consulta código y material',
-              detail: 'Validación inmediata de código, material y revisiones.',
-              onTap: () => widget.onNavigatePane(NavPaneId.catalogoMaestro),
-            ),
-            _quickActionCard(
-              theme: theme,
-              icon: FluentIcons.page_list,
-              title: 'Ayudas visuales',
-              subtitle: 'Consulta de instructivos',
-              detail: 'Acceso directo a PDFs por categoría y revisión.',
-              onTap: () => widget.onNavigatePane(NavPaneId.ayudasVisuales),
-            ),
-            _quickActionCard(
-              theme: theme,
-              icon: FluentIcons.map_layers,
-              title: 'Mapa de ingeniería',
-              subtitle: 'Navega la estructura del producto',
-              detail: 'Tracto, tipo, versión y revisión desde una sola vista.',
-              onTap: () => widget.onNavigatePane(NavPaneId.mapaIngenieria),
-            ),
-            _quickActionCard(
-              theme: theme,
-              icon: FluentIcons.fabric_folder,
-              title: 'Gestión de proyectos',
-              subtitle: 'Versiones y trazabilidad',
-              detail: 'Control de tractos, tipos, versiones y clientes.',
-              onTap: () => widget.onNavigatePane(NavPaneId.gestionProyectos),
-            ),
-            _quickActionCard(
-              theme: theme,
-              icon: FluentIcons.cloud,
-              title: 'Importar Excel',
-              subtitle: 'Carga masiva de cambios',
-              detail: 'Entrada rápida para actualización operativa del catálogo.',
-              onTap: () => widget.onNavigatePane(NavPaneId.importarExcel),
-            ),
-          ]
-        : <Widget>[
-            _quickActionCard(
-              theme: theme,
-              icon: FluentIcons.database,
-              title: 'Catálogo Maestro',
-              subtitle: 'Consulta piezas y procesos',
-              detail: 'Búsqueda por código, revisiones y rutas.',
-              onTap: () => widget.onNavigatePane(NavPaneId.catalogoMaestro),
-            ),
-            _quickActionCard(
-              theme: theme,
-              icon: FluentIcons.page_list,
-              title: 'Ayudas visuales',
-              subtitle: 'Accede rápido a documentos',
-              detail: 'PDFs por categoría y subida reciente.',
-              onTap: () => widget.onNavigatePane(NavPaneId.ayudasVisuales),
-            ),
-            _quickActionCard(
-              theme: theme,
-              icon: FluentIcons.build_issue,
-              title: 'Radar de impacto',
-              subtitle: 'Evalúa impacto y asigna tareas',
-              detail: 'Cambios en BOM y misiones del centro.',
-              onTap: () => widget.onNavigatePane(NavPaneId.radarImpacto),
-            ),
-            _quickActionCard(
-              theme: theme,
-              icon: FluentIcons.fabric_folder,
-              title: 'Gestión de proyectos',
-              subtitle: 'Versiones y trazabilidad',
-              detail: 'Tractos, tipos, versiones y clientes.',
-              onTap: () => widget.onNavigatePane(NavPaneId.gestionProyectos),
-            ),
-            _quickActionCard(
-              theme: theme,
-              icon: FluentIcons.set_action,
-              title: 'Materiales oficiales',
-              subtitle: 'Consulta y copia descripciones',
-              detail: 'Uso diario para estandarizar nombres de material.',
-              onTap: () => widget.onNavigatePane(NavPaneId.materialesOficiales),
-            ),
-          ];
+    final fallback = LobbyQuickActionsPrefs.defaults(role);
+    final ids = LobbyQuickActionsPrefs.sanitize(
+      _quickNavIds.isEmpty ? fallback : _quickNavIds,
+      role,
+    );
+    final cards = ids
+        .where((id) => LobbyQuickActionsPrefs.catalog[id] != null)
+        .map((id) {
+          final meta = LobbyQuickActionsPrefs.catalog[id]!;
+          return _quickActionCard(
+            theme: theme,
+            icon: meta.icon,
+            title: meta.title,
+            subtitle: meta.subtitle,
+            detail: meta.detail,
+            onTap: () => widget.onNavigatePane(id),
+          );
+        })
+        .toList();
     return Container(
       padding: const EdgeInsets.all(UiTokens.cardPadding - 2),
       decoration: elevatedCardDecoration(theme),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Accesos rápidos',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w800,
-              color: theme.typography.body?.color,
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Accesos rápidos',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: theme.typography.body?.color,
+                  ),
+                ),
+              ),
+              Button(
+                onPressed: _openQuickActionsDialog,
+                child: const Text('Personalizar'),
+              ),
+            ],
           ),
           const SizedBox(height: 8),
           LayoutBuilder(

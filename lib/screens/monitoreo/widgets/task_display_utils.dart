@@ -262,9 +262,9 @@ bool manualSinTiempoEstimado(Map<String, dynamic> t) {
 /// Presupuesto: Radar (`total_minutos` en meta) o manual (`minutos_estimados` en API).
 int? totalMinutosPresupuestoCombinado(Map<String, dynamic> task) {
   final meta = totalMinutosPresupuestoMeta(task);
-  if (meta != null && meta > 0) return meta;
+  if (meta != null && meta >= 0) return meta;
   final m = int.tryParse('${task['minutos_estimados'] ?? ''}');
-  if (m != null && m > 0) return m;
+  if (m != null && m >= 0) return m;
   return null;
 }
 
@@ -279,15 +279,24 @@ int? minutosRestantesEstimados(Map<String, dynamic> task) {
   return (safeTotal * (1.0 - pClamped / 100.0)).round().clamp(0, safeTotal);
 }
 
-bool _esDiaLaboral(DateTime d) => d.weekday >= DateTime.monday && d.weekday <= DateTime.saturday;
+bool _esDiaLaboral(DateTime d) =>
+    d.weekday >= DateTime.monday && d.weekday <= DateTime.saturday;
 
 ({DateTime start, DateTime end})? _ventanaLaboral(DateTime d) {
   if (!_esDiaLaboral(d)) return null;
-  final start = DateTime(d.year, d.month, d.day, 8, 0);
+  final start = DateTime(d.year, d.month, d.day, 9, 0);
   final end = d.weekday == DateTime.saturday
       ? DateTime(d.year, d.month, d.day, 14, 0)
-      : DateTime(d.year, d.month, d.day, 17, 0);
+      : DateTime(d.year, d.month, d.day, 18, 0);
   return (start: start, end: end);
+}
+
+DateTime _inicioSiguienteDiaLaboral(DateTime base) {
+  var d = DateTime(base.year, base.month, base.day).add(const Duration(days: 1));
+  while (!_esDiaLaboral(d)) {
+    d = d.add(const Duration(days: 1));
+  }
+  return DateTime(d.year, d.month, d.day, 9, 0);
 }
 
 DateTime? finLaboralDesde(DateTime base, int minutosPendientes) {
@@ -299,20 +308,20 @@ DateTime? finLaboralDesde(DateTime base, int minutosPendientes) {
     guard++;
     final win = _ventanaLaboral(cur);
     if (win == null) {
-      cur = DateTime(cur.year, cur.month, cur.day + 1, 8, 0);
+      cur = _inicioSiguienteDiaLaboral(cur);
       continue;
     }
     if (cur.isBefore(win.start)) {
       cur = win.start;
     }
     if (!cur.isBefore(win.end)) {
-      cur = DateTime(cur.year, cur.month, cur.day + 1, 8, 0);
+      cur = _inicioSiguienteDiaLaboral(cur);
       continue;
     }
     final disp = win.end.difference(cur).inMinutes;
     if (rem <= disp) return cur.add(Duration(minutes: rem));
     rem -= disp;
-    cur = DateTime(cur.year, cur.month, cur.day + 1, 8, 0);
+    cur = _inicioSiguienteDiaLaboral(cur);
   }
   return cur;
 }
