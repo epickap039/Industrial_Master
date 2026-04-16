@@ -1,5 +1,12 @@
 [
   {
+    "build": 346,
+    "v": "346.0",
+    "tipo": "parche",
+    "fecha": "2026-04-16",
+    "notas": "Buzón notificaciones (barra superior): sondeo 30 s (antes 10 s) vía kCmdInboxPollInterval; recordatorios misión sin leer cada 2 h (antes 4 h), leída pero pendiente cada 24 h (constantes en notification_inbox_service). Producción: lobby 3 accesos + última ayuda, campana solo novedad ayuda. Ayudas: fix InfoBar/context al guardar estilo categoría; visor PDF indicador página/total sin barra inferior Syncfusion; menú categorías retocado; dispose controladores post-frame (ESC). Mapa ingeniería: Inicio/Recargar en cabecera; combo+búsqueda en una línea (responsive). Monitoreo: multi-asignados visibles para todos; orden por usuario activas antes que pausadas; fixes agrupación/keys. Backend tareas: asignados múltiples en crear."
+  },
+  {
     "build": 345,
     "v": "345.0",
     "tipo": "parche",

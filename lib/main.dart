@@ -24,7 +24,10 @@ import 'services/nav_pane.dart';
 import 'services/navigation_usage_service.dart';
 import 'main_layout.dart';
 import 'screens/monitoreo/widgets/notification_inbox_panel.dart';
+import 'screens/ayudas_visuales/ayudas_api_models.dart';
+import 'screens/ayudas_visuales/ayudas_ultima_subida_query.dart';
 import 'services/notification_inbox_service.dart';
+import 'services/produccion_ayuda_novedad_prefs.dart';
 
 const String API_URL = kApiBaseUrl;
 
@@ -791,6 +794,7 @@ class _MyAppState extends State<MyApp> {
                                       ],
                                       const SizedBox(width: 8),
                                       _AppBarNotificationInbox(
+                                        effectiveRoleRaw: _effectiveRole,
                                         onOpenMonitoring: () {
                                           final idx = navIndexForPane(
                                             NavPaneId.centroMonitoreo,
@@ -801,6 +805,19 @@ class _MyAppState extends State<MyApp> {
                                               idx,
                                               navContext,
                                               paneId: NavPaneId.centroMonitoreo,
+                                            );
+                                          }
+                                        },
+                                        onNavigateAyudasVisuales: () {
+                                          final idx = navIndexForPane(
+                                            NavPaneId.ayudasVisuales,
+                                            MainNav.currentRole,
+                                          );
+                                          if (idx >= 0) {
+                                            _handleNavigation(
+                                              idx,
+                                              navContext,
+                                              paneId: NavPaneId.ayudasVisuales,
                                             );
                                           }
                                         },
@@ -1581,11 +1598,17 @@ class _AppBarChatButton extends StatelessWidget {
   }
 }
 
-/// Campana de buzón (misiones asignadas) visible en toda la app desde la barra superior.
+/// Campana de buzón: misiones (roles generales) o solo novedades de ayudas visuales (Producción).
 class _AppBarNotificationInbox extends StatefulWidget {
-  const _AppBarNotificationInbox({required this.onOpenMonitoring});
+  const _AppBarNotificationInbox({
+    required this.effectiveRoleRaw,
+    required this.onOpenMonitoring,
+    required this.onNavigateAyudasVisuales,
+  });
 
+  final String effectiveRoleRaw;
   final VoidCallback onOpenMonitoring;
+  final VoidCallback onNavigateAyudasVisuales;
 
   @override
   State<_AppBarNotificationInbox> createState() =>
@@ -1596,24 +1619,79 @@ class _AppBarNotificationInboxState extends State<_AppBarNotificationInbox> {
   int _unread = 0;
   Timer? _timer;
   bool _primedUnreadBaseline = false;
+  DateTime? _lastAyudaPollForProd;
+  bool _hasCompletedProdAyudaBadgeOnce = false;
+
+  void _onProdAckChangeSignal() {
+    if (!mounted) return;
+    if (parseAppRole(widget.effectiveRoleRaw) != AppRole.produccion) return;
+    _lastAyudaPollForProd = null;
+    unawaited(_refresh());
+  }
 
   @override
   void initState() {
     super.initState();
+    ProduccionAyudaNovedadPrefs.ackChangeSignal.addListener(
+      _onProdAckChangeSignal,
+    );
     unawaited(_refresh());
-    _timer = Timer.periodic(const Duration(seconds: 10), (_) {
+    _timer = Timer.periodic(kCmdInboxPollInterval, (_) {
       unawaited(_refresh());
     });
   }
 
   @override
   void dispose() {
+    ProduccionAyudaNovedadPrefs.ackChangeSignal.removeListener(
+      _onProdAckChangeSignal,
+    );
     _timer?.cancel();
     super.dispose();
   }
 
+  @override
+  void didUpdateWidget(covariant _AppBarNotificationInbox oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.effectiveRoleRaw != widget.effectiveRoleRaw) {
+      _lastAyudaPollForProd = null;
+      _hasCompletedProdAyudaBadgeOnce = false;
+      unawaited(_refresh());
+    }
+  }
+
   Future<void> _refresh() async {
     try {
+      final role = parseAppRole(widget.effectiveRoleRaw);
+      if (role == AppRole.produccion) {
+        final now = DateTime.now();
+        if (_hasCompletedProdAyudaBadgeOnce &&
+            _lastAyudaPollForProd != null &&
+            now.difference(_lastAyudaPollForProd!) <
+                const Duration(seconds: 45)) {
+          return;
+        }
+        _lastAyudaPollForProd = now;
+
+        final latest = await AyudasUltimaSubidaQuery.fetchLatest();
+        final sig = AyudasUltimaSubidaQuery.signatureFor(latest);
+        await ProduccionAyudaNovedadPrefs.ensureBaselined(sig);
+        final ack = await ProduccionAyudaNovedadPrefs.readAckSignature();
+        final n =
+            (sig != null && sig.isNotEmpty && sig != (ack ?? '')) ? 1 : 0;
+        final prev = _unread;
+        if (_primedUnreadBaseline && n > prev && latest != null) {
+          await ChatWindowsNotificationService.instance.showMessage(
+            title: 'Nueva ayuda visual',
+            body: ayudasTituloDocumento(latest),
+          );
+        }
+        _hasCompletedProdAyudaBadgeOnce = true;
+        _primedUnreadBaseline = true;
+        if (mounted) setState(() => _unread = n);
+        return;
+      }
+
       final prefs = await SharedPreferences.getInstance();
       final inboxUser = (prefs.getString('username') ?? '').trim();
       if (inboxUser.isNotEmpty) {
@@ -1653,7 +1731,77 @@ class _AppBarNotificationInboxState extends State<_AppBarNotificationInbox> {
     }
   }
 
+  Future<void> _openProduccionAyudaBuzon() async {
+    final latest = await AyudasUltimaSubidaQuery.fetchLatest();
+    final sig = AyudasUltimaSubidaQuery.signatureFor(latest);
+    final ack = await ProduccionAyudaNovedadPrefs.readAckSignature();
+    final hayNueva = sig != null && sig.isNotEmpty && sig != (ack ?? '');
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        return ContentDialog(
+          title: Text(
+            hayNueva ? 'Nueva ayuda visual' : 'Notificaciones',
+          ),
+          content: SingleChildScrollView(
+            child: Text(
+              latest == null
+                  ? 'No hay ayudas visuales publicadas todavía.'
+                  : hayNueva
+                      ? 'Hay un documento nuevo: ${ayudasTituloDocumento(latest)}'
+                      : 'No hay ayudas nuevas desde la última vez que marcaste como vista.',
+            ),
+          ),
+          actions: [
+            Button(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cerrar'),
+            ),
+            if (latest != null && sig != null && sig.isNotEmpty)
+              Button(
+                onPressed: () async {
+                  await ProduccionAyudaNovedadPrefs.writeAckSignature(sig);
+                  if (ctx.mounted) Navigator.pop(ctx);
+                },
+                child: const Text('Marcar como vista'),
+              ),
+            if (latest != null)
+              FilledButton(
+                onPressed: () {
+                  final idAyuda = ayudasIdAyuda(latest);
+                  final idRev = ayudasIdRevision(latest);
+                  if (idAyuda > 0 && idRev > 0) {
+                    MainNav.requestOpenAyudaLobby(
+                      AyudasLobbyOpenIntent(
+                        idAyuda: idAyuda,
+                        idRevision: idRev,
+                        tituloDocumento: ayudasTituloDocumento(latest),
+                      ),
+                    );
+                  }
+                  Navigator.pop(ctx);
+                  widget.onNavigateAyudasVisuales();
+                  if (sig != null && sig.isNotEmpty) {
+                    unawaited(
+                      ProduccionAyudaNovedadPrefs.writeAckSignature(sig),
+                    );
+                  }
+                },
+                child: const Text('Ver documento'),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _open() async {
+    if (parseAppRole(widget.effectiveRoleRaw) == AppRole.produccion) {
+      await _openProduccionAyudaBuzon();
+      if (mounted) await _refresh();
+      return;
+    }
     await showNotificationInboxDialog(
       context,
       onChanged: () => unawaited(_refresh()),

@@ -483,12 +483,18 @@ class _SectionHubScreenState extends State<_SectionHubScreen> {
     final sh = MediaQuery.sizeOf(context).height;
     final tabletishWidth = sw < 1100 && sh >= 480;
     final multiModule = widget.modules.length > 1;
-    final showSubmoduleTabBar = multiModule;
-    final useCompactHubStrip = multiModule && tabletishWidth;
 
     if (widget.modules.isEmpty) {
       return const SizedBox.shrink();
     }
+
+    final selectedModule =
+        widget.modules[selectedIdx.clamp(0, widget.modules.length - 1)];
+    final hideHubTabsForAyudasCompact =
+        selectedModule.id == NavPaneId.ayudasVisuales && tabletishWidth;
+    final showSubmoduleTabBar =
+        multiModule && !hideHubTabsForAyudasCompact;
+    final useCompactHubStrip = multiModule && tabletishWidth;
 
     Widget hubTabChrome() {
       if (!showSubmoduleTabBar) {

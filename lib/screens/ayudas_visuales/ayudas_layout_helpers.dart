@@ -28,7 +28,7 @@ double ayudasPdfInitialZoom(double maxWidth) {
 }
 
 double ayudasPdfDualBarHeight(double maxWidth) =>
-    ayudasPdfUseImmersiveChrome(maxWidth) ? 30.0 : 44.0;
+    ayudasPdfUseImmersiveChrome(maxWidth) ? 24.0 : 40.0;
 
 /// Lobby: filas de acciones de ayudas en menú compacto (más acciones en un solo control).
 bool ayudasLobbyAyudasCompacto(double screenWidth) => screenWidth < 920;

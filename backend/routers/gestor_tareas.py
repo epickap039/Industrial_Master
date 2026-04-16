@@ -62,6 +62,33 @@ class CrearTareaPayload(BaseModel):
     usuario_asignado: str = ""
 
 
+def _usuarios_asignados_desde_crear_payload(payload: CrearTareaPayload) -> List[str]:
+    """Responsables únicos: [usuario_asignado] + meta.usuarios_asignados (lista o CSV)."""
+    seen: set[str] = set()
+    out: List[str] = []
+
+    def add(u: str) -> None:
+        s = (u or "").strip()
+        if not s:
+            return
+        k = s.lower()
+        if k in seen:
+            return
+        seen.add(k)
+        out.append(s)
+
+    add(payload.usuario_asignado)
+    meta = payload.meta or {}
+    raw = meta.get("usuarios_asignados")
+    if isinstance(raw, list):
+        for item in raw:
+            add(str(item))
+    elif isinstance(raw, str):
+        for part in raw.replace(";", ",").split(","):
+            add(part)
+    return out
+
+
 class UpdateCheckPayload(BaseModel):
     completado: bool = True
 
@@ -783,9 +810,12 @@ def crear_tarea(
         if map_task["minutos"]:
             insert_cols.append(map_task["minutos"])
             insert_vals.append(int(payload.minutos_estimados or 0))
+        usuarios_guardar = _usuarios_asignados_desde_crear_payload(payload)
         if map_task["meta"]:
             meta_dict: Dict[str, Any] = dict(payload.meta) if payload.meta else {}
             meta_dict["_origen_crear_api"] = payload.tipo.strip().upper()
+            if usuarios_guardar:
+                meta_dict["usuarios_asignados"] = usuarios_guardar
             insert_cols.append(map_task["meta"])
             insert_vals.append(json.dumps(meta_dict, ensure_ascii=False))
         tc = (payload.titulo_cambio or "").strip()
@@ -855,7 +885,7 @@ def crear_tarea(
         _apply_source_and_assignee_post_insert(
             cur, t_cols, t_pk, id_tarea, payload.tipo, payload.usuario_asignado
         )
-        _guardar_asignados_tarea(cur, id_tarea, [payload.usuario_asignado])
+        _guardar_asignados_tarea(cur, id_tarea, usuarios_guardar)
 
         registrar_log_global(
             cur,

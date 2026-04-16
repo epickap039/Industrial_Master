@@ -244,13 +244,9 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
 
       final pendientesMias = <Map<String, dynamic>>[];
       if (_currentUserName.isNotEmpty) {
-        final u = _currentUserName.toLowerCase();
         for (final t in list) {
           if (!esMisionCentroActiva(t)) continue;
-          final asignado =
-              '${t['usuario_asignado'] ?? t['Usuario_Asignado'] ?? ''}'.trim();
-          if (asignado.isEmpty) continue;
-          if (asignado.toLowerCase() != u) continue;
+          if (!tareaVisibleParaUsuario(t, _currentUserName)) continue;
           pendientesMias.add(t);
         }
       }
@@ -266,12 +262,9 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
         final esNueva = !_seenTaskIds.contains(id);
         if (!primeraLectura && !esNueva) continue;
 
-        final asignado =
-            '${t['usuario_asignado'] ?? t['Usuario_Asignado'] ?? ''}'.trim();
         final soyYo =
-            asignado.isNotEmpty &&
             _currentUserName.isNotEmpty &&
-            asignado.toLowerCase() == _currentUserName.toLowerCase();
+            tareaVisibleParaUsuario(t, _currentUserName);
 
         if (soyYo && mounted) {
           try {
@@ -281,7 +274,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
             final agregada = await CmdInboxStore.instance.addMissionAssigned(
               idTarea: id,
               titulo: titulo,
-              assignedUser: asignado,
+              assignedUser: asignadoMision(t),
               priorityRank: pr.clamp(0, 2),
             );
             if (agregada) {
@@ -1767,9 +1760,19 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
   List<MapEntry<String, List<Map<String, dynamic>>>> _agruparPorUsuario() {
     final Map<String, List<Map<String, dynamic>>> byUser = {};
     for (final t in _activasOrdenadas) {
-      final us = asignadoMision(t);
-      final key = (us == 'Sin asignar' || us.isEmpty) ? _kSinAsignar : us;
-      byUser.putIfAbsent(key, () => []).add(t);
+      final keys = responsablesTareaParaMatch(t);
+      if (keys.isEmpty) {
+        byUser.putIfAbsent(_kSinAsignar, () => []).add(t);
+      } else {
+        for (final raw in keys) {
+          final us = raw.trim();
+          final key = us.isEmpty ? _kSinAsignar : us;
+          byUser.putIfAbsent(key, () => []).add(t);
+        }
+      }
+    }
+    for (final list in byUser.values) {
+      list.sort(compareMisionesActivasCentroPorUsuario);
     }
     final me = _currentUserName.trim().toLowerCase();
     final entries =
@@ -1819,12 +1822,16 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
   // ─────────────────────────────────────────────────────────────────────────
 
   List<String> _usuariosActivosOrdenados() {
-    final users = _activasOrdenadas
-        .map((t) => asignadoMision(t))
-        .where((u) => u != 'Sin asignar' && u.trim().isNotEmpty)
-        .toSet()
-        .toList();
-    users.sort((a, b) {
+    final users = <String>{};
+    for (final t in _activasOrdenadas) {
+      for (final u in responsablesTareaParaMatch(t)) {
+        final s = u.trim();
+        if (s.isEmpty || s == 'Sin asignar') continue;
+        users.add(s);
+      }
+    }
+    final usersList = users.toList();
+    usersList.sort((a, b) {
       final me = _currentUserName.trim().toLowerCase();
       final aMe = me.isNotEmpty && a.trim().toLowerCase() == me;
       final bMe = me.isNotEmpty && b.trim().toLowerCase() == me;
@@ -1832,7 +1839,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
       if (!aMe && bMe) return 1;
       return a.toLowerCase().compareTo(b.toLowerCase());
     });
-    return users;
+    return usersList;
   }
 
   List<Map<String, dynamic>> _activasFiltradas() {
@@ -1849,8 +1856,13 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
           })
           .toList();
     }
+    final filtro = _filtroUsuario.trim().toLowerCase();
     return _activasOrdenadas
-        .where((t) => asignadoMision(t) == _filtroUsuario)
+        .where(
+          (t) => responsablesTareaParaMatch(t).any(
+                (u) => u.trim().toLowerCase() == filtro,
+              ),
+        )
         .toList();
   }
 
@@ -1859,9 +1871,19 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
   ) {
     final byUser = <String, List<Map<String, dynamic>>>{};
     for (final t in tasks) {
-      final raw = asignadoMision(t).trim();
-      final key = raw.isEmpty ? 'Sin asignar' : raw;
-      byUser.putIfAbsent(key, () => []).add(t);
+      final keys = responsablesTareaParaMatch(t);
+      if (keys.isEmpty) {
+        byUser.putIfAbsent('Sin asignar', () => []).add(t);
+      } else {
+        for (final raw in keys) {
+          final k = raw.trim();
+          final key = k.isEmpty ? 'Sin asignar' : k;
+          byUser.putIfAbsent(key, () => []).add(t);
+        }
+      }
+    }
+    for (final list in byUser.values) {
+      list.sort(compareMisionesActivasCentroPorUsuario);
     }
     final me = _currentUserName.trim().toLowerCase();
     final entries = byUser.entries.toList()
@@ -1941,7 +1963,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
   int _minutosRestantesParaUsuario(String usuario) {
     var sum = 0;
     for (final t in _activasOrdenadas) {
-      if (asignadoMision(t) != usuario) continue;
+      if (!tareaVisibleParaUsuario(t, usuario)) continue;
       final r = minutosRestantesEstimados(t);
       if (r != null && r > 0) sum += r;
     }
@@ -1949,11 +1971,25 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
   }
 
   Widget _cargaDisponibilidadResumen() {
-    final usuarios =
-        _activasOrdenadas.map((t) => asignadoMision(t)).toSet().toList()
-          ..sort();
+    final usuarios = <String>{};
+    for (final t in _activasOrdenadas) {
+      for (final u in responsablesTareaParaMatch(t)) {
+        final s = u.trim();
+        if (s.isEmpty || s == 'Sin asignar') continue;
+        usuarios.add(s);
+      }
+    }
+    final usuariosLista = usuarios.toList();
+    final me = _currentUserName.trim().toLowerCase();
+    usuariosLista.sort((a, b) {
+      final aMe = me.isNotEmpty && a.trim().toLowerCase() == me;
+      final bMe = me.isNotEmpty && b.trim().toLowerCase() == me;
+      if (aMe && !bMe) return -1;
+      if (!aMe && bMe) return 1;
+      return a.toLowerCase().compareTo(b.toLowerCase());
+    });
     final chips = <Widget>[];
-    for (final u in usuarios) {
+    for (final u in usuariosLista) {
       final m = _minutosRestantesParaUsuario(u);
       if (m <= 0) continue;
       final finTxt = estimadoFinLaboralDesdeAhoraEtiqueta(m);
@@ -2052,6 +2088,8 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
     final dark = _isDark(context);
     final usuariosActivos = _usuariosActivosOrdenados();
     final activasMostradas = _activasFiltradas();
+    final activasOrdenUi = List<Map<String, dynamic>>.from(activasMostradas)
+      ..sort(compareMisionesActivasCentroPorUsuario);
 
     // Construir índice global → posición en _activasOrdenadas para reorder
     final Map<int, int> idToGlobalIndex = {
@@ -2165,7 +2203,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
                           spacing: gap,
                           runSpacing: gap,
                           children: [
-                            for (final t in activasMostradas)
+                            for (final t in activasOrdenUi)
                               SizedBox(
                                 width: cardW,
                                 child: RepaintBoundary(
@@ -2183,7 +2221,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
                           ],
                         );
                       }
-                      final groups = _agruparActivasMostradas(activasMostradas);
+                      final groups = _agruparActivasMostradas(activasOrdenUi);
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
@@ -2207,7 +2245,9 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
                                   SizedBox(
                                     width: cardW,
                                     child: RepaintBoundary(
-                                      key: ValueKey('flt_mission_${t['id_tarea']}'),
+                                      key: ValueKey(
+                                        'flt_mission_${t['id_tarea']}_${e.key}',
+                                      ),
                                       child: _tarjetaActivaLobby(
                                         idToGlobalIndex[t['id_tarea'] is int
                                                 ? t['id_tarea'] as int

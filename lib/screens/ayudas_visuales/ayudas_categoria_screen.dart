@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart' as material;
+import 'package:flutter/widgets.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -13,6 +14,16 @@ import 'ayudas_visor_screen.dart';
 
 /// Máximo de tags generados en un solo rango (evita cuelgues y payloads enormes).
 const int kAyudasTagsRangoMaximo = 500;
+
+/// Tras cerrar un `showDialog` (p. ej. con ESC), el route puede seguir desmontándose un frame;
+/// no desechar [TextEditingController] hasta el siguiente frame para evitar asserts en framework.
+void _disposeTextCtrlsAfterRouteClosed(List<TextEditingController> controllers) {
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    for (final c in controllers) {
+      c.dispose();
+    }
+  });
+}
 
 /// Genera etiquetas **sin** `#` (misma convención que chips y API: se guardan sin almohadilla).
 /// Ej.: prefijo `JAVH0`, desde `197`, hasta `200` → `JAVH0197` … `JAVH0200`.
@@ -218,7 +229,8 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
       }
     } catch (_) {}
 
-    await showDialog<void>(
+    try {
+      await showDialog<void>(
       context: context,
       barrierColor: material.Theme.of(context).brightness == material.Brightness.dark
           ? const material.Color(0xFF121212)
@@ -588,15 +600,18 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
         );
       },
     );
-
-    tituloCtrl.dispose();
-    subcategoriaCtrl.dispose();
-    revCtrl.dispose();
-    vinCtrl.dispose();
-    nuevoTagCtrl.dispose();
-    prefijoRangoCtrl.dispose();
-    desdeRangoCtrl.dispose();
-    hastaRangoCtrl.dispose();
+    } finally {
+      _disposeTextCtrlsAfterRouteClosed([
+        tituloCtrl,
+        subcategoriaCtrl,
+        revCtrl,
+        vinCtrl,
+        nuevoTagCtrl,
+        prefijoRangoCtrl,
+        desdeRangoCtrl,
+        hastaRangoCtrl,
+      ]);
+    }
   }
 
   Future<void> _dialogoEditarSubcategoria(String nombreActual) async {
@@ -658,7 +673,7 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
     } catch (e) {
       if (mounted) showAyudasUploadError(context, e);
     } finally {
-      ctrl.dispose();
+      _disposeTextCtrlsAfterRouteClosed([ctrl]);
     }
   }
 
@@ -718,7 +733,7 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
         ),
       );
     } finally {
-      passCtrl.dispose();
+      _disposeTextCtrlsAfterRouteClosed([passCtrl]);
     }
   }
 
@@ -739,6 +754,9 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
     return material.Scaffold(
       backgroundColor: bg,
       appBar: material.AppBar(
+        primary: false,
+        toolbarHeight: 40,
+        titleSpacing: 2,
         backgroundColor: surface,
         leading: material.IconButton(
           icon: const material.Icon(material.Icons.arrow_back),
@@ -761,7 +779,7 @@ class _AyudasCategoriaScreenState extends State<AyudasCategoriaScreen> {
                   : grouped.isEmpty
                       ? const Center(child: Text('No hay documentos en esta categoría.'))
                       : ListView(
-                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                           children: [
                             if (_usingOfflineSnapshot)
                               const Padding(

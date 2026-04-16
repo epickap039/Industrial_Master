@@ -7,6 +7,23 @@ import '../screens/monitoreo/widgets/task_display_utils.dart';
 const String _kPrefsKey = 'cmd_notification_inbox_v1';
 const int _kMaxItems = 200;
 
+// ─── Ritmos de actualización / recordatorios (buzón misiones) ─────────────
+//
+// El contador de la barra superior repolldea en [main.dart] con
+// [kCmdInboxPollInterval] (prune + recuenta no leídas). Los recordatorios
+// extra se generan en [addDueMissionReminders] cuando el Centro de monitoreo
+// carga la lista de tareas.
+
+/// Cada cuánto el shell vuelve a llamar a la API de tareas y poda el buzón local.
+/// 30 s equilibra frescor y carga en red; subir si hay muchos clientes fijos.
+const Duration kCmdInboxPollInterval = Duration(seconds: 30);
+
+/// Si la entrada de **asignación** sigue sin leer, se puede añadir recordatorio.
+const Duration kCmdInboxReminderIfUnread = Duration(hours: 2);
+
+/// Si ya se marcó leída pero la misión sigue pendiente, recordatorio más espaciado.
+const Duration kCmdInboxReminderIfReadStillPending = Duration(hours: 24);
+
 const String kMissionAssignedType = 'mission_assigned';
 const String kMissionReminderType = 'mission_reminder';
 const String kSystemNoticeType = 'system_notice';
@@ -250,8 +267,8 @@ class CmdInboxStore {
   }
 
   /// Crea recordatorios automáticos para misiones pendientes:
-  /// - cada 4h si la notificación base sigue sin leer
-  /// - cada 24h si ya se leyó pero la misión aún no se atiende/cierra
+  /// - [kCmdInboxReminderIfUnread] si la notificación base sigue sin leer
+  /// - [kCmdInboxReminderIfReadStillPending] si ya se leyó pero la misión sigue abierta
   Future<List<CmdInboxEntry>> addDueMissionReminders(
     List<Map<String, dynamic>> pendingTasks,
   ) async {
@@ -279,7 +296,7 @@ class CmdInboxStore {
 
       final base = n.lastReminderAt ?? n.fecha;
       final interval =
-          n.leido ? const Duration(hours: 24) : const Duration(hours: 4);
+          n.leido ? kCmdInboxReminderIfReadStillPending : kCmdInboxReminderIfUnread;
       if (now.difference(base) < interval) continue;
 
       final titulo = _tituloTarea(task);
@@ -319,10 +336,7 @@ class CmdInboxStore {
     final out = <int>{};
     for (final t in tasks) {
       if (!esMisionCentroActiva(t)) continue;
-      final asignado =
-          '${t['usuario_asignado'] ?? t['Usuario_Asignado'] ?? ''}'.trim();
-      if (asignado.isEmpty) continue;
-      if (asignado.toLowerCase() != u) continue;
+      if (!tareaVisibleParaUsuario(t, username)) continue;
       final idRaw = t['id_tarea'] ?? t['Id_Tarea'] ?? t['id'];
       final id = idRaw is int ? idRaw : int.tryParse('$idRaw');
       if (id != null && id > 0) out.add(id);

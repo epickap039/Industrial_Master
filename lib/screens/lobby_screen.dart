@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -16,11 +17,13 @@ import '../services/nav_pane.dart';
 import '../services/notification_inbox_service.dart';
 import '../services/user_avatar_service.dart';
 import '../services/lobby_quick_actions_prefs.dart';
+import '../services/produccion_ayuda_novedad_prefs.dart';
 import '../theme/page_title_style.dart';
 import '../theme/ui_tokens.dart';
 import 'monitoreo/widgets/notification_inbox_panel.dart';
 import 'ayudas_visuales/ayudas_api_models.dart';
 import 'ayudas_visuales/ayudas_layout_helpers.dart';
+import 'ayudas_visuales/ayudas_ultima_subida_query.dart';
 
 String _roleLabel(AppRole r) {
   return switch (r) {
@@ -379,6 +382,10 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
   Future<void> _fetchAll() async {
     final ar = parseAppRole(_userRole);
+    if (ar == AppRole.produccion) {
+      await _fetchProduccionLobbyAyudasOnly();
+      return;
+    }
     if (ar.showsLobbyOperativoAyudasCatalogo) {
       await _fetchLobbyOperativoAyudasCatalogo();
       await _fetchInboxPreview();
@@ -549,6 +556,34 @@ class _LobbyScreenState extends State<LobbyScreen> {
     return name.isEmpty ? 'Categoría $id' : name;
   }
 
+  Future<void> _fetchProduccionLobbyAyudasOnly() async {
+    if (mounted) {
+      setState(() {
+        _loadingLobbyOperativo = true;
+        _lobbyOperativoError = null;
+      });
+    }
+    try {
+      final latest = await AyudasUltimaSubidaQuery.fetchLatest();
+      final sig = AyudasUltimaSubidaQuery.signatureFor(latest);
+      await ProduccionAyudaNovedadPrefs.ensureBaselined(sig);
+      if (!mounted) return;
+      setState(() {
+        _ultimaAyudaVisual = latest;
+        _loadingLobbyOperativo = false;
+      });
+    } catch (e) {
+      debugPrint('Lobby producción (ayudas): $e');
+      if (mounted) {
+        setState(() {
+          _loadingLobbyOperativo = false;
+          _lobbyOperativoError =
+              'No se pudieron cargar las ayudas visuales.';
+        });
+      }
+    }
+  }
+
   Future<void> _fetchLobbyOperativoAyudasCatalogo() async {
     if (mounted) {
       setState(() {
@@ -712,6 +747,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
     if (navIndexForPane(NavPaneId.ayudasVisuales, MainNav.currentRole) < 0) {
       return;
     }
+    if (_lobbyProduccionMinimal) {
+      unawaited(_marcarUltimaAyudaProduccionVista());
+    }
     MainNav.requestOpenAyudaLobby(
       AyudasLobbyOpenIntent(
         idAyuda: idAyuda,
@@ -800,9 +838,21 @@ class _LobbyScreenState extends State<LobbyScreen> {
   bool get _lobbyOperativoAyudas =>
       parseAppRole(_userRole).showsLobbyOperativoAyudasCatalogo;
 
+  bool get _lobbyProduccionMinimal =>
+      parseAppRole(_userRole) == AppRole.produccion;
+
   bool get _cargandoLobby {
-    if (_lobbyOperativoAyudas) return _loadingLobbyOperativo;
+    if (_lobbyProduccionMinimal || _lobbyOperativoAyudas) {
+      return _loadingLobbyOperativo;
+    }
     return isLoadingKpi || _loadingOps;
+  }
+
+  Future<void> _marcarUltimaAyudaProduccionVista() async {
+    final sig = AyudasUltimaSubidaQuery.signatureFor(_ultimaAyudaVisual);
+    if (sig == null || sig.isEmpty) return;
+    await ProduccionAyudaNovedadPrefs.writeAckSignature(sig);
+    if (mounted) setState(() {});
   }
 
   @override
@@ -847,9 +897,11 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    _lobbyOperativoAyudas
-                        ? 'Piezas recientes y ayudas por categoría'
-                        : 'Atajos, documentación y estado del sistema',
+                    _lobbyProduccionMinimal
+                        ? 'Catálogo maestro, ayudas visuales y mapa de ingeniería'
+                        : _lobbyOperativoAyudas
+                            ? 'Piezas recientes y ayudas por categoría'
+                            : 'Atajos, documentación y estado del sistema',
                     style: TextStyle(
                       fontSize: 12.5,
                       fontWeight: FontWeight.w500,
@@ -923,7 +975,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
                 ),
               )
             : BoxDecoration(color: palette.surfaceBase),
-        child: SingleChildScrollView(
+        child: _lobbyProduccionMinimal
+            ? _buildProduccionLobbyLayout(theme)
+            : SingleChildScrollView(
           padding: pagePadding(),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1145,6 +1199,332 @@ class _LobbyScreenState extends State<LobbyScreen> {
     final t = s.trim();
     if (t.length <= maxChars) return t;
     return '${t.substring(0, math.max(0, maxChars - 1))}…';
+  }
+
+  Widget _buildProduccionLobbyLayout(FluentThemeData theme) {
+    final loading = _cargandoLobby;
+    return Padding(
+      padding: pagePadding(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (_lobbyOperativoError != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 14),
+              child: InfoBar(
+                title: const Text('Lobby'),
+                content: Text(_lobbyOperativoError!),
+                severity: InfoBarSeverity.warning,
+                onClose: () => setState(() => _lobbyOperativoError = null),
+              ),
+            ),
+          if (loading)
+            const Expanded(
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    ProgressRing(),
+                    SizedBox(height: 16),
+                    Text('Cargando ayudas visuales…'),
+                  ],
+                ),
+              ),
+            )
+          else ...[
+            Expanded(
+              child: LayoutBuilder(
+                builder: (ctx, cons) {
+                  final narrow = cons.maxWidth < 720;
+                  final gap = narrow ? 10.0 : 14.0;
+                  final tiles = <Widget>[
+                    Expanded(
+                      child: _produccionMegaTile(
+                        theme: theme,
+                        icon: FluentIcons.document_search,
+                        title: 'Catálogo maestro',
+                        subtitle: 'Consulta de piezas y documentación vinculada',
+                        accent: const Color(0xFF1565C0),
+                        onTap: () =>
+                            widget.onNavigatePane(NavPaneId.catalogoMaestro),
+                      ),
+                    ),
+                    SizedBox(width: narrow ? 0 : gap, height: narrow ? gap : 0),
+                    Expanded(
+                      child: _produccionMegaTile(
+                        theme: theme,
+                        icon: FluentIcons.page_list,
+                        title: 'Ayudas visuales',
+                        subtitle: 'Instrucciones y documentos de planta',
+                        accent: const Color(0xFF0D6EFD),
+                        emphasized: true,
+                        onTap: () =>
+                            widget.onNavigatePane(NavPaneId.ayudasVisuales),
+                      ),
+                    ),
+                    SizedBox(width: narrow ? 0 : gap, height: narrow ? gap : 0),
+                    Expanded(
+                      child: _produccionMegaTile(
+                        theme: theme,
+                        icon: FluentIcons.factory,
+                        title: 'Mapa de ingeniería',
+                        subtitle: 'Vista interactiva de puesto y layout',
+                        accent: const Color(0xFF00695C),
+                        onTap: () =>
+                            widget.onNavigatePane(NavPaneId.mapaIngenieria),
+                      ),
+                    ),
+                  ];
+                  if (narrow) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: tiles,
+                    );
+                  }
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: tiles,
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 16),
+            _produccionUltimaAyudaFooter(theme),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _produccionMegaTile({
+    required FluentThemeData theme,
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color accent,
+    required VoidCallback onTap,
+    bool emphasized = false,
+  }) {
+    return LayoutBuilder(
+      builder: (ctx, c) {
+        final titleSize = math.min(22.0, c.maxWidth * 0.09).clamp(15.0, 22.0);
+        return Tooltip(
+          message: title,
+          child: Padding(
+            padding: const EdgeInsets.all(2),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: emphasized
+                      ? accent.withValues(alpha: 0.88)
+                      : theme.resources.controlStrokeColorDefault.withValues(
+                          alpha: 0.65,
+                        ),
+                  width: emphasized ? 2.4 : 1.1,
+                ),
+                boxShadow:
+                    emphasized
+                        ? [
+                          BoxShadow(
+                            color: accent.withValues(alpha: 0.2),
+                            blurRadius: 18,
+                          ),
+                        ]
+                        : null,
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: FilledButton(
+                  style: ButtonStyle(
+                    padding: WidgetStateProperty.all(EdgeInsets.zero),
+                    backgroundColor: WidgetStateProperty.resolveWith((states) {
+                      final base =
+                          theme.resources.controlFillColorSecondary;
+                      if (states.contains(WidgetState.hovered)) {
+                        return accent.withValues(alpha: 0.12);
+                      }
+                      return base;
+                    }),
+                  ),
+                  onPressed: onTap,
+                  child: SizedBox.expand(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 16,
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(icon, size: 44, color: accent),
+                          const SizedBox(height: 14),
+                          Text(
+                            title,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: titleSize,
+                              fontWeight: FontWeight.w800,
+                              height: 1.1,
+                              color: theme.typography.title?.color,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            subtitle,
+                            textAlign: TextAlign.center,
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 13,
+                              height: 1.25,
+                              color: theme.typography.caption?.color
+                                  ?.withValues(alpha: 0.95),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _produccionUltimaAyudaFooter(FluentThemeData theme) {
+    final latest = _ultimaAyudaVisual;
+    final latestTitle =
+        latest == null
+            ? 'Sin ayudas visuales recientes'
+            : ayudasTituloDocumento(latest);
+    final latestDate = latest == null ? null : _safeAyudaDate(latest);
+    final latestUser =
+        latest == null
+            ? ''
+            : '${latest['Usuario_Subida'] ?? latest['usuario_subida'] ?? ''}'
+                .trim();
+    final textBlock = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          latestTitle,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontWeight: FontWeight.w700,
+            fontSize: 14,
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          latestUser.isEmpty
+              ? _fmtDateTime(latestDate)
+              : 'Usuario: $latestUser · ${_fmtDateTime(latestDate)}',
+          style: TextStyle(
+            fontSize: 12,
+            color: theme.typography.caption?.color,
+          ),
+        ),
+      ],
+    );
+
+    Widget ayudaUltimaAcciones(CrossAxisAlignment cross) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: cross,
+        children: [
+          _lobbyFilledAction(
+            label: 'Ver documento',
+            onPressed: _openLatestAyuda,
+          ),
+          const SizedBox(height: 6),
+          Button(
+            onPressed: () => unawaited(_marcarUltimaAyudaProduccionVista()),
+            child: const Text('Marcar como vista'),
+          ),
+        ],
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+      decoration: elevatedCardDecoration(theme),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Última ayuda subida',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+              color: const Color(0xFF0D6EFD),
+            ),
+          ),
+          const SizedBox(height: 6),
+          LayoutBuilder(
+            builder: (ctx, cons) {
+              final narrow = cons.maxWidth < 520;
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: theme.accentColor.withValues(alpha: 0.07),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: theme.resources.controlStrokeColorDefault.withValues(
+                      alpha: 0.7,
+                    ),
+                  ),
+                ),
+                child:
+                    narrow
+                        ? Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Icon(
+                                  FluentIcons.picture_center,
+                                  color: Color(0xFF1565C0),
+                                  size: 22,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(child: textBlock),
+                              ],
+                            ),
+                            if (latest != null) ...[
+                              const SizedBox(height: 8),
+                              ayudaUltimaAcciones(CrossAxisAlignment.stretch),
+                            ],
+                          ],
+                        )
+                        : Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            const Icon(
+                              FluentIcons.picture_center,
+                              color: Color(0xFF1565C0),
+                              size: 22,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(child: textBlock),
+                            if (latest != null) ...[
+                              const SizedBox(width: 12),
+                              ayudaUltimaAcciones(CrossAxisAlignment.end),
+                            ],
+                          ],
+                        ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildLobbyOperativoAyudasCatalogo(FluentThemeData theme) {

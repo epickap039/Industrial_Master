@@ -2,7 +2,6 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'bom_manager.dart';
 import '../services/api_client.dart';
 import '../theme/ui_tokens.dart';
-import '../widgets/compact_page_header.dart';
 
 class EngineeringMapScreen extends StatefulWidget {
   final int? targetRevisionId;
@@ -605,64 +604,113 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
     }).toList();
   }
 
+  Widget _mapaHeaderTitleAndTools(FluentThemeData theme) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Text(
+          'Mapa de Ingeniería',
+          style: theme.typography.title,
+        ),
+        const SizedBox(width: 8),
+        Tooltip(
+          message: 'Centrar mapa a origen',
+          child: IconButton(
+            icon: const Icon(FluentIcons.home),
+            onPressed: () {
+              _transformationController.value = Matrix4.identity();
+            },
+          ),
+        ),
+        Tooltip(
+          message: 'Recargar árbol',
+          child: IconButton(
+            icon: const Icon(FluentIcons.refresh),
+            onPressed: _fetchArbol,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _mapaHeaderComboYBusqueda() {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        SizedBox(
+          width: 180,
+          child: ComboBox<bool>(
+            value: _groupByClient,
+            items: const [
+              ComboBoxItem(value: false, child: Text('Por Proyecto')),
+              ComboBoxItem(value: true, child: Text('Por Cliente')),
+            ],
+            onChanged: (v) {
+              if (v != null) setState(() => _groupByClient = v);
+            },
+          ),
+        ),
+        const SizedBox(width: 8),
+        Flexible(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: TextBox(
+              placeholder: 'Crit. de Búsqueda...',
+              prefix: const Padding(
+                padding: EdgeInsets.only(left: 8),
+                child: Icon(FluentIcons.search, size: 14),
+              ),
+              onChanged: (v) => setState(() => _filter = v),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final palette = uiSurfacePaletteOf(context);
+    final theme = FluentTheme.of(context);
     return ScaffoldPage(
       padding: const EdgeInsets.only(top: 8),
-      header: CompactPageHeader(
-        title: Text(
-          'Mapa de Ingeniería',
-          style: FluentTheme.of(context).typography.title,
-        ),
-        commandBar: Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          alignment: WrapAlignment.center,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            SizedBox(
-              width: 180,
-              child: ComboBox<bool>(
-                value: _groupByClient,
-                items: const [
-                  ComboBoxItem(value: false, child: Text("Por Proyecto")),
-                  ComboBoxItem(value: true, child: Text("Por Cliente")),
-                ],
-                onChanged: (v) {
-                  if (v != null) setState(() => _groupByClient = v);
-                },
-              ),
-            ),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 520),
-              child: TextBox(
-                placeholder: 'Crit. de Búsqueda...',
-                prefix: const Padding(
-                  padding: EdgeInsets.only(left: 8),
-                  child: Icon(FluentIcons.search, size: 14),
-                ),
-                onChanged: (v) => setState(() => _filter = v),
-              ),
-            ),
-            Tooltip(
-              message: "Centrar Mapa a Origen",
-              child: IconButton(
-                icon: const Icon(FluentIcons.home),
-                onPressed: () {
-                  _transformationController.value = Matrix4.identity();
-                },
-              ),
-            ),
-            Tooltip(
-              message: "Recargar árbol",
-              child: IconButton(
-                icon: const Icon(FluentIcons.refresh),
-                onPressed: _fetchArbol,
-              ),
-            ),
-          ],
-        ),
+      header: LayoutBuilder(
+        builder: (context, constraints) {
+          const padding = EdgeInsets.fromLTRB(
+            UiTokens.pageHPadding,
+            8,
+            UiTokens.pageHPadding,
+            10,
+          );
+          final singleLine = constraints.maxWidth >= 820;
+          return Padding(
+            padding: padding,
+            child:
+                singleLine
+                    ? Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        _mapaHeaderTitleAndTools(theme),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Align(
+                            alignment: AlignmentDirectional.centerEnd,
+                            child: _mapaHeaderComboYBusqueda(),
+                          ),
+                        ),
+                      ],
+                    )
+                    : Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _mapaHeaderTitleAndTools(theme),
+                        const SizedBox(height: 10),
+                        _mapaHeaderComboYBusqueda(),
+                      ],
+                    ),
+          );
+        },
       ),
       content: Container(
         color: palette.surfaceBase,

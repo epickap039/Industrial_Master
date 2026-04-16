@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart' as material;
+import 'package:flutter/widgets.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -17,6 +18,14 @@ import 'ayudas_api_models.dart';
 import 'ayudas_categoria_screen.dart';
 import 'ayudas_search_utils.dart';
 import 'ayudas_visor_screen.dart';
+
+void _disposeTextCtrlsAfterRouteClosed(List<TextEditingController> controllers) {
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    for (final c in controllers) {
+      c.dispose();
+    }
+  });
+}
 
 IconData _obtenerIcono(String? codigo) {
   switch (codigo?.toLowerCase().trim()) {
@@ -57,6 +66,32 @@ Uint8List? _decodeImageBase64(dynamic raw) {
   } catch (_) {
     return null;
   }
+}
+
+/// Etiqueta tipo REF de la referencia visual (id estable o nombre abreviado).
+String _refEtiquetaAyudaCategoria(dynamic id, String nombre) {
+  final idNum = id is int ? id : int.tryParse('$id');
+  if (idNum != null && idNum > 0) {
+    return 'REF-$idNum';
+  }
+  final u = nombre.trim().toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]+'), '-');
+  final clean = u
+      .replaceAll(RegExp(r'-+'), '-')
+      .replaceFirst(RegExp(r'^-+'), '')
+      .replaceFirst(RegExp(r'-+$'), '');
+  if (clean.isEmpty) return 'REF';
+  const max = 14;
+  final tail = clean.length > max ? clean.substring(0, max) : clean;
+  return 'REF-$tail';
+}
+
+/// Paleta “industrial / ayudas” cercana a la referencia (naranja + azul muy oscuro).
+abstract final class _AyudasTarjetaIndustrial {
+  static const Color orange = Color(0xFFF37021);
+  static const Color canvasDark = Color(0xFF0B0E14);
+  static const Color panelDark = Color(0xFF1A1F2B);
+  static const Color iconBoxDark = Color(0xFF252B38);
+  static const Color strokeDark = Color(0xFF2D3548);
 }
 
 String? _validateCategoriaIco(Uint8List bytes) {
@@ -680,8 +715,7 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
         },
       );
     } finally {
-      nombreCtrl.dispose();
-      iconoCtrl.dispose();
+      _disposeTextCtrlsAfterRouteClosed([nombreCtrl, iconoCtrl]);
     }
   }
 
@@ -903,8 +937,10 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
                     onPressed: () async {
                       final prefs = await SharedPreferences.getInstance();
                       final user = prefs.getString('username')?.trim() ?? 'Operador';
+                      // Evitar el `context` del StatefulBuilder (inválido tras cerrar rutas).
+                      final shellCtx = this.context;
                       showDialog<void>(
-                        context: context,
+                        context: shellCtx,
                         barrierDismissible: false,
                         builder: (lc) => const ContentDialog(
                           title: Text('Guardando…'),
@@ -932,23 +968,26 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
                           headers: {'X-Usuario': user},
                         );
                         if (!mounted) return;
-                        Navigator.of(context, rootNavigator: true).pop();
-                        Navigator.of(context, rootNavigator: true).pop();
+                        Navigator.of(shellCtx, rootNavigator: true).pop();
+                        Navigator.of(shellCtx, rootNavigator: true).pop();
                         await _cargar();
                         if (!mounted) return;
-                        displayInfoBar(
-                          context,
-                          builder: (c, close) => InfoBar(
-                            title: const Text('Listo'),
-                            content: const Text('Imagen de categoría actualizada.'),
-                            severity: InfoBarSeverity.success,
-                            onClose: close,
-                          ),
-                        );
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (!mounted) return;
+                          displayInfoBar(
+                            this.context,
+                            builder: (c, close) => InfoBar(
+                              title: const Text('Listo'),
+                              content: const Text('Imagen de categoría actualizada.'),
+                              severity: InfoBarSeverity.success,
+                              onClose: close,
+                            ),
+                          );
+                        });
                       } catch (e) {
                         if (!mounted) return;
-                        Navigator.of(context, rootNavigator: true).pop();
-                        showAyudasUploadError(context, e);
+                        Navigator.of(shellCtx, rootNavigator: true).pop();
+                        showAyudasUploadError(this.context, e);
                       }
                     },
                   ),
@@ -959,7 +998,7 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
         },
       );
     } finally {
-      iconoCtrl.dispose();
+      _disposeTextCtrlsAfterRouteClosed([iconoCtrl]);
     }
   }
 
@@ -1300,6 +1339,10 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
                                             );
                                             return _CategoriaTile(
                                               titulo: nombre,
+                                              refTag: _refEtiquetaAyudaCategoria(
+                                                id,
+                                                nombre,
+                                              ),
                                               icon: _obtenerIcono(icono),
                                               iconIco: iconoIco,
                                               iconPng: iconoIco != null
@@ -1378,6 +1421,7 @@ class _AyudasMenuScreenState extends State<AyudasMenuScreen> {
 class _CategoriaTile extends StatelessWidget {
   const _CategoriaTile({
     required this.titulo,
+    required this.refTag,
     required this.icon,
     required this.iconIco,
     required this.iconPng,
@@ -1387,6 +1431,7 @@ class _CategoriaTile extends StatelessWidget {
   });
 
   final String titulo;
+  final String refTag;
   final IconData icon;
   final Uint8List? iconIco;
   final Uint8List? iconPng;
@@ -1394,133 +1439,294 @@ class _CategoriaTile extends StatelessWidget {
   final bool isCyberpunk;
   final VoidCallback onTap;
 
+  Widget _footerIcon(double innerSide, Color iconColor) {
+    final dim = innerSide.clamp(22.0, 44.0);
+    if (iconIco != null) {
+      return SizedBox(
+        width: dim,
+        height: dim,
+        child: Padding(
+          padding: const EdgeInsets.all(3),
+          child: _themedAyudaIcoImage(iconIco!, iconColor),
+        ),
+      );
+    }
+    if (iconPng != null) {
+      return SizedBox(
+        width: dim,
+        height: dim,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.memory(iconPng!, fit: BoxFit.contain),
+        ),
+      );
+    }
+    return Icon(icon, size: dim * 0.78, color: iconColor);
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = FluentTheme.of(context).brightness == Brightness.dark;
     final borderRadius = material.BorderRadius.circular(
-      isCyberpunk ? 4.0 : 24.0,
+      isCyberpunk ? 6.0 : 26.0,
     );
-    final iconColor =
-        _ayudaCategoryIconTint(context, isCyberpunk, titulo);
+    final iconColor = isCyberpunk
+        ? _ayudaCategoryIconTint(context, isCyberpunk, titulo)
+        : _AyudasTarjetaIndustrial.orange;
+    final industrial = !isCyberpunk;
 
-    return material.Card(
-      elevation: 3.0,
-      clipBehavior: Clip.antiAlias,
-      color: const Color(0xFF1A1D21),
-      shape: material.RoundedRectangleBorder(
-        borderRadius: borderRadius,
-        side: const BorderSide(color: Color(0xFF2D3139)),
-      ),
+    final cardStroke = industrial && isDark
+        ? _AyudasTarjetaIndustrial.strokeDark
+        : (isDark ? const Color(0xFF343B48) : const Color(0xFFC5D2E5));
+    final cardBg = industrial && isDark
+        ? _AyudasTarjetaIndustrial.canvasDark
+        : (isDark ? const Color(0xFF12161C) : const Color(0xFFF7F9FD));
+    final heroPlaceholderTop = industrial && isDark
+        ? _AyudasTarjetaIndustrial.panelDark
+        : (isDark ? const Color(0xFF1E252F) : const Color(0xFFD8DEE9));
+    final heroPlaceholderBottom = industrial && isDark
+        ? const Color(0xFF141A24)
+        : (isDark ? const Color(0xFF161C26) : const Color(0xFFE2E8F0));
+    final footerFill = industrial && isDark
+        ? _AyudasTarjetaIndustrial.panelDark
+        : (isDark ? const Color(0xE6182233) : const Color(0xF2F0F4FA));
+    final footerBorderTop = industrial && isDark
+        ? _AyudasTarjetaIndustrial.strokeDark.withValues(alpha: 0.85)
+        : (isDark
+            ? const Color(0xFF3D4A5E).withValues(alpha: 0.65)
+            : const Color(0xFF9DB0CC).withValues(alpha: 0.45));
+    final titleAccentOrange =
+        industrial && titulo.hashCode.isEven; // variación tipo referencia
+    final titleColor = industrial && isDark
+        ? (titleAccentOrange
+            ? _AyudasTarjetaIndustrial.orange
+            : const Color(0xFFF4F7FC))
+        : (isDark ? const Color(0xFFF1F5FB) : const Color(0xFF0F172A));
+    final subtitleColor = industrial && isDark
+        ? const Color(0xFF8B95A8)
+        : (isDark ? const Color(0xFF9CA8BC) : const Color(0xFF64748B));
+    final iconBoxBg = industrial && isDark
+        ? _AyudasTarjetaIndustrial.iconBoxDark
+        : (isDark ? const Color(0xFF232B38) : const Color(0xFFE8EEF7));
+    final pillBg = industrial && isDark
+        ? const Color(0xD90B0E14)
+        : const Color(0xE60F172A);
+    final chevronAccent = isCyberpunk ? iconColor : _AyudasTarjetaIndustrial.orange;
+    final chevronBorder = chevronAccent.withValues(
+      alpha: isDark ? 0.55 : 0.42,
+    );
+
+    return material.Material(
+      color: material.Colors.transparent,
       child: material.InkWell(
         onTap: onTap,
         borderRadius: borderRadius,
-        child: Stack(
-          fit: StackFit.expand,
-          clipBehavior: Clip.hardEdge,
-          children: [
-            if (fondo != null)
-              Image.memory(
-                fondo!,
-                fit: BoxFit.cover,
-                alignment: const Alignment(0, -0.14),
-                filterQuality: FilterQuality.medium,
-                gaplessPlayback: true,
-              )
-            else
-              ColoredBox(
-                color: isDark
-                    ? const Color(0xFF232830)
-                    : const Color(0xFF2E3540),
-                child: Center(
-                  child: Icon(
-                    material.Icons.photo_library_outlined,
-                    size: 52,
-                    color: const Color(0xFF8A93A5).withValues(alpha: 0.85),
+        child: material.Ink(
+          decoration: BoxDecoration(
+            borderRadius: borderRadius,
+            color: cardBg,
+            border: Border.all(color: cardStroke, width: 1),
+            boxShadow: [
+              if (industrial && isDark)
+                BoxShadow(
+                  color: _AyudasTarjetaIndustrial.orange.withValues(alpha: 0.07),
+                  blurRadius: 22,
+                  offset: const Offset(0, 10),
+                )
+              else
+                BoxShadow(
+                  color: material.Colors.black.withValues(
+                    alpha: isDark ? 0.28 : 0.06,
                   ),
+                  blurRadius: 12,
+                  offset: const Offset(0, 5),
                 ),
-              ),
-            Container(
-              decoration: BoxDecoration(
-                borderRadius: borderRadius,
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  stops: const [0.0, 0.48, 1.0],
-                  colors: [
-                    const Color(0xFF0F1113).withValues(alpha: 0.03),
-                    const Color(0xFF0F1113).withValues(alpha: 0.48),
-                    const Color(0xFF0F1113).withValues(alpha: 0.91),
-                  ],
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: isDark
-                          ? const Color(0xFF0F1113).withValues(alpha: 0.82)
-                          : const Color(0xFFF3F7FF).withValues(alpha: 0.95),
-                      borderRadius: BorderRadius.circular(11),
-                      border: Border.all(
-                        color: isDark
-                            ? const Color(0xFF2D3139)
-                            : const Color(0xFF9FB8E0),
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: isDark
-                              ? const Color(0x66000000)
-                              : const Color(0x332C5282),
-                          blurRadius: 6,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    alignment: Alignment.center,
-                    child: iconIco != null
-                        ? ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: Padding(
-                              padding: const EdgeInsets.all(4),
-                              child: _themedAyudaIcoImage(iconIco!, iconColor),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: borderRadius,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  flex: 13,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      if (fondo != null)
+                        Image.memory(
+                          fondo!,
+                          fit: BoxFit.cover,
+                          alignment: const Alignment(0, -0.1),
+                          filterQuality: FilterQuality.medium,
+                          gaplessPlayback: true,
+                        )
+                      else
+                        DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [heroPlaceholderTop, heroPlaceholderBottom],
                             ),
-                          )
-                        : iconPng != null
-                            ? ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
-                                child: Image.memory(iconPng!, fit: BoxFit.cover),
-                              )
-                            : Icon(
-                                icon,
-                                size: 22.0,
-                                color: iconColor,
-                              ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    titulo,
-                    textAlign: TextAlign.start,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: FluentTheme.of(context).typography.bodyStrong?.copyWith(
-                          color: isDark
-                              ? const Color(0xFFE2E4E9)
-                              : const Color(0xFFF7FBFF),
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
+                          ),
+                          child: Center(
+                            child: Icon(
+                              material.Icons.photo_library_outlined,
+                              size: 46,
+                              color: isDark
+                                  ? const Color(0xFF5C6678)
+                                  : const Color(0xFF5A6B82),
+                            ),
+                          ),
                         ),
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        height: 36,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                material.Colors.transparent,
+                                (isDark
+                                        ? _AyudasTarjetaIndustrial.canvasDark
+                                        : const Color(0xFF0F172A))
+                                    .withValues(alpha: isDark ? 0.55 : 0.06),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (industrial)
+                        Positioned(
+                          top: 10,
+                          right: 10,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: pillBg,
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: _AyudasTarjetaIndustrial.orange
+                                    .withValues(alpha: 0.35),
+                              ),
+                            ),
+                            child: Text(
+                              refTag,
+                              style: const TextStyle(
+                                color: _AyudasTarjetaIndustrial.orange,
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.6,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+                Expanded(
+                  flex: 10,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: footerFill,
+                      border: Border(
+                        top: BorderSide(color: footerBorderTop, width: 1),
+                      ),
+                    ),
+                    child: LayoutBuilder(
+                      builder: (context, c) {
+                        final h = c.maxHeight;
+                        final boxSide = (h * 0.78).clamp(44.0, 58.0);
+                        final innerIcon = (boxSide - 18).clamp(22.0, 40.0);
+                        return Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Container(
+                                width: boxSide,
+                                height: boxSide,
+                                decoration: BoxDecoration(
+                                  color: iconBoxBg,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: industrial && isDark
+                                        ? _AyudasTarjetaIndustrial.strokeDark
+                                        : cardStroke,
+                                  ),
+                                ),
+                                alignment: Alignment.center,
+                                child: _footerIcon(innerIcon, iconColor),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      titulo,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: titleColor,
+                                        fontSize: h > 50 ? 17.5 : 15.5,
+                                        fontWeight: FontWeight.w800,
+                                        height: 1.1,
+                                        letterSpacing: -0.15,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 5),
+                                    Text(
+                                      'CATEGORÍA INDUSTRIAL',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: subtitleColor,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w600,
+                                        letterSpacing: 1.1,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Container(
+                                width: 34,
+                                height: 34,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: chevronBorder,
+                                    width: 1.5,
+                                  ),
+                                ),
+                                alignment: Alignment.center,
+                                child: Icon(
+                                  material.Icons.chevron_right_rounded,
+                                  size: 20,
+                                  color: chevronAccent.withValues(alpha: 0.92),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );

@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart' as material;
+import 'package:flutter/widgets.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -13,6 +14,14 @@ import 'ayudas_api_models.dart';
 import 'ayudas_layout_helpers.dart';
 
 enum _DualFocusState { principal, dual, secundaria }
+
+void _disposeTextCtrlsAfterRouteClosed(List<TextEditingController> controllers) {
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    for (final c in controllers) {
+      c.dispose();
+    }
+  });
+}
 
 /// Pantalla 3: PDF (≈80%) + línea de tiempo de revisiones (≈20%).
 class AyudasVisorScreen extends StatefulWidget {
@@ -229,7 +238,8 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
     final vinCtrl = TextEditingController();
     String? pathPdf;
 
-    await showDialog<void>(
+    try {
+      await showDialog<void>(
       context: context,
       barrierColor: material.Theme.of(context).brightness == material.Brightness.dark
           ? const material.Color(0xFF121212)
@@ -404,9 +414,9 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
         );
       },
     );
-
-    revCtrl.dispose();
-    vinCtrl.dispose();
+    } finally {
+      _disposeTextCtrlsAfterRouteClosed([revCtrl, vinCtrl]);
+    }
   }
 
   Future<void> _borrarRevision(int idRevision) async {
@@ -478,7 +488,7 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
         },
       );
     } finally {
-      passCtrl.dispose();
+      _disposeTextCtrlsAfterRouteClosed([passCtrl]);
     }
   }
 
@@ -596,6 +606,12 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
                 final dualBarMuted = dark
                     ? material.Colors.white70
                     : const material.Color(0xFF4C6078);
+                final compareBtnBg = dark
+                    ? const material.Color(0xFFFFB547)
+                    : const material.Color(0xFF1E5AA8);
+                final compareBtnFg = dark
+                    ? const material.Color(0xFF141B24)
+                    : material.Colors.white;
                 final canShowDualControls =
                     !narrow &&
                     (widget.allowRevisionHistory ||
@@ -670,6 +686,14 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
                                 material.PopupMenuButton<int>(
                                   tooltip: 'Distribución de vistas',
                                   padding: EdgeInsets.zero,
+                                  color: dark
+                                      ? const material.Color(0xFF1B2230)
+                                      : const material.Color(0xFFF4F7FC),
+                                  surfaceTintColor: material.Colors.transparent,
+                                  elevation: 8,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
                                   onSelected: _onDualChromeMenu,
                                   itemBuilder: (ctx) => [
                                     const material.PopupMenuItem(
@@ -723,7 +747,16 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
                               else
                                 Padding(
                                   padding: const EdgeInsets.symmetric(vertical: 1),
-                                  child: FilledButton(
+                                  child: material.FilledButton(
+                                    style: material.FilledButton.styleFrom(
+                                      backgroundColor: compareBtnBg,
+                                      foregroundColor: compareBtnFg,
+                                      minimumSize: const Size(72, 28),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 6,
+                                      ),
+                                    ),
                                     onPressed: _seleccionarSecundaria,
                                     child: const Text(
                                       'Comparar',
@@ -755,7 +788,11 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
                                   },
                                 ),
                               if (_splitActivo) const SizedBox(width: 8),
-                              FilledButton(
+                              material.FilledButton(
+                                style: material.FilledButton.styleFrom(
+                                  backgroundColor: compareBtnBg,
+                                  foregroundColor: compareBtnFg,
+                                ),
                                 onPressed: () {
                                   if (_splitActivo) {
                                     setState(() {
@@ -921,6 +958,101 @@ class _PdfLoadResult {
   final bool fromCache;
 }
 
+/// PDF Syncfusion sin barra de desplazamiento inferior; indicador tipo «3 / 12».
+class _AyudasPdfViewerFrame extends StatefulWidget {
+  const _AyudasPdfViewerFrame({
+    super.key,
+    required this.bytes,
+    required this.docKey,
+    required this.controller,
+    required this.initialZoom,
+  });
+
+  final Uint8List bytes;
+  final int docKey;
+  final PdfViewerController controller;
+  final double initialZoom;
+
+  @override
+  State<_AyudasPdfViewerFrame> createState() => _AyudasPdfViewerFrameState();
+}
+
+class _AyudasPdfViewerFrameState extends State<_AyudasPdfViewerFrame> {
+  int _currentPage = 1;
+  int _totalPages = 0;
+
+  @override
+  void didUpdateWidget(covariant _AyudasPdfViewerFrame oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.docKey != widget.docKey) {
+      _currentPage = 1;
+      _totalPages = 0;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        SfPdfViewer.memory(
+          widget.bytes,
+          key: ValueKey<int>(widget.docKey),
+          controller: widget.controller,
+          pageLayoutMode: PdfPageLayoutMode.single,
+          maxZoomLevel: 15,
+          initialZoomLevel: widget.initialZoom,
+          canShowScrollHead: false,
+          canShowScrollStatus: false,
+          interactionMode: PdfInteractionMode.pan,
+          onDocumentLoaded: (PdfDocumentLoadedDetails details) {
+            if (!mounted) return;
+            setState(() {
+              _totalPages = details.document.pages.count;
+              _currentPage = 1;
+            });
+          },
+          onPageChanged: (PdfPageChangedDetails details) {
+            if (!mounted) return;
+            setState(() => _currentPage = details.newPageNumber);
+          },
+        ),
+        if (_totalPages > 0)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 10,
+            child: IgnorePointer(
+              child: Center(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: const material.Color(0xB3000000),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 6,
+                    ),
+                    child: Text(
+                      '$_currentPage / $_totalPages',
+                      style: const TextStyle(
+                        color: material.Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
 class _PdfPane extends StatefulWidget {
   const _PdfPane({
     super.key,
@@ -993,7 +1125,6 @@ class _PdfPaneState extends State<_PdfPane> {
         }
         final data = snapshot.data!;
         final paneW = MediaQuery.sizeOf(context).width;
-        final immersivePdf = ayudasPdfUseImmersiveChrome(paneW);
         return SizedBox.expand(
           child: material.Card(
             margin: material.EdgeInsets.zero,
@@ -1002,16 +1133,11 @@ class _PdfPaneState extends State<_PdfPane> {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                SfPdfViewer.memory(
-                  data.bytes,
-                  key: ValueKey<int>(widget.revisionKey),
+                _AyudasPdfViewerFrame(
+                  bytes: data.bytes,
+                  docKey: widget.revisionKey,
                   controller: _pdfController,
-                  pageLayoutMode: PdfPageLayoutMode.single,
-                  maxZoomLevel: 15,
-                  initialZoomLevel: ayudasPdfInitialZoom(paneW),
-                  canShowScrollHead: !immersivePdf,
-                  canShowScrollStatus: !immersivePdf,
-                  interactionMode: PdfInteractionMode.pan,
+                  initialZoom: ayudasPdfInitialZoom(paneW),
                 ),
                 if (data.fromCache)
                   Positioned(
@@ -1274,21 +1400,17 @@ class _AyudasPdfFullscreenViewerState extends State<AyudasPdfFullscreenViewer> {
   @override
   Widget build(BuildContext context) {
     final sw = MediaQuery.sizeOf(context).width;
-    final immersive = ayudasPdfUseImmersiveChrome(sw);
+    final immersiveChrome = ayudasPdfUseImmersiveChrome(sw);
     return material.Scaffold(
       primary: false,
       appBar: material.AppBar(
-        primary: false,
+        primary: true,
+        automaticallyImplyLeading: false,
         elevation: 0,
         scrolledUnderElevation: 0,
         surfaceTintColor: material.Colors.transparent,
-        toolbarHeight: immersive ? 30 : 42,
-        titleSpacing: immersive ? 0 : 4,
-        leading: material.IconButton(
-          icon: const material.Icon(material.Icons.arrow_back),
-          tooltip: 'Volver',
-          onPressed: () => Navigator.of(context).pop(),
-        ),
+        toolbarHeight: immersiveChrome ? 36 : 46,
+        titleSpacing: immersiveChrome ? 56 : 60,
         title: material.Text(
           widget.titulo,
           maxLines: 1,
@@ -1307,44 +1429,55 @@ class _AyudasPdfFullscreenViewerState extends State<AyudasPdfFullscreenViewer> {
           ),
         ],
       ),
-      body: FutureBuilder<_PdfLoadResult>(
-        future: _loadFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done) {
-            return const Center(child: ProgressRing());
-          }
-          if (snapshot.hasError || !snapshot.hasData) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Text(
-                  'No se pudo cargar el PDF.',
-                  style: TextStyle(
-                    color: FluentTheme.of(context)
-                        .resources
-                        .textFillColorSecondary,
+      body: Stack(
+        children: [
+          FutureBuilder<_PdfLoadResult>(
+            future: _loadFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState != ConnectionState.done) {
+                return const Center(child: ProgressRing());
+              }
+              if (snapshot.hasError || !snapshot.hasData) {
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text(
+                      'No se pudo cargar el PDF.',
+                      style: TextStyle(
+                        color: FluentTheme.of(context)
+                            .resources
+                            .textFillColorSecondary,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
                   ),
-                  textAlign: TextAlign.center,
+                );
+              }
+              final data = snapshot.data!;
+              return material.ColoredBox(
+                color: material.Theme.of(context).scaffoldBackgroundColor,
+                child: _AyudasPdfViewerFrame(
+                  bytes: data.bytes,
+                  docKey: widget.idRevision,
+                  controller: _pdfController,
+                  initialZoom: ayudasPdfInitialZoom(sw).clamp(1.0, 2.5),
                 ),
+              );
+            },
+          ),
+          Positioned(
+            left: 10,
+            top: 10,
+            child: SafeArea(
+              child: material.FloatingActionButton.small(
+                heroTag: 'ayudas_fullscreen_back',
+                tooltip: 'Volver',
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Icon(material.Icons.arrow_back, size: 18),
               ),
-            );
-          }
-          final data = snapshot.data!;
-          return material.ColoredBox(
-            color: material.Theme.of(context).scaffoldBackgroundColor,
-            child: SfPdfViewer.memory(
-              data.bytes,
-              key: ValueKey<int>(widget.idRevision),
-              controller: _pdfController,
-              pageLayoutMode: PdfPageLayoutMode.single,
-              maxZoomLevel: 15,
-              initialZoomLevel: ayudasPdfInitialZoom(sw).clamp(1.0, 2.5),
-              canShowScrollHead: true,
-              canShowScrollStatus: true,
-              interactionMode: PdfInteractionMode.pan,
             ),
-          );
-        },
+          ),
+        ],
       ),
     );
   }

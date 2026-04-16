@@ -68,6 +68,45 @@ bool esEnProceso(Map<String, dynamic> t) {
   return st.contains('proceso') || st == 'en proceso';
 }
 
+int _priorityRankOrden(Map<String, dynamic> t) {
+  final r = t['priority_rank'] ?? t['PriorityRank'];
+  if (r is int) return r;
+  return int.tryParse('$r') ?? 999999;
+}
+
+/// Orden dentro de cada usuario (Centro monitoreo > activas): **no pausadas**
+/// primero; luego `priority_rank`; luego fecha de creación / inicio.
+int compareMisionesActivasCentroPorUsuario(
+  Map<String, dynamic> a,
+  Map<String, dynamic> b,
+) {
+  final pa = esPausada(a);
+  final pb = esPausada(b);
+  if (pa != pb) {
+    return pa ? 1 : -1;
+  }
+  final ra = _priorityRankOrden(a);
+  final rb = _priorityRankOrden(b);
+  if (ra != rb) {
+    return ra.compareTo(rb);
+  }
+  final da = _parseFechaHoraCompleta(_rawFechaInicioLead(a));
+  final db = _parseFechaHoraCompleta(_rawFechaInicioLead(b));
+  if (da != null && db != null) {
+    final c = da.compareTo(db);
+    if (c != 0) return c;
+  } else if (da != null) {
+    return -1;
+  } else if (db != null) {
+    return 1;
+  }
+  final ida = a['id_tarea'];
+  final idb = b['id_tarea'];
+  final ia = ida is int ? ida : int.tryParse('$ida') ?? 0;
+  final ib = idb is int ? idb : int.tryParse('$idb') ?? 0;
+  return ia.compareTo(ib);
+}
+
 String? motivoCancelacion(Map<String, dynamic> t) {
   final d = t['motivo_cancelacion']?.toString().trim();
   if (d != null && d.isNotEmpty) return d;
@@ -559,6 +598,40 @@ List<String> usuariosAsignadosLista(Map<String, dynamic> t) {
     }
   }
   return out;
+}
+
+/// Responsables para filtros y swimlanes: `usuarios_asignados` (API/meta) + columna principal si falta.
+List<String> responsablesTareaParaMatch(Map<String, dynamic> t) {
+  final seen = <String>{};
+  final out = <String>[];
+  void add(String u) {
+    final s = u.trim();
+    if (s.isEmpty || s == 'Sin asignar') return;
+    final k = s.toLowerCase();
+    if (seen.contains(k)) return;
+    seen.add(k);
+    out.add(s);
+  }
+
+  for (final x in usuariosAsignadosLista(t)) {
+    add(x);
+  }
+  add('${t['usuario_asignado'] ?? t['Usuario_Asignado'] ?? ''}');
+  if (out.isEmpty) {
+    final solo = asignadoMision(t).trim();
+    if (solo.isNotEmpty && solo != 'Sin asignar') return [solo];
+  }
+  return out;
+}
+
+/// La misión cuenta como asignada a [username] (columna principal o cualquier co-responsable).
+bool tareaVisibleParaUsuario(Map<String, dynamic> t, String username) {
+  final u = username.trim().toLowerCase();
+  if (u.isEmpty) return false;
+  for (final x in responsablesTareaParaMatch(t)) {
+    if (x.trim().toLowerCase() == u) return true;
+  }
+  return false;
 }
 
 /// Base64 crudo de imagen guardada en meta (alta manual u otras extensiones).
