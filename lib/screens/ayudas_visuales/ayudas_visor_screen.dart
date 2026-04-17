@@ -523,6 +523,164 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
     };
   }
 
+  /// Tablet horizontal (incluida franja >1120): comparación y foco dual van en
+  /// la misma fila que el título para evitar hueco extra entre AppBar y PDF.
+  bool _tabletDualChromeInAppBar(double screenW) {
+    if (ayudasPdfUseStackedTimeline(screenW)) return false;
+    // En desktop muy ancho mantenemos el layout clásico (barra separada).
+    if (screenW >= 1500) return false;
+    return widget.allowRevisionHistory || widget.allowCrossDocumentCompare;
+  }
+
+  material.ButtonStyle _compareButtonStyle(bool dark) {
+    final compareBtnBg = dark
+        ? const material.Color(0xFFFFB547)
+        : const material.Color(0xFF1E5AA8);
+    final compareBtnFg = dark
+        ? const material.Color(0xFF141B24)
+        : material.Colors.white;
+    return material.FilledButton.styleFrom(
+      backgroundColor: compareBtnBg,
+      foregroundColor: compareBtnFg,
+      minimumSize: const Size(56, 32),
+      tapTargetSize: material.MaterialTapTargetSize.shrinkWrap,
+      visualDensity: const VisualDensity(horizontal: 0, vertical: -2),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+      textStyle: const material.TextStyle(
+        fontSize: 12.5,
+        fontWeight: FontWeight.w700,
+        height: 1.05,
+        letterSpacing: 0.1,
+      ),
+    );
+  }
+
+  /// Fila título + Comparar / menú dual + leyenda secundaria (solo tablets).
+  Widget _buildTabletAppBarTitleRow(BuildContext context) {
+    final theme = material.Theme.of(context);
+    final dark = theme.brightness == material.Brightness.dark;
+    final dualBarFg = dark
+        ? material.Colors.white
+        : const material.Color(0xFF14263D);
+    final dualBarMuted = dark
+        ? material.Colors.white70
+        : const material.Color(0xFF4C6078);
+    final titleColor =
+        theme.appBarTheme.foregroundColor ??
+        theme.colorScheme.onSurface;
+
+    // Importante: no usar [Expanded] para el título solo — en el slot del AppBar
+    // absorbe todo el ancho y empuja «Comparar» / menú dual a ancho 0 (invisible).
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Flexible(
+          fit: FlexFit.loose,
+          child: material.Text(
+            widget.tituloDocumento,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: material.TextStyle(
+              fontSize: 14.5,
+              fontWeight: FontWeight.w600,
+              height: 1.15,
+              color: titleColor,
+            ),
+          ),
+        ),
+        const SizedBox(width: 6),
+        if (_splitActivo)
+          material.PopupMenuButton<int>(
+            tooltip: 'Distribución de vistas',
+            padding: EdgeInsets.zero,
+            color: dark
+                ? const material.Color(0xFF1B2230)
+                : const material.Color(0xFFF4F7FC),
+            surfaceTintColor: material.Colors.transparent,
+            elevation: 8,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            onSelected: _onDualChromeMenu,
+            itemBuilder: (ctx) => [
+              const material.PopupMenuItem(
+                value: 0,
+                child: material.Text('Vista principal'),
+              ),
+              const material.PopupMenuItem(
+                value: 1,
+                child: material.Text('Vista dual'),
+              ),
+              const material.PopupMenuItem(
+                value: 2,
+                child: material.Text('Solo secundaria'),
+              ),
+              const material.PopupMenuDivider(),
+              const material.PopupMenuItem(
+                value: 3,
+                child: material.Text('Cerrar comparación'),
+              ),
+            ],
+            child: material.Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Icon(
+                    material.Icons.view_column,
+                    size: 18,
+                    color: dualBarMuted,
+                  ),
+                  const SizedBox(width: 4),
+                  material.Text(
+                    _dualFocusShortLabel(),
+                    style: material.TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      height: 1.1,
+                      color: dualBarFg,
+                    ),
+                  ),
+                  Icon(
+                    material.Icons.arrow_drop_down,
+                    size: 22,
+                    color: dualBarMuted,
+                  ),
+                ],
+              ),
+            ),
+          )
+        else
+          material.FilledButton(
+            style: _compareButtonStyle(dark),
+            onPressed: _seleccionarSecundaria,
+            child: const material.Text('Comparar'),
+          ),
+        if (_splitActivo && _idRevisionSecundaria != null) ...[
+          const SizedBox(width: 8),
+          Flexible(
+            fit: FlexFit.loose,
+            child: material.Align(
+              alignment: Alignment.centerRight,
+              child: material.Text(
+                'Secundaria: ${_secondaryLabel ?? 'Rev. ${_idRevisionSecundaria!}'}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.end,
+                style: material.TextStyle(
+                  fontSize: 11,
+                  height: 1.1,
+                  color: dualBarMuted,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
   /// PDF sobre el navigator raíz (cubre hub/shell) para máximo área útil en tablet/APK.
   void _abrirPdfPantallaCompleta() {
     Navigator.of(context, rootNavigator: true).push<void>(
@@ -541,33 +699,38 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
   Widget build(BuildContext context) {
     final screenW = MediaQuery.sizeOf(context).width;
     final compactAppBar = ayudasPdfUseImmersiveChrome(screenW);
+    final dualInAppBar = _tabletDualChromeInAppBar(screenW);
+    final appBarH = dualInAppBar ? 40.0 : (compactAppBar ? 36.0 : 40.0);
+    final leadMin = dualInAppBar ? 38.0 : (compactAppBar ? 34.0 : 48.0);
     return material.Scaffold(
       appBar: material.AppBar(
         primary: false,
         elevation: 0,
         scrolledUnderElevation: 0,
         surfaceTintColor: material.Colors.transparent,
-        toolbarHeight: compactAppBar ? 30 : 40,
-        titleSpacing: compactAppBar ? 0 : 4,
-        leadingWidth: compactAppBar ? 42 : 48,
+        toolbarHeight: appBarH,
+        titleSpacing: dualInAppBar ? 4 : (compactAppBar ? 0 : 4),
+        leadingWidth: dualInAppBar ? 44 : (compactAppBar ? 42 : 48),
         leading: material.IconButton(
           padding: compactAppBar
               ? const material.EdgeInsetsDirectional.only(start: 4)
               : null,
           constraints: BoxConstraints(
-            minWidth: compactAppBar ? 40 : 48,
-            minHeight: compactAppBar ? 40 : 48,
+            minWidth: dualInAppBar ? 40 : (compactAppBar ? 40 : 48),
+            minHeight: leadMin,
           ),
           icon: const material.Icon(material.Icons.arrow_back),
           onPressed: () => Navigator.of(context).pop(),
         ),
-        title: material.Text(
-          widget.tituloDocumento,
-          style: material.TextStyle(
-            fontSize: compactAppBar ? 14.5 : 16,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
+        title: dualInAppBar
+            ? _buildTabletAppBarTitleRow(context)
+            : material.Text(
+                widget.tituloDocumento,
+                style: material.TextStyle(
+                  fontSize: compactAppBar ? 14.5 : 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
         actions: [
           material.IconButton(
             tooltip: 'Pantalla completa',
@@ -671,100 +834,16 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                    if (canShowDualControls)
+                    if (canShowDualControls && !dualInAppBar)
                       Container(
                         height: ayudasPdfDualBarHeight(w),
                         color: dualBarBg,
-                        padding: material.EdgeInsets.symmetric(
-                          horizontal: immersive ? 6 : 10,
-                          vertical: immersive ? 0 : 4,
+                        padding: const material.EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
                         ),
                         child: Row(
                           children: [
-                            if (immersive) ...[
-                              if (_splitActivo)
-                                material.PopupMenuButton<int>(
-                                  tooltip: 'Distribución de vistas',
-                                  padding: EdgeInsets.zero,
-                                  color: dark
-                                      ? const material.Color(0xFF1B2230)
-                                      : const material.Color(0xFFF4F7FC),
-                                  surfaceTintColor: material.Colors.transparent,
-                                  elevation: 8,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  onSelected: _onDualChromeMenu,
-                                  itemBuilder: (ctx) => [
-                                    const material.PopupMenuItem(
-                                      value: 0,
-                                      child: material.Text('Vista principal'),
-                                    ),
-                                    const material.PopupMenuItem(
-                                      value: 1,
-                                      child: material.Text('Vista dual'),
-                                    ),
-                                    const material.PopupMenuItem(
-                                      value: 2,
-                                      child: material.Text('Solo secundaria'),
-                                    ),
-                                    const material.PopupMenuDivider(),
-                                    const material.PopupMenuItem(
-                                      value: 3,
-                                      child: material.Text('Cerrar comparación'),
-                                    ),
-                                  ],
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 4,
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(
-                                          material.Icons.view_column,
-                                          size: 18,
-                                          color: dualBarMuted,
-                                        ),
-                                        const SizedBox(width: 6),
-                                        Text(
-                                          _dualFocusShortLabel(),
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w600,
-                                            color: dualBarFg,
-                                          ),
-                                        ),
-                                        Icon(
-                                          material.Icons.arrow_drop_down,
-                                          color: dualBarMuted,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                )
-                              else
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 1),
-                                  child: material.FilledButton(
-                                    style: material.FilledButton.styleFrom(
-                                      backgroundColor: compareBtnBg,
-                                      foregroundColor: compareBtnFg,
-                                      minimumSize: const Size(72, 28),
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                        vertical: 6,
-                                      ),
-                                    ),
-                                    onPressed: _seleccionarSecundaria,
-                                    child: const Text(
-                                      'Comparar',
-                                      style: TextStyle(fontSize: 12),
-                                    ),
-                                  ),
-                                ),
-                            ] else ...[
                               if (_splitActivo)
                                 material.SegmentedButton<_DualFocusState>(
                                   segments: const [
@@ -811,7 +890,6 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
                                       : 'Seleccionar secundaria',
                                 ),
                               ),
-                            ],
                             const Spacer(),
                             if (_splitActivo && _idRevisionSecundaria != null)
                               Flexible(
@@ -820,7 +898,7 @@ class _AyudasVisorScreenState extends State<AyudasVisorScreen> {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
-                                    fontSize: immersive ? 11 : 12,
+                                    fontSize: 12,
                                     color: dualBarMuted,
                                   ),
                                 ),
@@ -1017,6 +1095,76 @@ class _AyudasPdfViewerFrameState extends State<_AyudasPdfViewerFrame> {
             setState(() => _currentPage = details.newPageNumber);
           },
         ),
+        if (_totalPages > 1) ...[
+          Positioned(
+            left: 6,
+            top: 0,
+            bottom: 52,
+            child: Center(
+              child: material.Tooltip(
+                message: 'Página anterior',
+                child: material.Material(
+                  color: material.Colors.transparent,
+                  child: material.IconButton(
+                    onPressed:
+                        _currentPage > 1
+                            ? () {
+                              widget.controller.previousPage();
+                            }
+                            : null,
+                    style: material.IconButton.styleFrom(
+                      shape: const CircleBorder(),
+                      backgroundColor: const material.Color(0xB3000000),
+                      disabledBackgroundColor: const material.Color(0x66000000),
+                      foregroundColor: material.Colors.white,
+                      disabledForegroundColor: material.Colors.white38,
+                      minimumSize: const Size(48, 48),
+                      padding: EdgeInsets.zero,
+                    ),
+                    icon: const Icon(
+                      material.Icons.keyboard_arrow_left,
+                      size: 40,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            right: 6,
+            top: 0,
+            bottom: 52,
+            child: Center(
+              child: material.Tooltip(
+                message: 'Página siguiente',
+                child: material.Material(
+                  color: material.Colors.transparent,
+                  child: material.IconButton(
+                    onPressed:
+                        _currentPage < _totalPages
+                            ? () {
+                              widget.controller.nextPage();
+                            }
+                            : null,
+                    style: material.IconButton.styleFrom(
+                      shape: const CircleBorder(),
+                      backgroundColor: const material.Color(0xB3000000),
+                      disabledBackgroundColor: const material.Color(0x66000000),
+                      foregroundColor: material.Colors.white,
+                      disabledForegroundColor: material.Colors.white38,
+                      minimumSize: const Size(48, 48),
+                      padding: EdgeInsets.zero,
+                    ),
+                    icon: const Icon(
+                      material.Icons.keyboard_arrow_right,
+                      size: 40,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
         if (_totalPages > 0)
           Positioned(
             left: 0,

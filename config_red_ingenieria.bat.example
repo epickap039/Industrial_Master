@@ -1,0 +1,12 @@
+@echo off
+REM Copiar este archivo como "config_red_ingenieria.bat" (misma carpeta que los .bat del repo).
+REM Asi cada PC puede fijar la unidad de red aunque no sea Z:.
+REM
+REM Opcion A - solo letra (se usa APP DE INGENIERIA\aplicacion debajo):
+REM   set "IM_RED_LETRA=X"
+REM
+REM Opcion B - ruta completa a la carpeta "aplicacion" (tiene prioridad si existe):
+REM   set "IM_RED_APLIC=X:\APP DE INGENIERIA\aplicacion"
+
+REM set "IM_RED_LETRA=Z"
+REM set "IM_RED_APLIC="

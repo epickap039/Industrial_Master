@@ -317,6 +317,10 @@ class UserColorPalette {
     Color(0xFF7986CB), // Índigo suave
     Color(0xFF4DD0E1), // Turquesa claro
     Color(0xFF81D4FA), // Azul hielo
+    Color(0xFFFFC107), // Ambar
+    Color(0xFFCDDC39), // Lima
+    Color(0xFFFF5722), // Naranja profundo
+    Color(0xFF6D4C41), // Marron
   ];
 
   /// Códigos hexadecimales correspondientes para envío a API
@@ -339,6 +343,10 @@ class UserColorPalette {
     '#7986CB', // Índigo suave
     '#4DD0E1', // Turquesa claro
     '#81D4FA', // Azul hielo
+    '#FFC107', // Ambar
+    '#CDDC39', // Lima
+    '#FF5722', // Naranja profundo
+    '#6D4C41', // Marron
   ];
 
   /// Nombres amigables para cada color
@@ -361,6 +369,10 @@ class UserColorPalette {
     'Índigo suave',
     'Turquesa claro',
     'Azul hielo',
+    'Ambar',
+    'Lima',
+    'Naranja profundo',
+    'Marron',
   ];
 
   /// Obtener color por índice

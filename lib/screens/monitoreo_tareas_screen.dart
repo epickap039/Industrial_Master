@@ -19,6 +19,7 @@ import 'monitoreo/widgets/manual_mission_form_dialog.dart';
 import 'monitoreo/widgets/mission_meta_sheet.dart';
 import 'monitoreo/widgets/task_display_utils.dart';
 import '../services/app_role.dart';
+import '../theme/app_themes.dart';
 
 const List<String> _kMotivosPausa = [
   'Prioridad baja',
@@ -74,11 +75,14 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
       if (!mounted) return;
       setState(() {});
     });
-    _initSesion();
-    _cargar();
-    _verificarVozDisponible();
+    unawaited(_verificarVozDisponible());
+    // Cargar usuario antes de la primera lista: evita carrera con _seenTaskIds / buzón.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _initSesion();
+      if (mounted) await _cargar();
+    });
 
-    // Auto-refresco más ágil para recibir notificaciones con menor latencia.
+    // Auto-refresco de tarjetas (recordatorios de misión los hace el sondeo del shell en main.dart).
     _refreshTimer = Timer.periodic(const Duration(seconds: 12), (timer) {
       if (mounted) _cargar(silent: true);
     });
@@ -242,15 +246,6 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
         );
       }
 
-      final pendientesMias = <Map<String, dynamic>>[];
-      if (_currentUserName.isNotEmpty) {
-        for (final t in list) {
-          if (!esMisionCentroActiva(t)) continue;
-          if (!tareaVisibleParaUsuario(t, _currentUserName)) continue;
-          pendientesMias.add(t);
-        }
-      }
-
       // Notificaciones: solo misiones **activas** del centro; primera carga rellena
       // el buzón sin incluir historial ni tareas ya cerradas.
       final primeraLectura = _seenTaskIds.isEmpty;
@@ -277,22 +272,20 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
               assignedUser: asignadoMision(t),
               priorityRank: pr.clamp(0, 2),
             );
-            if (agregada) {
-              if (!primeraLectura && mounted) {
-                displayInfoBar(
-                  context,
-                  builder:
-                      (c, close) => InfoBar(
-                        title: const Text('Nueva Misión Asignada'),
-                        content: Text('ID: #$id - $titulo · Guardado en el buzón'),
-                        severity: InfoBarSeverity.info,
-                        action: IconButton(
-                          icon: const Icon(FluentIcons.clear),
-                          onPressed: close,
-                        ),
+            if (agregada && !primeraLectura && !silent && mounted) {
+              displayInfoBar(
+                context,
+                builder:
+                    (c, close) => InfoBar(
+                      title: const Text('Nueva Misión Asignada'),
+                      content: Text('ID: #$id - $titulo · Guardado en el buzón'),
+                      severity: InfoBarSeverity.info,
+                      action: IconButton(
+                        icon: const Icon(FluentIcons.clear),
+                        onPressed: close,
                       ),
-                );
-              }
+                    ),
+              );
             }
           } catch (_) {}
         }
@@ -305,33 +298,8 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
         if (id != null) _seenTaskIds.add(id);
       }
 
-      // Recordatorios automáticos:
-      // - cada 4h si la notificación base sigue sin leer
-      // - cada 24h si ya se leyó pero la misión sigue pendiente
-      if (pendientesMias.isNotEmpty) {
-        final reminders = await CmdInboxStore.instance.addDueMissionReminders(
-          pendientesMias,
-        );
-        if (reminders.isNotEmpty && mounted) {
-          displayInfoBar(
-            context,
-            builder:
-                (c, close) => InfoBar(
-                  title: const Text('Recordatorio de misión'),
-                  content: Text(
-                    reminders.length == 1
-                        ? 'Tiene 1 misión pendiente por atender.'
-                        : 'Tiene ${reminders.length} misiones pendientes por atender.',
-                  ),
-                  severity: InfoBarSeverity.warning,
-                  action: IconButton(
-                    icon: const Icon(FluentIcons.clear),
-                    onPressed: close,
-                  ),
-                ),
-          );
-        }
-      }
+      // Recordatorios de misión: solo en [main.dart] (_AppBarNotificationInbox) para no
+      // duplicar con este timer ni relanzar al abrir el Centro.
 
       final activas =
           list
@@ -1789,6 +1757,41 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
   }
 
   /// Color de avatar determinista a partir del nombre del usuario.
+  material.Color? _colorMaterialDesdeHexUsuario(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+    var s = raw.trim();
+    if (s.isEmpty || s == 'null') return null;
+    if (!s.startsWith('#')) s = '#$s';
+    final fromPalette = UserColorPalette.getColorByHex(s);
+    if (fromPalette != null) return material.Color(fromPalette.toARGB32());
+    final clean = s.replaceFirst('#', '').toUpperCase();
+    if (!RegExp(r'^[0-9A-F]{6}$').hasMatch(clean)) return null;
+    final v = int.tryParse(clean, radix: 16);
+    if (v == null) return null;
+    return material.Color(0xFF000000 | v);
+  }
+
+  /// Color de configuracion de usuario en payload de tareas; si no, hash estable.
+  material.Color _avatarColorDesdeTareasOHash(String u) {
+    final key = u.trim().toLowerCase();
+    for (final t in [..._activasOrdenadas, ..._tareas]) {
+      final uc = t['usuarios_colores'];
+      if (uc is Map) {
+        for (final e in uc.entries) {
+          if ('${e.key}'.trim().toLowerCase() == key) {
+            final c = _colorMaterialDesdeHexUsuario('${e.value}');
+            if (c != null) return c;
+          }
+        }
+      }
+      if (asignadoMision(t).trim().toLowerCase() == key) {
+        final c = _colorMaterialDesdeHexUsuario('${t['usuario_color_hex']}');
+        if (c != null) return c;
+      }
+    }
+    return _MonitoreoTareasScreenState._avatarColor(u);
+  }
+
   static material.Color _avatarColor(String name) {
     const colors = [
       material.Color(0xFF42A5F5), // azul electrico
@@ -2150,7 +2153,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
                   _usuarioFilterChip(
                     label: u,
                     selected: _filtroUsuario == u,
-                    avatarColor: _avatarColor(u),
+                    avatarColor: _avatarColorDesdeTareasOHash(u),
                     initials: _iniciales(u),
                     onTap: () => setState(() => _filtroUsuario = u),
                   ),
@@ -2380,6 +2383,8 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
               key: const ValueKey<String>('bitacora_hist_centro'),
               tareasHistorial: hist,
               tareasActivasParaProyeccion: _activasOrdenadas,
+              generadoPor: _currentUserName,
+              rolGeneradoPor: widget.effectiveRole,
               onReactivarTarea:
                   _puedeControlarMisiones ? _reactivarTareaHistorial : null,
               onEliminarTarea:

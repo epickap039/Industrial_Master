@@ -1612,10 +1612,11 @@ def add_ensamble(
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Insertar ensamble
+        # Codigo_Ensamble debe ser único en Tbl_Ensambles (no reutilizar "N/A").
+        next_code = _next_codigo_ensamble_seq(cursor)
         cursor.execute(
             "INSERT INTO Tbl_Ensambles (ID_Estacion, Codigo_Ensamble, Nombre_Ensamble) VALUES (?, ?, ?)",
-            (payload.id_estacion, "N/A", payload.nombre.upper())
+            (payload.id_estacion, next_code(), payload.nombre.upper()),
         )
         # Recuperar ID_Revision para el log (via Tbl_Estaciones)
         cursor.execute("SELECT ID_Revision FROM Tbl_Estaciones WHERE ID_Estacion = ?", (payload.id_estacion,))

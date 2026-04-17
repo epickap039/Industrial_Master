@@ -27,6 +27,9 @@ migrate_working_dir/
 .pub/
 /build/
 
+# Config local de ruta de red (no versionar; usar .example)
+config_red_ingenieria.bat
+
 # Symbolication related
 app.*.symbols
 

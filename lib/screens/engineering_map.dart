@@ -1,11 +1,18 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'bom_manager.dart';
 import '../services/api_client.dart';
+import '../services/app_role.dart';
 import '../theme/ui_tokens.dart';
 
 class EngineeringMapScreen extends StatefulWidget {
   final int? targetRevisionId;
-  const EngineeringMapScreen({super.key, this.targetRevisionId});
+  /// Rol efectivo (misma cadena que `Tbl_Usuarios.rol` / sesión) para permisos de UI.
+  final String effectiveRole;
+  const EngineeringMapScreen({
+    super.key,
+    this.targetRevisionId,
+    required this.effectiveRole,
+  });
 
   @override
   State<EngineeringMapScreen> createState() => _EngineeringMapScreenState();
@@ -50,24 +57,38 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
             if (rev['id_revision'] == widget.targetRevisionId) {
               _lastUsedTargetRevId = widget.targetRevisionId;
               Future.microtask(() {
-                if (mounted) {
-                  Navigator.push(
+                if (!mounted) return;
+                if (parseAppRole(widget.effectiveRole) == AppRole.produccion) {
+                  displayInfoBar(
                     context,
-                    FluentPageRoute(
-                      builder:
-                          (_) => BOMManagerScreen(
-                            idVersion: ver['id'] as int,
-                            versionName: ver['nombre'] as String,
-                            tractoName: tracto['nombre'] as String,
-                            targetRevisionId: widget.targetRevisionId,
+                    builder:
+                        (ctx, close) => InfoBar(
+                          title: const Text('Acceso restringido'),
+                          content: const Text(
+                            'El rol Producción no puede abrir el gestor de listas de materiales (BOM) desde el mapa.',
                           ),
-                    ),
-                  ).then((result) {
-                    if (result == true && mounted) {
-                      _fetchArbol();
-                    }
-                  });
+                          severity: InfoBarSeverity.warning,
+                          onClose: close,
+                        ),
+                  );
+                  return;
                 }
+                Navigator.push(
+                  context,
+                  FluentPageRoute(
+                    builder:
+                        (_) => BOMManagerScreen(
+                          idVersion: ver['id'] as int,
+                          versionName: ver['nombre'] as String,
+                          tractoName: tracto['nombre'] as String,
+                          targetRevisionId: widget.targetRevisionId,
+                        ),
+                  ),
+                ).then((result) {
+                  if (result == true && mounted) {
+                    _fetchArbol();
+                  }
+                });
               });
               return;
             }
@@ -174,6 +195,8 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
     String versionName,
     String tractoName,
   ) {
+    final bool bomDesdeMapaPermitido =
+        parseAppRole(widget.effectiveRole) != AppRole.produccion;
     final bool aprobada = rev['estado'] == 'Aprobada';
     return _buildCardNode(
       initiallyExpanded: false,
@@ -203,29 +226,38 @@ class _EngineeringMapScreenState extends State<EngineeringMapScreen> {
           ),
           const SizedBox(width: 16),
           Tooltip(
-            message: "Abrir Gestor de BOM para esta revisión",
+            message:
+                bomDesdeMapaPermitido
+                    ? 'Abrir Gestor de BOM para esta revisión'
+                    : 'Las listas de materiales (BOM) no están disponibles para rol Producción.',
             child: IconButton(
               icon: Icon(
                 FluentIcons.open_in_new_window,
                 size: 14,
-                color: primaryColor,
+                color:
+                    bomDesdeMapaPermitido
+                        ? primaryColor
+                        : bodyColor.withValues(alpha: 0.35),
               ),
-              onPressed: () async {
-                final result = await Navigator.push(
-                  context,
-                  FluentPageRoute(
-                    builder:
-                        (_) => BOMManagerScreen(
-                          idVersion: verId,
-                          versionName: versionName,
-                          tractoName: tractoName,
-                        ),
-                  ),
-                );
-                if (result == true && mounted) {
-                  await _fetchArbol();
-                }
-              },
+              onPressed:
+                  bomDesdeMapaPermitido
+                      ? () async {
+                        final result = await Navigator.push(
+                          context,
+                          FluentPageRoute(
+                            builder:
+                                (_) => BOMManagerScreen(
+                                  idVersion: verId,
+                                  versionName: versionName,
+                                  tractoName: tractoName,
+                                ),
+                          ),
+                        );
+                        if (result == true && mounted) {
+                          await _fetchArbol();
+                        }
+                      }
+                      : null,
             ),
           ),
         ],

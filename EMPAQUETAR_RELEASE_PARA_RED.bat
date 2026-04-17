@@ -1,13 +1,14 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-
 REM ============================================================================
-REM  Empaqueta Windows (.exe + DLLs) + APK + actualizador .bat en UNA carpeta.
-REM  Destino local: build\windows\x64\runner\Release\
-REM  Asi robocopy /MIR a la red no borra el .bat ni deja fuera el APK.
+REM  Compila Windows release, opcionalmente APK, copia scripts a Release y
+REM  opcionalmente despliega a la red (DESPLEGAR_A_RED.bat).
 REM
-REM  Uso: ejecutar desde la raiz del repo (doble clic o CMD).
-REM  Opcional: set COPIAR_A_RED=1 antes de llamar para espejar a Z:\...
+REM  Uso: desde la raiz del repo (doble clic o CMD).
+REM    set COPIAR_A_RED=1     -> despues del build llama DESPLEGAR_A_RED.bat
+REM    set SKIP_APK=1        -> no compila APK (mas rapido)
+REM
+REM  Flutter: ajusta FLUTTER si no esta en C:\flutter\bin\flutter.bat
 REM ============================================================================
 
 cd /d "%~dp0"
@@ -27,61 +28,71 @@ set "APK_DST=%REL%\industrial_manager_v15_5-release.apk"
 if not exist "build\native_assets\windows" mkdir "build\native_assets\windows"
 
 echo.
-echo [1/5] flutter build windows --release
+echo [1/4] flutter build windows --release
 call "%FLUTTER%" build windows --release
 if errorlevel 1 goto :fail
 
-echo.
-echo [2/5] flutter build apk --release
-call "%FLUTTER%" build apk --release
-if errorlevel 1 goto :fail
+if /I not "%SKIP_APK%"=="1" (
+  echo.
+  echo [2/4] flutter build apk --release
+  call "%FLUTTER%" build apk --release
+  if errorlevel 1 goto :fail
+) else (
+  echo.
+  echo [2/4] Omitido APK ^(SKIP_APK=1^)
+)
 
 echo.
-echo [3/5] Copiando ACTUALIZAR_Y_ABRIR_DESDE_RED.bat al paquete Release...
+echo [3/4] Copiando scripts al paquete Release...
 if not exist "ACTUALIZAR_Y_ABRIR_DESDE_RED.bat" (
   echo [ERROR] Falta ACTUALIZAR_Y_ABRIR_DESDE_RED.bat en la raiz del proyecto.
   goto :fail
 )
-copy /Y "ACTUALIZAR_Y_ABRIR_DESDE_RED.bat" "%REL%\"
+copy /Y "ACTUALIZAR_Y_ABRIR_DESDE_RED.bat" "%REL%\" >nul
 if errorlevel 1 goto :fail
 
-echo.
-echo [4/5] Copiando APK al paquete Release...
-if not exist "%APK_SRC%" (
-  echo [ERROR] No se encontro el APK generado:
-  echo         %APK_SRC%
-  goto :fail
+if exist "CREAR_ACCESO_DIRECTO_RED.bat" (
+  copy /Y "CREAR_ACCESO_DIRECTO_RED.bat" "%REL%\" >nul
 )
-copy /Y "%APK_SRC%" "%APK_DST%"
-if errorlevel 1 goto :fail
+if exist "tool\red\crear_acceso_red.ps1" (
+  copy /Y "tool\red\crear_acceso_red.ps1" "%REL%\" >nul
+)
+
+if /I not "%SKIP_APK%"=="1" (
+  echo.
+  echo [4/4] Copiando APK al paquete Release...
+  if not exist "%APK_SRC%" (
+    echo [ERROR] No se encontro el APK generado:
+    echo         %APK_SRC%
+    goto :fail
+  )
+  copy /Y "%APK_SRC%" "%APK_DST%" >nul
+  if errorlevel 1 goto :fail
+) else (
+  echo.
+  echo [4/4] Sin APK en Release ^(SKIP_APK=1^)
+)
 
 echo.
-echo [5/5] Resumen carpeta Release:
-echo        %CD%\%REL%
-echo        - industrial_manager_v15_5.exe
-echo        - industrial_manager_v15_5-release.apk  ^(Android^)
-echo        - ACTUALIZAR_Y_ABRIR_DESDE_RED.bat
+echo Listo carpeta Release:
+echo   %CD%\%REL%
+echo   - industrial_manager_v15_5.exe
+echo   - ACTUALIZAR_Y_ABRIR_DESDE_RED.bat
+if exist "%REL%\CREAR_ACCESO_DIRECTO_RED.bat" echo   - CREAR_ACCESO_DIRECTO_RED.bat
+if exist "%REL%\crear_acceso_red.ps1" echo   - crear_acceso_red.ps1
+if exist "%APK_DST%" echo   - industrial_manager_v15_5-release.apk
 echo.
 
 if /I "%COPIAR_A_RED%"=="1" (
-  set "DST=Z:\APP DE INGENIERIA\aplicacion"
-  if not exist "!DST!\" (
-    echo [AVISO] No existe !DST! — no se copia a red. Define COPIAR_A_RED=0 o revisa unidad Z:.
-    goto :ok
+  if not exist "%~dp0DESPLEGAR_A_RED.bat" (
+    echo [ERROR] Falta DESPLEGAR_A_RED.bat
+    goto :fail
   )
-  echo Espejando a red: !DST!
-  robocopy "%REL%" "!DST!" /MIR /R:2 /W:1 /NFL /NDL /NP
-  set "RC=!ERRORLEVEL!"
-  if !RC! GEQ 8 (
-    echo [ERROR] Robocopy fallo con codigo !RC!.
-    pause
-    exit /b !RC!
-  )
-  echo OK: Carpeta de red actualizada.
+  call "%~dp0DESPLEGAR_A_RED.bat"
+  if errorlevel 1 goto :fail
 )
 
-:ok
-echo Listo.
+echo Empaquetado terminado OK.
 exit /b 0
 
 :fail

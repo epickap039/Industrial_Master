@@ -12,17 +12,58 @@ const int _kMaxItems = 200;
 // El contador de la barra superior repolldea en [main.dart] con
 // [kCmdInboxPollInterval] (prune + recuenta no leídas). Los recordatorios
 // extra se generan en [addDueMissionReminders] cuando el Centro de monitoreo
-// carga la lista de tareas.
+// carga la lista de tareas (y el shell repite el sondeo de tareas).
+//
+// Reglas (hora local del equipo):
+// - Misiones **pausadas**: un aviso al día con [tryAddDailyPausedMissionsDigest]
+//   (leyenda fija «Tienes misiones pausadas»), no usan la cola por-misión.
+// - Prioridad **normal** (rank 2) y **en progreso**: 10:00, 13:00 y 16:00.
+// - Prioridad **alta** (rank 1), activas y no pausadas: 9:15, 10:30, 12:00,
+//   13:30 y 15:00.
+// - Prioridad **crítica** (rank 0), activas y no pausadas: cada 90 minutos.
 
 /// Cada cuánto el shell vuelve a llamar a la API de tareas y poda el buzón local.
-/// 30 s equilibra frescor y carga en red; subir si hay muchos clientes fijos.
 const Duration kCmdInboxPollInterval = Duration(seconds: 30);
 
-/// Si la entrada de **asignación** sigue sin leer, se puede añadir recordatorio.
-const Duration kCmdInboxReminderIfUnread = Duration(hours: 2);
+/// Intervalo entre recordatorios de misión **crítica** (priority_rank 0).
+const Duration kMissionCriticalReminderInterval = Duration(minutes: 90);
 
-/// Si ya se marcó leída pero la misión sigue pendiente, recordatorio más espaciado.
-const Duration kCmdInboxReminderIfReadStillPending = Duration(hours: 24);
+/// Franjas horarias (hora local) para prioridad **normal** en curso (rank 2).
+const List<(int hour, int minute)> kMissionReminderSlotsPrioridadNormalEnProgreso =
+    <(int, int)>[(10, 0), (13, 0), (16, 0)];
+
+/// Franjas para prioridad **alta** (rank 1).
+const List<(int hour, int minute)> kMissionReminderSlotsPrioridadAlta = <(int, int)>[
+  (9, 15),
+  (10, 30),
+  (12, 0),
+  (13, 30),
+  (15, 0),
+];
+
+DateTime? _latestSlotTodayLeqNow(DateTime now, List<(int, int)> slots) {
+  DateTime? best;
+  for (final hm in slots) {
+    final slot = DateTime(now.year, now.month, now.day, hm.$1, hm.$2);
+    if (!slot.isAfter(now)) {
+      if (best == null || slot.isAfter(best)) {
+        best = slot;
+      }
+    }
+  }
+  return best;
+}
+
+/// Dispara si [last] es anterior a la última franja del día que ya pasó (≤ [now]).
+bool missionSlotReminderShouldFire(
+  DateTime last,
+  DateTime now,
+  List<(int, int)> slots,
+) {
+  final t = _latestSlotTodayLeqNow(now, slots);
+  if (t == null) return false;
+  return last.isBefore(t);
+}
 
 const String kMissionAssignedType = 'mission_assigned';
 const String kMissionReminderType = 'mission_reminder';
@@ -266,9 +307,7 @@ class CmdInboxStore {
     return n.clamp(0, 2);
   }
 
-  /// Crea recordatorios automáticos para misiones pendientes:
-  /// - [kCmdInboxReminderIfUnread] si la notificación base sigue sin leer
-  /// - [kCmdInboxReminderIfReadStillPending] si ya se leyó pero la misión sigue abierta
+  /// Recordatorios por prioridad y estado (ver comentarios al inicio del archivo).
   Future<List<CmdInboxEntry>> addDueMissionReminders(
     List<Map<String, dynamic>> pendingTasks,
   ) async {
@@ -287,32 +326,68 @@ class CmdInboxStore {
     final now = DateTime.now();
     var mutated = false;
 
-    // Copia fija: no modificar [all] (insert) mientras se itera la misma lista.
     for (final n in List<CmdInboxEntry>.from(all)) {
       if (n.tipo != kMissionAssignedType || n.idTarea == null) continue;
       final taskId = n.idTarea!;
       final task = byId[taskId];
       if (task == null) continue;
+      if (esPausada(task)) continue;
 
       final base = n.lastReminderAt ?? n.fecha;
-      final interval =
-          n.leido ? kCmdInboxReminderIfReadStillPending : kCmdInboxReminderIfUnread;
-      if (now.difference(base) < interval) continue;
+      final pr = _priorityRankDe(task);
+
+      bool due = false;
+      String tituloRecordatorio;
+      if (pr == 0) {
+        due = now.difference(base) >= kMissionCriticalReminderInterval;
+        tituloRecordatorio = n.leido
+            ? 'Recordatorio: mision critica pendiente'
+            : 'Recordatorio: mision critica (sin leer)';
+      } else if (pr == 1) {
+        due = missionSlotReminderShouldFire(base, now, kMissionReminderSlotsPrioridadAlta);
+        tituloRecordatorio = n.leido
+            ? 'Recordatorio: prioridad alta pendiente'
+            : 'Recordatorio: prioridad alta sin leer';
+      } else {
+        if (esEnProceso(task)) {
+          due = missionSlotReminderShouldFire(
+            base,
+            now,
+            kMissionReminderSlotsPrioridadNormalEnProgreso,
+          );
+          tituloRecordatorio = n.leido
+              ? 'Recordatorio: mision en curso (normal)'
+              : 'Recordatorio: mision en curso sin leer';
+        } else {
+          due = false;
+          tituloRecordatorio = 'Recordatorio de mision';
+        }
+      }
+      if (!due) continue;
+
+      // Evita doble disparo si el shell y otra pantalla llaman casi a la vez, o dos
+      // polls seguidos en el mismo minuto.
+      const minGap = Duration(minutes: 2);
+      final dupRecent = all.any(
+        (e) =>
+            e.tipo == kMissionReminderType &&
+            e.idTarea == taskId &&
+            now.difference(e.fecha) < minGap,
+      );
+      if (dupRecent) continue;
 
       final titulo = _tituloTarea(task);
       final reminder = CmdInboxEntry._(
         'r_${taskId}_${now.millisecondsSinceEpoch}',
         kMissionReminderType,
-        n.leido
-            ? 'Recordatorio diario de mision pendiente'
-            : 'Recordatorio: mision asignada sin leer',
+        tituloRecordatorio,
         '#$taskId — $titulo',
         now,
         taskId,
         false,
         now,
         _responsableDe(task),
-        _priorityRankDe(task),
+        pr,
       );
       created.add(reminder);
       all.insert(0, reminder);
@@ -324,6 +399,40 @@ class CmdInboxStore {
       await _save(all);
     }
     return created;
+  }
+
+  static const String _kPrefsPausedNoticeDay = 'cmd_paused_missions_notice_day_v1';
+
+  /// Un aviso al día (texto fijo) si el usuario tiene misiones del centro pausadas.
+  Future<void> tryAddDailyPausedMissionsDigest({
+    required List<Map<String, dynamic>> tasks,
+    required String currentUsername,
+  }) async {
+    final u = currentUsername.trim().toLowerCase();
+    if (u.isEmpty) return;
+    var paused = 0;
+    for (final t in tasks) {
+      if (!esMisionCentroActiva(t)) continue;
+      if (!esPausada(t)) continue;
+      if (!tareaVisibleParaUsuario(t, currentUsername)) continue;
+      paused++;
+    }
+    if (paused == 0) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final dayKey = '${_kPrefsPausedNoticeDay}_$u';
+    final today = DateTime.now().toIso8601String().split('T').first;
+    if ((prefs.getString(dayKey) ?? '') == today) return;
+
+    final digestId = 'paused_digest_${today}_$u';
+    final added = await addSystemNoticeUniqueId(
+      id: digestId,
+      title: 'Misiones pausadas',
+      body: 'Tienes misiones pausadas.',
+    );
+    if (added) {
+      await prefs.setString(dayKey, today);
+    }
   }
 
   /// IDs de tareas del centro (Radar/Manual) **activas** y asignadas al usuario.
@@ -400,6 +509,36 @@ class CmdInboxStore {
     final prefs = await SharedPreferences.getInstance();
     final key = await _prefsKeyForCurrentUser();
     await prefs.remove(key);
+  }
+
+  /// Aviso del sistema con [id] estable (evita duplicados al repollar).
+  Future<bool> addSystemNoticeUniqueId({
+    required String id,
+    required String title,
+    required String body,
+  }) async {
+    final all = await loadAll();
+    if (all.any((e) => e.id == id)) {
+      return false;
+    }
+    final now = DateTime.now();
+    all.insert(
+      0,
+      CmdInboxEntry._(
+        id,
+        kSystemNoticeType,
+        title.trim().isEmpty ? 'Notificacion del sistema' : title.trim(),
+        body.trim(),
+        now,
+        null,
+        false,
+        now,
+        '',
+        2,
+      ),
+    );
+    await _save(all);
+    return true;
   }
 
   Future<void> addSystemNotice({

@@ -7,6 +7,7 @@ from . import cad
 from . import chat
 from . import catalog
 from . import config_api
+from . import dev_audit_feed
 from . import engineering
 from . import excel
 from . import gestor_tareas
@@ -28,6 +29,7 @@ __all__ = [
     'chat',
     'catalog',
     'config_api',
+    'dev_audit_feed',
     'engineering',
     'excel',
     'gestor_tareas',

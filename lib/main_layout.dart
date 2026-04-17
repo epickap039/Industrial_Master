@@ -318,7 +318,12 @@ NavigationPane buildIndustrialNavigationPane({
       railPaneItem(
         iconData: FluentIcons.map_layers,
         label: 'Mapa de ingeniería',
-        body: paneBody(EngineeringMapScreen(targetRevisionId: targetRevisionId)),
+        body: paneBody(
+          EngineeringMapScreen(
+            targetRevisionId: targetRevisionId,
+            effectiveRole: userRole,
+          ),
+        ),
       ),
   ];
 

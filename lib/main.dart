@@ -24,8 +24,10 @@ import 'services/nav_pane.dart';
 import 'services/navigation_usage_service.dart';
 import 'main_layout.dart';
 import 'screens/monitoreo/widgets/notification_inbox_panel.dart';
+import 'screens/monitoreo/widgets/task_display_utils.dart';
 import 'screens/ayudas_visuales/ayudas_api_models.dart';
 import 'screens/ayudas_visuales/ayudas_ultima_subida_query.dart';
+import 'services/developer_audit_inbox_sync.dart';
 import 'services/notification_inbox_service.dart';
 import 'services/produccion_ayuda_novedad_prefs.dart';
 
@@ -980,6 +982,7 @@ class _ManualInfoDialogState extends State<_ManualInfoDialog> {
               '• Alta manual: crea misiones con responsable, tiempo y evidencia.\n'
               '• Historial: reactivar o eliminar misiones cerradas con control administrativo.\n'
               '• Buzón: revisa asignaciones pendientes y marca notificaciones como leídas.\n'
+              '• Recordatorios (hora local): pausadas → un aviso al día; normal en curso → 10:00, 13:00 y 16:00; alta → 9:15, 10:30, 12:00, 13:30 y 15:00; crítica → cada 90 min.\n'
               'Colores en la tarjeta (barra vertical izquierda):\n'
               '• Rojo: primer puesto del orden (crítico).\n'
               '• Naranja: segundo puesto (alta).\n'
@@ -1704,9 +1707,25 @@ class _AppBarNotificationInboxState extends State<_AppBarNotificationInbox> {
               taskRows,
               inboxUser,
             );
+            await CmdInboxStore.instance.tryAddDailyPausedMissionsDigest(
+              tasks: taskRows,
+              currentUsername: inboxUser,
+            );
+            final pendientesMias = <Map<String, dynamic>>[];
+            for (final t in taskRows) {
+              if (!esMisionCentroActiva(t)) continue;
+              if (!tareaVisibleParaUsuario(t, inboxUser)) continue;
+              pendientesMias.add(Map<String, dynamic>.from(t));
+            }
+            if (pendientesMias.isNotEmpty) {
+              await CmdInboxStore.instance.addDueMissionReminders(
+                pendientesMias,
+              );
+            }
           }
         } catch (_) {}
       }
+      await DeveloperAuditInboxSync.pollIfDeveloper(widget.effectiveRoleRaw);
       final all = await CmdInboxStore.instance.loadAll();
       final n = all.where((e) => !e.leido).length;
       if (_primedUnreadBaseline && n > _unread) {

@@ -798,7 +798,7 @@ def eliminar_revision(
     try:
         cur.execute(
             """
-            SELECT Id_Ayuda, Ruta_PDF, Numero_Revision
+            SELECT Id_Ayuda, Ruta_PDF, Numero_Revision, ISNULL(Es_Vigente, 0)
             FROM Tbl_Ayudas_Revisiones
             WHERE Id_Revision = ?
             """,
@@ -810,13 +810,53 @@ def eliminar_revision(
         id_ayuda = int(row[0])
         ruta = str(row[1] or "").strip()
         num_rev = str(row[2] or "")
+        era_vigente = bool(int(row[3] or 0))
 
         cur.execute(
             "DELETE FROM Tbl_Ayudas_Revisiones WHERE Id_Revision = ?",
             (id_revision,),
         )
 
-        detalle = f"id_rev={id_revision};id_ayuda={id_ayuda};num={num_rev}"
+        promoted_revision_id: Optional[int] = None
+        # Si al borrar una revisión (vigente o por datos inconsistentes) no queda ninguna
+        # revisión marcada como vigente, promovemos la más reciente restante.
+        cur.execute(
+            """
+            SELECT TOP 1 Id_Revision
+            FROM Tbl_Ayudas_Revisiones
+            WHERE Id_Ayuda = ? AND Es_Vigente = 1
+            ORDER BY Fecha_Subida DESC, Id_Revision DESC
+            """,
+            (id_ayuda,),
+        )
+        row_vig = cur.fetchone()
+        if row_vig is None:
+            cur.execute(
+                """
+                SELECT TOP 1 Id_Revision
+                FROM Tbl_Ayudas_Revisiones
+                WHERE Id_Ayuda = ?
+                ORDER BY Fecha_Subida DESC, Id_Revision DESC
+                """,
+                (id_ayuda,),
+            )
+            row_promote = cur.fetchone()
+            if row_promote:
+                promoted_revision_id = int(row_promote[0])
+                cur.execute(
+                    "UPDATE Tbl_Ayudas_Revisiones SET Es_Vigente = 0 WHERE Id_Ayuda = ?",
+                    (id_ayuda,),
+                )
+                cur.execute(
+                    "UPDATE Tbl_Ayudas_Revisiones SET Es_Vigente = 1 WHERE Id_Revision = ?",
+                    (promoted_revision_id,),
+                )
+
+        detalle = (
+            f"id_rev={id_revision};id_ayuda={id_ayuda};num={num_rev};"
+            f"era_vigente={1 if era_vigente else 0};"
+            f"promovida={promoted_revision_id if promoted_revision_id else '-'}"
+        )
         registrar_log_global(
             cur,
             f"AYUDA:{id_ayuda}",
@@ -833,7 +873,7 @@ def eliminar_revision(
             except OSError:
                 pass
 
-        return {"ok": True}
+        return {"ok": True, "promoted_revision_id": promoted_revision_id}
     except HTTPException:
         conn.rollback()
         raise
