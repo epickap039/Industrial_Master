@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:developer' show Timeline;
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart'; // Clipboard
@@ -10,6 +12,8 @@ import 'package:syncfusion_flutter_pdf/pdf.dart';
 import '../utils/excel_helper.dart';
 import '../services/api_client.dart';
 import '../services/app_role.dart';
+import '../services/dev_usage_feature_ids.dart';
+import '../services/navigation_usage_service.dart';
 import '../theme/ui_tokens.dart';
 import '../widgets/compact_page_header.dart';
 import '../widgets/contextual_bug_report.dart';
@@ -318,6 +322,14 @@ class _CatalogScreenState extends State<CatalogScreen> {
           severity: InfoBarSeverity.success,
         );
       }
+      if (showProgressDialog) {
+        unawaited(
+          NavigationUsageService.instance.recordFeature(
+            featureId: DevUsageFeatureIds.catalogoStockPtSyncManual,
+            roleRaw: (widget.effectiveRole ?? _userRole).trim(),
+          ),
+        );
+      }
       await _fetchData(showLoading: false);
       await _refreshStockPtOrphansCount();
     } on ApiException catch (e) {
@@ -363,6 +375,12 @@ class _CatalogScreenState extends State<CatalogScreen> {
               )
               : <Map<String, dynamic>>[];
       setState(() => _stockPtOrphansCount = items.length);
+      unawaited(
+        NavigationUsageService.instance.recordFeature(
+          featureId: DevUsageFeatureIds.catalogoStockPtOrphans,
+          roleRaw: (widget.effectiveRole ?? _userRole).trim(),
+        ),
+      );
       _showStockPtInfo(
         title: 'Escaneo completado',
         message:
@@ -440,6 +458,9 @@ class _CatalogScreenState extends State<CatalogScreen> {
     }
 
     try {
+      if (kDebugMode) {
+        Timeline.startSync('CatalogScreen._fetchData');
+      }
       final jsonList = await ApiClient.get('/api/catalog') as List<dynamic>;
       List<Map<String, dynamic>> data = List<Map<String, dynamic>>.from(
         jsonList,
@@ -533,6 +554,10 @@ class _CatalogScreenState extends State<CatalogScreen> {
           _errorMessage = 'Error de Conexión (Backend 8001)';
           _isLoading = false;
         });
+      }
+    } finally {
+      if (kDebugMode) {
+        Timeline.finishSync();
       }
     }
   }
@@ -1229,6 +1254,12 @@ class _CatalogScreenState extends State<CatalogScreen> {
 
   /// Detalles (Limpiado: Sin "CODIGO" vacio)
   void _showInfoDetails(Map<String, dynamic> row) {
+    unawaited(
+      NavigationUsageService.instance.recordFeature(
+        featureId: DevUsageFeatureIds.catalogoDetallePieza,
+        roleRaw: (widget.effectiveRole ?? _userRole).trim(),
+      ),
+    );
     showDialog(
       context: context,
       builder: (context) {

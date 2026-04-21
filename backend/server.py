@@ -14,6 +14,7 @@ from audit_service import iniciar_auditoria
 from auth_service import init_auth_db
 from routers import (
     analytics,
+    app_telemetry,
     auth,
     ayudas_visuales,
     bom,
@@ -68,6 +69,7 @@ for _router in (
     engineering.router,
     mrp.router,
     analytics.router,
+    app_telemetry.router,
     vins.router,
     bom.router,
     auth.router,

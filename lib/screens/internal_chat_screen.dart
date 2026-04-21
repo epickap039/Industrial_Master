@@ -8,6 +8,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../config/app_config.dart';
 import '../services/api_client.dart';
 import '../services/chat_windows_notification_service.dart';
+import '../services/shell_poll_gates.dart';
 
 class InternalChatScreen extends StatefulWidget {
   const InternalChatScreen({super.key});
@@ -39,14 +40,38 @@ class _InternalChatScreenState extends State<InternalChatScreen> {
   String _userFilter = '';
   bool get _isGroupSelected => _selectedUser == _groupChatToken;
 
+  void _onChatPollGate() {
+    if (!mounted) return;
+    _syncChatPollingTimer();
+  }
+
+  void _syncChatPollingTimer() {
+    final allow = ShellPollGates.appForeground.value &&
+        ShellPollGates.internalChatHttpVisible.value;
+    if (allow) {
+      _polling ??= Timer.periodic(const Duration(seconds: 12), (_) {
+        if (!mounted) return;
+        _scheduleRefresh(loadCurrentThread: _selectedUser != null);
+      });
+    } else {
+      _polling?.cancel();
+      _polling = null;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    ShellPollGates.internalChatHttpVisible.addListener(_onChatPollGate);
+    ShellPollGates.appForeground.addListener(_onChatPollGate);
+    _syncChatPollingTimer();
     _bootstrap();
   }
 
   @override
   void dispose() {
+    ShellPollGates.internalChatHttpVisible.removeListener(_onChatPollGate);
+    ShellPollGates.appForeground.removeListener(_onChatPollGate);
     _polling?.cancel();
     _wsReconnectTimer?.cancel();
     _buzzShakeTimer?.cancel();
@@ -218,9 +243,7 @@ class _InternalChatScreenState extends State<InternalChatScreen> {
     await _loadConversations();
     if (!mounted) return;
     _connectWs();
-    _polling = Timer.periodic(const Duration(seconds: 12), (_) {
-      _scheduleRefresh(loadCurrentThread: _selectedUser != null);
-    });
+    _syncChatPollingTimer();
     setState(() => _loading = false);
   }
 

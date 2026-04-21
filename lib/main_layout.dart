@@ -87,7 +87,10 @@ NavigationPane buildIndustrialNavigationPane({
         id: NavPaneId.centroMonitoreo,
         title: 'Centro de monitoreo',
         icon: FluentIcons.activity_feed,
-        body: MonitoreoTareasScreen(effectiveRole: userRole),
+        body: MonitoreoTareasScreen(
+          effectiveRole: userRole,
+          embeddedInOperacionHub: true,
+        ),
       ),
   ];
 

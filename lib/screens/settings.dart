@@ -8,6 +8,7 @@ import '../services/app_role.dart';
 import '../theme/ui_tokens.dart';
 import '../widgets/compact_page_header.dart';
 import 'configuracion_usuarios_screen.dart';
+import '../widgets/dev_telemetry_settings_content.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -346,6 +347,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ],
               ),
+            ),
+          ],
+          if (role == AppRole.desarrollador) ...[
+            const SizedBox(height: 10),
+            Expander(
+              header: Text(
+                'Telemetría de uso (todos los usuarios)',
+                style: theme.typography.subtitle?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ) ??
+                    const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              initiallyExpanded: false,
+              content: const DevTelemetrySettingsContent(),
             ),
           ],
           ],

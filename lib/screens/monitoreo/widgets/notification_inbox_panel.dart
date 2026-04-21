@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../services/api_client.dart';
+import '../../../services/tareas_lista_coordinator.dart';
 import '../../../services/notification_inbox_service.dart';
 import '../../../services/user_avatar_service.dart';
 
@@ -64,15 +65,13 @@ class _NotificationInboxDialogContentState extends State<_NotificationInboxDialo
       final inboxUser = (prefs.getString('username') ?? '').trim();
       if (inboxUser.isNotEmpty) {
         try {
-          final data = await ApiClient.get('/api/tareas/lista');
-          if (data is List) {
-            final taskRows =
-                data.whereType<Map<String, dynamic>>().toList();
-            await CmdInboxStore.instance.pruneMissionInboxAgainstTaskList(
-              taskRows,
-              inboxUser,
-            );
-          }
+          final taskRows = await TareasListaCoordinator.instance.fetchLista(
+            force: true,
+          );
+          await CmdInboxStore.instance.pruneMissionInboxAgainstTaskList(
+            taskRows,
+            inboxUser,
+          );
         } catch (_) {}
       }
     } catch (_) {}

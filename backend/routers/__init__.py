@@ -1,5 +1,6 @@
 """Routers FastAPI (Industrial Manager)."""
 from . import analytics
+from . import app_telemetry
 from . import auth
 from . import ayudas_visuales
 from . import bom
@@ -22,6 +23,7 @@ from . import vins
 
 __all__ = [
     'analytics',
+    'app_telemetry',
     'auth',
     'ayudas_visuales',
     'bom',

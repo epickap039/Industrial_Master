@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' show Timeline;
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/material.dart' as material;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -19,6 +21,10 @@ import 'monitoreo/widgets/manual_mission_form_dialog.dart';
 import 'monitoreo/widgets/mission_meta_sheet.dart';
 import 'monitoreo/widgets/task_display_utils.dart';
 import '../services/app_role.dart';
+import '../services/dev_usage_feature_ids.dart';
+import '../services/navigation_usage_service.dart';
+import '../services/shell_poll_gates.dart';
+import '../services/tareas_lista_coordinator.dart';
 import '../theme/app_themes.dart';
 
 const List<String> _kMotivosPausa = [
@@ -30,10 +36,18 @@ const int _kMinutosPorJornadaLaboral = 9 * 60;
 
 /// Centro de Comando Directivo Industrial (Radar + Manual, sin IA predictiva).
 class MonitoreoTareasScreen extends StatefulWidget {
-  const MonitoreoTareasScreen({super.key, required this.effectiveRole});
+  const MonitoreoTareasScreen({
+    super.key,
+    required this.effectiveRole,
+    this.embeddedInOperacionHub = false,
+  });
 
   /// Rol efectivo (incluye simulacion admin desde [MainNav] / main.dart).
   final String effectiveRole;
+
+  /// `true` cuando este widget vive en el hub "Operacion diaria" (IndexedStack).
+  /// El rail dedicado "Centro de monitoreo" debe usar `false` para no duplicar sondeo.
+  final bool embeddedInOperacionHub;
 
   @override
   State<MonitoreoTareasScreen> createState() => _MonitoreoTareasScreenState();
@@ -66,9 +80,50 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
   /// null = sin verificar, true = disponible, false = no disponible
   bool? _vozWhisperDisponible;
 
+  void _onMonitoreoPollGate() {
+    _syncMonitoreoRefreshTimer();
+  }
+
+  void _syncMonitoreoRefreshTimer() {
+    final fg = ShellPollGates.appForeground.value;
+    final visible =
+        fg &&
+        (widget.embeddedInOperacionHub
+            ? ShellPollGates.monitoreoOperacionHubVisible.value
+            : ShellPollGates.monitoreoTopRailVisible.value);
+    if (visible) {
+      _refreshTimer ??= Timer.periodic(const Duration(seconds: 12), (timer) {
+        if (mounted) {
+          unawaited(_cargar(silent: true, bypassCache: false));
+        }
+      });
+    } else {
+      _refreshTimer?.cancel();
+      _refreshTimer = null;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    if (widget.embeddedInOperacionHub) {
+      ShellPollGates.monitoreoOperacionHubVisible.addListener(
+        _onMonitoreoPollGate,
+      );
+    } else {
+      ShellPollGates.monitoreoTopRailVisible.addListener(_onMonitoreoPollGate);
+    }
+    ShellPollGates.appForeground.addListener(_onMonitoreoPollGate);
+    _syncMonitoreoRefreshTimer();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(
+        NavigationUsageService.instance.recordFeature(
+          featureId: DevUsageFeatureIds.monitoreoSesion,
+          roleRaw: widget.effectiveRole,
+        ),
+      );
+    });
     _tabController = material.TabController(length: 3, vsync: this);
     _tabController.addListener(() {
       if (_tabController.indexIsChanging) return;
@@ -79,22 +134,27 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
     // Cargar usuario antes de la primera lista: evita carrera con _seenTaskIds / buzón.
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _initSesion();
-      if (mounted) await _cargar();
-    });
-
-    // Auto-refresco de tarjetas (recordatorios de misión los hace el sondeo del shell en main.dart).
-    _refreshTimer = Timer.periodic(const Duration(seconds: 12), (timer) {
-      if (mounted) _cargar(silent: true);
+      if (mounted) await _cargar(bypassCache: false);
+      if (mounted) _syncMonitoreoRefreshTimer();
     });
   }
 
   @override
   void dispose() {
+    if (widget.embeddedInOperacionHub) {
+      ShellPollGates.monitoreoOperacionHubVisible.removeListener(
+        _onMonitoreoPollGate,
+      );
+    } else {
+      ShellPollGates.monitoreoTopRailVisible.removeListener(_onMonitoreoPollGate);
+    }
+    ShellPollGates.appForeground.removeListener(_onMonitoreoPollGate);
     _tabController.dispose();
     _refreshTimer?.cancel();
     _activasScrollController.dispose();
     super.dispose();
   }
+
 
   @override
   void didUpdateWidget(MonitoreoTareasScreen oldWidget) {
@@ -205,39 +265,19 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
     return t;
   }
 
-  Future<void> _cargar({bool silent = false}) async {
+  Future<void> _cargar({bool silent = false, bool bypassCache = false}) async {
+    if (kDebugMode) {
+      Timeline.startSync(
+        'MonitoreoTareasScreen._cargar',
+        arguments: {'bypassCache': bypassCache, 'silent': silent},
+      );
+    }
     if (!silent) setState(() => _loading = true);
     try {
-      final data = await ApiClient.get('/api/tareas/lista');
-      if (data is! List) {
-        if (mounted && !silent) {
-          displayInfoBar(
-            context,
-            builder:
-                (context, close) => InfoBar(
-                  title: const Text('Error'),
-                  content: const Text(
-                    'Respuesta invalida del servidor (lista de tareas).',
-                  ),
-                  severity: InfoBarSeverity.error,
-                  action: IconButton(
-                    icon: const Icon(FluentIcons.clear),
-                    onPressed: close,
-                  ),
-                ),
-          );
-        }
-        setState(() {
-          _tareas = [];
-          _activasOrdenadas = [];
-          if (!silent) _loading = false;
-        });
-        return;
-      }
-      final list = data
-          .whereType<Map<String, dynamic>>()
-          .map(_normalizarTareaDeApi)
-          .toList();
+      final rawList = await TareasListaCoordinator.instance.fetchLista(
+        force: bypassCache,
+      );
+      final list = rawList.map(_normalizarTareaDeApi).toList();
 
       if (_currentUserName.isNotEmpty) {
         await CmdInboxStore.instance.pruneMissionInboxAgainstTaskList(
@@ -332,6 +372,10 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
         _activasOrdenadas = [];
         _loading = false;
       });
+    } finally {
+      if (kDebugMode) {
+        Timeline.finishSync();
+      }
     }
   }
 
@@ -346,6 +390,33 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
       task['estado'] = 'En Proceso';
     }
     task['Estado'] = task['estado'];
+  }
+
+  int? _idTareaDe(Map<String, dynamic> x) {
+    final id = x['id_tarea'];
+    if (id is int) return id;
+    return int.tryParse('$id');
+  }
+
+  /// Mantiene [_activasOrdenadas] alineada con una tarea ya guardada en [_tareas],
+  /// sin re-filtrar ni clonar toda la lista (evita jank al marcar checklist).
+  void _syncActivasTrasCambiarTarea(int idTarea, Map<String, dynamic> task) {
+    final ai = _activasOrdenadas.indexWhere((x) => _idTareaDe(x) == idTarea);
+    final sigueActiva = esMisionCentroActiva(task);
+    if (sigueActiva) {
+      final copy = Map<String, dynamic>.from(task);
+      if (ai >= 0) {
+        _activasOrdenadas[ai] = copy;
+      } else {
+        _activasOrdenadas =
+            _tareas
+                .where(esMisionCentroActiva)
+                .map((e) => Map<String, dynamic>.from(e))
+                .toList();
+      }
+    } else if (ai >= 0) {
+      _activasOrdenadas.removeAt(ai);
+    }
   }
 
   Future<void> _marcarChecklistItem(
@@ -391,12 +462,8 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
         task['porcentaje_progreso'] = pct;
         _aplicarEstadoLocalPorProgreso(task, pct);
         _tareas[ti] = task;
+        _syncActivasTrasCambiarTarea(idTarea, task);
       }
-      _activasOrdenadas =
-          _tareas
-              .where(esMisionCentroActiva)
-              .map((e) => Map<String, dynamic>.from(e))
-              .toList();
     });
     try {
       await ApiClient.put(
@@ -410,11 +477,10 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
               snapshotTaskIndex >= 0 &&
               snapshotTaskIndex < _tareas.length) {
             _tareas[snapshotTaskIndex] = Map<String, dynamic>.from(snapshotTask!);
-            _activasOrdenadas =
-                _tareas
-                    .where(esMisionCentroActiva)
-                    .map((x) => Map<String, dynamic>.from(x))
-                    .toList();
+            _syncActivasTrasCambiarTarea(
+              idTarea,
+              _tareas[snapshotTaskIndex],
+            );
           }
         });
         displayInfoBar(
@@ -863,7 +929,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
         },
       );
       if (!mounted) return;
-      await _cargar();
+      await _cargar(bypassCache: true);
       if (!mounted) return;
       displayInfoBar(
         context,
@@ -941,7 +1007,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
     );
     if (!mounted) return;
     if (ok) {
-      await _cargar();
+      await _cargar(bypassCache: true);
       if (!mounted) return;
       if (doSuspend) {
         displayInfoBar(
@@ -1012,7 +1078,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
         body: {'motivo_cancelacion': motivo},
       );
       if (!mounted) return;
-      await _cargar();
+      await _cargar(bypassCache: true);
       if (!mounted) return;
       displayInfoBar(
         context,
@@ -1089,7 +1155,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
         body: {'estado': 'Pausado', 'motivo_pausa': motivo},
       );
       if (!mounted) return;
-      await _cargar();
+      await _cargar(bypassCache: true);
     } catch (e) {
       if (mounted) {
         displayInfoBar(
@@ -1113,7 +1179,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
         body: {'estado': 'En Proceso'},
       );
       if (!mounted) return;
-      await _cargar();
+      await _cargar(bypassCache: true);
     } catch (e) {
       if (mounted) {
         displayInfoBar(
@@ -1144,7 +1210,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
               onClose: close,
             ),
       );
-      await _cargar();
+      await _cargar(bypassCache: true);
     } catch (e) {
       if (mounted) {
         displayInfoBar(
@@ -1223,7 +1289,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
               ),
         );
       }
-      await _cargar();
+      await _cargar(bypassCache: true);
       return false;
     }
   }
@@ -1242,7 +1308,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
 
   Future<void> _abrirAltaManual() async {
     final ok = await showManualMissionFormDialog(context);
-    if (ok && mounted) await _cargar();
+    if (ok && mounted) await _cargar(bypassCache: true);
   }
 
   bool _isDark(BuildContext context) {
@@ -1257,7 +1323,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
     try {
       await ApiClient.put('/api/tareas/historial/$idTarea/reactivar');
       if (!mounted) return;
-      await _cargar();
+      await _cargar(bypassCache: true);
       if (!mounted) return;
       displayInfoBar(
         context,
@@ -1328,7 +1394,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
         headers: {ApiClient.adminMasterPasswordHeader: masterPwd!},
       );
       if (!mounted) return;
-      await _cargar();
+      await _cargar(bypassCache: true);
       if (!mounted) return;
       displayInfoBar(
         context,
@@ -1588,7 +1654,7 @@ class _MonitoreoTareasScreenState extends State<MonitoreoTareasScreen>
                       ),
                     ),
                   );
-                  await _cargar();
+                  await _cargar(bypassCache: true);
                 }
               } catch (e) {
                 if (mounted) {

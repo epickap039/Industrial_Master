@@ -10,6 +10,7 @@ import 'screens/bom_manager.dart';
 import 'screens/login.dart';
 import 'package:pasteboard/pasteboard.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'theme/app_themes.dart';
 import 'theme/ui_tokens.dart';
 import 'screens/splash_screen.dart';
@@ -22,6 +23,9 @@ import 'services/chat_windows_notification_service.dart';
 import 'services/main_nav.dart';
 import 'services/nav_pane.dart';
 import 'services/navigation_usage_service.dart';
+import 'services/dev_usage_feature_ids.dart';
+import 'services/shell_poll_gates.dart';
+import 'services/tareas_lista_coordinator.dart';
 import 'main_layout.dart';
 import 'screens/monitoreo/widgets/notification_inbox_panel.dart';
 import 'screens/monitoreo/widgets/task_display_utils.dart';
@@ -47,7 +51,7 @@ class MyApp extends StatefulWidget {
   State<MyApp> createState() => _MyAppState();
 }
 
-class _MyAppState extends State<MyApp> {
+class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   bool _isLoggedIn = false;
   bool _isLoadingAuth = true;
   String _userRole = 'USER';
@@ -78,7 +82,25 @@ class _MyAppState extends State<MyApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _checkLoginStatus();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ShellPollGates.setAppForeground(true);
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached ||
+        state == AppLifecycleState.hidden) {
+      ShellPollGates.setAppForeground(false);
+    }
   }
 
   Future<void> _checkLoginStatus() async {
@@ -93,11 +115,19 @@ class _MyAppState extends State<MyApp> {
       if (difference < 7) {
         MainNav.registerRole(storedRole);
         MainNav.setSimulatedRole(null);
+        TareasListaCoordinator.instance.invalidate();
         setState(() {
           _isLoggedIn = true;
           _userRole = storedRole;
           _simulatedRoleOverride = null;
           _activeLeafPane = null;
+        });
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          ShellPollGates.sync(
+            topRailIndex: topIndex,
+            activeLeafPane: _activeLeafPane,
+          );
         });
       } else {
         // Caducó la sesión
@@ -122,12 +152,20 @@ class _MyAppState extends State<MyApp> {
     final r = prefs.getString('rol') ?? 'USER';
     MainNav.registerRole(r);
     MainNav.setSimulatedRole(null);
+    TareasListaCoordinator.instance.invalidate();
     setState(() {
       _isLoggedIn = true;
       _userRole = r;
       _simulatedRoleOverride = null;
       topIndex = 0;
       _activeLeafPane = null;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ShellPollGates.sync(
+        topRailIndex: topIndex,
+        activeLeafPane: _activeLeafPane,
+      );
     });
   }
 
@@ -184,6 +222,8 @@ class _MyAppState extends State<MyApp> {
     await prefs.setBool('isLoggedIn', false);
     await prefs.remove('access_token');
     MainNav.setSimulatedRole(null);
+    ShellPollGates.resetNavigationGates();
+    TareasListaCoordinator.instance.invalidate();
     setState(() {
       _isLoggedIn = false;
       _simulatedRoleOverride = null;
@@ -591,6 +631,10 @@ class _MyAppState extends State<MyApp> {
     if (pane == NavPaneId.importarExcel || paneId == NavPaneId.importarExcel) {
       ArbitrationBridge.notifyConsumePending();
     }
+    ShellPollGates.sync(
+      topRailIndex: topIndex,
+      activeLeafPane: _activeLeafPane,
+    );
   }
 
   @override
@@ -763,6 +807,10 @@ class _MyAppState extends State<MyApp> {
                                             MainNav.setSimulatedRole(v);
                                             topIndex = 0;
                                           });
+                                          ShellPollGates.sync(
+                                            topRailIndex: topIndex,
+                                            activeLeafPane: _activeLeafPane,
+                                          );
                                         },
                                       ),
                                       const SizedBox(width: 12),
@@ -862,6 +910,10 @@ class _MyAppState extends State<MyApp> {
                           onActiveLeafPaneChanged: (pane) {
                             if (_activeLeafPane == pane) return;
                             setState(() => _activeLeafPane = pane);
+                            ShellPollGates.sync(
+                              topRailIndex: topIndex,
+                              activeLeafPane: _activeLeafPane,
+                            );
                           },
                           onNavigatePane: (id, {revisionId}) {
                             final idx = navIndexForPane(
@@ -1699,29 +1751,27 @@ class _AppBarNotificationInboxState extends State<_AppBarNotificationInbox> {
       final inboxUser = (prefs.getString('username') ?? '').trim();
       if (inboxUser.isNotEmpty) {
         try {
-          final data = await ApiClient.get('/api/tareas/lista');
-          if (data is List) {
-            final taskRows =
-                data.whereType<Map<String, dynamic>>().toList();
-            await CmdInboxStore.instance.pruneMissionInboxAgainstTaskList(
-              taskRows,
-              inboxUser,
+          final taskRows = await TareasListaCoordinator.instance.fetchLista(
+            force: false,
+          );
+          await CmdInboxStore.instance.pruneMissionInboxAgainstTaskList(
+            taskRows,
+            inboxUser,
+          );
+          await CmdInboxStore.instance.tryAddDailyPausedMissionsDigest(
+            tasks: taskRows,
+            currentUsername: inboxUser,
+          );
+          final pendientesMias = <Map<String, dynamic>>[];
+          for (final t in taskRows) {
+            if (!esMisionCentroActiva(t)) continue;
+            if (!tareaVisibleParaUsuario(t, inboxUser)) continue;
+            pendientesMias.add(Map<String, dynamic>.from(t));
+          }
+          if (pendientesMias.isNotEmpty) {
+            await CmdInboxStore.instance.addDueMissionReminders(
+              pendientesMias,
             );
-            await CmdInboxStore.instance.tryAddDailyPausedMissionsDigest(
-              tasks: taskRows,
-              currentUsername: inboxUser,
-            );
-            final pendientesMias = <Map<String, dynamic>>[];
-            for (final t in taskRows) {
-              if (!esMisionCentroActiva(t)) continue;
-              if (!tareaVisibleParaUsuario(t, inboxUser)) continue;
-              pendientesMias.add(Map<String, dynamic>.from(t));
-            }
-            if (pendientesMias.isNotEmpty) {
-              await CmdInboxStore.instance.addDueMissionReminders(
-                pendientesMias,
-              );
-            }
           }
         } catch (_) {}
       }
@@ -1821,6 +1871,12 @@ class _AppBarNotificationInboxState extends State<_AppBarNotificationInbox> {
       if (mounted) await _refresh();
       return;
     }
+    unawaited(
+      NavigationUsageService.instance.recordFeature(
+        featureId: DevUsageFeatureIds.notificacionesBandeja,
+        roleRaw: widget.effectiveRoleRaw,
+      ),
+    );
     await showNotificationInboxDialog(
       context,
       onChanged: () => unawaited(_refresh()),

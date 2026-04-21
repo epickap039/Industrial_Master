@@ -10,6 +10,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import time
 import traceback
 import uuid
 import urllib.error
@@ -33,6 +34,7 @@ router = APIRouter()
 
 @router.get("/api/catalog")
 async def get_catalog():
+    t0 = time.perf_counter()
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -45,6 +47,8 @@ async def get_catalog():
             for col, val in zip(columns, row):
                 record[col] = val if val is not None else "-"
             data.append(record)
+        dt_ms = (time.perf_counter() - t0) * 1000.0
+        print(f"[perf] GET /api/catalog {dt_ms:.1f} ms rows={len(data)}")
         return data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

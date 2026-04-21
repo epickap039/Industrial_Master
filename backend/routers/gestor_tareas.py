@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -1711,6 +1712,8 @@ def finalizar_manual(
 
 @router.get("/api/tareas/lista")
 def listar_tareas():
+    t0 = time.perf_counter()
+    out_n = 0
     conn = get_db_connection()
     cur = conn.cursor()
     try:
@@ -1975,11 +1978,14 @@ def listar_tareas():
                     ],
                 }
             )
+        out_n = len(tasks)
         return tasks
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
+        dt_ms = (time.perf_counter() - t0) * 1000.0
+        print(f"[perf] GET /api/tareas/lista {dt_ms:.1f} ms tasks={out_n}")
 
 
 @router.put("/api/tareas/check/{id_check}")

@@ -11,6 +11,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_config.dart';
 import '../services/api_client.dart';
+import '../services/tareas_lista_coordinator.dart';
 import '../services/app_role.dart';
 import '../services/main_nav.dart';
 import '../services/nav_pane.dart';
@@ -405,15 +406,13 @@ class _LobbyScreenState extends State<LobbyScreen> {
       final inboxUser = (prefs.getString('username') ?? '').trim();
       if (inboxUser.isNotEmpty) {
         try {
-          final data = await ApiClient.get('/api/tareas/lista');
-          if (data is List) {
-            final taskRows =
-                data.whereType<Map<String, dynamic>>().toList();
-            await CmdInboxStore.instance.pruneMissionInboxAgainstTaskList(
-              taskRows,
-              inboxUser,
-            );
-          }
+          final taskRows = await TareasListaCoordinator.instance.fetchLista(
+            force: false,
+          );
+          await CmdInboxStore.instance.pruneMissionInboxAgainstTaskList(
+            taskRows,
+            inboxUser,
+          );
         } catch (_) {}
       }
       final all = await CmdInboxStore.instance.loadAll();
@@ -805,7 +804,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
     try {
       final tractosF = ApiClient.get('/api/proyectos/tractos');
       final reportesF = ApiClient.get('/api/reportes');
-      final tareasF = ApiClient.get('/api/tareas/lista');
+      final tareasF = TareasListaCoordinator.instance.fetchLista(force: false);
 
       final tractos = await tractosF;
       final reportes = await reportesF;

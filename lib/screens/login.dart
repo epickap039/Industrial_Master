@@ -8,6 +8,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/api_client.dart';
+import '../services/app_telemetry_sync.dart';
 import '../services/user_avatar_service.dart';
 import 'widgets/user_color_picker_dialog.dart';
 
@@ -217,6 +218,8 @@ class _LoginScreenState extends State<LoginScreen> {
       } else {
         await prefs.remove('access_token');
       }
+
+      AppTelemetrySync.reportSesionInicio(rolEfectivo: rol);
 
       if (_selectedColorHex != null && _selectedColorHex!.isNotEmpty) {
         final wanted = _selectedColorHex!.toUpperCase();
