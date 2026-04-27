@@ -79,6 +79,7 @@ flutter:
   assets:
     - assets/qa_version_notes.json
     - assets/app_icon.png
+    - assets/sw_bom/export_bom_solidworks.bas
 
   # To add assets to your application, add an assets section, like this:
   # assets:

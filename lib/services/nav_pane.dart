@@ -10,6 +10,7 @@ enum NavPaneId {
   materialesOficiales,
   escanerCad,
   importarExcel,
+  bomDespiece,
   auditorArchivos,
   estandarizacion,
   gestionProyectos,
@@ -42,6 +43,7 @@ bool _shows(NavPaneId id, AppRole r) => switch (id) {
         r.showsNavMateriales ||
         r.showsNavCadScanner ||
         r.showsNavImportarExcel ||
+        r.showsNavBomDespiece ||
         r.showsNavAuditor ||
         r.showsNavEstandarizacion ||
         r.showsNavHistorialCambios,
@@ -53,6 +55,7 @@ bool _shows(NavPaneId id, AppRole r) => switch (id) {
       NavPaneId.materialesOficiales => r.showsNavMateriales,
       NavPaneId.escanerCad => r.showsNavCadScanner,
       NavPaneId.importarExcel => r.showsNavImportarExcel,
+      NavPaneId.bomDespiece => r.showsNavBomDespiece,
       NavPaneId.auditorArchivos => r.showsNavAuditor,
       NavPaneId.estandarizacion => r.showsNavEstandarizacion,
       NavPaneId.gestionProyectos => r.showsNavGestionProyectos,
@@ -81,9 +84,11 @@ const List<NavPaneId> kNavPaneOrder = [
   NavPaneId.mapaIngenieria,
 ];
 
+// Ingeniería: cuerpo bloqueado (_LockedModulePlaceholder). Desarrollador: acceso completo.
 const Set<NavPaneId> kNavPaneIdsUnderReview = <NavPaneId>{
   NavPaneId.expedientesVin,
   NavPaneId.generadorCodigo,
+  NavPaneId.bomDespiece,
   NavPaneId.requerimientosMrp,
   NavPaneId.optimizarCorteMp,
 };
@@ -104,6 +109,7 @@ NavPaneId _ownerSectionFor(NavPaneId id) {
     NavPaneId.expedientesVin ||
     NavPaneId.escanerCad ||
     NavPaneId.importarExcel ||
+    NavPaneId.bomDespiece ||
     NavPaneId.auditorArchivos ||
     NavPaneId.estandarizacion => NavPaneId.ingenieriaHub,
     NavPaneId.historialCambios || NavPaneId.centroQa || NavPaneId.notasVersion => NavPaneId.seguimientoHub,

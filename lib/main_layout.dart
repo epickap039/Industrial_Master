@@ -5,6 +5,7 @@ import 'screens/arbitration.dart';
 import 'screens/auditor.dart';
 import 'screens/ayudas_visuales/ayudas_visuales_nav.dart';
 import 'screens/cad_scanner_screen.dart';
+import 'screens/bom_despiece_screen.dart';
 import 'screens/catalog.dart';
 import 'screens/code_generator_screen.dart';
 import 'screens/engineering_map.dart';
@@ -150,6 +151,13 @@ NavigationPane buildIndustrialNavigationPane({
         body: ConstrainedAppBody(
           child: CodeGeneratorScreen(),
         ),
+      ),
+    if (ar.showsNavBomDespiece)
+      const _SectionModule(
+        id: NavPaneId.bomDespiece,
+        title: 'Auditoría BOM / SW',
+        icon: FluentIcons.bulleted_list,
+        body: BomDespieceScreen(),
       ),
   ];
 

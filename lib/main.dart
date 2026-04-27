@@ -664,7 +664,11 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
                 (context) => Builder(
                   builder: (navContext) {
                     MainNav.registerPaneNavigator(
-                      (index) => _handleNavigation(index, navContext),
+                      (index, {NavPaneId? paneId}) => _handleNavigation(
+                        index,
+                        navContext,
+                        paneId: paneId,
+                      ),
                     );
                     MainNav.registerRole(_userRole);
                     MainNav.setSimulatedRole(_simulatedRoleOverride);

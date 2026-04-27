@@ -1,5 +1,342 @@
 ﻿Codigo_Pieza,Extension,Largo_CAD,Ancho_CAD,Espesor_Perfil_CAD,Material,Observaciones,Tiene_DXF,Largo_DXF,Ancho_DXF,Largo_DXF_Nuevo,Ancho_DXF_Nuevo,Ruta_Archivo
-CSC-BAS-003-P-D,.sldprt,316.18,101.6,9.52,,OK (CAD y DXF coinciden),SI,316.1804741815084,101.60000000000002,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\CSC-BAS-003-P-D.SLDPRT
-JA-002,.sldprt,164.64,50.8,7.94,,ALERTA: Medidas CAD (164.64x50.8) no coinciden con DXF (190.03999999999996x50.8) | DXF exportado y medido,SI,190.03999999999996,50.8,164.64,50.8,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\JA-002.SLDPRT
-JA-034,.sldprt,304.8,101.6,76.2,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\JA-034.SLDPRT
-JA-044,.sldprt,105.0,82.58,1.5,,OK (CAD y DXF coinciden),SI,105.00000000000006,82.58097245096181,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\JA-044.SLDPRT
+B5CU-01,.sldprt,3800.0,101.6,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\B5CU-01.SLDPRT
+C53-ALUM-BDC,.sldprt,800.0,300.0,6.35,,OK (CAD y DXF coinciden),SI,800.0,300.0,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-ALUM-BDC.SLDPRT
+C53-BAS1-001,.sldprt,2159.08,76.2,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS1-001.SLDPRT
+C53-BAS1-002,.sldprt,6098.4,101.6,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS1-002.SLDPRT
+C53-BAS1-003,.sldprt,2718.4,50.8,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS1-003.SLDPRT
+C53-BAS1-004,.sldprt,913.48,76.2,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS1-004.SLDPRT
+C53-BAS1-006,.sldprt,356.8,50.8,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS1-006.SLDPRT
+C53-BAS1-008,.sldprt,4751.6,203.2,9.52,,OK (CAD y DXF coinciden),SI,4751.55,203.2000000000002,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS1-008.SLDPRT
+C53-BAS1-008A,.sldprt,1497.2,203.2,9.52,,OK (CAD y DXF coinciden),SI,1497.248535553845,203.2,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS1-008A.SLDPRT
+C53-BAS1-010,.sldprt,2168.4,723.8,6.35,,OK (CAD y DXF coinciden),SI,2168.4,723.8473400508857,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS1-010.SLDPRT
+C53-BAS1-011,.sldprt,570.0,456.9,3.18,,OK (CAD y DXF coinciden),SI,570.0000000000002,456.93742789157244,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS1-011.SLDPRT
+C53-BAS1-012,.sldprt,1270.7,570.0,3.18,,OK (CAD y DXF coinciden),SI,1270.6748557831447,570.0000000000002,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS1-012.SLDPRT
+C53-BAS1-019,.sldprt,1002.29,101.6,9.52,,OK (CAD y DXF coinciden),SI,1002.2941385824925,101.60000000000007,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS1-019.SLDPRT
+C53-BAS17,.sldprt,1950.0,723.8,6.35,,OK (CAD y DXF coinciden),SI,1950.0,723.8473400508857,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS17.SLDPRT
+C53-BAS2-001,.sldprt,2060.0,76.2,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS2-001.SLDPRT
+C53-BAS2-002,.sldprt,3588.6,101.6,76.2,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS2-002.SLDPRT
+C53-BAS2-003,.sldprt,3436.2,50.8,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS2-003.SLDPRT
+C53-BAS2-004,.sldprt,814.4,76.2,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS2-004.SLDPRT
+C53-BAS2-005,.sldprt,1409.9,749.2,6.35,,OK (CAD y DXF coinciden),SI,1409.9,749.2473400508856,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS2-005.SLDPRT
+C53-BAS2-006,.sldprt,657.3,152.4,4.76,,OK (CAD y DXF coinciden),SI,657.3427525190823,152.40000000000015,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS2-006.SLDPRT
+C53-BAS2-008,.sldprt,900.0,101.6,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS2-008.SLDPRT
+C53-BAS3-001,.sldprt,2088.4,76.2,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS3-001.SLDPRT
+C53-BAS3-002,.sldprt,7398.6,152.4,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS3-002.SLDPRT
+C53-BAS3-003,.sldprt,7244.6,50.8,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS3-003.SLDPRT
+C53-BAS3-004,.sldprt,3485.4,76.2,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS3-004.SLDPRT
+C53-BAS3-005,.sldprt,792.0,76.2,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS3-005.SLDPRT
+C53-BAS3-006,.sldprt,837.1,570.0,3.18,,OK (CAD y DXF coinciden),SI,837.13382407824,570.0000000000002,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS3-006.SLDPRT
+C53-BAS3-007,.sldprt,1437.3,723.8,6.35,,OK (CAD y DXF coinciden),SI,1437.2999999999997,723.8473400508857,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS3-007.SLDPRT
+C53-BAS3-008,.sldprt,280.0,101.6,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS3-008.SLDPRT
+C53-BAS3-009,.sldprt,326.3,101.6,9.52,,OK (CAD y DXF coinciden),SI,326.3427525190822,101.60000000000002,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS3-009.SLDPRT
+C53-BAS3-010,.sldprt,360.0,152.4,25.4,,OK (CAD y DXF coinciden),SI,360.00000000000006,152.4,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS3-010.SLDPRT
+C53-BAS3-018,.sldprt,343.8,50.8,3.18,,OK (CAD y DXF coinciden),SI,343.8211041282198,50.80000000000006,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS3-018.SLDPRT
+C53-BAS3-025,.sldprt,63.5,63.5,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS3-025.SLDPRT
+C53-BAS3-026,.sldprt,133.35,76.2,76.2,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS3-026.SLDPRT
+C53-BAS3-031,.sldprt,254.6,101.6,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS3-031.SLDPRT
+C53-BAS3-033,.sldprt,190.2,101.6,4.76,,OK (CAD y DXF coinciden),SI,190.20289159192944,101.6,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS3-033.SLDPRT
+C53-BAS3-038,.sldprt,965.4,101.6,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS3-038.SLDPRT
+C53-BAS3-039,.sldprt,1210.28,101.6,76.2,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS3-039.SLDPRT
+C53-BAS3-040,.sldprt,613.5,101.6,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS3-040.SLDPRT
+C53-BAS3-041,.sldprt,325.5,101.6,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS3-041.SLDPRT
+C53-BAS3-042,.sldprt,200.0,101.6,25.4,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS3-042.SLDPRT
+C53-BAS3-043,.sldprt,1568.2,101.6,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS3-043.SLDPRT
+C53-BAS3-044,.sldprt,310.4,300.0,9.52,,OK (CAD y DXF coinciden),SI,310.39,300.0,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS3-044.SLDPRT
+C53-BAS3-045,.sldprt,143.7,50.8,3.1,,OK (CAD y DXF coinciden),SI,143.7,50.80000000000002,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS3-045.SLDPRT
+C53-BAS3-046,.sldprt,3561.6,76.2,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS3-046.SLDPRT
+C53-BAS3-047,.sldprt,500.0,76.2,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS3-047.SLDPRT
+C53-BAS3-048,.sldprt,1739.2,723.8,6.35,,OK (CAD y DXF coinciden),SI,1739.2000000000003,723.8473400508858,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS3-048.SLDPRT
+C53-BAS3-049,.sldprt,259.3,76.2,3.18,,OK (CAD y DXF coinciden),SI,259.3,76.2,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS3-049.SLDPRT
+C53-BAS3-051,.sldprt,1739.2,723.8,6.35,,OK (CAD y DXF coinciden),SI,1739.1999999999998,723.8473400508858,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS3-051.SLDPRT
+C53-BAS3-052,.sldprt,143.8,76.2,3.18,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS3-052.SLDPRT
+C53-BAS3-053,.sldprt,255.3,50.8,3.18,,ALERTA: Medidas CAD (255.3x50.8) no coinciden con DXF (3.1750000000000154x1.1013412404281553e-13) | DXF exportado y medido,SI,3.1750000000000154,1.1013412404281553e-13,244.68527015467077,169.8253504336707,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS3-053.SLDPRT
+C53-BAS4-001,.sldprt,3880.0,152.4,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS4-001.SLDPRT
+C53-BAS4-002,.sldprt,3642.77,76.2,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS4-002.SLDPRT
+C53-BAS4-003,.sldprt,648.2,127.0,6.35,,OK (CAD y DXF coinciden),SI,648.2,127.0,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS4-003.SLDPRT
+C53-BAS4-004,.sldprt,304.8,76.2,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS4-004.SLDPRT
+C53-BAS4-005,.sldprt,1950.0,723.8,6.35,,OK (CAD y DXF coinciden),SI,1950.0,723.8473400508858,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS4-005.SLDPRT
+C53-BAS4-006,.sldprt,127.0,101.6,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS4-006.SLDPRT
+C53-BAS4-009,.sldprt,1610.0,723.8,6.35,,OK (CAD y DXF coinciden),SI,1610.0,723.8473400508857,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS4-009.SLDPRT
+C53-BAS4-010,.sldprt,169.0,38.1,38.1,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS4-010.SLDPRT
+C53-BAS4-011,.sldprt,137.3,42.4,4.76,,ALERTA: Medidas CAD (137.3x42.4) no coinciden con DXF (135.48689017321848x43.52052139550234) | DXF exportado y medido,SI,135.48689017321848,43.52052139550234,135.48689017322818,43.52052139551565,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS4-011.SLDPRT
+C53-BAS4-012,.sldprt,577.9,195.1,4.76,,OK (CAD y DXF coinciden),SI,577.8677525190808,195.1265359382362,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS4-012.SLDPRT
+C53-BAS4-013,.sldprt,490.48,143.0,3.18,,OK (CAD y DXF coinciden),SI,490.48,143.00000000000003,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS4-013.SLDPRT
+C53-BAS4-014,.sldprt,2362.0,50.8,4.76,,OK (CAD y DXF coinciden),SI,2362.0,50.8,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS4-014.SLDPRT
+C53-BAS4-015,.sldprt,300.0,76.2,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS4-015.SLDPRT
+C53-BAS4-016,.sldprt,161.0,76.2,3.18,,OK (CAD y DXF coinciden),SI,161.0,76.2,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BAS4-016.SLDPRT
+C53-BR1-001,.sldprt,1580.0,114.3,88.9,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BR1-001.SLDPRT
+C53-BR1-002,.sldprt,1770.0,101.6,76.2,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BR1-002.SLDPRT
+C53-BR1-003,.sldprt,150.0,114.3,88.9,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BR1-003.SLDPRT
+C53-BR1-004,.sldprt,88.9,50.8,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BR1-004.SLDPRT
+C53-BR1-005,.sldprt,76.2,63.5,63.5,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BR1-005.SLDPRT
+C53-BR1-006,.sldprt,223.65,50.8,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BR1-006.SLDPRT
+C53-BR1-007,.sldprt,76.2,76.2,19.05,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BR1-007.SLDPRT
+C53-BR1-008,.sldprt,396.38,76.2,3.18,,OK (CAD y DXF coinciden),SI,396.3768522911762,76.2,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BR1-008.SLDPRT
+C53-BR2-001,.sldprt,1684.6,76.2,76.2,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BR2-001.SLDPRT
+C53-BR2-002,.sldprt,2035.0,63.5,63.5,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BR2-002.SLDPRT
+C53-BRC-001,.sldprt,657.0,63.5,63.5,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BRC-001.SLDPRT
+C53-BRC-002,.sldprt,784.0,50.8,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-BRC-002.SLDPRT
+C53-CH-ELV-001,.sldprt,254.0,114.3,88.9,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-CH-ELV-001.SLDPRT
+C53-CH-ELV-002,.sldprt,114.3,88.9,60.0,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-CH-ELV-002.SLDPRT
+C53-CH1-001,.sldprt,350.0,114.3,88.9,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-CH1-001.SLDPRT
+C53-CH2-001,.sldprt,530.0,114.3,88.9,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-CH2-001.SLDPRT
+C53-CH4-001,.sldprt,482.0,114.3,88.9,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-CH4-001.SLDPRT
+C53-CH5-01,.sldprt,1000.0,206.4,4.76,,OK (CAD y DXF coinciden),SI,1000.0,206.375,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-CH5-01.SLDPRT
+C53-CH5-02,.sldprt,1000.0,99.0,88.9,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-CH5-02.SLDPRT
+C53-CH5-03,.sldprt,206.4,114.3,4.76,,OK (CAD y DXF coinciden),SI,206.375,114.29999999999998,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-CH5-03.SLDPRT
+C53-CH5-04,.sldprt,114.3,99.0,88.9,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-CH5-04.SLDPRT
+C53-CH5-05,.sldprt,228.6,148.9,19.05,,OK (CAD y DXF coinciden),SI,228.6,148.9000000000001,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-CH5-05.SLDPRT
+C53-CH5-07,.sldprt,749.2,76.2,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-CH5-07.SLDPRT
+C53-CH5-08,.sldprt,1000.0,358.9,4.76,,OK (CAD y DXF coinciden),SI,999.9999999999999,358.8850000000001,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-CH5-08.SLDPRT
+C53-CH5-09,.sldprt,1000.0,88.9,4.76,,OK (CAD y DXF coinciden),SI,1000.0,88.90000000000012,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-CH5-09.SLDPRT
+C53-OBLON-DER,.sldprt,812.65,751.22,3.05,,OK (CAD y DXF coinciden),SI,812.6455727803464,751.216225721965,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-OBLON-DER.SLDPRT
+C53-PIS-001,.sldprt,2402.0,1249.7,3.04,,OK (CAD y DXF coinciden),SI,2402.0,1249.6902240144375,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-PIS-001.SLDPRT
+C53-PIS-002,.sldprt,2402.0,1411.7,3.04,,OK (CAD y DXF coinciden),SI,2402.0,1411.690224014438,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-PIS-002.SLDPRT
+C53-PIS-003,.sldprt,2434.4,676.7,4.76,,OK (CAD y DXF coinciden),SI,2434.4,676.7427525190824,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-PIS-003.SLDPRT
+C53-PIS-004,.sldprt,2424.0,50.8,50.8,,OK (Solido/Perfil - Bounding Box),NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-PIS-004.SLDPRT
+C53-PIS-005,.sldprt,2068.4,777.2,3.04,,OK (CAD y DXF coinciden),SI,2068.4,777.2056625003697,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-PIS-005.SLDPRT
+C53-PIS-006,.sldprt,,,,,No se pudo abrir el documento.,SI,2402.0,1475.8902240144394,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-PIS-006.SLDPRT
+C53-PIS-014,.sldprt,,,,,No se pudo abrir el documento.,SI,2402.6,979.0,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-PIS-014.SLDPRT
+C53-TAP-001,.sldprt,,,,,No se pudo abrir el documento.,SI,2759.0,1219.0,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-TAP-001.SLDPRT
+C53-TAP-002,.sldprt,,,,,No se pudo abrir el documento.,SI,2759.0,1219.0,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53-TAP-002.SLDPRT
+C53FT-ALUM-ABT1,.sldprt,,,,,No se pudo abrir el documento.,SI,3400.50000004,738.3272,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-ALUM-ABT1.SLDPRT
+C53FT-ALUM-ABT3,.sldprt,,,,,No se pudo abrir el documento.,SI,3400.50000004,918.74,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-ALUM-ABT3.SLDPRT
+C53FT-ALUM-ABT4,.sldprt,,,,,No se pudo abrir el documento.,SI,712.9272000000001,304.8,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-ALUM-ABT4.SLDPRT
+C53FT-ALUM-ABT5,.sldprt,,,,,No se pudo abrir el documento.,SI,2584.9,697.0517000000002,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-ALUM-ABT5.SLDPRT
+C53FT-ALUM-ABT6,.sldprt,,,,,No se pudo abrir el documento.,SI,2603.95,918.7406,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-ALUM-ABT6.SLDPRT
+C53FT-ALUM-ABT7,.sldprt,,,,,No se pudo abrir el documento.,SI,918.7405999999997,793.3448699903696,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-ALUM-ABT7.SLDPRT
+C53FT-BISAG-001,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-BISAG-001.SLDPRT
+C53FT-BISAG-002,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-BISAG-002.SLDPRT
+C53FT-BISAG-003,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-BISAG-003.SLDPRT
+C53FT-CAMA-001,.sldprt,,,,,No se pudo abrir el documento.,SI,2603.5,1474.9339568897262,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-CAMA-001.SLDPRT
+C53FT-CAMA-002,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-CAMA-002.SLDPRT
+C53FT-CAMA-003,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-CAMA-003.SLDPRT
+C53FT-CAMA-004,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-CAMA-004.SLDPRT
+C53FT-CAMA-005,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-CAMA-005.SLDPRT
+C53FT-CAMA-006,.sldprt,,,,,No se pudo abrir el documento.,SI,495.8052040498085,76.2,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-CAMA-006.SLDPRT
+C53FT-CAMA-008,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-CAMA-008.SLDPRT
+C53FT-CAMA-009,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-CAMA-009.SLDPRT
+C53FT-CAMA-010,.sldprt,,,,,No se pudo abrir el documento.,SI,810.935128778623,566.59,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-CAMA-010.SLDPRT
+C53FT-CAMA-011,.sldprt,,,,,No se pudo abrir el documento.,SI,1251.87,635.0,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-CAMA-011.SLDPRT
+C53FT-CAMA-012,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-CAMA-012.SLDPRT
+C53FT-CAMA-013,.sldprt,,,,,No se pudo abrir el documento.,SI,1432.6838783450753,578.0,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-CAMA-013.SLDPRT
+C53FT-CAMA-014,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-CAMA-014.SLDPRT
+C53FT-CAMA-015,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-CAMA-015.SLDPRT
+C53FT-CAMA-016,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-CAMA-016.SLDPRT
+C53FT-CAMA-018,.sldprt,,,,,No se pudo abrir el documento.,SI,2603.5,1364.86204343372,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-CAMA-018.SLDPRT
+C53FT-CAMA-019,.sldprt,,,,,No se pudo abrir el documento.,SI,2584.45,621.9543124823751,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-CAMA-019.SLDPRT
+C53FT-CAMA-020,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-CAMA-020.SLDPRT
+C53FT-CAMA-021,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-CAMA-021.SLDPRT
+C53FT-CAMA-022,.sldprt,,,,,No se pudo abrir el documento.,SI,400.0,260.792752519082,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-CAMA-022.SLDPRT
+C53FT-CAMA-023,.sldprt,,,,,No se pudo abrir el documento.,SI,830.0,85.725,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-CAMA-023.SLDPRT
+C53FT-CAMA-024,.sldprt,,,,,No se pudo abrir el documento.,SI,830.0,76.2,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-CAMA-024.SLDPRT
+C53FT-COL-001,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COL-001.SLDPRT
+C53FT-COL-002,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COL-002.SLDPRT
+C53FT-COL-003,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COL-003.SLDPRT
+C53FT-COL-004,.sldprt,,,,,No se pudo abrir el documento.,SI,297.0188807743117,132.89500000000106,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COL-004.SLDPRT
+C53FT-COL-005.1,.sldprt,,,,,No se pudo abrir el documento.,SI,628.6472,367.7258906674558,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COL-005.1.SLDPRT
+C53FT-COL-005.2,.sldprt,,,,,No se pudo abrir el documento.,SI,628.6472,367.7258906674558,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COL-005.2.SLDPRT
+C53FT-COL-006,.sldprt,,,,,No se pudo abrir el documento.,SI,834.4606,367.2708905574558,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COL-006.SLDPRT
+C53FT-COL-007,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COL-007.SLDPRT
+C53FT-COL-008,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COL-008.SLDPRT
+C53FT-COL-009,.sldprt,,,,,No se pudo abrir el documento.,SI,2719.58395501,1219.2,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COL-009.SLDPRT
+C53FT-COS-001,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-001.SLDPRT
+C53FT-COS-002,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-002.SLDPRT
+C53FT-COS-003,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-003.SLDPRT
+C53FT-COS-004,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-004.SLDPRT
+C53FT-COS-005,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-005.SLDPRT
+C53FT-COS-006,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-006.SLDPRT
+C53FT-COS-007,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-007.SLDPRT
+C53FT-COS-008,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-008.SLDPRT
+C53FT-COS-009.1,.sldprt,,,,,No se pudo abrir el documento.,SI,3482.88127686,433.4083211614645,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-009.1.SLDPRT
+C53FT-COS-009.2,.sldprt,,,,,No se pudo abrir el documento.,SI,3482.88127686,316.16388072431016,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-009.2.SLDPRT
+C53FT-COS-009.3,.sldprt,,,,,No se pudo abrir el documento.,SI,3482.88127691,433.4083211614649,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-009.3.SLDPRT
+C53FT-COS-009.4,.sldprt,,,,,No se pudo abrir el documento.,SI,3482.88127691,316.1638807743097,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-009.4.SLDPRT
+C53FT-COS-010,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-010.SLDPRT
+C53FT-COS-011,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-011.SLDPRT
+C53FT-COS-012,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-012.SLDPRT
+C53FT-COS-013,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-013.SLDPRT
+C53FT-COS-014,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-014.SLDPRT
+C53FT-COS-015,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-015.SLDPRT
+C53FT-COS-016,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-016.SLDPRT
+C53FT-COS-017,.sldprt,,,,,No se pudo abrir el documento.,SI,373.25162877715616,152.40000000000003,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-017.SLDPRT
+C53FT-COS-018,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-018.SLDPRT
+C53FT-COS-026,.sldprt,,,,,No se pudo abrir el documento.,SI,3731.0325538760057,1163.236353109981,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-026.SLDPRT
+C53FT-COS-027,.sldprt,,,,,No se pudo abrir el documento.,SI,982.6920839215911,406.40000000000015,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-027.SLDPRT
+C53FT-COS-028,.sldprt,,,,,No se pudo abrir el documento.,SI,558.8,472.5,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-028.SLDPRT
+C53FT-COS-029,.sldprt,,,,,No se pudo abrir el documento.,SI,472.5,469.9000000000004,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-029.SLDPRT
+C53FT-COS-030,.sldprt,,,,,No se pudo abrir el documento.,SI,825.5,330.20000000000005,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-030.SLDPRT
+C53FT-COS-031,.sldprt,,,,,No se pudo abrir el documento.,SI,1117.6,330.2000000000001,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-031.SLDPRT
+C53FT-COS-032,.sldprt,,,,,No se pudo abrir el documento.,SI,990.6000000000001,279.4,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-032.SLDPRT
+C53FT-COS-033,.sldprt,,,,,No se pudo abrir el documento.,SI,192.09444038715486,50.8,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-033.SLDPRT
+C53FT-COS-034,.sldprt,,,,,No se pudo abrir el documento.,SI,127.0,76.2,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-034.SLDPRT
+C53FT-COS-035,.sldprt,,,,,No se pudo abrir el documento.,SI,3000.0,152.4,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-035.SLDPRT
+C53FT-COS-036,.sldprt,,,,,No se pudo abrir el documento.,SI,558.8,513.6825199430965,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-036.SLDPRT
+C53FT-COS-042,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-042.SLDPRT
+C53FT-COS-043,.sldprt,,,,,No se pudo abrir el documento.,SI,698.4,87.31250000000003,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-043.SLDPRT
+C53FT-COS-044,.sldprt,,,,,No se pudo abrir el documento.,SI,1200.0,254.0,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-044.SLDPRT
+C53FT-COS-046,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-046.SLDPRT
+C53FT-COS-047,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-047.SLDPRT
+C53FT-COS-048,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-048.SLDPRT
+C53FT-COS-049,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-049.SLDPRT
+C53FT-COS-050,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-050.SLDPRT
+C53FT-COS-051,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-051.SLDPRT
+C53FT-COS-052,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-052.SLDPRT
+C53FT-COS-056,.sldprt,,,,,No se pudo abrir el documento.,SI,380.6681855903313,304.6376753917469,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-056.SLDPRT
+C53FT-COS-057,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-057.SLDPRT
+C53FT-COS-058,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-058.SLDPRT
+C53FT-COS-059,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-059.SLDPRT
+C53FT-COS-060,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-060.SLDPRT
+C53FT-COS-061,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-061.SLDPRT
+C53FT-COS-062,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-062.SLDPRT
+C53FT-COS-VAR1,.sldprt,,,,,No se pudo abrir el documento.,SI,3845.0,344.7945762414396,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-VAR1.SLDPRT
+C53FT-COS-VAR2,.sldprt,,,,,No se pudo abrir el documento.,SI,3845.0,344.7945762414396,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-VAR2.SLDPRT
+C53FT-COS-VAR3,.sldprt,,,,,No se pudo abrir el documento.,SI,3845.0,344.7945762414396,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-VAR3.SLDPRT
+C53FT-COS-VAR4,.sldprt,,,,,No se pudo abrir el documento.,SI,3845.0,344.7945762414394,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-COS-VAR4.SLDPRT
+C53FT-ELV-004,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-ELV-004.SLDPRT
+C53FT-ELV-005,.sldprt,,,,,No se pudo abrir el documento.,SI,229.38244151343736,50.8,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-ELV-005.SLDPRT
+C53FT-ELV-006,.sldprt,,,,,No se pudo abrir el documento.,SI,1238.25,101.6,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-ELV-006.SLDPRT
+C53FT-ELV-009,.sldprt,,,,,No se pudo abrir el documento.,SI,38.1,25.39999999999999,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-ELV-009.SLDPRT
+C53FT-ELV-010,.sldprt,,,,,No se pudo abrir el documento.,SI,2700.0,315.0808595679688,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-ELV-010.SLDPRT
+C53FT-ELV-011,.sldprt,,,,,No se pudo abrir el documento.,SI,112.00000000000001,42.862500000001816,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-ELV-011.SLDPRT
+C53FT-ESC-001,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-ESC-001.SLDPRT
+C53FT-ESC-002,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-ESC-002.SLDPRT
+C53FT-ESC-003,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-ESC-003.SLDPRT
+C53FT-PABT-001,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-001.SLDPRT
+C53FT-PABT-002.1,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-002.1.SLDPRT
+C53FT-PABT-002.2,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-002.2.SLDPRT
+C53FT-PABT-003,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-003.SLDPRT
+C53FT-PABT-004,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-004.SLDPRT
+C53FT-PABT-006,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-006.SLDPRT
+C53FT-PABT-007,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-007.SLDPRT
+C53FT-PABT-008,.sldprt,,,,,No se pudo abrir el documento.,SI,410.00000000000006,76.20000000000007,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-008.SLDPRT
+C53FT-PABT-009,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-009.SLDPRT
+C53FT-PABT-010.1,.sldprt,,,,,No se pudo abrir el documento.,SI,3400.50000004,212.00944038715483,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-010.1.SLDPRT
+C53FT-PABT-010,.sldprt,,,,,No se pudo abrir el documento.,SI,3400.50000004,212.00944038715483,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-010.SLDPRT
+C53FT-PABT-011,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-011.SLDPRT
+C53FT-PABT-012,.sldprt,,,,,No se pudo abrir el documento.,SI,155.1005922,50.8,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-012.SLDPRT
+C53FT-PABT-015,.sldprt,,,,,No se pudo abrir el documento.,SI,1213.2999999999997,257.8353966561797,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-015.SLDPRT
+C53FT-PABT-016,.sldprt,,,,,No se pudo abrir el documento.,SI,1270.0,257.8353966561797,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-016.SLDPRT
+C53FT-PABT-017,.sldprt,,,,,No se pudo abrir el documento.,SI,662.1272000000001,254.00000000000097,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-017.SLDPRT
+C53FT-PABT-018,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-018.SLDPRT
+C53FT-PABT-020,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-020.SLDPRT
+C53FT-PABT-023,.sldprt,,,,,No se pudo abrir el documento.,SI,459.0,50.8,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-023.SLDPRT
+C53FT-PABT-026,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-026.SLDPRT
+C53FT-PABT-027,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-027.SLDPRT
+C53FT-PABT-028,.sldprt,,,,,No se pudo abrir el documento.,SI,190.0399999999999,113.9196872947351,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-028.SLDPRT
+C53FT-PABT-030,.sldprt,,,,,No se pudo abrir el documento.,SI,435.0000000000001,242.5963762595411,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-030.SLDPRT
+C53FT-PABT-031,.sldprt,,,,,No se pudo abrir el documento.,SI,177.79999999999995,88.89999999999998,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-031.SLDPRT
+C53FT-PABT-032,.sldprt,,,,,No se pudo abrir el documento.,SI,2000.8172785496631,663.7037571178474,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-032.SLDPRT
+C53FT-PABT-033,.sldprt,,,,,No se pudo abrir el documento.,SI,2000.320715,141.25364895193292,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-033.SLDPRT
+C53FT-PABT-034,.sldprt,,,,,No se pudo abrir el documento.,SI,200.00000000000006,52.020970000000176,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-034.SLDPRT
+C53FT-PABT-036,.sldprt,,,,,No se pudo abrir el documento.,SI,123.1492434903227,49.97616812693687,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-036.SLDPRT
+C53FT-PABT-037,.sldprt,,,,,No se pudo abrir el documento.,SI,662.0,429.8375,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-037.SLDPRT
+C53FT-PABT-038,.sldprt,,,,,No se pudo abrir el documento.,SI,557.3522,25.399413260995793,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-038.SLDPRT
+C53FT-PABT-039,.sldprt,,,,,No se pudo abrir el documento.,SI,500.0,107.799689248818,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-039.SLDPRT
+C53FT-PABT-040,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-040.SLDPRT
+C53FT-PABT-NY1,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-NY1.SLDPRT
+C53FT-PABT-NY2,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PABT-NY2.SLDPRT
+C53FT-PT-02,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-PT-02.SLDPRT
+C53FT-RAR-001,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RAR-001.SLDPRT
+C53FT-RAR-002-,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RAR-002-.SLDPRT
+C53FT-RAR-003-,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RAR-003-.SLDPRT
+C53FT-RAR-004,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RAR-004.SLDPRT
+C53FT-RAR-005,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RAR-005.SLDPRT
+C53FT-RAR-006,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RAR-006.SLDPRT
+C53FT-RAR-007,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RAR-007.SLDPRT
+C53FT-RAR-008,.sldprt,,,,,No se pudo abrir el documento.,SI,1295.7036222167924,471.0518111083963,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RAR-008.SLDPRT
+C53FT-RAR-009,.sldprt,,,,,No se pudo abrir el documento.,SI,2563.635786315331,469.95422795,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RAR-009.SLDPRT
+C53FT-RAR-010,.sldprt,,,,,No se pudo abrir el documento.,SI,1224.4464032099997,652.2473400508858,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RAR-010.SLDPRT
+C53FT-RAR-011,.sldprt,,,,,No se pudo abrir el documento.,SI,474.6,133.59056766081764,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RAR-011.SLDPRT
+C53FT-RAR-013,.sldprt,,,,,No se pudo abrir el documento.,SI,1254.6264032099998,25.4,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RAR-013.SLDPRT
+C53FT-RAR-014,.sldprt,,,,,No se pudo abrir el documento.,SI,914.4,25.4,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RAR-014.SLDPRT
+C53FT-RMC-001,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RMC-001.SLDPRT
+C53FT-RMC-002,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RMC-002.SLDPRT
+C53FT-RMC-003,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RMC-003.SLDPRT
+C53FT-RMC-008,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RMC-008.SLDPRT
+C53FT-RMC-009,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RMC-009.SLDPRT
+C53FT-RMC-010,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RMC-010.SLDPRT
+C53FT-RMC-011,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RMC-011.SLDPRT
+C53FT-RMC-012,.sldprt,,,,,No se pudo abrir el documento.,SI,1737.7000000000003,797.7223400508856,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RMC-012.SLDPRT
+C53FT-RMC-013,.sldprt,,,,,No se pudo abrir el documento.,SI,1737.7000000000005,797.7223400508849,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RMC-013.SLDPRT
+C53FT-RMC-014,.sldprt,,,,,No se pudo abrir el documento.,SI,662.8000000000001,200.0,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RMC-014.SLDPRT
+C53FT-RMC-016,.sldprt,,,,,No se pudo abrir el documento.,SI,125.82903768654815,115.0036163754448,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RMC-016.SLDPRT
+C53FT-RMC-017,.sldprt,,,,,No se pudo abrir el documento.,SI,168.52371017385116,116.49891066762623,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RMC-017.SLDPRT
+C53FT-RMC-018,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RMC-018.SLDPRT
+C53FT-RMC-019,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RMC-019.SLDPRT
+C53FT-RMC-020,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RMC-020.SLDPRT
+C53FT-RMC-022,.sldprt,,,,,No se pudo abrir el documento.,SI,118.35507638263914,31.750000000000036,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RMC-022.SLDPRT
+C53FT-RMC-023,.sldprt,,,,,No se pudo abrir el documento.,SI,122.02657561408327,31.750000000000004,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RMC-023.SLDPRT
+C53FT-RMPAS-01,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RMPAS-01.SLDPRT
+C53FT-RMPAS-02,.sldprt,,,,,No se pudo abrir el documento.,SI,457.2,400.0,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-RMPAS-02.SLDPRT
+C53FT-TAM-001-,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAM-001-.SLDPRT
+C53FT-TAM-002-,.sldprt,,,,,No se pudo abrir el documento.,SI,2436.0,449.444455061874,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAM-002-.SLDPRT
+C53FT-TAM-003-,.sldprt,,,,,No se pudo abrir el documento.,SI,2436.002,327.662,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAM-003-.SLDPRT
+C53FT-TAM-004-,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAM-004-.SLDPRT
+C53FT-TAM-005-,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAM-005-.SLDPRT
+C53FT-TAM-006,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAM-006.SLDPRT
+C53FT-TAM-008-A,.sldprt,,,,,No se pudo abrir el documento.,SI,2608.0,441.6012207567187,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAM-008-A.SLDPRT
+C53FT-TAM-008,.sldprt,,,,,No se pudo abrir el documento.,SI,2608.0,441.6012207567187,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAM-008.SLDPRT
+C53FT-TAM-009,.sldprt,,,,,No se pudo abrir el documento.,SI,2588.514,445.9962937659017,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAM-009.SLDPRT
+C53FT-TAM-010,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAM-010.SLDPRT
+C53FT-TAM-013,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAM-013.SLDPRT
+C53FT-TAM-014,.sldprt,,,,,No se pudo abrir el documento.,SI,1187.83,956.6765110109136,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAM-014.SLDPRT
+C53FT-TAM-018-A,.sldprt,,,,,No se pudo abrir el documento.,SI,1042.7693137581348,644.2637714879979,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAM-018-A.SLDPRT
+C53FT-TAM-018,.sldprt,,,,,No se pudo abrir el documento.,SI,1042.769313758135,644.2637714879947,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAM-018.SLDPRT
+C53FT-TAM-021,.sldprt,,,,,No se pudo abrir el documento.,SI,1952.5000000000005,25.40000000000002,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAM-021.SLDPRT
+C53FT-TAM-022,.sldprt,,,,,No se pudo abrir el documento.,SI,984.6299999999998,25.4,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAM-022.SLDPRT
+C53FT-TAM-023,.sldprt,,,,,No se pudo abrir el documento.,SI,134.99999999999991,101.6,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAM-023.SLDPRT
+C53FT-TAM-024,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAM-024.SLDPRT
+C53FT-TAM-028,.sldprt,,,,,No se pudo abrir el documento.,SI,763.0000000000002,644.2637714879947,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAM-028.SLDPRT
+C53FT-TAM-029,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAM-029.SLDPRT
+C53FT-TAM-030,.sldprt,,,,,No se pudo abrir el documento.,SI,783.42,640.3292695313655,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAM-030.SLDPRT
+C53FT-TAM-031,.sldprt,,,,,No se pudo abrir el documento.,SI,592.27,340.7435050381642,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAM-031.SLDPRT
+C53FT-TAM-032,.sldprt,,,,,No se pudo abrir el documento.,SI,592.27,133.95,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAM-032.SLDPRT
+C53FT-TAM-033,.sldprt,,,,,No se pudo abrir el documento.,SI,1059.8020667,53.173824475966484,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAM-033.SLDPRT
+C53FT-TAM-037-A,.sldprt,,,,,No se pudo abrir el documento.,SI,806.4203956130145,638.7816363078275,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAM-037-A.SLDPRT
+C53FT-TAM-037,.sldprt,,,,,No se pudo abrir el documento.,SI,806.4203956130148,638.7816363078276,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAM-037.SLDPRT
+C53FT-TAM-PUERTA-001-,.sldprt,,,,,No se pudo abrir el documento.,SI,2010.903622216792,517.8018111083964,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAM-PUERTA-001-.SLDPRT
+C53FT-TAP-001-,.sldprt,,,,,No se pudo abrir el documento.,SI,2758.98,185.6070781254618,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAP-001-.SLDPRT
+C53FT-TAP-004,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAP-004.SLDPRT
+C53FT-TAP-007,.sldprt,,,,,No se pudo abrir el documento.,SI,2758.98,1219.1999999999998,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAP-007.SLDPRT
+C53FT-TAP-008,.sldprt,,,,,No se pudo abrir el documento.,SI,2758.98,1219.1999999999998,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAP-008.SLDPRT
+C53FT-TAP-009,.sldprt,,,,,No se pudo abrir el documento.,SI,308.7,50.8,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAP-009.SLDPRT
+C53FT-TAP-010,.sldprt,,,,,No se pudo abrir el documento.,SI,239.0,50.8,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAP-010.SLDPRT
+C53FT-TAP-012,.sldprt,,,,,No se pudo abrir el documento.,SI,534.17,173.81353906273088,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAP-012.SLDPRT
+C53FT-TAP-013,.sldprt,,,,,No se pudo abrir el documento.,SI,2072.41,219.9070781254618,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TAP-013.SLDPRT
+C53FT-TECH-001-A,.sldprt,,,,,No se pudo abrir el documento.,SI,3048.0,277.99869335977905,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TECH-001-A.SLDPRT
+C53FT-TECH-001,.sldprt,,,,,No se pudo abrir el documento.,SI,3048.0,277.99869335977894,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TECH-001.SLDPRT
+C53FT-TECH-002,.sldprt,,,,,No se pudo abrir el documento.,SI,2000.0,277.99869335977905,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TECH-002.SLDPRT
+C53FT-TECH-003,.sldprt,,,,,No se pudo abrir el documento.,SI,2607.38,290.658693359779,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TECH-003.SLDPRT
+C53FT-TECH-005,.sldprt,,,,,No se pudo abrir el documento.,SI,1400.0000000000007,67.5,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TECH-005.SLDPRT
+C53FT-TECH-009-PS,.sldprt,,,,,No se pudo abrir el documento.,SI,5047.960000000001,2599.994799999999,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TECH-009-PS.SLDPRT
+C53FT-TECH-009,.sldprt,,,,,No se pudo abrir el documento.,SI,11013.719999999998,2599.9948,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TECH-009.SLDPRT
+C53FT-TECH-010,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TECH-010.SLDPRT
+C53FT-TECH-013,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TECH-013.SLDPRT
+C53FT-TECH-014,.sldprt,,,,,No se pudo abrir el documento.,SI,260.29370422709843,64.5,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TECH-014.SLDPRT
+C53FT-TECH-015,.sldprt,,,,,No se pudo abrir el documento.,SI,320.0,130.0,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TECH-015.SLDPRT
+C53FT-TECH-016,.sldprt,,,,,No se pudo abrir el documento.,SI,2412.8,50.8000000000003,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TECH-016.SLDPRT
+C53FT-TECH-017,.sldprt,,,,,No se pudo abrir el documento.,SI,1866.96383347,273.39481690839364,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TECH-017.SLDPRT
+C53FT-TECH-021,.sldprt,,,,,No se pudo abrir el documento.,SI,203.8,72.5,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TECH-021.SLDPRT
+C53FT-TECH-024,.sldprt,,,,,No se pudo abrir el documento.,SI,3000.0,25.4,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TECH-024.SLDPRT
+C53FT-TECH-028,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TECH-028.SLDPRT
+C53FT-TECH-ELEC-001-,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TECH-ELEC-001-.SLDPRT
+C53FT-TECH-ELEC-002,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TECH-ELEC-002.SLDPRT
+C53FT-TECH-ELEC-003,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TECH-ELEC-003.SLDPRT
+C53FT-TECH2-001-A,.sldprt,,,,,No se pudo abrir el documento.,SI,3048.0,273.3948169084,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TECH2-001-A.SLDPRT
+C53FT-TECH2-001,.sldprt,,,,,No se pudo abrir el documento.,SI,3048.0,273.39481690839364,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TECH2-001.SLDPRT
+C53FT-TECH2-002,.sldprt,,,,,No se pudo abrir el documento.,SI,3048.0,273.39481690839364,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TECH2-002.SLDPRT
+C53FT-TECH2-003,.sldprt,,,,,No se pudo abrir el documento.,SI,2603.3,285.0428169083936,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TECH2-003.SLDPRT
+C53FT-TECH2-006,.sldprt,,,,,No se pudo abrir el documento.,SI,3048.0,273.39481690839364,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TECH2-006.SLDPRT
+C53FT-TRV-001,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TRV-001.SLDPRT
+C53FT-TRV-002,.sldprt,,,,,No se pudo abrir el documento.,SI,2362.2,144.8986440603599,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\C53FT-TRV-002.SLDPRT
+FCOP-AT-04,.sldprt,,,,,No se pudo abrir el documento.,SI,559.0000000000001,268.52417055560215,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\FCOP-AT-04.SLDPRT
+H-COP-F2-13,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\H-COP-F2-13.SLDPRT
+PZ-AC1,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\PZ-AC1.SLDPRT
+RC3.B2.008,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\RC3.B2.008.SLDPRT
+RC3.BM2.MF.05,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\RC3.BM2.MF.05.SLDPRT
+RC3.BM5.MF.01,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\RC3.BM5.MF.01.SLDPRT
+RC3.BM5.MF.03,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\RC3.BM5.MF.03.SLDPRT
+RC3.BM5.MF.04,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\RC3.BM5.MF.04.SLDPRT
+RC3.BM5.MF.05,.sldprt,,,,,No se pudo abrir el documento.,NO,,,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\RC3.BM5.MF.05.SLDPRT
+REF-CAJ53-001,.sldprt,,,,,No se pudo abrir el documento.,SI,406.4000000000002,228.60000000000093,,,C:\Users\INGENIERIA-02\Desktop\Piezas_A_Procesar\REF-CAJ53-001.SLDPRT

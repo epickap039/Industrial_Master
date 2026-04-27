@@ -22,12 +22,16 @@ class AyudasLobbyOpenIntent {
 class MainNav {
   MainNav._();
 
-  static void Function(int index)? _goToPane;
+  /// [paneId] es el destino lógico (p. ej. [NavPaneId.importarExcel]) cuando el índice
+  /// del rail apunta a un hub que agrupa varios módulos.
+  static void Function(int index, {NavPaneId? paneId})? _goToPane;
   static String _roleRaw = 'USER';
   /// Solo admin: simula otro rol para filtros de UI (no cambia el token en servidor).
   static String? _simulatedRole;
 
-  static void registerPaneNavigator(void Function(int index) fn) {
+  static void registerPaneNavigator(
+    void Function(int index, {NavPaneId? paneId}) fn,
+  ) {
     _goToPane = fn;
   }
 
@@ -49,12 +53,13 @@ class MainNav {
   static bool get isRoleSimulationActive =>
       _simulatedRole != null && _simulatedRole!.isNotEmpty;
 
-  static void goToPane(int index) => _goToPane?.call(index);
+  static void goToPane(int index, {NavPaneId? paneId}) =>
+      _goToPane?.call(index, paneId: paneId);
 
   /// Navega al panel lógico si el rol actual lo tiene visible.
   static void goToPaneId(NavPaneId id) {
     final idx = navIndexForPane(id, currentRole);
-    if (idx >= 0) _goToPane?.call(idx);
+    if (idx >= 0) _goToPane?.call(idx, paneId: id);
   }
 
   /// Cierra overlays hasta la ruta raíz y luego selecciona el panel.

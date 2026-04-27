@@ -123,6 +123,10 @@ extension AppRoleAccess on AppRole {
   bool get showsNavImportarExcel =>
       this != AppRole.qaLegacy && _fullEngineering;
 
+  /// Reconciliación BOM vs export CSV SolidWorks (solo Ingeniería / métodos y Desarrollador).
+  bool get showsNavBomDespiece =>
+      this == AppRole.desarrollador || this == AppRole.ingenieriaMetodos;
+
   bool get showsNavAuditor =>
       this != AppRole.qaLegacy && _fullEngineering;
 

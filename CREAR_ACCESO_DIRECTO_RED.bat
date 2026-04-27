@@ -32,12 +32,15 @@ exit /b 1
 set "EXE_DIR=!IM_RED_APLIC!"
 set "SUB="
 if exist "!IM_RED_APLIC!\RED_DEPLOY_SUBCARPETA.txt" (
-  set /p SUB=<"!IM_RED_APLIC!\RED_DEPLOY_SUBCARPETA.txt"
+  for /f "usebackq delims=" %%a in ("!IM_RED_APLIC!\RED_DEPLOY_SUBCARPETA.txt") do set "SUB=%%a"
 )
-set "SUB=!SUB: =!"
+if defined SUB set "SUB=!SUB: =!"
 if defined SUB (
-  if /i not "!SUB!"=="." if /i not "!SUB!"=="ROOT" (
+  echo(!SUB!| findstr /r /x /c:"v[1-9][0-9]*" >nul 2>&1
+  if not errorlevel 1 (
     set "EXE_DIR=!IM_RED_APLIC!\!SUB!"
+  ) else (
+    echo [AVISO] RED_DEPLOY_SUBCARPETA.txt no es vN valido ^("!SUB!"^). Usando raiz aplicacion.
   )
 )
 

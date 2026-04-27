@@ -12,6 +12,7 @@ String etiquetaNavPane(NavPaneId id) {
     NavPaneId.materialesOficiales => 'Materiales oficiales',
     NavPaneId.escanerCad => 'Escáner CAD',
     NavPaneId.importarExcel => 'Importar Excel',
+    NavPaneId.bomDespiece => 'Auditoría lista / SolidWorks',
     NavPaneId.auditorArchivos => 'Auditor de archivos',
     NavPaneId.estandarizacion => 'Estandarización',
     NavPaneId.gestionProyectos => 'Gestión de proyectos',
