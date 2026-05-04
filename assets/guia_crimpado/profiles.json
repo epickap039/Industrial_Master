@@ -1,0 +1,158 @@
+{
+  "profiles": [
+    {
+      "id": "recta-2sn-14-tsm",
+      "nombre": "Recta 2SN 1/4\" — TSM/KOMAN",
+      "tipo_conexion": "RECTA",
+      "codigo_conjunto": "CON-CNX-4G4FFO",
+      "sku": "25-278-0053",
+      "manguera": "2SN 1/4\"",
+      "tipo_malla": "2 M",
+      "marca_proveedor": "TSM/KOMAN",
+      "diametro_exterior_antes_mm": "23.05",
+      "diametro_exterior_despues_mm": "17.82",
+      "tolerancia_exterior": "±0.3 mm",
+      "presion_rango_bar": "0-30",
+      "tope_mm": "12.5",
+      "caudal_interno_despues_mm": "3.9",
+      "tolerancia_caudal_interno": "±0.5 mm",
+      "tipo_matriz": "32-16",
+      "tipo_maquina": "FINN-POWER",
+      "imagen_conexion": "assets/guia_crimpado/placeholder_connection.png",
+      "imagenes_pantalla": [
+        {
+          "asset": "assets/guia_crimpado/placeholder_display.png",
+          "etiqueta": "FINN-POWER"
+        }
+      ],
+      "justificacion": {
+        "comentarios": "Valores según cuadro de referencia corporativo. Verificar manguera y marca antes de crimpado: mezclar proveedores invalida el objetivo de diámetro exterior.",
+        "referencia_documento": "Cuadro técnico crimpado hidráulico",
+        "version_tabla": "Rev. plantilla v1"
+      }
+    },
+    {
+      "id": "recta-canaxy-mcm",
+      "nombre": "Recta CANAXY — MCM",
+      "tipo_conexion": "RECTA",
+      "codigo_conjunto": "CON-CNX-4G4FFA",
+      "sku": "25-278-0098",
+      "manguera": "2SN 1/4\"",
+      "tipo_malla": "1 M",
+      "marca_proveedor": "CANAXY",
+      "diametro_exterior_antes_mm": "23.01",
+      "diametro_exterior_despues_mm": "17.5",
+      "tolerancia_exterior": "±0.3 mm",
+      "presion_rango_bar": "2.1-11",
+      "tope_aplica": false,
+      "tope_mm": "NO APLICA",
+      "caudal_interno_despues_mm": "3.75",
+      "tolerancia_caudal_interno": "±0.5 mm",
+      "tipo_matriz": "#6",
+      "tipo_maquina": "MCM",
+      "imagen_conexion": "assets/guia_crimpado/placeholder_connection.png",
+      "imagenes_pantalla": [
+        {
+          "asset": "assets/guia_crimpado/placeholder_display.png",
+          "etiqueta": "MCM"
+        }
+      ],
+      "justificacion": {
+        "comentarios": "En MCM no se utiliza tope mecánico para esta referencia; validar solo presión y diámetro final. Si se monta en FINN-POWER, consultar fila equivalente o ingeniería.",
+        "fecha_vigencia": "2026-04-30"
+      }
+    },
+    {
+      "id": "codo90-2sn-38",
+      "nombre": "Codo 90° 2SN 3/8\"",
+      "tipo_conexion": "90°",
+      "codigo_conjunto": "CON-CNX-6G6FFO",
+      "sku": "26-410-0112",
+      "manguera": "2SN 3/8\"",
+      "tipo_malla": "2 M",
+      "marca_proveedor": "TSM/KOMAN",
+      "diametro_exterior_antes_mm": "31.2",
+      "diametro_exterior_despues_mm": "26.0",
+      "tolerancia_exterior": "±0.3 mm",
+      "presion_rango_bar": "5-18",
+      "tope_mm": "18.0",
+      "caudal_interno_despues_mm": "5.1",
+      "tolerancia_caudal_interno": "±0.5 mm",
+      "tipo_matriz": "19",
+      "tipo_maquina": ["FINN-POWER", "MCM"],
+      "imagen_conexion": "assets/guia_crimpado/placeholder_connection.png",
+      "imagenes_pantalla": [
+        {
+          "asset": "assets/guia_crimpado/placeholder_display.png",
+          "etiqueta": "FINN-POWER"
+        },
+        {
+          "asset": "assets/guia_crimpado/placeholder_display.png",
+          "etiqueta": "MCM"
+        }
+      ],
+      "justificacion": {
+        "comentarios": "Codo 90° requiere confirmar orientación del conector en tope antes de ejecutar ciclo. El diámetro posterior es el parámetro crítico de aceptación en línea.",
+        "referencia_documento": "Procedimiento PT-CRIMP-03"
+      }
+    },
+    {
+      "id": "recta-1sn-14",
+      "nombre": "Recta 1SN 1/4\" ref. ligera",
+      "tipo_conexion": "RECTA",
+      "codigo_conjunto": "CON-CNX-4L4FOO",
+      "sku": "27-100-0771",
+      "manguera": "1SN 1/4\"",
+      "tipo_malla": "1 M",
+      "marca_proveedor": "TSM/KOMAN",
+      "diametro_exterior_antes_mm": "19.8",
+      "diametro_exterior_despues_mm": "15.95",
+      "tolerancia_exterior": "±0.3 mm",
+      "presion_rango_bar": "0-22",
+      "tope_mm": "10.2",
+      "caudal_interno_despues_mm": "3.5",
+      "tolerancia_caudal_interno": "±0.5 mm",
+      "tipo_matriz": "13",
+      "tipo_maquina": "FINN-POWER",
+      "imagen_conexion": "assets/guia_crimpado/placeholder_connection.png",
+      "imagenes_pantalla": [
+        {
+          "asset": "assets/guia_crimpado/placeholder_display.png",
+          "etiqueta": "Display principal"
+        }
+      ],
+      "justificacion": {
+        "comentarios": "Manguera de una malla: menor volumen de refuerzo; no usar matriz de fila 2SN sin validación dimensional."
+      }
+    },
+    {
+      "id": "recta-dual-line",
+      "nombre": "Recta — segunda línea (duplicado ejemplo)",
+      "tipo_conexion": "RECTA",
+      "codigo_conjunto": "CON-CNX-DUP-01",
+      "sku": "25-278-0200",
+      "manguera": "2SN 1/4\"",
+      "tipo_malla": "2 M",
+      "marca_proveedor": "VARIOS",
+      "diametro_exterior_antes_mm": "23.10",
+      "diametro_exterior_despues_mm": "17.88",
+      "tolerancia_exterior": "±0.3 mm",
+      "presion_rango_bar": "0-30",
+      "tope_mm": "12.5",
+      "caudal_interno_despues_mm": "3.9",
+      "tolerancia_caudal_interno": "±0.5 mm",
+      "tipo_matriz": "32-16",
+      "tipo_maquina": "FINN-POWER",
+      "imagen_conexion": "assets/guia_crimpado/placeholder_connection.png",
+      "imagenes_pantalla": [
+        {
+          "asset": "assets/guia_crimpado/placeholder_display.png",
+          "etiqueta": "FINN-POWER"
+        }
+      ],
+      "justificacion": {
+        "comentarios": "Entrada de ejemplo para quinto índice del carrusel; sustituir por datos reales del Excel cuando estén disponibles."
+      }
+    }
+  ]
+}

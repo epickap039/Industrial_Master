@@ -20,6 +20,7 @@ String etiquetaNavPane(NavPaneId id) {
     NavPaneId.expedientesVin => 'Expedientes VIN',
     NavPaneId.historialCambios => 'Historial de cambios',
     NavPaneId.ayudasVisuales => 'Ayudas visuales',
+    NavPaneId.guiaCrimpado => 'Guía de crimpado',
     NavPaneId.chatInterno => 'Chat interno',
     NavPaneId.dashboardAnalytics => 'Estadísticas',
     NavPaneId.centroQa => 'Centro de QA',

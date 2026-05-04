@@ -9,6 +9,7 @@ import 'screens/bom_despiece_screen.dart';
 import 'screens/catalog.dart';
 import 'screens/code_generator_screen.dart';
 import 'screens/engineering_map.dart';
+import 'screens/guia_crimpado/guia_crimpado_screen.dart';
 import 'screens/history.dart';
 import 'screens/impact_radar_screen.dart';
 import 'screens/internal_chat_screen.dart';
@@ -61,6 +62,13 @@ NavigationPane buildIndustrialNavigationPane({
           allowRevisionHistory: ar.ayudasShowRevisionHistory,
           allowCrossDocumentCompare: ar.ayudasAllowCrossDocumentCompare,
         ),
+      ),
+    if (ar.showsNavAyudas)
+      const _SectionModule(
+        id: NavPaneId.guiaCrimpado,
+        title: 'Guía de crimpado',
+        icon: FluentIcons.factory,
+        body: GuiaCrimpadoScreen(),
       ),
     if (ar.showsNavChatInterno)
       const _SectionModule(

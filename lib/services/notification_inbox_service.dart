@@ -17,28 +17,25 @@ const int _kMaxItems = 200;
 // Reglas (hora local del equipo):
 // - Misiones **pausadas**: un aviso al día con [tryAddDailyPausedMissionsDigest]
 //   (leyenda fija «Tienes misiones pausadas»), no usan la cola por-misión.
-// - Prioridad **normal** (rank 2) y **en progreso**: 10:00, 13:00 y 16:00.
-// - Prioridad **alta** (rank 1), activas y no pausadas: 9:15, 10:30, 12:00,
-//   13:30 y 15:00.
-// - Prioridad **crítica** (rank 0), activas y no pausadas: cada 90 minutos.
+// - Prioridad **normal** (rank 2) y **en progreso**: 10:00 y 15:00.
+// - Prioridad **alta** (rank 1), activas y no pausadas: 10:30, 13:30 y 16:00.
+// - Prioridad **crítica** (rank 0), activas y no pausadas: cada 180 minutos.
 
 /// Cada cuánto el shell vuelve a llamar a la API de tareas y poda el buzón local.
-const Duration kCmdInboxPollInterval = Duration(seconds: 30);
+const Duration kCmdInboxPollInterval = Duration(seconds: 90);
 
 /// Intervalo entre recordatorios de misión **crítica** (priority_rank 0).
-const Duration kMissionCriticalReminderInterval = Duration(minutes: 90);
+const Duration kMissionCriticalReminderInterval = Duration(minutes: 180);
 
 /// Franjas horarias (hora local) para prioridad **normal** en curso (rank 2).
 const List<(int hour, int minute)> kMissionReminderSlotsPrioridadNormalEnProgreso =
-    <(int, int)>[(10, 0), (13, 0), (16, 0)];
+    <(int, int)>[(10, 0), (15, 0)];
 
 /// Franjas para prioridad **alta** (rank 1).
 const List<(int hour, int minute)> kMissionReminderSlotsPrioridadAlta = <(int, int)>[
-  (9, 15),
   (10, 30),
-  (12, 0),
   (13, 30),
-  (15, 0),
+  (16, 0),
 ];
 
 DateTime? _latestSlotTodayLeqNow(DateTime now, List<(int, int)> slots) {
@@ -367,7 +364,7 @@ class CmdInboxStore {
 
       // Evita doble disparo si el shell y otra pantalla llaman casi a la vez, o dos
       // polls seguidos en el mismo minuto.
-      const minGap = Duration(minutes: 2);
+      const minGap = Duration(minutes: 10);
       final dupRecent = all.any(
         (e) =>
             e.tipo == kMissionReminderType &&

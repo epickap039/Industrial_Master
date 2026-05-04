@@ -18,6 +18,7 @@ enum NavPaneId {
   expedientesVin,
   historialCambios,
   ayudasVisuales,
+  guiaCrimpado,
   chatInterno,
   dashboardAnalytics,
   centroQa,
@@ -63,6 +64,7 @@ bool _shows(NavPaneId id, AppRole r) => switch (id) {
       NavPaneId.expedientesVin => r.showsNavVin,
       NavPaneId.historialCambios => r.showsNavHistorialCambios,
       NavPaneId.ayudasVisuales => r.showsNavAyudas,
+      NavPaneId.guiaCrimpado => r.showsNavAyudas,
       NavPaneId.chatInterno => r.showsNavChatInterno,
       NavPaneId.dashboardAnalytics => r.showsNavAnalytics,
       NavPaneId.centroQa => r.showsNavQa,
@@ -101,6 +103,7 @@ List<NavPaneId> visibleNavPanes(AppRole r) =>
 NavPaneId _ownerSectionFor(NavPaneId id) {
   return switch (id) {
     NavPaneId.ayudasVisuales ||
+    NavPaneId.guiaCrimpado ||
     NavPaneId.chatInterno ||
     NavPaneId.materialesOficiales ||
     NavPaneId.radarImpacto ||

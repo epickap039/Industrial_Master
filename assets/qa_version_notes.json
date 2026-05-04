@@ -1,5 +1,12 @@
 [
   {
+    "build": 353,
+    "v": "353.0",
+    "tipo": "parche",
+    "fecha": "2026-04-29",
+    "notas": "Notificaciones monitoreo/buzon menos frecuentes: sondeo shell 90 s (antes 30); critica cada 180 min; normal en curso 10:00 y 15:00; alta 10:30/13:30/16:00; minimo 10 min entre recordatorios duplicados; Produccion ayuda novedad debounce 120 s. Build Windows desplegado a red."
+  },
+  {
     "build": 352,
     "v": "352.0",
     "tipo": "parche",

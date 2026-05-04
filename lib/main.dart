@@ -106,33 +106,25 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   Future<void> _checkLoginStatus() async {
     final prefs = await SharedPreferences.getInstance();
     final isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
-    final loginDateStr = prefs.getString('loginDate');
     final storedRole = prefs.getString('rol') ?? 'USER';
 
-    if (isLoggedIn && loginDateStr != null) {
-      final loginDate = DateTime.parse(loginDateStr);
-      final difference = DateTime.now().difference(loginDate).inDays;
-      if (difference < 7) {
-        MainNav.registerRole(storedRole);
-        MainNav.setSimulatedRole(null);
-        TareasListaCoordinator.instance.invalidate();
-        setState(() {
-          _isLoggedIn = true;
-          _userRole = storedRole;
-          _simulatedRoleOverride = null;
-          _activeLeafPane = null;
-        });
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          ShellPollGates.sync(
-            topRailIndex: topIndex,
-            activeLeafPane: _activeLeafPane,
-          );
-        });
-      } else {
-        // Caducó la sesión
-        await prefs.setBool('isLoggedIn', false);
-      }
+    if (isLoggedIn) {
+      MainNav.registerRole(storedRole);
+      MainNav.setSimulatedRole(null);
+      TareasListaCoordinator.instance.invalidate();
+      setState(() {
+        _isLoggedIn = true;
+        _userRole = storedRole;
+        _simulatedRoleOverride = null;
+        _activeLeafPane = null;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ShellPollGates.sync(
+          topRailIndex: topIndex,
+          activeLeafPane: _activeLeafPane,
+        );
+      });
     }
     setState(() {
       _isLoadingAuth = false;
@@ -1054,6 +1046,16 @@ class _ManualInfoDialogState extends State<_ManualInfoDialog> {
               '• Nueva categoría: crea grupo para organizar documentos.\n'
               '• Editar imagen categoría: actualiza icono Fluent o PNG de la tarjeta.',
     },
+    'guia_crimpado': {
+      'titulo': 'Guía de crimpado',
+      'contenido':
+          'Consulta fichas de parámetros de crimpado (manguera, máquina, matriz, tope, presión).\n'
+              '• Carrusel superior: cambia entre configuraciones con flechas o deslizando.\n'
+              '• El diámetro exterior después del crimpado es el valor principal a verificar.\n'
+              '• Interfaz del display: zoom con gesto o rueda; varias capturas si aplica por máquina.\n'
+              '• Justificación: notas y trazabilidad frente al cuadro de referencia (expandir sección).\n'
+              'Los datos viven en assets/guia_crimpado/profiles.json e imágenes asociadas.',
+    },
     'centro_qa': {
       'titulo': 'Centro QA',
       'contenido':
@@ -1099,6 +1101,7 @@ class _ManualInfoDialogState extends State<_ManualInfoDialog> {
       NavPaneId.catalogoMaestro => 'catalogo_maestro',
       NavPaneId.centroMonitoreo => 'centro_monitoreo',
       NavPaneId.ayudasVisuales => 'ayudas_visuales',
+      NavPaneId.guiaCrimpado => 'guia_crimpado',
       NavPaneId.chatInterno => 'chat_interno',
       NavPaneId.materialesOficiales => 'materiales_oficiales',
       NavPaneId.radarImpacto => 'radar_impacto',
@@ -1116,6 +1119,7 @@ class _ManualInfoDialogState extends State<_ManualInfoDialog> {
       'chat_interno' => 'Chat interno',
       'centro_monitoreo' => 'Centro de monitoreo',
       'ayudas_visuales' => 'Ayudas visuales',
+      'guia_crimpado' => 'Guía de crimpado',
       'centro_qa' => 'Centro QA',
       'materiales_oficiales' => 'Materiales oficiales',
       'radar_impacto' => 'Radar de impacto',
@@ -1132,6 +1136,7 @@ class _ManualInfoDialogState extends State<_ManualInfoDialog> {
       'chat_interno' => FluentIcons.chat,
       'centro_monitoreo' => FluentIcons.task_logo,
       'ayudas_visuales' => FluentIcons.picture,
+      'guia_crimpado' => FluentIcons.factory,
       'centro_qa' => FluentIcons.test_plan,
       'materiales_oficiales' => FluentIcons.product_release,
       'radar_impacto' => FluentIcons.analytics_view,
@@ -1149,6 +1154,7 @@ class _ManualInfoDialogState extends State<_ManualInfoDialog> {
       'general',
       'catalogo_maestro',
       'ayudas_visuales',
+      'guia_crimpado',
     };
     final filtered = sortedKeys.where(allowedForQualityAndProduction.contains).toList();
     if (!filtered.contains('general')) {
@@ -1236,6 +1242,13 @@ class _ManualInfoDialogState extends State<_ManualInfoDialog> {
         'Valida permisos del rol antes de editar, reemplazar o publicar.',
         'Confirma apertura correcta del archivo en visor y su metadato.',
       ],
+      'guia_crimpado' => const [
+        'Confirma manguera, marca y tipo de malla coinciden con la fila del cuadro.',
+        'Anota o verifica el diámetro exterior después del crimpado en la pieza.',
+        'Ajusta presión, tope (si aplica) y matriz según la ficha; revisa aviso NO APLICA.',
+        'Compara la interfaz real de la máquina con la captura (zoom si hace falta).',
+        'Lee justificación y comentarios ante dudas o auditoría.',
+      ],
       'centro_qa' => const [
         'Filtra reportes abiertos por módulo/prioridad.',
         'Reproduce y documenta evidencia del hallazgo.',
@@ -1296,6 +1309,11 @@ class _ManualInfoDialogState extends State<_ManualInfoDialog> {
         'Editar icono: cambia Fluent icon o PNG.',
         'Buscar: localiza por título, categoría o contenido relacionado.',
       ],
+      'guia_crimpado' => const [
+        'Carrusel: anterior/siguiente entre fichas de configuración.',
+        'Display: flechas si hay varias capturas por máquina.',
+        'Expander: despliega texto de justificación y trazabilidad.',
+      ],
       'centro_qa' => const [
         'Completar: cierra bug corregido.',
         'Rechazar: descarta no reproducible/no aplica.',
@@ -1331,6 +1349,11 @@ class _ManualInfoDialogState extends State<_ManualInfoDialog> {
         'Carga solo PNG/JPG/PDF válidos y tamaño moderado.',
         'Si falla subida, valida extensión, peso y conexión backend.',
         'Si persiste, confirma estructura de tablas/campos en backend.',
+      ],
+      'guia_crimpado' => const [
+        'Si no cargan fichas, revisa que profiles.json y rutas de imagen estén en pubspec.',
+        'No mezcles manguera/marca: cada fila es válida solo en su contexto.',
+        'Si falta imagen, el asset path en JSON no coincide con un archivo incluido en el build.',
       ],
       'centro_qa' => const [
         'No dejar fixes en estado Abierto tras resolver.',
@@ -1382,6 +1405,10 @@ class _ManualInfoDialogState extends State<_ManualInfoDialog> {
       'ayudas_visuales' => const [
         'PDF: formato principal para instructivos y ayudas publicadas.',
         'PNG/JPG: formatos de imagen para iconos y material visual.',
+      ],
+      'guia_crimpado' => const [
+        'SKU: código de artículo en inventario/listados.',
+        'Matriz: juego o código de troquel requerido en la máquina de crimpado.',
       ],
       _ => common,
     };
@@ -1727,7 +1754,7 @@ class _AppBarNotificationInboxState extends State<_AppBarNotificationInbox> {
         if (_hasCompletedProdAyudaBadgeOnce &&
             _lastAyudaPollForProd != null &&
             now.difference(_lastAyudaPollForProd!) <
-                const Duration(seconds: 45)) {
+                const Duration(seconds: 120)) {
           return;
         }
         _lastAyudaPollForProd = now;
