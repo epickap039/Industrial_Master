@@ -1,6 +1,6 @@
 # Mapa de conexiones (stack Industrial Manager)
 
-**Respaldo Git previo a migración de servidor:** commit `69a704d` en rama `v15.5_Clean_Rebuild` (mensaje: respaldo pre-migración). Para volver: `git checkout 69a704d` o `git revert` según política del equipo.
+**Respaldo Git previo a migración de servidor:** rama `v15.5_Clean_Rebuild`. Snapshot del código y docs operativos: `69a704d`. Este archivo de mapa se añadió en `3d36fa7`. Para volver solo al snapshot de código: `git checkout 69a704d`; para el estado actual de la rama: `git checkout 3d36fa7` o `git pull`.
 
 Los diagramas siguientes resumen **dependencias entre archivos y sistemas**, no cada endpoint.
 
