@@ -23,10 +23,24 @@ from fastapi.responses import StreamingResponse
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from database import get_db_connection, _int_from_count_row
+from env_config import allow_runtime_ddl
 from models import *
 import state
+from schema_guard import table_exists
 
 router = APIRouter()
+
+
+def _prepare_manual_table(cursor: Any) -> None:
+    if table_exists(cursor, "Tbl_App_Manual"):
+        return
+    if allow_runtime_ddl():
+        _ensure_manual_table(cursor)
+    else:
+        raise HTTPException(
+            status_code=503,
+            detail="Tbl_App_Manual no existe. Cree la tabla vía migraciones SQL o defina IM_ALLOW_RUNTIME_DDL=1 solo en desarrollo.",
+        )
 
 
 def _ensure_manual_table(cursor: Any) -> None:
@@ -76,7 +90,7 @@ def get_manual_entries():
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        _ensure_manual_table(cursor)
+        _prepare_manual_table(cursor)
         conn.commit()
         cursor.execute(
             """
@@ -109,7 +123,7 @@ def upsert_manual_entry(
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        _ensure_manual_table(cursor)
+        _prepare_manual_table(cursor)
         usuario = (x_usuario or "").strip()
         if not _can_edit_manual(cursor, usuario):
             raise HTTPException(status_code=403, detail="Solo admin/desarrollador/ingeniería pueden editar el manual")

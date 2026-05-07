@@ -1817,6 +1817,7 @@ def listar_tareas():
         t_rows = cur.fetchall()
         t_colnames = [d[0] for d in cur.description]
         tasks: List[Dict[str, Any]] = []
+        checklist_by_task: Dict[int, List[Dict[str, Any]]] = {}
         asignados_por_tarea: Dict[int, List[str]] = {}
         colores_por_usuario: Dict[str, str] = {}
         if _tabla_asignados_existe(cur):
@@ -1851,17 +1852,38 @@ def listar_tareas():
         except Exception:
             colores_por_usuario = {}
 
+        if t_rows and c_fk_tarea:
+            task_ids_ordered = []
+            for row in t_rows:
+                m0 = {k: v for k, v in zip(t_colnames, row)}
+                task_ids_ordered.append(int(m0[t_pk]))
+            checklist_by_task = {tid: [] for tid in task_ids_ordered}
+            if task_ids_ordered:
+                placeholders = ",".join("?" * len(task_ids_ordered))
+                ord_clause = (
+                    f" ORDER BY [{c_fk_tarea}], [{c_orden}]"
+                    if c_orden
+                    else f" ORDER BY [{c_fk_tarea}]"
+                )
+                cur.execute(
+                    f"SELECT * FROM Tbl_Gestor_Checklist WHERE [{c_fk_tarea}] IN ({placeholders}){ord_clause}",
+                    task_ids_ordered,
+                )
+                c_colnames_pref = [d[0] for d in cur.description]
+                for cr in cur.fetchall():
+                    chk = {k: v for k, v in zip(c_colnames_pref, cr)}
+                    tid_v = chk.get(c_fk_tarea)
+                    try:
+                        tid_i = int(tid_v)
+                    except (TypeError, ValueError):
+                        continue
+                    if tid_i in checklist_by_task:
+                        checklist_by_task[tid_i].append(chk)
+
         for row in t_rows:
             m = {k: v for k, v in zip(t_colnames, row)}
             task_id = int(m[t_pk])
-            cur.execute(
-                f"SELECT * FROM Tbl_Gestor_Checklist WHERE {c_fk_tarea} = ?"
-                + (f" ORDER BY {c_orden}" if c_orden else ""),
-                (task_id,),
-            )
-            c_rows = cur.fetchall()
-            c_colnames = [d[0] for d in cur.description]
-            checks = [{k: v for k, v in zip(c_colnames, cr)} for cr in c_rows]
+            checks = checklist_by_task.get(task_id, []) if c_fk_tarea else []
 
             total = len(checks)
             done = 0

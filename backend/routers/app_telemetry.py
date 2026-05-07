@@ -7,7 +7,9 @@ from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from database import get_db_connection
+from env_config import allow_runtime_ddl
 from jwt_tokens import decode_access_token_payload
+from schema_guard import table_exists
 
 router = APIRouter()
 
@@ -56,7 +58,19 @@ def _actor_from_token(authorization: Optional[str]) -> tuple[str, str]:
     return sub, rol
 
 
-def _ensure_table(cur) -> None:
+def _prepare_telemetry_table(cur) -> None:
+    if table_exists(cur, "Tbl_App_Uso_Eventos"):
+        return
+    if allow_runtime_ddl():
+        _ensure_telemetry_table(cur)
+    else:
+        raise HTTPException(
+            status_code=503,
+            detail="Tbl_App_Uso_Eventos no existe. Aplique migración de telemetría o use IM_ALLOW_RUNTIME_DDL=1 solo en desarrollo.",
+        )
+
+
+def _ensure_telemetry_table(cur) -> None:
     cur.execute(
         """
         IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'Tbl_App_Uso_Eventos' AND schema_id = SCHEMA_ID('dbo'))
@@ -103,7 +117,7 @@ def registrar_evento_uso(
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        _ensure_table(cur)
+        _prepare_telemetry_table(cur)
         cur.execute(
             """
             INSERT INTO dbo.Tbl_App_Uso_Eventos
@@ -130,7 +144,7 @@ def resumen_telemetria(
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        _ensure_table(cur)
+        _prepare_telemetry_table(cur)
         cur.execute(
             """
             SELECT COUNT(*), COUNT(DISTINCT Usuario_Login)

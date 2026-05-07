@@ -6,7 +6,7 @@
 #
 # Esta versión es para Windows PowerShell con curl como alias de Invoke-WebRequest
 
-$BASE_URL = "http://localhost:8000"
+$BASE_URL = "http://localhost:8001"
 
 # Headers de autenticación (simular)
 $headers = @{

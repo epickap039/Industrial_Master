@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field
 from admin_master_password import assert_admin_master_password_matches
 from audit_service import registrar_log_global
 from database import get_db_connection
+from env_config import allow_runtime_ddl
 from user_context import resolve_actor_user
 
 router = APIRouter()
@@ -88,6 +89,13 @@ def _has_column(cur: Any, table_name: str, column_name: str) -> bool:
     return cur.fetchone() is not None
 
 def _ensure_categoria_png_column(cur: Any) -> None:
+    if _has_column(cur, "dbo.Tbl_Ayudas_Categorias", "Icono_Png_Base64"):
+        return
+    if not allow_runtime_ddl():
+        raise HTTPException(
+            status_code=503,
+            detail="Falta columna Icono_Png_Base64. Ejecute backend/sql/add_ayudas_categoria_icono_png.sql",
+        )
     cur.execute(
         """
         IF COL_LENGTH('dbo.Tbl_Ayudas_Categorias', 'Icono_Png_Base64') IS NULL
@@ -100,6 +108,13 @@ def _ensure_categoria_png_column(cur: Any) -> None:
 
 
 def _ensure_categoria_ico_column(cur: Any) -> None:
+    if _has_column(cur, "dbo.Tbl_Ayudas_Categorias", "Icono_Ico_Base64"):
+        return
+    if not allow_runtime_ddl():
+        raise HTTPException(
+            status_code=503,
+            detail="Falta columna Icono_Ico_Base64. Ejecute la migración SQL de ícono ICO en ayudas.",
+        )
     cur.execute(
         """
         IF COL_LENGTH('dbo.Tbl_Ayudas_Categorias', 'Icono_Ico_Base64') IS NULL
@@ -112,6 +127,13 @@ def _ensure_categoria_ico_column(cur: Any) -> None:
 
 
 def _ensure_categoria_fondo_column(cur: Any) -> None:
+    if _has_column(cur, "dbo.Tbl_Ayudas_Categorias", "Fondo_Base64"):
+        return
+    if not allow_runtime_ddl():
+        raise HTTPException(
+            status_code=503,
+            detail="Falta columna Fondo_Base64. Ejecute backend/sql/add_ayudas_categoria_fondo_base64.sql",
+        )
     cur.execute(
         """
         IF COL_LENGTH('dbo.Tbl_Ayudas_Categorias', 'Fondo_Base64') IS NULL
@@ -171,6 +193,13 @@ def _categoria_select_columns_sql(cur: Any) -> str:
 
 
 def _ensure_pdf_binario_column(cur: Any) -> None:
+    if _has_column(cur, "dbo.Tbl_Ayudas_Revisiones", "Pdf_Binario"):
+        return
+    if not allow_runtime_ddl():
+        raise HTTPException(
+            status_code=503,
+            detail="Falta columna Pdf_Binario. Ejecute backend/sql/add_ayudas_revision_pdf_binario.sql",
+        )
     cur.execute(
         """
         IF COL_LENGTH('dbo.Tbl_Ayudas_Revisiones', 'Pdf_Binario') IS NULL

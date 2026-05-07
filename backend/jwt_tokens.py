@@ -5,6 +5,8 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
+from env_config import DEV_JWT_SECRET_FALLBACK
+
 try:
     import jwt
 except ModuleNotFoundError as e:
@@ -17,7 +19,7 @@ except ModuleNotFoundError as e:
         "No instale el paquete pypi 'jwt' (es otro proyecto); debe ser 'PyJWT'."
     ) from e
 
-JWT_SECRET = os.environ.get("JWT_SECRET", "industrial_manager_dev_change_me_in_production")
+JWT_SECRET = os.environ.get("JWT_SECRET", DEV_JWT_SECRET_FALLBACK)
 JWT_ALG = "HS256"
 JWT_EXPIRE_DAYS = 7
 

@@ -1,0 +1,26 @@
+{
+  "description": "Orden sugerido para aplicar scripts en backend/sql en un servidor nuevo. Ajustar según el estado real de la BD (muchas columnas pueden ya existir).",
+  "scripts": [
+    "create_ayudas_visuales.sql",
+    "create_tbl_comando_usuarios.sql",
+    "add_chat_interno_tables.sql",
+    "add_maestro_stock_pt_almacen.sql",
+    "add_minutos_estimados.sql",
+    "add_gestor_tarea_asignados_bridge.sql",
+    "add_gestor_tareas_bitacora_columnas.sql",
+    "add_gestor_tareas_motivo_cancelacion.sql",
+    "add_gestor_usuario_asignado.sql",
+    "add_gestor_comando_directivo.sql",
+    "add_gestor_checklist_meta_grupo.sql",
+    "add_user_avatar_genero_and_ayudas_consecutivo.sql",
+    "add_ayudas_maestro_tags.sql",
+    "add_ayudas_categoria_icono_png.sql",
+    "add_ayudas_categoria_icono_ico.sql",
+    "add_ayudas_categoria_fondo_base64.sql",
+    "add_ayudas_revision_pdf_binario.sql",
+    "qa_reportes_historial_index.sql"
+  ],
+  "not_for_production": [
+    "reset_dev_usuarios.sql — solo entornos de desarrollo; no incluir en despliegues productivos."
+  ]
+}

@@ -3,12 +3,15 @@ Arranque FastAPI — Industrial Manager API v60.0.
 Las rutas viven en `routers/` (APIRouter). Lógica SQL sin cambios respecto al monolito previo.
 """
 import ctypes
+import os
 import socket
 import uvicorn
 from contextlib import asynccontextmanager
 
+from env_config import cors_allow_origins, validate_production_startup
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from audit_service import iniciar_auditoria
 from auth_service import init_auth_db
@@ -42,6 +45,7 @@ ADMIN_HOSTNAME = socket.gethostname()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    validate_production_startup()
     print(f"--- SERVER STARTED on {ADMIN_HOSTNAME} ---")
     print(f"--- LISTENING ON 0.0.0.0:8001 ---")
     iniciar_auditoria()
@@ -55,13 +59,22 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Industrial Manager API v60.0", version="60.0", lifespan=lifespan)
 
+_origins = cors_allow_origins()
+_allow_credentials = "*" not in _origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_origins,
+    allow_credentials=_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+_hosts_raw = (os.environ.get("IM_TRUSTED_HOSTS") or "").strip()
+if _hosts_raw:
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=[h.strip() for h in _hosts_raw.split(",") if h.strip()],
+    )
 
 for _router in (
     root.router,

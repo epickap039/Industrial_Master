@@ -10,6 +10,8 @@ from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
 from database import get_db_connection
+from env_config import allow_runtime_ddl
+from schema_guard import table_exists
 
 router = APIRouter()
 
@@ -53,6 +55,21 @@ class GroupChatSendPayload(BaseModel):
 
 def _norm_user(v: str) -> str:
     return (v or "").strip()
+
+
+def _prepare_chat_schema(cur: Any) -> None:
+    if table_exists(cur, "Tbl_Chat_Mensajes"):
+        return
+    if allow_runtime_ddl():
+        _ensure_chat_tables(cur)
+    else:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Esquema de chat no instalado. Ejecute la migración "
+                "backend/sql/add_chat_interno_tables.sql (tabla Tbl_Chat_Mensajes)."
+            ),
+        )
 
 
 def _ensure_chat_tables(cur: Any) -> None:
@@ -125,7 +142,7 @@ def chat_usuarios():
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        _ensure_chat_tables(cur)
+        _prepare_chat_schema(cur)
         conn.commit()
         cur.execute(
             """
@@ -155,7 +172,7 @@ def chat_conversaciones(usuario: str):
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        _ensure_chat_tables(cur)
+        _prepare_chat_schema(cur)
         conn.commit()
         cur.execute(
             """
@@ -212,7 +229,7 @@ def chat_mensajes(u1: str, u2: str, limit: int = 120):
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        _ensure_chat_tables(cur)
+        _prepare_chat_schema(cur)
         conn.commit()
         cur.execute(
             f"""
@@ -247,7 +264,7 @@ def chat_group_messages(limit: int = 220):
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        _ensure_chat_tables(cur)
+        _prepare_chat_schema(cur)
         conn.commit()
         cur.execute(
             f"""
@@ -287,7 +304,7 @@ async def chat_send(payload: ChatSendPayload):
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        _ensure_chat_tables(cur)
+        _prepare_chat_schema(cur)
         mid = _insert_chat_message(cur, emisor, receptor, mensaje, "texto")
         conn.commit()
         event = {
@@ -321,7 +338,7 @@ async def chat_group_send(payload: GroupChatSendPayload):
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        _ensure_chat_tables(cur)
+        _prepare_chat_schema(cur)
         mid = _insert_chat_message(cur, emisor, _GROUP_CHAT_ROOM, mensaje, "texto_grupal")
         conn.commit()
         event = {
@@ -354,7 +371,7 @@ async def chat_buzz(payload: ChatSendPayload):
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        _ensure_chat_tables(cur)
+        _prepare_chat_schema(cur)
         cur.execute(
             """
             SELECT TOP 1 Fecha_Envio
@@ -405,7 +422,7 @@ def chat_mark_read(payload: ChatReadPayload):
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        _ensure_chat_tables(cur)
+        _prepare_chat_schema(cur)
         cur.execute(
             """
             UPDATE dbo.Tbl_Chat_Mensajes

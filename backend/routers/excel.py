@@ -23,6 +23,7 @@ from fastapi.responses import StreamingResponse
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from database import get_db_connection, _int_from_count_row
+from env_config import allow_local_file_launch
 from models import *
 from audit_service import registrar_auditoria
 
@@ -675,6 +676,11 @@ async def corregir_excel(
 
 @router.post("/api/system/open_file")
 async def open_file_endpoint(payload: Dict[str, str]):
+    if not allow_local_file_launch():
+        raise HTTPException(
+            status_code=403,
+            detail="Apertura local de archivos deshabilitada. Defina IM_ENABLE_LOCAL_FILE_LAUNCH=1 solo en equipos de confianza.",
+        )
     path = payload.get('path')
     if not path or not os.path.exists(path):
          raise HTTPException(status_code=404, detail="Archivo no encontrado")

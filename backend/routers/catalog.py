@@ -27,8 +27,10 @@ from fastapi.responses import StreamingResponse
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from database import get_db_connection, _int_from_count_row
+from env_config import allow_runtime_ddl
 from models import *
 from audit_service import registrar_auditoria
+from schema_guard import column_exists
 
 router = APIRouter()
 
@@ -432,14 +434,23 @@ def _parse_inventario_pt_codigo_stock(csv_text: str) -> List[tuple[str, int]]:
 
 
 def _ensure_maestro_stock_pt_columns(cursor) -> None:
-    for name, ddl in (
+    specs = (
         ("Stock_PT_Almacen", "INT NOT NULL CONSTRAINT DF_Tbl_Maestro_Piezas_Stock_PT_Almacen DEFAULT (0)"),
         ("Stock_PT_Almacen_SyncAt", "DATETIME2(0) NULL"),
-    ):
-        try:
-            cursor.execute(f"SELECT [{name}] FROM dbo.Tbl_Maestro_Piezas WHERE 1=0")
-        except Exception:
-            cursor.execute(f"ALTER TABLE dbo.Tbl_Maestro_Piezas ADD [{name}] {ddl}")
+    )
+    for name, ddl in specs:
+        if column_exists(cursor, "Tbl_Maestro_Piezas", name):
+            continue
+        if not allow_runtime_ddl():
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    f"Falta columna {name} en Tbl_Maestro_Piezas. "
+                    "Ejecute backend/sql/add_maestro_stock_pt_almacen.sql "
+                    "o use IM_ALLOW_RUNTIME_DDL=1 solo en desarrollo."
+                ),
+            )
+        cursor.execute(f"ALTER TABLE dbo.Tbl_Maestro_Piezas ADD [{name}] {ddl}")
     # Backfill defensivo para instalaciones existentes con NULL.
     cursor.execute(
         """
@@ -485,21 +496,28 @@ def sync_stock_pt_desde_google_sheet():
             SET Stock_PT_Almacen = 0, Stock_PT_Almacen_SyncAt = SYSUTCDATETIME()
             """
         )
-        for codigo, stock in pairs:
+        updated = 0
+        chunk_size = 300
+        for i in range(0, len(pairs), chunk_size):
+            chunk = pairs[i : i + chunk_size]
+            value_rows = ",".join(["(?, ?)"] * len(chunk))
+            params: List[Any] = []
+            for codigo, stock in chunk:
+                params.extend([stock, codigo])
             cursor.execute(
-                """
-                UPDATE dbo.Tbl_Maestro_Piezas
-                SET Stock_PT_Almacen = ?, Stock_PT_Almacen_SyncAt = SYSUTCDATETIME()
-                WHERE Codigo_Pieza = ?
+                f"""
+                UPDATE m
+                SET m.Stock_PT_Almacen = v.s,
+                    m.Stock_PT_Almacen_SyncAt = SYSUTCDATETIME()
+                FROM dbo.Tbl_Maestro_Piezas AS m
+                INNER JOIN (VALUES {value_rows}) AS v(s, c) ON m.Codigo_Pieza = v.c
                 """,
-                (stock, codigo),
+                params,
             )
             try:
-                rc = cursor.rowcount
-            except Exception:
-                rc = 0
-            if rc and rc > 0:
-                updated += 1
+                updated += int(cursor.rowcount or 0)
+            except (TypeError, ValueError):
+                pass
         conn.commit()
         return {
             "status": "ok",

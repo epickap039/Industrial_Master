@@ -9,15 +9,16 @@ import os
 
 from fastapi import HTTPException
 
+from env_config import DEV_ADMIN_MASTER_FALLBACK
+
 ENV_ADMIN_MASTER_PASSWORD = "ADMIN_MASTER_PASSWORD"
-_DEFAULT_FALLBACK = "ADMIN_ING_2024"
 
 
 def get_admin_master_password() -> str:
     v = os.environ.get(ENV_ADMIN_MASTER_PASSWORD)
     if v is not None and str(v).strip() != "":
         return str(v).strip()
-    return _DEFAULT_FALLBACK
+    return DEV_ADMIN_MASTER_FALLBACK
 
 
 def assert_admin_master_password_matches(provided: str | None) -> None:

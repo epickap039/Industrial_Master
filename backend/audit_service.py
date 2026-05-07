@@ -1,8 +1,16 @@
 from database import get_db_connection
+from env_config import allow_runtime_ddl
+
 
 def iniciar_auditoria():
     """Crea la tabla de auditoría si no existe. No detiene el arranque si falla."""
     print("--- INICIANDO SISTEMA DE AUDITORIA ---")
+    if not allow_runtime_ddl():
+        print(
+            "--- IM_ALLOW_RUNTIME_DDL desactivado: se omite creación automática en iniciar_auditoria(); "
+            "aplique las migraciones SQL equivalentes ---"
+        )
+        return
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
