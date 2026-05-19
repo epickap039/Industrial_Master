@@ -2,6 +2,8 @@ import os
 import re
 import sys
 import time
+from typing import Optional
+
 import win32com.client
 
 _EXCLUDED_DIRS = {
@@ -30,7 +32,17 @@ def limpiar_nombre(nombre_archivo):
     return re.sub(r"(?i)chapa desplegada - ", "", base).strip()
 
 
-def _fetch_codigos_solo_faltantes_dxf():
+# Misma regla que bg_preparar_task / bg_scan_cad_task en routers/cad.py
+_SQL_EXCLUIR_COMERCIALES = """
+    AND (LOWER(CAST(Material AS NVARCHAR(200))) NOT LIKE '%comercial%'
+         OR Material IS NULL)
+    AND (UPPER(LTRIM(RTRIM(ISNULL(CAST(Medida AS NVARCHAR(200)), '')))) <> 'COMERCIAL'
+         OR Medida IS NULL)
+"""
+
+
+def _fetch_codigos_solo_faltantes_medidas():
+    """Piezas del maestro sin medida CAD (Largo_CAD vacío/cero), no por Tiene_DXF."""
     _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if _root not in sys.path:
         sys.path.insert(0, _root)
@@ -39,11 +51,18 @@ def _fetch_codigos_solo_faltantes_dxf():
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
-        """
+        f"""
         SELECT Codigo_Pieza
         FROM Tbl_Maestro_Piezas
-        WHERE Tiene_DXF IS NULL
-           OR LTRIM(RTRIM(UPPER(CAST(Tiene_DXF AS NVARCHAR(50))))) IN ('', 'NO', 'N')
+        WHERE (
+            Largo_CAD IS NULL
+            OR LTRIM(RTRIM(CAST(Largo_CAD AS NVARCHAR(200)))) IN ('', '-', '0')
+            OR (
+                TRY_CAST(Largo_CAD AS FLOAT) IS NOT NULL
+                AND TRY_CAST(Largo_CAD AS FLOAT) = 0
+            )
+        )
+        {_SQL_EXCLUIR_COMERCIALES}
         """
     )
     rows = cur.fetchall()
@@ -53,6 +72,16 @@ def _fetch_codigos_solo_faltantes_dxf():
     for r in rows:
         if r and r[0] is not None:
             out.add(str(r[0]).strip().upper())
+    return out
+
+
+def _load_codigos_from_file(path: str):
+    out = set()
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            c = line.strip().upper()
+            if c:
+                out.add(c)
     return out
 
 
@@ -129,15 +158,32 @@ def documents_open_with_retry(acad, dwg_path: str):
         return None, acad
 
 
-def procesar_biblioteca_dwg(ruta_raiz, solo_faltantes: bool = False):
+def procesar_biblioteca_dwg(
+    ruta_raiz,
+    solo_faltantes: bool = False,
+    codigos_file: Optional[str] = None,
+):
     ruta_raiz = ruta_raiz.strip('"').strip("'")
     ruta_destino = os.path.join(ruta_raiz, "dxf")
 
     allowed = None
-    if solo_faltantes:
+    if codigos_file and os.path.isfile(codigos_file):
         try:
-            allowed = _fetch_codigos_solo_faltantes_dxf()
-            print(f"Modo solo faltantes: {len(allowed)} codigos sin DXF en BD.")
+            allowed = _load_codigos_from_file(codigos_file)
+            print(
+                f"Modo solo faltantes: {len(allowed)} codigos "
+                "(lista Fase 1, sin medidas en BD)."
+            )
+        except Exception as e:
+            print(f"Aviso: no se pudo leer lista de codigos ({codigos_file}): {e}")
+            allowed = None
+    elif solo_faltantes:
+        try:
+            allowed = _fetch_codigos_solo_faltantes_medidas()
+            print(
+                f"Modo solo faltantes: {len(allowed)} codigos "
+                "sin medidas (Largo_CAD) en BD."
+            )
         except Exception as e:
             print(f"Aviso: no se pudo filtrar por BD (solo faltantes): {e}")
             allowed = None
@@ -205,7 +251,17 @@ def procesar_biblioteca_dwg(ruta_raiz, solo_faltantes: bool = False):
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         carpeta_objetivo = sys.argv[1]
-        solo = "--solo-faltantes" in sys.argv[2:]
-        procesar_biblioteca_dwg(carpeta_objetivo, solo_faltantes=solo)
+        extra = sys.argv[2:]
+        solo = "--solo-faltantes" in extra
+        codigos_file = None
+        for i, arg in enumerate(extra):
+            if arg == "--codigos-file" and i + 1 < len(extra):
+                codigos_file = extra[i + 1]
+                break
+        procesar_biblioteca_dwg(
+            carpeta_objetivo,
+            solo_faltantes=solo,
+            codigos_file=codigos_file,
+        )
     else:
         print("Error: No se proporcionó ninguna ruta.")

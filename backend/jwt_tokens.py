@@ -21,7 +21,8 @@ except ModuleNotFoundError as e:
 
 JWT_SECRET = os.environ.get("JWT_SECRET", DEV_JWT_SECRET_FALLBACK)
 JWT_ALG = "HS256"
-JWT_EXPIRE_DAYS = 7
+# Sin caducidad práctica: la sesión termina solo con "Cerrar sesión" en la app.
+JWT_EXPIRE_DAYS = 3650
 
 
 def create_access_token(username: str, rol: str) -> str:

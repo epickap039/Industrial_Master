@@ -509,10 +509,15 @@ class CmdInboxStore {
   }
 
   /// Aviso del sistema con [id] estable (evita duplicados al repollar).
+  ///
+  /// [assignedUser] alimenta el agrupado del panel; déjalo vacío solo cuando
+  /// realmente no hay un responsable conocido. Si lo dejas vacío, el aviso cae
+  /// en el grupo "Sin responsable" del buzón.
   Future<bool> addSystemNoticeUniqueId({
     required String id,
     required String title,
     required String body,
+    String assignedUser = '',
   }) async {
     final all = await loadAll();
     if (all.any((e) => e.id == id)) {
@@ -530,7 +535,7 @@ class CmdInboxStore {
         null,
         false,
         now,
-        '',
+        assignedUser.trim(),
         2,
       ),
     );
@@ -541,6 +546,7 @@ class CmdInboxStore {
   Future<void> addSystemNotice({
     required String title,
     required String body,
+    String assignedUser = '',
   }) async {
     final all = await loadAll();
     final now = DateTime.now();
@@ -555,7 +561,7 @@ class CmdInboxStore {
         null,
         false,
         now,
-        '',
+        assignedUser.trim(),
         2,
       ),
     );

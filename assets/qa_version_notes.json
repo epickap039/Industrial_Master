@@ -1,5 +1,75 @@
 [
   {
+    "build": 363,
+    "v": "363.0",
+    "tipo": "mejora",
+    "fecha": "2026-05-19",
+    "notas": "Sesión: eliminado cierre automático a 7 días en splash; permanece activa hasta Cerrar sesión; JWT alineado (10 años). MRP Medida=COMERCIAL."
+  },
+  {
+    "build": 362,
+    "v": "362.0",
+    "tipo": "mejora",
+    "fecha": "2026-05-19",
+    "notas": "MRP: piezas con Medida=COMERCIAL en catálogo maestro se clasifican como Componentes Comerciales y se excluyen de Huérfanos/Auditoría CAD (además de Material con COMERCIAL); alineado con Catálogo Maestro."
+  },
+  {
+    "build": 361,
+    "v": "361.0",
+    "tipo": "mejora",
+    "fecha": "2026-05-19",
+    "notas": "MRP: componentes COMERCIAL excluidos de Auditoría CAD; JE-012 enrutado a COMPRA DIRECTA (codigo fijo, sin medidas CAD requeridas); descripcion+codigo+cantidad en Resumen_Compra y Orden_Compra; query_orphans excluye comerciales y codigos directa."
+  },
+  {
+    "build": 360,
+    "v": "360.0",
+    "tipo": "mejora",
+    "fecha": "2026-05-19",
+    "notas": "MRP: ComboBox overflow corregido (SizedBox 36px); RIEL clasificado como perfil lineal; nuevo selector 'Tipo de material' (Auto/Placa/Perfil) en config de compra para override manual; backend honra tipo_compra en calculo de Compra_Cantidad."
+  },
+  {
+    "build": 359,
+    "v": "359.0",
+    "tipo": "mejora",
+    "fecha": "2026-05-19",
+    "notas": "Orden_Compra Excel: 12 columnas (J=Cantidad, K=Unidad, L=Desglose); fila padre muestra 'TOTAL [material]'; celda J con fondo amarillo vibrante para compras dept; backend retorna Compra_Cantidad y Compra_Unidad estructurados."
+  },
+  {
+    "build": 358,
+    "v": "358.0",
+    "tipo": "mejora",
+    "fecha": "2026-05-19",
+    "notas": "MRP precisión máxima: orden de compra muestra decimales exactos (ej. 1.5 Tramos de 12 MT); defaults 100 materiales (HSS/placas/barras/Al); Resumen_Compra incluye directa, comerciales y sin-medidas; formatos 4x40 y 5x20 agregados."
+  },
+  {
+    "build": 357,
+    "v": "357.0",
+    "tipo": "mejora",
+    "fecha": "2026-05-19",
+    "notas": "MRP config compra: placas con largo/ancho en pies, perfiles con distancia en metros; guardado global por material oficial; Excel Resumen_Compra con unidades m²/in² y medidas de placa/tramo."
+  },
+  {
+    "build": 356,
+    "v": "356.0",
+    "tipo": "mejora",
+    "fecha": "2026-05-19",
+    "notas": "MRPII: boton configurar compra (placas/perfiles/HSS), formato manual o deshabilitar material; config por revision; Excel hoja Resumen_Compra solo ordenes activas."
+  },
+  {
+    "build": 355,
+    "v": "355.0",
+    "tipo": "mejora",
+    "fecha": "2026-05-18",
+    "notas": "MRP UI: fila padre rediseñada en tarjeta 3 lineas (nombre+calibre badge, area/demanda/stock, sugerencia compra). Colores adaptados a tema claro/oscuro sin hex fijos. Backend: area placa 4x10 corregida a 3.716 m² (exacto); formula placas y tramos documentada con scrap 15%."
+  },
+  {
+    "build": 354,
+    "v": "354.0",
+    "tipo": "mejora",
+    "fecha": "2026-05-18",
+    "notas": "MRP-ESPESOR-001: corrige fragmentacion de materiales por variacion de Espesor_Perfil_CAD. Backend agrupa por material_oficial sin espesor CAD; calibre canonico derivado del nombre (tablas pulgadas/GA). Frontend: filas expandibles material>piezas. Excel: jerarquia padre(material)+hijo(piezas) con estilos diferenciados."
+  },
+  {
     "build": 353,
     "v": "353.0",
     "tipo": "parche",

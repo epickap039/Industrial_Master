@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_client.dart';
 import '../services/notification_inbox_service.dart';
 import '../theme/ui_tokens.dart';
@@ -105,9 +106,12 @@ class _AuditorScreenState extends State<AuditorScreen> {
         await file.writeAsBytes(bytes);
 
         if (mounted) {
+          final prefs = await SharedPreferences.getInstance();
+          final usuario = (prefs.getString('username') ?? '').trim();
           await CmdInboxStore.instance.addSystemNotice(
             title: 'Auditor: archivo corregido',
             body: 'Se genero correctamente el archivo corregido: ${_fileName ?? 'Excel'}.',
+            assignedUser: usuario,
           );
           displayInfoBar(
             context,

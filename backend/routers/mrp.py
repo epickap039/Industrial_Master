@@ -27,6 +27,569 @@ from models import *
 
 router = APIRouter()
 
+# ─── Tabla de conversión fracción / calibre → mm canónico ──────────────────
+# Permite derivar el espesor estándar directamente del nombre del material
+# (p. ej. "ACERO ASTM A36 1/8"" → 3.18 mm) sin depender del valor crudo de
+# Espesor_Perfil_CAD, que varía pieza a pieza y causa fragmentación en MRP.
+_FRAC_TO_MM: List[tuple] = [
+    ('1/16"', 1.59), ('1/8"',  3.18), ('3/16"', 4.76), ('1/4"',  6.35),
+    ('5/16"', 7.94), ('3/8"',  9.53), ('7/16"', 11.11), ('1/2"', 12.70),
+    ('9/16"', 14.29), ('5/8"', 15.88), ('3/4"', 19.05), ('7/8"', 22.23),
+    ('1"',   25.40), ('1 1/4"', 31.75), ('1 1/2"', 38.10),
+]
+_CAL_TO_MM: List[tuple] = [
+    ('C.10', 3.43), ('CAL.10', 3.43), ('CAL 10', 3.43),
+    ('C.11', 3.04), ('CAL.11', 3.04), ('CAL 11', 3.04),
+    ('C.14', 1.90), ('CAL.14', 1.90), ('CAL 14', 1.90),
+    ('C.16', 1.52), ('CAL.16', 1.52), ('CAL 16', 1.52),
+    ('C.18', 1.21), ('CAL.18', 1.21),
+    ('C.19', 1.05), ('CAL.19', 1.05),
+    ('C.20', 0.91), ('CAL.20', 0.91),
+]
+
+
+def _calibre_canonico(material: str) -> str:
+    """Extrae el calibre/espesor canónico del nombre de material oficial.
+
+    Prioriza fracciones de pulgada (p. ej. 1/8") sobre calibres GA (C.10…).
+    Si no encuentra token conocido devuelve 'N/A'.
+    """
+    upper = material.upper()
+    for token, mm in _FRAC_TO_MM:
+        if token.upper() in upper:
+            return f"{mm:.2f} mm ({token})"
+    for token, mm in _CAL_TO_MM:
+        if token in upper:
+            return f"{mm:.2f} mm ({token})"
+    return "N/A"
+
+
+# ── Configuración manual de sugerencias de compra (por revisión) ─────────────
+_MRP_COMPRA_CONFIG_PATH = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "data", "mrp_compra_config.json")
+)
+_MRP_MATERIAL_DEFAULTS_PATH = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "data", "mrp_material_defaults.json")
+)
+
+FORMATOS_COMPRA_MP: List[Dict[str, Any]] = [
+    {"id": "auto", "tipo": "any", "etiqueta": "Automático (del nombre)", "area_m2": None, "longitud_m": None},
+    {
+        "id": "4x10", "tipo": "placa", "etiqueta": "4'×10'", "area_m2": 3.716,
+        "largo_pies": 10.0, "ancho_pies": 4.0, "match_tokens": [],
+    },
+    {
+        "id": "4x8", "tipo": "placa", "etiqueta": "4'×8'", "area_m2": 2.973,
+        "largo_pies": 8.0, "ancho_pies": 4.0, "match_tokens": ["4X8", "4'X8", "4' X 8"],
+    },
+    {
+        "id": "4x20", "tipo": "placa", "etiqueta": "4'×20'", "area_m2": 7.432,
+        "largo_pies": 20.0, "ancho_pies": 4.0, "match_tokens": ["4X20", "4'X20", "4' X 20"],
+    },
+    {
+        "id": "4x40", "tipo": "placa", "etiqueta": "4'×40'", "area_m2": 14.864,
+        "largo_pies": 40.0, "ancho_pies": 4.0, "match_tokens": ["4X40", "4'X40", "4' X 40"],
+    },
+    {
+        "id": "5x20", "tipo": "placa", "etiqueta": "5'×20'", "area_m2": 9.290,
+        "largo_pies": 20.0, "ancho_pies": 5.0, "match_tokens": ["5'X20'", "5X20", "5' X 20"],
+    },
+    {
+        "id": "5x24", "tipo": "placa", "etiqueta": "5'×24'", "area_m2": 11.148,
+        "largo_pies": 24.0, "ancho_pies": 5.0, "match_tokens": ["5'X24'", "5X24"],
+    },
+    {
+        "id": "8x20", "tipo": "placa", "etiqueta": "8'×20'", "area_m2": 14.864,
+        "largo_pies": 20.0, "ancho_pies": 8.0, "match_tokens": ["8'X20'", "8X20"],
+    },
+    {
+        "id": "8x30", "tipo": "placa", "etiqueta": "8'×30'", "area_m2": 22.297,
+        "largo_pies": 30.0, "ancho_pies": 8.0, "match_tokens": ["8'X30'", "8X30"],
+    },
+    {
+        "id": "tramo_5m", "tipo": "perfil", "etiqueta": "5 MT",
+        "longitud_m": 5.0, "distancia_metros": 5.0, "solo_hss": False,
+    },
+    {
+        "id": "tramo_5_8m", "tipo": "perfil", "etiqueta": "5.8 MT (Al)",
+        "longitud_m": 5.8, "distancia_metros": 5.8, "solo_hss": False,
+    },
+    {
+        "id": "tramo_7m", "tipo": "perfil", "etiqueta": "7 MT",
+        "longitud_m": 7.0, "distancia_metros": 7.0, "solo_hss": False,
+    },
+    {
+        "id": "tramo_6m", "tipo": "perfil", "etiqueta": "6 MT",
+        "longitud_m": 6.0, "distancia_metros": 6.0, "solo_hss": False,
+    },
+    {
+        "id": "hss_12m", "tipo": "perfil", "etiqueta": "12 MT (HSS)",
+        "longitud_m": 12.0, "distancia_metros": 12.0, "solo_hss": True,
+    },
+    {"id": "manual", "tipo": "manual", "etiqueta": "Texto personalizado", "area_m2": None, "longitud_m": None},
+    {
+        "id": "directa", "tipo": "directa",
+        "etiqueta": "Compra directa (por cantidad)",
+        "area_m2": None, "longitud_m": None,
+    },
+]
+
+_SCRAP_COMPRA_DEFAULT = 1.15
+_FT2_TO_M2 = 0.09290304  # 1 pie² = 0.09290304 m²
+
+# Expresiones regulares para extraer medidas del nombre del material.
+# Se compilan una sola vez para eficiencia.
+import re as _re
+
+# Captura pies en el nombre: "4' X 10'", "4'X10'", "4 X 10 CAL", "4X8", etc.
+# El ' al final es opcional porque a veces solo se escribe "4 X 10 CAL 3/8".
+_RE_PLACA_PIES = _re.compile(
+    r"""
+    (\d+(?:\.\d+)?)\s*'?\s*[Xx×]\s*(\d+(?:\.\d+)?)\s*(?:'|PIES|FT|(?=\s+CAL|\s+III|\s+$|\s+ASTM|\s+AISI))
+    """,
+    _re.VERBOSE | _re.IGNORECASE,
+)
+# Captura metros en el nombre: "A 12 MT", "A 6 MT", "6 M ", "12MT"
+_RE_METROS = _re.compile(
+    r"""
+    (?:A\s+|X\s+)?(\d+(?:\.\d+)?)\s*M(?:T|TS)?\b
+    """,
+    _re.VERBOSE | _re.IGNORECASE,
+)
+
+
+def _material_tipo_compra(material_upper: str) -> str:
+    """Auto-clasificación por palabras clave.  Puede ser sobreescrita por tipo_compra en cfg."""
+    if any(
+        x in material_upper
+        for x in (
+            "PERFIL", "TUBO", "BARRA", "SOLERA", "ANGULO", "CANAL", "HSS",
+            "REDONDO", "REDOND", "ROUND", "PTR", "IPR",
+            "SPRING", "RESORTE", "RIEL",
+        )
+    ):
+        return "perfil"
+    if any(x in material_upper for x in ("PLACA", "LAMINA", "LÁMINA", "SHEET")):
+        return "placa"
+    return "placa"
+
+
+def _pies_a_area_m2(largo_pies: float, ancho_pies: float) -> float:
+    if largo_pies <= 0 or ancho_pies <= 0:
+        return 0.0
+    return float(largo_pies) * float(ancho_pies) * _FT2_TO_M2
+
+
+def _float_cfg(v) -> Optional[float]:
+    if v is None or v == "":
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_cfg_entry(v: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(v, dict):
+        return {}
+    tipo_raw = (v.get("tipo_compra") or "").strip().lower()
+    return {
+        "habilitado": v.get("habilitado", True) is not False,
+        "formato_id": (v.get("formato_id") or "auto").strip(),
+        # "tipo_compra": override manual ("placa" | "perfil" | "" = auto)
+        "tipo_compra": tipo_raw if tipo_raw in ("placa", "perfil") else "",
+        "largo_pies": _float_cfg(v.get("largo_pies")),
+        "ancho_pies": _float_cfg(v.get("ancho_pies")),
+        "distancia_metros": _float_cfg(v.get("distancia_metros")),
+        "texto": (v.get("texto") or "").strip(),
+    }
+
+
+def _formato_compra_por_id(fmt_id: Optional[str]) -> Optional[Dict[str, Any]]:
+    if not fmt_id:
+        return None
+    for f in FORMATOS_COMPRA_MP:
+        if f["id"] == fmt_id:
+            return f
+    return None
+
+
+def _detectar_formato_placa(material_upper: str) -> Dict[str, Any]:
+    """Detecta formato de placa: primero por tokens fijos, luego regex desde el nombre."""
+    for f in FORMATOS_COMPRA_MP:
+        if f.get("tipo") != "placa":
+            continue
+        for tok in f.get("match_tokens") or []:
+            if tok.upper() in material_upper:
+                return f
+    # Intentar extraer dimensiones en pies directamente del nombre
+    m = _RE_PLACA_PIES.search(material_upper)
+    if m:
+        a_pies = float(m.group(1))
+        l_pies = float(m.group(2))
+        if a_pies > l_pies:
+            a_pies, l_pies = l_pies, a_pies  # ancho ≤ largo
+        area = _pies_a_area_m2(l_pies, a_pies)
+        etiq = f"{int(a_pies) if a_pies == int(a_pies) else a_pies}'"
+        etiq += f"×{int(l_pies) if l_pies == int(l_pies) else l_pies}'"
+        return {
+            "id": "auto_parsed",
+            "tipo": "placa",
+            "etiqueta": etiq,
+            "area_m2": area,
+            "largo_pies": l_pies,
+            "ancho_pies": a_pies,
+            "match_tokens": [],
+        }
+    return _formato_compra_por_id("4x10") or FORMATOS_COMPRA_MP[0]
+
+
+def _detectar_formato_perfil(material_upper: str) -> Dict[str, Any]:
+    """Detecta longitud de tramo: primero regex desde el nombre, luego HSS/default."""
+    m = _RE_METROS.search(material_upper)
+    if m:
+        metros = float(m.group(1))
+        if 1.0 <= metros <= 20.0:  # rango razonable
+            etiq = f"{int(metros) if metros == int(metros) else metros} MT"
+            return {
+                "id": "auto_parsed",
+                "tipo": "perfil",
+                "etiqueta": etiq,
+                "longitud_m": metros,
+                "distancia_metros": metros,
+            }
+    if "HSS" in material_upper:
+        return _formato_compra_por_id("hss_12m") or FORMATOS_COMPRA_MP[8]
+    return _formato_compra_por_id("tramo_6m") or FORMATOS_COMPRA_MP[7]
+
+
+def _cantidad_compra_auto(
+    tipo: str,
+    formato: Dict[str, Any],
+    req_area_mm2: float,
+    req_long_mm: float,
+    scrap: float,
+) -> float:
+    """Devuelve cantidad exacta con decimales (sin techo) para mostrar el aprovechamiento real."""
+    if tipo == "perfil":
+        metros = req_long_mm / 1000.0
+        tramos = float(formato.get("longitud_m") or 6.0)
+        if tramos <= 0:
+            tramos = 6.0
+        return max(0.0, (metros * scrap) / tramos)
+    area_m2 = float(formato.get("area_m2") or 3.716)
+    m2_totales = req_area_mm2 / 1_000_000.0
+    return max(0.0, (m2_totales * scrap) / area_m2)
+
+
+def _fmt_qty(qty: float) -> str:
+    """Formatea cantidad decimal: sin decimales si es entero, hasta 2 dígitos si no."""
+    if qty <= 0:
+        return "0"
+    r = round(qty, 2)
+    if r == int(r):
+        return str(int(r))
+    s = f"{r:.2f}".rstrip('0')
+    return s if not s.endswith('.') else s[:-1]
+
+
+def _texto_sugerencia_compra(
+    tipo: str, formato: Dict[str, Any], cantidad: float, material: str = ""
+) -> str:
+    if formato.get("tipo") == "directa":
+        return f"Comprar {math.ceil(max(0.0, cantidad))} {material}".strip() if cantidad > 0 else "Sin requerimiento"
+    if cantidad <= 0:
+        return "Sin requerimiento de compra"
+    if formato.get("id") == "manual":
+        return (material or "").strip() or "—"
+    qty_str = _fmt_qty(cantidad)
+    if tipo == "perfil":
+        lm = float(formato.get("longitud_m") or 6)
+        lm_str = str(int(lm)) if lm == int(lm) else str(lm)
+        return f"Comprar {qty_str} Tramos de {lm_str} MT"
+    etiq = formato.get("etiqueta") or "4'×10'"
+    return f"Comprar {qty_str} Placas de {etiq}"
+
+
+# Códigos de pieza (no materiales) que siempre se compran de forma directa por cantidad.
+# Se excluyen del cálculo de área/perfil y del listado de auditoría CAD.
+_DIRECTA_CODIGOS: frozenset = frozenset({
+    "JE-012",
+})
+
+
+def _directa_codigos_sql_in() -> str:
+    """Genera el literal SQL '(...)' para usar en cláusulas IN.
+    Solo para listas de confianza definidas en el código (no entrada del usuario)."""
+    if not _DIRECTA_CODIGOS:
+        return "('__NEVER_MATCH__')"
+    safe = sorted(c.replace("'", "") for c in _DIRECTA_CODIGOS)
+    return "(" + ", ".join(f"'{c}'" for c in safe) + ")"
+
+
+def _sugerencia_compra_automatica(
+    material_oficial: str,
+    req_area_mm2: float,
+    req_long_mm: float,
+    scrap: float = _SCRAP_COMPRA_DEFAULT,
+) -> str:
+    material_upper = material_oficial.upper()
+    # Subensambles / compra directa por cantidad (no requieren cálculo de área)
+    _DIRECTA_TOKENS = (
+        "SEGURO DE RESORTE",
+        "SEGURO RESORTE",
+        "SPRING SEAL",
+        "SPRING CLIP",
+        "SUBENSAMBLE",
+    )
+    if any(tok in material_upper for tok in _DIRECTA_TOKENS):
+        return "Compra directa por cantidad"
+    if material_upper in {c.upper() for c in _DIRECTA_CODIGOS}:
+        return "Compra directa por cantidad"
+    if req_area_mm2 <= 0 and req_long_mm <= 0:
+        return "Pendiente: cargar dimensiones CAD/DXF"
+    tipo = _material_tipo_compra(material_upper)
+    if tipo == "perfil":
+        fmt = _detectar_formato_perfil(material_upper)
+    else:
+        fmt = _detectar_formato_placa(material_upper)
+    qty = _cantidad_compra_auto(tipo, fmt, req_area_mm2, req_long_mm, scrap)
+    return _texto_sugerencia_compra(tipo, fmt, qty)
+
+
+def _formato_desde_cfg(
+    cfg: Dict[str, Any],
+    tipo: str,
+    material_upper: str,
+) -> Dict[str, Any]:
+    """Arma el formato efectivo usando dropdown + medidas guardadas (pies / metros)."""
+    fmt_id = (cfg.get("formato_id") or "auto").strip()
+    if fmt_id == "auto":
+        base = (
+            _detectar_formato_perfil(material_upper)
+            if tipo == "perfil"
+            else _detectar_formato_placa(material_upper)
+        )
+    else:
+        base = _formato_compra_por_id(fmt_id) or (
+            _detectar_formato_perfil(material_upper)
+            if tipo == "perfil"
+            else _detectar_formato_placa(material_upper)
+        )
+
+    if tipo == "placa":
+        lp = _float_cfg(cfg.get("largo_pies"))
+        ap = _float_cfg(cfg.get("ancho_pies"))
+        if lp is None and base.get("largo_pies") is not None:
+            lp = float(base["largo_pies"])
+        if ap is None and base.get("ancho_pies") is not None:
+            ap = float(base["ancho_pies"])
+        if lp and ap and lp > 0 and ap > 0:
+            area_m2 = _pies_a_area_m2(lp, ap)
+            etiq = f"{lp:g}'×{ap:g}'"
+            return {
+                **base,
+                "id": base.get("id", "custom"),
+                "etiqueta": etiq,
+                "area_m2": area_m2,
+                "largo_pies": lp,
+                "ancho_pies": ap,
+            }
+        return base
+
+    dist = _float_cfg(cfg.get("distancia_metros"))
+    if dist is None and base.get("distancia_metros") is not None:
+        dist = float(base["distancia_metros"])
+    if dist is None and base.get("longitud_m") is not None:
+        dist = float(base["longitud_m"])
+    if dist and dist > 0:
+        lm = float(dist)
+        return {
+            **base,
+            "id": base.get("id", "custom"),
+            "longitud_m": lm,
+            "distancia_metros": lm,
+            "etiqueta": f"{int(lm) if lm == int(lm) else lm:g} MT",
+        }
+    return base
+
+
+def _unidad_compra_label(tipo: str, formato: Dict[str, Any]) -> str:
+    """Devuelve el texto de unidad para la columna Unidad de Excel (ej. 'Tramos 12 MT')."""
+    if tipo == "perfil":
+        lm = float(formato.get("longitud_m") or 6)
+        lm_str = str(int(lm)) if lm == int(lm) else f"{lm:g}"
+        return f"Tramos {lm_str} MT"
+    lp = formato.get("largo_pies")
+    ap = formato.get("ancho_pies")
+    if lp and ap and float(lp) > 0 and float(ap) > 0:
+        lp_s = str(int(float(lp))) if float(lp) == int(float(lp)) else f"{float(lp):g}"
+        ap_s = str(int(float(ap))) if float(ap) == int(float(ap)) else f"{float(ap):g}"
+        return f"Placas {ap_s}'x{lp_s}'"
+    etiq = (formato.get("etiqueta") or "4'x10'").replace("×", "x")
+    return f"Placas {etiq}"
+
+
+def _aplicar_config_compra(
+    material_oficial: str,
+    sugerencia_auto: str,
+    cfg: Optional[Dict[str, Any]],
+    req_area_mm2: float,
+    req_long_mm: float,
+    scrap: float = _SCRAP_COMPRA_DEFAULT,
+) -> tuple:
+    """Devuelve (sugerencia_final, compra_habilitada, detalle_medidas).
+
+    detalle incluye siempre 'compra_cantidad' (float) y 'compra_unidad' (str)
+    para que el Excel pueda mostrar columnas separadas de cantidad y unidad.
+    """
+    material_upper = material_oficial.upper()
+    tipo = _material_tipo_compra(material_upper)
+    detalle: Dict[str, Any] = {}
+
+    # ── Sin config: usa detección automática ─────────────────────────────────
+    if not cfg:
+        if "directa" in sugerencia_auto.lower():
+            detalle.update({"directa": True, "compra_cantidad": 0.0, "compra_unidad": "pz"})
+            return sugerencia_auto, True, detalle
+        if req_area_mm2 <= 0 and req_long_mm <= 0:
+            detalle.update({"compra_cantidad": 0.0, "compra_unidad": "—"})
+            return sugerencia_auto, True, detalle
+        fmt = (
+            _detectar_formato_perfil(material_upper)
+            if tipo == "perfil"
+            else _detectar_formato_placa(material_upper)
+        )
+        qty = _cantidad_compra_auto(tipo, fmt, req_area_mm2, req_long_mm, scrap)
+        detalle.update({
+            "compra_cantidad": round(qty, 2),
+            "compra_unidad": _unidad_compra_label(tipo, fmt),
+        })
+        return sugerencia_auto, True, detalle
+
+    cfg = _normalize_cfg_entry(cfg)
+    if cfg.get("habilitado") is False:
+        detalle.update({"compra_cantidad": 0.0, "compra_unidad": "—"})
+        return "— (no comprar)", False, detalle
+
+    # Tipo override: el usuario puede forzar "placa" o "perfil" independientemente
+    # del nombre del material, dando control total sobre el cálculo.
+    tipo_override = cfg.get("tipo_compra") or ""
+    if tipo_override in ("placa", "perfil"):
+        tipo = tipo_override
+
+    fmt_id = cfg.get("formato_id") or "auto"
+
+    if fmt_id == "directa":
+        texto = (cfg.get("texto") or "").strip()
+        detalle.update({"directa": True, "compra_cantidad": 0.0, "compra_unidad": "pz"})
+        return texto or "Compra directa por cantidad", True, detalle
+
+    if fmt_id == "manual":
+        texto = (cfg.get("texto") or "").strip()
+        detalle.update({"compra_cantidad": 0.0, "compra_unidad": ""})
+        return texto or sugerencia_auto, True, detalle
+
+    formato = _formato_desde_cfg(cfg, tipo, material_upper)
+    if tipo == "placa":
+        lp = formato.get("largo_pies")
+        ap = formato.get("ancho_pies")
+        if lp and ap:
+            detalle.update({
+                "largo_pies": lp,
+                "ancho_pies": ap,
+                "area_placa_m2": formato.get("area_m2"),
+            })
+    else:
+        dm = formato.get("longitud_m") or formato.get("distancia_metros")
+        if dm:
+            detalle["distancia_metros"] = dm
+
+    qty = _cantidad_compra_auto(tipo, formato, req_area_mm2, req_long_mm, scrap)
+    texto = _texto_sugerencia_compra(tipo, formato, qty)
+    detalle.update({
+        "compra_cantidad": round(qty, 2),
+        "compra_unidad": _unidad_compra_label(tipo, formato),
+    })
+    return texto, True, detalle
+
+
+def _load_all_compra_config() -> Dict[str, Any]:
+    if not os.path.isfile(_MRP_COMPRA_CONFIG_PATH):
+        return {"global": {}, "revisions": {}}
+    try:
+        with open(_MRP_COMPRA_CONFIG_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            data.setdefault("global", {})
+            data.setdefault("revisions", {})
+            return data
+    except Exception:
+        pass
+    return {"global": {}, "revisions": {}}
+
+
+def _load_material_defaults() -> Dict[str, Dict[str, Any]]:
+    """Carga mapeos por defecto (Material Oficial → config de compra) desde JSON."""
+    if not os.path.isfile(_MRP_MATERIAL_DEFAULTS_PATH):
+        return {}
+    try:
+        with open(_MRP_MATERIAL_DEFAULTS_PATH, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+        if not isinstance(raw, dict):
+            return {}
+        return {
+            _material_config_key(str(k)): _normalize_cfg_entry(v)
+            for k, v in raw.items()
+            if isinstance(v, dict)
+        }
+    except Exception:
+        return {}
+
+
+def _load_global_compra_config() -> Dict[str, Dict[str, Any]]:
+    """Configuración persistente por nombre de material oficial (todas las revisiones).
+
+    Prioridad: config guardada por el usuario > defaults del codebase.
+    """
+    defaults = _load_material_defaults()
+    data = _load_all_compra_config()
+    raw = data.get("global", {})
+    saved: Dict[str, Dict[str, Any]] = {}
+    if isinstance(raw, dict):
+        for k, v in raw.items():
+            if isinstance(v, dict):
+                saved[_material_config_key(str(k))] = _normalize_cfg_entry(v)
+    # Saved overrides defaults
+    return {**defaults, **saved}
+
+
+def _save_global_compra_config(config: Dict[str, Dict[str, Any]]) -> None:
+    os.makedirs(os.path.dirname(_MRP_COMPRA_CONFIG_PATH), exist_ok=True)
+    data = _load_all_compra_config()
+    normalized: Dict[str, Dict[str, Any]] = {}
+    for k, v in config.items():
+        if isinstance(v, dict):
+            normalized[_material_config_key(str(k))] = _normalize_cfg_entry(v)
+    data["global"] = normalized
+    with open(_MRP_COMPRA_CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def _load_revision_compra_config(id_revision: int) -> Dict[str, Dict[str, Any]]:
+    """Compatibilidad: la config efectiva es global por material oficial."""
+    return _load_global_compra_config()
+
+
+def _material_config_key(material_oficial: str) -> str:
+    return material_oficial.strip().upper()
+
+
+class MrpCompraConfigSavePayload(BaseModel):
+    # revision_id se conserva por compatibilidad; la config es global (revision_id ignorado).
+    revision_id: int = Field(default=0, ge=0)
+    config: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+
 
 class MrpOptimizarUsoMaterialPayload(BaseModel):
     material_oficial: str = Field(..., min_length=1)
@@ -275,6 +838,7 @@ def optimizar_uso_material(payload: MrpOptimizarUsoMaterialPayload):
                 ON LTRIM(RTRIM(E.Codigo_Pieza)) = LTRIM(RTRIM(M.Codigo_Pieza))
             WHERE ES.ID_Revision IN ({placeholders})
               AND UPPER(LTRIM(RTRIM(ISNULL(M.Material, '')))) NOT LIKE '%COMERCIAL%'
+              AND UPPER(LTRIM(RTRIM(ISNULL(M.Medida, '')))) <> 'COMERCIAL'
               AND LTRIM(RTRIM(ISNULL(M.Material, ''))) = ?
               {where_calibre}
         )
@@ -451,6 +1015,28 @@ def optimizar_uso_material(payload: MrpOptimizarUsoMaterialPayload):
         conn.close()
 
 
+@router.get("/api/mrp/compra-formatos")
+def get_compra_formatos():
+    return {"formatos": FORMATOS_COMPRA_MP}
+
+
+@router.get("/api/mrp/compra-config/{id_revision}")
+def get_compra_config(id_revision: int):
+    return {
+        "revision_id": id_revision,
+        "config": _load_global_compra_config(),
+        "formatos": FORMATOS_COMPRA_MP,
+        "scope": "global",
+    }
+
+
+@router.put("/api/mrp/compra-config")
+def save_compra_config(payload: MrpCompraConfigSavePayload):
+    _save_global_compra_config(payload.config or {})
+    cfg = _load_global_compra_config()
+    return {"ok": True, "scope": "global", "count": len(cfg)}
+
+
 @router.get("/api/mrp/calculate/{id_revision}")
 def calculate_mrp(id_revision: int):
     """Calcula la consolidación de compras (MRP) con filtrado estricto y diagnóstico de huérfanos.
@@ -468,6 +1054,12 @@ def calculate_mrp(id_revision: int):
                 E.Codigo_Pieza,
                 NULLIF(LTRIM(RTRIM(M.Material)), '')              AS MaterialOficialRaw,
                 LTRIM(RTRIM(ISNULL(M.Material, '')))              AS Material_Trace,
+                LTRIM(RTRIM(ISNULL(M.Medida, '')))                AS Medida_Trace,
+                CASE
+                    WHEN UPPER(LTRIM(RTRIM(ISNULL(M.Material, '')))) LIKE '%COMERCIAL%'
+                      OR UPPER(LTRIM(RTRIM(ISNULL(M.Medida, '')))) = 'COMERCIAL'
+                    THEN 1 ELSE 0
+                END                                               AS EsComercial,
                 M.Espesor_Perfil_CAD,
                 ISNULL(M.Stock_PT_Almacen, 0)                     AS Stock_PT_Almacen,
                 M.Stock_PT_Almacen_SyncAt                         AS Stock_PT_Almacen_SyncAt,
@@ -498,117 +1090,230 @@ def calculate_mrp(id_revision: int):
         """
 
         # ── 1. Materia Prima / Placas (excluye COMERCIAL) ────────────────────
-        # Filtro COMERCIAL: solo por MaterialOficialRaw — sin fallback a Descripcion.
-        # Espesor: ISNULL(CAST(...AS VARCHAR), 'N/A') para mostrar N/A limpio.
-        query_mrp = _cte_base + """
+        # FIX MRP-ESPESOR-001: se elimina Espesor_Perfil_CAD del GROUP BY.
+        # La agrupación es ahora por (material_oficial, Codigo_Pieza).
+        # La consolidación final por material se hace en Python, donde se
+        # deriva el calibre canónico del NOMBRE del material (_calibre_canonico),
+        # evitando que variaciones de medición CAD fragmenten la orden de compra.
+        #
+        # FIX ORPHAN-EXCLUSION: piezas sin dimensiones CAD (LargoLimpio = 0 Y
+        # AreaLimpia = 0) se excluyen de BaseNoCommercial.  Dichas piezas ya
+        # aparecen en query_orphans y sólo deben mostrarse en la pestaña
+        # "Auditoría / Huérfanos" hasta que se les asignen dimensiones.
+        _dc_in = _directa_codigos_sql_in()
+        query_mrp = _cte_base + f"""
         , BaseNoCommercial AS (
             SELECT *
             FROM PiezasBase
             WHERE MaterialOficialRaw IS NOT NULL
-              AND UPPER(LTRIM(RTRIM(MaterialOficialRaw))) NOT LIKE '%COMERCIAL%'
+              AND EsComercial = 0
+              AND (ISNULL(LargoLimpio, 0) > 0 OR ISNULL(AreaLimpia, 0) > 0)
+              AND Codigo_Pieza NOT IN {_dc_in}
         ),
         AggPerCode AS (
             SELECT
                 LTRIM(RTRIM(MaterialOficialRaw))                            AS material_oficial,
-                ISNULL(CAST(Espesor_Perfil_CAD AS VARCHAR(50)), 'N/A')      AS Calibre_Espesor,
                 Codigo_Pieza,
-                SUM(Cantidad)                                               AS Cantidad_Total_Piezas_Codigo,
-                SUM(Cantidad * ISNULL(LargoLimpio, 0.0))                    AS Requerimiento_Longitud_mm_Codigo,
+                SUM(Cantidad)                                               AS Cantidad_Piezas,
+                SUM(Cantidad * ISNULL(LargoLimpio, 0.0))                    AS Requerimiento_Longitud_mm,
                 SUM(Cantidad * ISNULL(NULLIF(AreaLimpia, 0),
-                    (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0))))     AS Requerimiento_Area_mm2_Codigo,
-                MAX(ISNULL(Stock_PT_Almacen, 0))                            AS Stock_PT_Almacen_Codigo,
-                MAX(Stock_PT_Almacen_SyncAt)                                AS Stock_PT_Almacen_SyncAt_Codigo
+                    (ISNULL(LargoLimpio, 0) * ISNULL(AnchoLimpio, 0))))     AS Requerimiento_Area_mm2,
+                MAX(ISNULL(Stock_PT_Almacen, 0))                            AS Stock_PT_Almacen,
+                MAX(Stock_PT_Almacen_SyncAt)                                AS Stock_PT_Almacen_SyncAt,
+                MAX(LargoLimpio)                                             AS Largo_Pieza_mm,
+                MAX(AnchoLimpio)                                             AS Ancho_Pieza_mm
             FROM BaseNoCommercial
             GROUP BY
                 LTRIM(RTRIM(MaterialOficialRaw)),
-                ISNULL(CAST(Espesor_Perfil_CAD AS VARCHAR(50)), 'N/A'),
                 Codigo_Pieza
         )
         SELECT
             material_oficial,
-            Calibre_Espesor,
-            SUM(Cantidad_Total_Piezas_Codigo)                           AS Cantidad_Total_Piezas,
-            SUM(Requerimiento_Longitud_mm_Codigo)                       AS Requerimiento_Longitud_mm,
-            SUM(Requerimiento_Area_mm2_Codigo)                          AS Requerimiento_Area_mm2,
-            SUM(Stock_PT_Almacen_Codigo)                                AS Stock_Asociado_Estimado,
-            MAX(Stock_PT_Almacen_SyncAt_Codigo)                         AS Stock_PT_Almacen_SyncAt
+            Codigo_Pieza,
+            Cantidad_Piezas,
+            Requerimiento_Longitud_mm,
+            Requerimiento_Area_mm2,
+            Stock_PT_Almacen,
+            Stock_PT_Almacen_SyncAt,
+            Largo_Pieza_mm,
+            Ancho_Pieza_mm
         FROM AggPerCode
-        GROUP BY
-            material_oficial,
-            Calibre_Espesor
-        ORDER BY
-            material_oficial,
-            Calibre_Espesor
+        ORDER BY material_oficial, Codigo_Pieza
         """
         cursor.execute(query_mrp, (id_revision,))
         rows_mrp = cursor.fetchall()
 
-        mrp_calculado = []
+        # ── Consolidación en Python por material_oficial ───────────────────
+        # Agrupamos todas las piezas bajo su material, sumando totales y
+        # construyendo la lista de piezas hija para la UI expandable.
+        from collections import OrderedDict as _OD
+
+        _piezas_por_mat: Dict[str, List[Dict[str, Any]]] = _OD()
+        _area_por_mat: Dict[str, float] = {}
+        _long_por_mat: Dict[str, float] = {}
+        _cant_por_mat: Dict[str, float] = {}
+        _stock_por_mat: Dict[str, float] = {}
+        _sync_por_mat: Dict[str, Any] = {}
+
         for r in rows_mrp:
-            raw_mo = getattr(r, "material_oficial", None) or getattr(
-                r, "Material_Oficial", None
-            ) or ""
-            mat_of = str(raw_mo).strip()
-            material_upper = mat_of.upper()
-            req_area_mm2   = float(r.Requerimiento_Area_mm2)
-            req_long_mm    = float(r.Requerimiento_Longitud_mm)
-            stock_asociado_estimado = float(getattr(r, "Stock_Asociado_Estimado", 0) or 0)
-            cantidad_total_piezas = float(r.Cantidad_Total_Piezas)
-            brecha_estim = max(0.0, cantidad_total_piezas - stock_asociado_estimado)
-            sync_at = getattr(r, "Stock_PT_Almacen_SyncAt", None)
+            mat_of = str(r.material_oficial or "").strip()
+            if mat_of not in _piezas_por_mat:
+                _piezas_por_mat[mat_of] = []
+                _area_por_mat[mat_of]   = 0.0
+                _long_por_mat[mat_of]   = 0.0
+                _cant_por_mat[mat_of]   = 0.0
+                _stock_por_mat[mat_of]  = 0.0
 
-            sugerencia   = "N/A"
-            scrap_factor = 1.15
+            cant   = float(r.Cantidad_Piezas or 0)
+            area   = float(r.Requerimiento_Area_mm2 or 0)
+            long   = float(r.Requerimiento_Longitud_mm or 0)
+            stock  = float(r.Stock_PT_Almacen or 0)
+            sync   = r.Stock_PT_Almacen_SyncAt
+            largo  = float(getattr(r, "Largo_Pieza_mm", None) or 0)
+            ancho  = float(getattr(r, "Ancho_Pieza_mm", None) or 0)
+            area_u = area / cant if cant > 0 else 0.0
 
-            if req_area_mm2 <= 0 and req_long_mm <= 0:
-                mrp_calculado.append({
-                    "material_oficial":      mat_of,
-                    "Material":              mat_of,
-                    "Calibre_Espesor":       r.Calibre_Espesor,
-                    "Cantidad_Total_Piezas": cantidad_total_piezas,
-                    "Requerimiento_Area_mm2":    req_area_mm2,
-                    "Requerimiento_Longitud_mm": req_long_mm,
-                    "Sugerencia_Compra":     "Pendiente: cargar dimensiones CAD/DXF",
-                    "Stock_Asociado_Estimado": stock_asociado_estimado,
-                    "Brecha_Estimada": brecha_estim,
-                    "es_estimado": True,
-                    "Stock_PT_Almacen_SyncAt": sync_at.isoformat() if sync_at else None,
-                })
-                continue
+            _piezas_por_mat[mat_of].append({
+                "codigo_pieza":      str(r.Codigo_Pieza or "").strip(),
+                "cantidad":          cant,
+                "area_mm2":          area,
+                "area_unitaria_mm2": area_u,
+                "longitud_mm":       long,
+                "largo_mm":          largo,
+                "ancho_mm":          ancho,
+                "stock_pieza":       stock,
+            })
+            _area_por_mat[mat_of]  += area
+            _long_por_mat[mat_of]  += long
+            _cant_por_mat[mat_of]  += cant
+            _stock_por_mat[mat_of] += stock
+            if sync:
+                prev = _sync_por_mat.get(mat_of)
+                if prev is None or str(sync) > str(prev):
+                    _sync_por_mat[mat_of] = sync
 
-            if any(x in material_upper for x in ['PERFIL', 'TUBO', 'BARRA', 'SOLERA', 'ANGULO', 'CANAL', 'HSS']):
-                metros_totales = req_long_mm / 1000.0
-                tramos_std = 12.0 if 'HSS' in material_upper else 6.0
-                cantidad_tramos = math.ceil((metros_totales / tramos_std) * scrap_factor)
-                sugerencia = f"Comprar {cantidad_tramos} Tramos de {int(tramos_std)} MT"
-            else:
-                m2_totales   = req_area_mm2 / 1_000_000.0
-                area_placa_m2 = 3.72
-                t_str         = "4'X10'"
-                if   "8'X20'" in material_upper: area_placa_m2, t_str = 14.86, "8'X20'"
-                elif "8'X30'" in material_upper: area_placa_m2, t_str = 22.30, "8'X30'"
-                elif "5'X24'" in material_upper: area_placa_m2, t_str = 11.15, "5'X24'"
-                cantidad_placas = math.ceil((m2_totales / area_placa_m2) * scrap_factor)
-                sugerencia = f"Comprar {cantidad_placas} Placas de {t_str}"
+        mrp_calculado = []
+        compra_cfg_rev = _load_global_compra_config()
+        scrap_factor = _SCRAP_COMPRA_DEFAULT
+
+        for mat_of, piezas_hijas in _piezas_por_mat.items():
+            calibre      = _calibre_canonico(mat_of)
+            req_area_mm2 = _area_por_mat[mat_of]
+            req_long_mm  = _long_por_mat[mat_of]
+            total_piezas = _cant_por_mat[mat_of]
+            total_stock  = _stock_por_mat[mat_of]
+            brecha_estim = max(0.0, total_piezas - total_stock)
+            sync_at      = _sync_por_mat.get(mat_of)
+
+            sugerencia_auto = _sugerencia_compra_automatica(
+                mat_of, req_area_mm2, req_long_mm, scrap_factor
+            )
+            cfg_mat = compra_cfg_rev.get(_material_config_key(mat_of))
+            sugerencia, compra_ok, detalle_compra = _aplicar_config_compra(
+                mat_of,
+                sugerencia_auto,
+                cfg_mat,
+                req_area_mm2,
+                req_long_mm,
+                scrap_factor,
+            )
+
+            # Para compra directa la cantidad es la brecha BOM, no área calculada
+            compra_cantidad: float = detalle_compra.get("compra_cantidad") or 0.0
+            compra_unidad: str = detalle_compra.get("compra_unidad") or ""
+            if detalle_compra.get("directa"):
+                compra_cantidad = float(brecha_estim)
 
             mrp_calculado.append({
-                "material_oficial":      mat_of,
-                "Material":              mat_of,
-                "Calibre_Espesor":       r.Calibre_Espesor,
-                "Cantidad_Total_Piezas": cantidad_total_piezas,
+                "material_oficial":          mat_of,
+                "Material":                  mat_of,
+                "Calibre_Espesor":           calibre,
+                "Cantidad_Total_Piezas":     total_piezas,
                 "Requerimiento_Area_mm2":    req_area_mm2,
                 "Requerimiento_Longitud_mm": req_long_mm,
-                "Sugerencia_Compra":     sugerencia,
-                "Stock_Asociado_Estimado": stock_asociado_estimado,
-                "Brecha_Estimada": brecha_estim,
-                "es_estimado": True,
-                "Stock_PT_Almacen_SyncAt": sync_at.isoformat() if sync_at else None,
+                "Sugerencia_Compra":         sugerencia,
+                "Sugerencia_Compra_Auto":    sugerencia_auto,
+                "Compra_Habilitada":         compra_ok,
+                # Si el usuario configuró tipo_compra manualmente, reportarlo; si no, auto.
+                "Tipo_Compra":               (
+                    (cfg_mat or {}).get("tipo_compra")
+                    or _material_tipo_compra(mat_of.upper())
+                ),
+                "Compra_Largo_Pies":         detalle_compra.get("largo_pies"),
+                "Compra_Ancho_Pies":         detalle_compra.get("ancho_pies"),
+                "Compra_Area_Placa_m2":      detalle_compra.get("area_placa_m2"),
+                "Compra_Distancia_Metros":   detalle_compra.get("distancia_metros"),
+                "Compra_Cantidad":           compra_cantidad,
+                "Compra_Unidad":             compra_unidad,
+                "Stock_Asociado_Estimado":   total_stock,
+                "Brecha_Estimada":           brecha_estim,
+                "es_estimado":               True,
+                "Stock_PT_Almacen_SyncAt":   sync_at.isoformat() if sync_at else None,
+                "piezas":                    piezas_hijas,
             })
 
+        # ── 1b. Piezas de compra directa por código (JE-012, etc.) ─────────────
+        # Estas piezas no tienen cálculo de área/perfil; se compran por cantidad BOM.
+        if _DIRECTA_CODIGOS:
+            query_directa_cod = _cte_base + f"""
+            SELECT
+                Codigo_Pieza,
+                SUM(Cantidad) AS Cantidad_Total,
+                MAX(ISNULL(Stock_PT_Almacen, 0)) AS Stock_PT_Almacen,
+                MAX(Stock_PT_Almacen_SyncAt)     AS Stock_PT_Almacen_SyncAt
+            FROM PiezasBase
+            WHERE Codigo_Pieza IN {_dc_in}
+            GROUP BY Codigo_Pieza
+            """
+            cursor.execute(query_directa_cod, (id_revision,))
+            rows_dc = cursor.fetchall()
+
+            # Obtener descripción desde Maestro
+            _ph_dc = ", ".join("?" for _ in _DIRECTA_CODIGOS)
+            cursor.execute(
+                f"SELECT LTRIM(RTRIM(Codigo_Pieza)), "
+                f"LTRIM(RTRIM(ISNULL(Descripcion, Codigo_Pieza))) "
+                f"FROM Tbl_Maestro_Piezas "
+                f"WHERE LTRIM(RTRIM(Codigo_Pieza)) IN ({_ph_dc})",
+                sorted(_DIRECTA_CODIGOS),
+            )
+            _dc_desc: Dict[str, str] = {r[0]: r[1] for r in cursor.fetchall()}
+
+            for r in rows_dc:
+                codigo   = str(r.Codigo_Pieza or "").strip()
+                desc     = _dc_desc.get(codigo, codigo)
+                cantidad = float(r.Cantidad_Total or 0)
+                stock    = float(getattr(r, "Stock_PT_Almacen", 0) or 0)
+                brecha   = max(0.0, cantidad - stock)
+                sync_at  = getattr(r, "Stock_PT_Almacen_SyncAt", None)
+                mrp_calculado.append({
+                    "material_oficial":          desc or codigo,
+                    "Material":                  desc or codigo,
+                    # Almacenar el código en Calibre_Espesor para mostrarlo en Excel
+                    "Calibre_Espesor":           codigo,
+                    "Cantidad_Total_Piezas":     cantidad,
+                    "Requerimiento_Area_mm2":    0.0,
+                    "Requerimiento_Longitud_mm": 0.0,
+                    "Sugerencia_Compra":         "Compra directa por cantidad",
+                    "Sugerencia_Compra_Auto":    "Compra directa por cantidad",
+                    "Compra_Habilitada":         True,
+                    "Tipo_Compra":               "directa",
+                    "Compra_Largo_Pies":         None,
+                    "Compra_Ancho_Pies":         None,
+                    "Compra_Area_Placa_m2":      None,
+                    "Compra_Distancia_Metros":   None,
+                    "Compra_Cantidad":           brecha,
+                    "Compra_Unidad":             "pz",
+                    "Stock_Asociado_Estimado":   stock,
+                    "Brecha_Estimada":           brecha,
+                    "es_estimado":               False,
+                    "Stock_PT_Almacen_SyncAt":   sync_at.isoformat() if sync_at else None,
+                    "piezas":                    [],
+                })
+
         # ── 2. Componentes Comerciales (solo cantidad, sin placas) ─────────────
-        # PURGA REGLA ESPEJO: filtro y agrupación SOLO por MaterialOficialRaw.
-        # El marcador 'COMERCIAL' debe estar en la columna Material, no en Descripcion.
-        query_comerciales = _cte_base + """
+        # Catálogo: Medida = 'COMERCIAL' y/o Material contiene 'COMERCIAL'.
+        query_comerciales = _cte_base + f"""
         SELECT
             Codigo_Pieza,
             LTRIM(RTRIM(ISNULL(Material_Trace, '')))  AS Material_Comercial,
@@ -616,7 +1321,8 @@ def calculate_mrp(id_revision: int):
             MAX(ISNULL(Stock_PT_Almacen, 0))          AS Stock_PT_Almacen,
             MAX(Stock_PT_Almacen_SyncAt)              AS Stock_PT_Almacen_SyncAt
         FROM PiezasBase
-        WHERE UPPER(LTRIM(RTRIM(ISNULL(Material_Trace, '')))) LIKE '%COMERCIAL%'
+        WHERE EsComercial = 1
+          AND Codigo_Pieza NOT IN {_dc_in}
         GROUP BY Codigo_Pieza, LTRIM(RTRIM(ISNULL(Material_Trace, '')))
         ORDER BY Material_Comercial, Codigo_Pieza
         """
@@ -644,7 +1350,7 @@ def calculate_mrp(id_revision: int):
 
         # ── 3. Piezas sin medidas / sin material (huérfanas) ─────────────────
         # PURGA REGLA ESPEJO: huérfano = Material vacío, NULL o 'POR DEFINIR'.
-        query_orphans = _cte_base + """
+        query_orphans = _cte_base + f"""
         SELECT
             Codigo_Pieza,
             ISNULL((SELECT TOP 1 Nombre_Ensamble
@@ -662,8 +1368,12 @@ def calculate_mrp(id_revision: int):
                 ELSE 'Sin Dimensiones CAD'
             END AS Motivo_Rechazo
         FROM PiezasBase
-        WHERE MaterialOficialRaw IS NULL
-           OR ISNULL(AreaLimpia,0) + ISNULL(LargoLimpio,0) = 0
+        WHERE (MaterialOficialRaw IS NULL
+               OR ISNULL(AreaLimpia,0) + ISNULL(LargoLimpio,0) = 0)
+          -- Excluir componentes comerciales (Material o Medida = COMERCIAL en maestro).
+          AND EsComercial = 0
+          -- Excluir piezas de compra directa por código: aparecen en COMPRA DIRECTA.
+          AND Codigo_Pieza NOT IN {_dc_in}
         """
         cursor.execute(query_orphans, (id_revision,))
         rows_orphans = cursor.fetchall()
@@ -701,6 +1411,8 @@ def calculate_mrp(id_revision: int):
             "mrp_calculado":          mrp_calculado,
             "componentes_comerciales": componentes_comerciales,
             "piezas_sin_medidas":     piezas_sin_medidas,
+            "compra_config":          compra_cfg_rev,
+            "formatos_compra":        FORMATOS_COMPRA_MP,
             "resumen_stock_mrp": {
                 "comerciales": {
                     "demanda_total_unidades": demanda_total_com,

@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 import openpyxl
 import pandas as pd
 import pyodbc
-from fastapi import APIRouter, BackgroundTasks, File, Form, Header, HTTPException, Request, Response, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, Form, Header, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import StreamingResponse
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
@@ -187,18 +187,39 @@ def add_material(payload: MaterialPayload):
     finally:
         conn.close()
 
-@router.delete("/api/config/materiales/{material_name}")
-def delete_material(material_name: str):
+def _delete_material_aprobado(material: str) -> dict:
+    """Elimina por descripción exacta (mayúsculas, como en INSERT)."""
+    key = (material or "").strip().upper()
+    if not key:
+        raise HTTPException(status_code=400, detail="Material vacío")
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("DELETE FROM Tbl_Materiales_Aprobados WHERE Material = ?", (material_name,))
+        cursor.execute(
+            "DELETE FROM Tbl_Materiales_Aprobados WHERE Material = ?",
+            (key,),
+        )
         if cursor.rowcount == 0:
             raise HTTPException(status_code=404, detail="Material no encontrado")
         conn.commit()
         return {"mensaje": "Material eliminado correctamente"}
     finally:
         conn.close()
+
+
+@router.delete("/api/config/materiales")
+def delete_material_query(material: str = Query(..., min_length=1)):
+    """
+    Elimina material oficial. Usar query `material` cuando el nombre lleva `/`
+    (p. ej. `3/8"`) — evita 404 por segmentos de ruta.
+    """
+    return _delete_material_aprobado(material)
+
+
+@router.delete("/api/config/materiales/{material_name:path}")
+def delete_material_path(material_name: str):
+    """Compatibilidad: ruta con `:path` captura barras en el nombre."""
+    return _delete_material_aprobado(material_name)
 
 class MaterialOficial(BaseModel):
     descripcion: str
@@ -224,21 +245,27 @@ def agregar_material_oficial(payload: MaterialOficial):
     finally:
         conn.close()
 
-@router.delete("/api/materiales/oficial/{identificador}")
-def eliminar_material_oficial(identificador: str):
-    conn = get_db_connection()
-    cursor = conn.cursor()
+@router.delete("/api/materiales/oficial")
+def eliminar_material_oficial_query(
+    material: str = Query(..., min_length=1),
+):
+    """Igual que config/materiales: query evita rotura con `/` en la descripción."""
+    _delete_material_aprobado(material)
+    return {"status": "success", "message": "Material oficial eliminado correctamente"}
+
+
+@router.delete("/api/materiales/oficial/{identificador:path}")
+def eliminar_material_oficial_path(identificador: str):
     try:
-        cursor.execute("DELETE FROM Tbl_Materiales_Aprobados WHERE Material = ?", (identificador,))
-        if cursor.rowcount == 0:
-            raise HTTPException(status_code=404, detail="Material no encontrado")
-        conn.commit()
+        _delete_material_aprobado(identificador)
         return {"status": "success", "message": "Material oficial eliminado correctamente"}
+    except HTTPException:
+        raise
     except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=f"Error en SQL Server al eliminar material: {str(e)}")
-    finally:
-        conn.close()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error en SQL Server al eliminar material: {str(e)}",
+        )
 @router.get("/api/config/regla_espejo")
 async def get_mirror_config():
     return {"activa": state.REGLA_ESPEJO_ACTIVA}

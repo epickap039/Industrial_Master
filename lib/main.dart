@@ -106,9 +106,10 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   Future<void> _checkLoginStatus() async {
     final prefs = await SharedPreferences.getInstance();
     final isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
+    final hasToken = (prefs.getString('access_token') ?? '').trim().isNotEmpty;
     final storedRole = prefs.getString('rol') ?? 'USER';
 
-    if (isLoggedIn) {
+    if (isLoggedIn && hasToken) {
       MainNav.registerRole(storedRole);
       MainNav.setSimulatedRole(null);
       TareasListaCoordinator.instance.invalidate();

@@ -287,6 +287,7 @@ class _ArbitrationScreenState extends State<ArbitrationScreen> {
         await CmdInboxStore.instance.addSystemNotice(
           title: 'Importar archivos: nuevos codigos',
           body: 'Se agregaron $nuevos codigo(s) nuevos al catalogo maestro.',
+          assignedUser: username,
         );
         if (mounted) {
           displayInfoBar(

@@ -19,16 +19,9 @@ class _SplashScreenState extends State<SplashScreen> {
   Future<void> _navigateToNext() async {
     final prefs = await SharedPreferences.getInstance();
     final isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
-    final loginDateStr = prefs.getString('loginDate');
-
-    bool actuallyLoggedIn = false;
-    if (isLoggedIn && loginDateStr != null) {
-      final loginDate = DateTime.parse(loginDateStr);
-      final difference = DateTime.now().difference(loginDate).inDays;
-      if (difference < 7) {
-        actuallyLoggedIn = true;
-      }
-    }
+    final hasToken = (prefs.getString('access_token') ?? '').trim().isNotEmpty;
+    // Sesión activa hasta que el usuario pulse "Cerrar sesión" (sin caducidad por días).
+    final actuallyLoggedIn = isLoggedIn && hasToken;
 
     Timer(const Duration(milliseconds: 3000), () {
       if (mounted) {

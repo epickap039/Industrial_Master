@@ -140,8 +140,10 @@ class _MaterialsListScreenState extends State<MaterialsListScreen> {
 
   Future<void> _deleteMaterial(String material) async {
     try {
-      final encodedMaterial = Uri.encodeComponent(material);
-      await ApiClient.delete('/api/config/materiales/$encodedMaterial');
+      await ApiClient.delete(
+        '/api/config/materiales',
+        queryParameters: {'material': material},
+      );
       if (mounted) {
         setState(() {
           _descripcionesOficiales.remove(material);

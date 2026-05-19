@@ -257,6 +257,8 @@ SW_PIECE_TIMEOUT_SEC = 90
 _SQL_EXCLUIR_COMERCIALES = """
     AND (LOWER(CAST(Material AS NVARCHAR(200))) NOT LIKE '%comercial%'
          OR Material IS NULL)
+    AND (UPPER(LTRIM(RTRIM(ISNULL(CAST(Medida AS NVARCHAR(200)), '')))) <> 'COMERCIAL'
+         OR Medida IS NULL)
 """
 
 # SolidWorks swCustomInfoText — propiedades personalizadas de tipo texto
@@ -1213,6 +1215,162 @@ def _sw_model_has_sheet_metal(sw_model) -> bool:
     return False
 
 
+def _sw_doc_count(sw_app) -> int:
+    try:
+        return int(sw_app.GetDocumentCount())
+    except Exception:
+        return -1
+
+
+def _sw_close_doc_by_name(sw_app, name: str) -> bool:
+    """CloseDoc exige el título exacto del documento en SolidWorks."""
+    if not name or not str(name).strip():
+        return False
+    name = str(name).strip()
+    for candidate in (name, name.upper(), name.lower()):
+        try:
+            sw_app.CloseDoc(candidate)
+            return True
+        except Exception:
+            pass
+    return False
+
+
+def _sw_close_all_open_documents(sw_app, log_prefix: str = "") -> int:
+    """Cierra todos los documentos abiertos (bucle GetFirstDocument). Devuelve los que quedan."""
+    closed = 0
+    for _ in range(600):
+        doc = None
+        try:
+            doc = sw_app.GetFirstDocument()
+        except Exception:
+            pass
+        if doc is None:
+            try:
+                doc = sw_app.ActiveDoc
+            except Exception:
+                doc = None
+        if doc is None:
+            break
+        title = ""
+        path = ""
+        try:
+            title = str(doc.GetTitle() or "").strip()
+        except Exception:
+            pass
+        try:
+            path = str(doc.GetPathName() or "").strip()
+        except Exception:
+            pass
+        ok = False
+        for candidate in (title, os.path.basename(path), path):
+            if candidate and _sw_close_doc_by_name(sw_app, candidate):
+                ok = True
+                closed += 1
+                break
+        if not ok:
+            try:
+                doc.Close()
+                closed += 1
+            except Exception:
+                if log_prefix:
+                    _escribir_log(
+                        f"{log_prefix}No se pudo cerrar documento SW: "
+                        f"{title or path or '?'!r}"
+                    )
+                break
+    remaining = _sw_doc_count(sw_app)
+    if log_prefix and closed > 0:
+        _escribir_log(f"{log_prefix}Cerrados {closed} doc(s); abiertos: {remaining}")
+    return remaining
+
+
+def _sw_force_close_part_document(
+    sw_app,
+    sw_model,
+    part_path: str = "",
+    codigo: str = "",
+) -> int:
+    """
+    Cierra la pieza abierta y cualquier documento con la misma ruta.
+    Devuelve GetDocumentCount() tras el cierre (0 = éxito).
+    """
+    part_norm = ""
+    if part_path:
+        try:
+            part_norm = os.path.normcase(os.path.abspath(part_path))
+        except Exception:
+            part_norm = os.path.normcase(part_path)
+
+    if sw_model is not None:
+        try:
+            sw_model.SetSaveFlag(False)
+        except Exception:
+            pass
+        for meth in ("Close", "CloseDoc"):
+            try:
+                fn = getattr(sw_model, meth, None)
+                if callable(fn):
+                    fn()
+            except Exception:
+                pass
+        title = ""
+        path_name = ""
+        try:
+            title = str(sw_model.GetTitle() or "").strip()
+        except Exception:
+            pass
+        try:
+            path_name = str(sw_model.GetPathName() or "").strip()
+        except Exception:
+            pass
+        for candidate in (
+            title,
+            os.path.basename(path_name),
+            path_name,
+            os.path.basename(part_path) if part_path else "",
+            part_path,
+        ):
+            if candidate:
+                _sw_close_doc_by_name(sw_app, candidate)
+
+    if part_norm:
+        for _ in range(20):
+            try:
+                doc = sw_app.GetOpenDocumentByName(part_path)
+            except Exception:
+                doc = None
+            if doc is None:
+                break
+            t = ""
+            try:
+                t = str(doc.GetTitle() or "").strip()
+            except Exception:
+                pass
+            if not t:
+                try:
+                    t = os.path.basename(str(doc.GetPathName() or ""))
+                except Exception:
+                    pass
+            if not _sw_close_doc_by_name(sw_app, t):
+                try:
+                    doc.Close()
+                except Exception:
+                    break
+
+    remaining = _sw_doc_count(sw_app)
+    if remaining > 0:
+        prefix = f"[SW][{codigo}] " if codigo else "[SW] "
+        remaining = _sw_close_all_open_documents(sw_app, log_prefix=prefix)
+
+    if remaining > 0 and codigo:
+        _escribir_log(
+            f"[SW] ADVERTENCIA: tras cierre de {codigo} quedan {remaining} "
+            "documento(s) abiertos en SolidWorks."
+        )
+    return remaining
+
+
 def _sldprt_bounding_box_dims_mm(sw_model) -> Optional[tuple]:
     """GetPartBox(True) → deltas en m (típico API), ×1000 a mm; ordena X/Y/Z de mayor a menor → largo, ancho, espesor."""
     try:
@@ -1482,6 +1640,7 @@ def _sldprt_maestro_read_post_macro(
     arg_errors = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
     arg_warnings = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
     swModel = None
+    _sw_force_close_part_document(sw_local, None, ruta_abs, codigo)
     try:
         swModel = sw_local.OpenDoc6(
             ruta_abs, swDocPART, open_options, "", arg_errors, arg_warnings,
@@ -1648,24 +1807,10 @@ def _sldprt_maestro_read_post_macro(
                 _escribir_log(f"Red copia fallida ({codigo}): {copy_err!r}")
                 observacion = f"{observacion} | Red: copia fallida"
     finally:
-        try:
-            doc_title = None
-            if swModel is not None:
-                try:
-                    swModel.SetSaveFlag(False)
-                except Exception:
-                    pass
-                doc_title = swModel.GetTitle()
-            if doc_title:
-                try:
-                    sw_local.CloseDoc(doc_title)
-                except Exception:
-                    try:
-                        sw_local.QuitDoc(doc_title)
-                    except Exception:
-                        pass
-        except Exception as ex_fin:
-            _escribir_log(f"Maestro cierre documento ({codigo}): {ex_fin!r}")
+        _sw_force_close_part_document(sw_local, swModel, ruta_abs, codigo)
+        swModel = None
+        import gc as _gc
+        _gc.collect()
 
     return {
         "rpc_continue": False,
@@ -1925,30 +2070,10 @@ def _sldprt_extract_one(
             _escribir_log(f"Error matemático extracción ({codigo}): {math_err!r}")
             observacion = "ERROR: Procesamiento interrumpido."
         finally:
-            try:
-                doc_title = None
-                try:
-                    if swModel is not None:
-                        doc_title = swModel.GetTitle()
-                        if not injected_and_saved:
-                            try:
-                                swModel.SetSaveFlag(False)
-                            except Exception:
-                                pass
-                except Exception:
-                    pass
-                if doc_title:
-                    try:
-                        sw_local.QuitDoc(doc_title)
-                    except Exception:
-                        sw_local.CloseDoc(doc_title)
-                else:
-                    try:
-                        sw_local.QuitDoc(abspath)
-                    except Exception:
-                        sw_local.CloseDoc(abspath)
-            except Exception:
-                pass
+            _sw_force_close_part_document(sw_local, swModel, ruta_abs, codigo)
+            swModel = None
+            import gc as _gc
+            _gc.collect()
 
     if (
         injected_and_saved
@@ -2709,6 +2834,30 @@ def bg_preparar_task(
                     cmd_dwg = [sys.executable, script_dwg, local_folder]
                     if solo_faltantes:
                         cmd_dwg.append("--solo-faltantes")
+                        # Misma lista que Paso 0 (sin medidas en BD), no Tiene_DXF.
+                        if piezas_objetivo:
+                            _codigos_faltantes_path = os.path.join(
+                                local_folder, ".cad_faltantes_codigos.txt"
+                            )
+                            try:
+                                with open(
+                                    _codigos_faltantes_path,
+                                    "w",
+                                    encoding="utf-8",
+                                ) as _cf:
+                                    for _c in sorted(piezas_objetivo):
+                                        _cf.write(f"{_c}\n")
+                                cmd_dwg.extend(
+                                    ["--codigos-file", _codigos_faltantes_path]
+                                )
+                                _log(
+                                    f"   → DWG: filtro {len(piezas_objetivo)} codigos "
+                                    "(sin medidas en BD, misma lista Paso 0)."
+                                )
+                            except OSError as _ex_cf:
+                                _log(
+                                    f"⚠️ No se pudo escribir lista faltantes: {_ex_cf}"
+                                )
                     proc_dwg = subprocess.Popen(
                         cmd_dwg,
                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -2796,9 +2945,12 @@ def bg_auditar_task(
     }
 
     try:
-        pythoncom.CoInitialize()
+        pythoncom.CoInitializeEx(pythoncom.COINIT_APARTMENTTHREADED)
     except Exception:
-        pass
+        try:
+            pythoncom.CoInitialize()
+        except Exception:
+            pass
 
     try:
         # ════════════════════════════════════════════════════════════════
@@ -2865,16 +3017,17 @@ def bg_auditar_task(
                     app.SetUserPreferenceToggle(pref, val)
                 except Exception:
                     pass
+            # Modo batch: sin ventanas por pieza (evita acumular UI en RAM).
             try:
-                app.Visible = True
+                app.Visible = False
             except Exception:
                 pass
             try:
-                app.UserControl = True
+                app.UserControl = False
             except Exception:
                 pass
 
-        def get_sw_app_m():
+        def get_sw_app_m(*, log_ready: bool = True):
             try:
                 import win32com.client as _wc
                 try:
@@ -2882,13 +3035,20 @@ def bg_auditar_task(
                 except Exception:
                     app = _wc.DispatchEx("SldWorks.Application")
                 _apply_silent_mode_m(app)
-                _log("[SW] COM listo (GetObject o DispatchEx).")
+                if log_ready:
+                    _log("[SW] COM listo (GetObject o DispatchEx).")
                 return app
             except Exception as e:
                 _log(f"⚠️ SolidWorks COM no disponible: {e}")
                 return None
 
         def _resurrect_m():
+            try:
+                sw_tmp = get_sw_app_m(log_ready=False)
+                if sw_tmp:
+                    _sw_close_all_open_documents(sw_tmp)
+            except Exception:
+                pass
             try:
                 os.system("taskkill /F /IM SLDWORKS.exe /T 2>nul")
             except Exception:
@@ -2899,10 +3059,13 @@ def bg_auditar_task(
             except Exception:
                 pass
             try:
-                pythoncom.CoInitialize()
+                pythoncom.CoInitializeEx(pythoncom.COINIT_APARTMENTTHREADED)
             except Exception:
-                pass
-            return get_sw_app_m()
+                try:
+                    pythoncom.CoInitialize()
+                except Exception:
+                    pass
+            return get_sw_app_m(log_ready=True)
 
         import pythoncom
 
@@ -2941,13 +3104,37 @@ def bg_auditar_task(
         scan_status["current_item"] = 0
         _log(f"   → {total_local} archivos únicos en carpeta local para procesar.")
 
-        sw_app_m = None
+        # ── Parámetros de gestión de memoria SolidWorks ─────────────────────
+        # Cada _SW_RESTART_BATCH piezas se mata y reinicia SLDWORKS.EXE para
+        # liberar la RAM acumulada. Con 2000+ piezas sin reinicio el proceso
+        # supera fácilmente los 4 GB. Un valor entre 60-100 es razonable.
+        _SW_RESTART_BATCH = 80
+
+        sw_app_m = get_sw_app_m()
+        if not sw_app_m:
+            _log("⚠️ No se pudo iniciar SolidWorks COM; abortando auditoría.")
+            scan_status["status"] = "error"
+            scan_status["error"] = "SolidWorks COM no disponible"
+            cad_procesar_status = "completed"
+            return
+
         extraidos_m = 0
 
         for i_m, info_m in enumerate(lista_local):
             if abortar_escaneo_cad:
                 _log("🛑 Extracción CAD cancelada por usuario.")
                 break
+
+            # ── Reinicio periódico de SolidWorks para liberar RAM ────────────
+            if i_m > 0 and i_m % _SW_RESTART_BATCH == 0:
+                _log(
+                    f"♻️  Reinicio preventivo de SolidWorks tras {i_m} piezas "
+                    f"(batch cada {_SW_RESTART_BATCH}) para liberar RAM..."
+                )
+                sw_app_m = _resurrect_m()
+                import gc as _gc
+                _gc.collect()
+                _log("✅ SolidWorks reiniciado. Continuando.")
 
             nombre_m = os.path.basename(info_m["abspath"])
             msg_m = f"Pieza {i_m + 1}/{total_local}: {nombre_m}"
@@ -2988,50 +3175,43 @@ def bg_auditar_task(
                     ruta_abs_m = os.path.abspath(abspath_m)
                     bn_upper = os.path.basename(abspath_m).upper()
                     ruta_red_m = network_by_local_basename.get(bn_upper)
-                    piece_box_m: dict = {}
 
-                    def _worker_m():
-                        try: pythoncom.CoInitialize()
-                        except Exception: pass
-                        try:
-                            sw_l = get_sw_app_m()
-                            if not sw_l:
-                                piece_box_m["out"] = {"rpc_continue": False, "codigo": codigo_m,
-                                                      "largo_cad": 0.0, "ancho_cad": 0.0, "espesor_cad": 0.0,
-                                                      "observacion": _ascii_report_text("Motor SW inaccesible")}
-                                return
-                            piece_box_m["out"] = _sldprt_maestro_read_post_macro(
-                                sw_l,
-                                abspath_m,
-                                codigo_m,
-                                nombre_m,
-                                ruta_abs_m,
-                                resurrect_fn=_resurrect_m,
-                                dxf_largo_cmp=_dl_m,
-                                dxf_ancho_cmp=_da_m,
-                                inyectar_propiedades=inyectar_propiedades,
-                                ruta_original_red=ruta_red_m,
-                                dxf_export_dir=dxf_folder,
-                            )
-                        except Exception as e_w:
-                            piece_box_m["exc"] = e_w
-                        finally:
-                            try: pythoncom.CoUninitialize()
-                            except Exception: pass
+                    if sw_app_m is None:
+                        sw_app_m = get_sw_app_m(log_ready=False)
 
-                    th_m = threading.Thread(target=_worker_m, daemon=True)
-                    th_m.start()
-                    th_m.join(SW_PIECE_TIMEOUT_SEC)
-
-                    if th_m.is_alive():
-                        _log(f"  ⏱ TIMEOUT en {nombre_m}. Matando SLDWORKS.exe...")
-                        scan_status["warning_message"] = f"⚠️ Timeout: {nombre_m}"
-                        sw_app_m = _resurrect_m()
-                        observacion_m = "ERROR TIMEOUT: Pieza bloqueó SolidWorks. Saltada."
+                    if not sw_app_m:
+                        observacion_m = "Motor SW inaccesible"
                     else:
-                        if piece_box_m.get("exc"):
-                            raise piece_box_m["exc"]
-                        out_m = piece_box_m.get("out") or {}
+                        out_m = _sldprt_maestro_read_post_macro(
+                            sw_app_m,
+                            abspath_m,
+                            codigo_m,
+                            nombre_m,
+                            ruta_abs_m,
+                            resurrect_fn=_resurrect_m,
+                            dxf_largo_cmp=_dl_m,
+                            dxf_ancho_cmp=_da_m,
+                            inyectar_propiedades=inyectar_propiedades,
+                            ruta_original_red=ruta_red_m,
+                            dxf_export_dir=dxf_folder,
+                        )
+                        if out_m.get("rpc_continue"):
+                            _log(f"  ⚠️ RPC en {nombre_m}; reiniciando SolidWorks...")
+                            sw_app_m = _resurrect_m()
+                            if sw_app_m:
+                                out_m = _sldprt_maestro_read_post_macro(
+                                    sw_app_m,
+                                    abspath_m,
+                                    codigo_m,
+                                    nombre_m,
+                                    ruta_abs_m,
+                                    resurrect_fn=_resurrect_m,
+                                    dxf_largo_cmp=_dl_m,
+                                    dxf_ancho_cmp=_da_m,
+                                    inyectar_propiedades=inyectar_propiedades,
+                                    ruta_original_red=ruta_red_m,
+                                    dxf_export_dir=dxf_folder,
+                                )
                         if out_m.get("rpc_continue"):
                             observacion_m = out_m.get("observacion", "ERROR RPC")
                             _log(f"  ⚠️ RPC crash en {nombre_m}: {observacion_m}")
@@ -3044,7 +3224,18 @@ def bg_auditar_task(
                             ancho_dxf_nuevo_m = out_m.get("ancho_dxf_nuevo")
                             observacion_m = out_m.get("observacion", "")
                             if str(observacion_m).startswith("OK"):
-                                _log(f"  ✅ {codigo_m}: L={largo_m:.1f} A={ancho_m:.1f} E={espesor_m:.1f}")
+                                _log(
+                                    f"  ✅ {codigo_m}: L={largo_m:.1f} "
+                                    f"A={ancho_m:.1f} E={espesor_m:.1f}"
+                                )
+
+                        n_open = _sw_doc_count(sw_app_m)
+                        if n_open > 0:
+                            _log(
+                                f"  ⚠️ Tras {nombre_m} quedan {n_open} doc(s) "
+                                "abiertos; limpieza forzada."
+                            )
+                            _sw_close_all_open_documents(sw_app_m)
 
             except Exception as ex_m_piece:
                 if not observacion_m:

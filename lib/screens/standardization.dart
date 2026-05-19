@@ -238,7 +238,8 @@ class _StandardizationScreenState extends State<StandardizationScreen> {
     setState(() => _isLoading = true);
     try {
       final response = await ApiClient.deleteUnvalidated(
-        '/api/materiales/oficial/${Uri.encodeComponent(desc)}',
+        '/api/materiales/oficial',
+        queryParameters: {'material': desc},
       );
 
       if (response.statusCode == 200) {

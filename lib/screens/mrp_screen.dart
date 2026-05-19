@@ -7,6 +7,7 @@ import '../services/api_client.dart';
 import '../theme/ui_tokens.dart';
 import '../widgets/compact_page_header.dart';
 import '../services/app_role.dart';
+import 'mrp_compra_config_dialog.dart';
 
 import 'dart:io';
 
@@ -64,6 +65,12 @@ class _MRPScreenState extends State<MRPScreen> {
   // Tab index: 0 = Materia Prima, 1 = Comerciales, 2 = Huérfanos
   int _tabIndex = 0;
 
+  /// Conjunto de claves de material cuyas filas están expandidas en la tabla MP.
+  final Set<String> _expandedMaterials = <String>{};
+
+  Map<String, dynamic> _compraConfig = {};
+  List<Map<String, dynamic>> _formatosCompra = [];
+
   final NumberFormat _numFormat = NumberFormat('#,##0', 'en_US');
   final NumberFormat _decFormat = NumberFormat('#,##0.00', 'en_US');
 
@@ -98,20 +105,14 @@ class _MRPScreenState extends State<MRPScreen> {
 
   List<Map<String, dynamic>> get _mrpFiltrado {
     final txt = _filtroTexto.trim().toLowerCase();
+    if (txt.isEmpty) return _mrpData;
     return _mrpData.where((row) {
-      final riesgo = _riesgoMp(row);
-      final brecha = _d(row['Brecha_Estimada']);
-      if (_filtroRiesgo != 'Todos' && riesgo != _filtroRiesgo) return false;
-      if (_soloConBrecha && brecha <= 0) return false;
-      if (txt.isNotEmpty) {
-        final hay = [
-          _materialOficialMP(row),
-          row['Calibre_Espesor']?.toString() ?? '',
-          row['Sugerencia_Compra']?.toString() ?? '',
-        ].join(' ').toLowerCase().contains(txt);
-        if (!hay) return false;
-      }
-      return true;
+      final hay = [
+        _materialOficialMP(row),
+        row['Calibre_Espesor']?.toString() ?? '',
+        row['Sugerencia_Compra']?.toString() ?? '',
+      ].join(' ').toLowerCase().contains(txt);
+      return hay;
     }).toList();
   }
 
@@ -230,6 +231,16 @@ class _MRPScreenState extends State<MRPScreen> {
             _resumenStockMrp = data['resumen_stock_mrp'] is Map
                 ? Map<String, dynamic>.from(data['resumen_stock_mrp'])
                 : null;
+            _compraConfig = data['compra_config'] is Map
+                ? Map<String, dynamic>.from(data['compra_config'] as Map)
+                : {};
+            _formatosCompra = data['formatos_compra'] is List
+                ? List<Map<String, dynamic>>.from(
+                    (data['formatos_compra'] as List).map(
+                      (e) => Map<String, dynamic>.from(e as Map),
+                    ),
+                  )
+                : [];
             _syncOptSelectorsWithData();
           });
         }
@@ -353,19 +364,362 @@ class _MRPScreenState extends State<MRPScreen> {
     var excelFile = excel_lib.Excel.createExcel();
     final headerStyle = ExcelHelper.getHeaderStyle();
 
-    // Hoja 1 — Orden de Compra (Materia Prima)
+    // ── Hoja 1: Resumen de compra ─────────────────────────────────────────────
+    // Incluye todas las categorías: MP calculada, compra directa, comerciales
+    // y piezas sin medidas (informativo).
+    excel_lib.Sheet sheetResumen = excelFile['Resumen_Compra'];
+    const _kResumenCols = 10;
+    final resumenHeaders = [
+      'Material oficial',      // 0
+      'Calibre',               // 1
+      'Tipo',                  // 2
+      'Largo placa (pies)',    // 3
+      'Ancho placa (pies)',    // 4
+      'Distancia tramo (m)',   // 5
+      'Área req. (m²)',        // 6
+      'Área req. (in²)',       // 7
+      'Cantidad a Comprar',    // 8  ← destacado amarillo para MP
+      'Unidad de Compra',      // 9
+    ];
+    Map<int, int> resumenWidths = {};
+    for (int i = 0; i < resumenHeaders.length; i++) {
+      sheetResumen.updateCell(
+        excel_lib.CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0),
+        excel_lib.TextCellValue(resumenHeaders[i]),
+        cellStyle: headerStyle,
+      );
+      ExcelHelper.updateMaxWith(resumenWidths, i, resumenHeaders[i]);
+    }
+
+    final sectionStyle = excel_lib.CellStyle(
+      backgroundColorHex: excel_lib.ExcelColor.fromHexString('#2D4A7A'),
+      fontColorHex: excel_lib.ExcelColor.fromHexString('#FFFFFF'),
+      bold: true,
+      verticalAlign: excel_lib.VerticalAlign.Center,
+    );
+    final directaStyle = excel_lib.CellStyle(
+      backgroundColorHex: excel_lib.ExcelColor.fromHexString('#FFF3E0'),
+      fontColorHex: excel_lib.ExcelColor.fromHexString('#7B3F00'),
+      verticalAlign: excel_lib.VerticalAlign.Center,
+    );
+    final comStyle = excel_lib.CellStyle(
+      backgroundColorHex: excel_lib.ExcelColor.fromHexString('#F3E5F5'),
+      fontColorHex: excel_lib.ExcelColor.fromHexString('#4A148C'),
+      verticalAlign: excel_lib.VerticalAlign.Center,
+    );
+    final orphanStyle = excel_lib.CellStyle(
+      backgroundColorHex: excel_lib.ExcelColor.fromHexString('#FAFAFA'),
+      fontColorHex: excel_lib.ExcelColor.fromHexString('#757575'),
+      verticalAlign: excel_lib.VerticalAlign.Center,
+    );
+
+    void _writeSectionHeader(int rowIdx, String title) {
+      sheetResumen.updateCell(
+        excel_lib.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: rowIdx),
+        excel_lib.TextCellValue(title),
+        cellStyle: sectionStyle,
+      );
+      ExcelHelper.updateMaxWith(resumenWidths, 0, title);
+      for (int c = 1; c < _kResumenCols; c++) {
+        sheetResumen.updateCell(
+          excel_lib.CellIndex.indexByColumnRow(
+              columnIndex: c, rowIndex: rowIdx),
+          excel_lib.TextCellValue(''),
+          cellStyle: sectionStyle,
+        );
+      }
+    }
+
+    int resumenRow = 1;
+
+    // ── Sección 1: Materia Prima (cálculo por área / longitud) ──────────────
+    _writeSectionHeader(resumenRow, '--- MATERIA PRIMA (cálculo por área / longitud) ---');
+    resumenRow++;
+
+    excel_lib.CellValue _numOrEmpty(dynamic v) {
+      if (v == null) return excel_lib.TextCellValue('');
+      final d = _d(v);
+      if (d <= 0) return excel_lib.TextCellValue('');
+      return excel_lib.DoubleCellValue(d);
+    }
+
+    // Estilo amarillo vibrante para la columna "Cantidad a Comprar" en filas MP
+    final resumenCantStyle = excel_lib.CellStyle(
+      backgroundColorHex: excel_lib.ExcelColor.fromHexString('#FFD600'),
+      fontColorHex: excel_lib.ExcelColor.fromHexString('#1A237E'),
+      bold: true,
+      horizontalAlign: excel_lib.HorizontalAlign.Center,
+      verticalAlign: excel_lib.VerticalAlign.Center,
+    );
+
+    for (final row in _mrpData) {
+      final habilitada = row['Compra_Habilitada'] != false;
+      final sug = row['Sugerencia_Compra']?.toString() ?? '';
+      final isDirecta = sug.toLowerCase().contains('directa');
+      if (!habilitada || sug.startsWith('—') || isDirecta) continue;
+      if (sug.startsWith('Pendiente')) continue;
+
+      final areaMm2      = _d(row['Requerimiento_Area_mm2']);
+      final areaM2       = areaMm2 / 1_000_000.0;
+      final areaIn2      = areaMm2 / 645.16;
+      final lp           = row['Compra_Largo_Pies'];
+      final ap           = row['Compra_Ancho_Pies'];
+      final dm           = row['Compra_Distancia_Metros'];
+      final tipo         = row['Tipo_Compra']?.toString() ?? '';
+      final compraCant   = _d(row['Compra_Cantidad']);
+      final compraUnidad = row['Compra_Unidad']?.toString() ?? '';
+
+      final cells = [
+        excel_lib.TextCellValue(_materialOficialMP(row)),
+        excel_lib.TextCellValue(row['Calibre_Espesor']?.toString() ?? ''),
+        excel_lib.TextCellValue(tipo == 'perfil' ? 'Perfil' : 'Placa'),
+        _numOrEmpty(lp),
+        _numOrEmpty(ap),
+        _numOrEmpty(dm),
+        areaMm2 > 0 ? excel_lib.DoubleCellValue(areaM2)  : excel_lib.TextCellValue(''),
+        areaMm2 > 0 ? excel_lib.DoubleCellValue(areaIn2) : excel_lib.TextCellValue(''),
+        compraCant > 0 ? excel_lib.DoubleCellValue(compraCant) : excel_lib.TextCellValue(''),
+        excel_lib.TextCellValue(compraUnidad),
+      ];
+      for (int c = 0; c < cells.length; c++) {
+        sheetResumen.updateCell(
+          excel_lib.CellIndex.indexByColumnRow(
+              columnIndex: c, rowIndex: resumenRow),
+          cells[c],
+          // Highlight the "Cantidad a Comprar" column
+          cellStyle: c == 8 ? resumenCantStyle : null,
+        );
+        ExcelHelper.updateMaxWith(resumenWidths, c, cells[c].toString());
+      }
+      resumenRow++;
+    }
+
+    // ── Sección 2: Compra directa (seguro de resorte, spring seal, etc.) ────
+    final directaRows = _mrpData.where((row) {
+      final sug = row['Sugerencia_Compra']?.toString().toLowerCase() ?? '';
+      return sug.contains('directa');
+    }).toList();
+
+    if (directaRows.isNotEmpty) {
+      resumenRow++;
+      _writeSectionHeader(resumenRow,
+          '--- COMPRA DIRECTA (subensambles / piezas sin cálculo de área) ---');
+      resumenRow++;
+      for (final row in directaRows) {
+        final stock   = ExcelHelper.cleanToInt(row['Stock_Asociado_Estimado']);
+        final brecha  = ExcelHelper.cleanToInt(row['Brecha_Estimada']);
+        final matName = _materialOficialMP(row);
+        final cantVal = brecha > 0 ? brecha : 0;
+        final notaStr = brecha > 0 ? '' : 'En stock ($stock u.)';
+        final cells = [
+          excel_lib.TextCellValue(matName),              // 0
+          excel_lib.TextCellValue(row['Calibre_Espesor']?.toString() ?? 'N/A'), // 1
+          excel_lib.TextCellValue('Directa'),            // 2
+          excel_lib.TextCellValue(''),                   // 3
+          excel_lib.TextCellValue(''),                   // 4
+          excel_lib.TextCellValue(''),                   // 5
+          excel_lib.TextCellValue(''),                   // 6
+          excel_lib.TextCellValue(''),                   // 7
+          cantVal > 0
+              ? excel_lib.IntCellValue(cantVal)
+              : excel_lib.TextCellValue(notaStr),        // 8 Cantidad
+          excel_lib.TextCellValue(cantVal > 0 ? 'pz' : ''), // 9 Unidad
+        ];
+        for (int c = 0; c < cells.length; c++) {
+          sheetResumen.updateCell(
+            excel_lib.CellIndex.indexByColumnRow(
+                columnIndex: c, rowIndex: resumenRow),
+            cells[c],
+            cellStyle: directaStyle,
+          );
+          ExcelHelper.updateMaxWith(resumenWidths, c, cells[c].toString());
+        }
+        resumenRow++;
+      }
+    }
+
+    // ── Sección 3: Componentes Comerciales ───────────────────────────────────
+    if (_comercialesData.isNotEmpty) {
+      resumenRow++;
+      _writeSectionHeader(resumenRow, '--- COMPONENTES COMERCIALES ---');
+      resumenRow++;
+      for (final row in _comercialesData) {
+        final stock    = ExcelHelper.cleanToInt(row['Stock_PT_Almacen']);
+        final faltante = ExcelHelper.cleanToInt(row['Cantidad_Faltante']);
+        final desc     = row['Descripcion']?.toString() ?? '-';
+        final codigo   = row['Codigo_Pieza']?.toString() ?? '-';
+        final cantVal  = faltante > 0 ? faltante : 0;
+        final notaStr  = faltante <= 0 ? 'En stock ($stock u.)' : '';
+        final cells = [
+          excel_lib.TextCellValue(desc),                 // 0
+          excel_lib.TextCellValue(codigo),               // 1
+          excel_lib.TextCellValue('Comercial'),          // 2
+          excel_lib.TextCellValue(''),                   // 3
+          excel_lib.TextCellValue(''),                   // 4
+          excel_lib.TextCellValue(''),                   // 5
+          excel_lib.TextCellValue(''),                   // 6
+          excel_lib.TextCellValue(''),                   // 7
+          cantVal > 0
+              ? excel_lib.IntCellValue(cantVal)
+              : excel_lib.TextCellValue(notaStr),        // 8 Cantidad
+          excel_lib.TextCellValue(cantVal > 0 ? 'pz' : ''), // 9 Unidad
+        ];
+        for (int c = 0; c < cells.length; c++) {
+          sheetResumen.updateCell(
+            excel_lib.CellIndex.indexByColumnRow(
+                columnIndex: c, rowIndex: resumenRow),
+            cells[c],
+            cellStyle: comStyle,
+          );
+          ExcelHelper.updateMaxWith(resumenWidths, c, cells[c].toString());
+        }
+        resumenRow++;
+      }
+    }
+
+    // ── Sección 4: Sin Medidas — informativo para compras sin dimensión CAD ──
+    final orphanSinMedida = _orphanData
+        .where((r) =>
+            (r['Motivo_Rechazo']?.toString() ?? '').toLowerCase().contains('medida') ||
+            (r['Motivo_Rechazo']?.toString() ?? '').toLowerCase().contains('sin largo'))
+        .toList();
+    if (orphanSinMedida.isNotEmpty) {
+      resumenRow++;
+      _writeSectionHeader(resumenRow,
+          '--- SIN MEDIDAS CAD (informativo — verificar antes de comprar) ---');
+      resumenRow++;
+      for (final row in orphanSinMedida) {
+        final mat    = row['Material']?.toString() ?? '-';
+        final codigo = row['Codigo_Pieza']?.toString() ?? '-';
+        final cant   = ExcelHelper.cleanToInt(row['Cantidad']);
+        final motivo = row['Motivo_Rechazo']?.toString() ?? '-';
+        final cells = [
+          excel_lib.TextCellValue(mat),            // 0
+          excel_lib.TextCellValue(codigo),         // 1
+          excel_lib.TextCellValue('Sin medidas'),  // 2
+          excel_lib.TextCellValue(''),             // 3
+          excel_lib.TextCellValue(''),             // 4
+          excel_lib.TextCellValue(''),             // 5
+          excel_lib.TextCellValue(''),             // 6
+          excel_lib.TextCellValue(motivo),         // 7  ← motivo en col area in²
+          excel_lib.IntCellValue(cant),            // 8 Cantidad BOM
+          excel_lib.TextCellValue('pz'),           // 9 Unidad
+        ];
+        for (int c = 0; c < cells.length; c++) {
+          sheetResumen.updateCell(
+            excel_lib.CellIndex.indexByColumnRow(
+                columnIndex: c, rowIndex: resumenRow),
+            cells[c],
+            cellStyle: orphanStyle,
+          );
+          ExcelHelper.updateMaxWith(resumenWidths, c, cells[c].toString());
+        }
+        resumenRow++;
+      }
+    }
+
+    ExcelHelper.applyAutoFit(sheetResumen, resumenWidths);
+
+    // ── Hoja 2: Orden de Compra detallada (Materia Prima) ─────────────────────
+    //
+    // Columnas (12 en total):
+    //  A  Material Oficial / Código Pieza   ("TOTAL [mat]" en fila padre)
+    //  B  Calibre Canónico
+    //  C  Demanda Total / Cant. Pieza
+    //  D  Área Total m²  (numérica)
+    //  E  Área Total in² (numérica)
+    //  F  Largo Pieza mm
+    //  G  Ancho Pieza mm
+    //  H  Stock PT (u.)   piezas ya fabricadas en almacén PT
+    //  I  Cómo se calcula el área (texto explicativo / fórmula)
+    //  J  Cantidad a Comprar  ← destacado en amarillo vibrante en fila padre
+    //  K  Unidad de Compra
+    //  L  Desglose  (ej. "5 completas y 20% de la última")
+    //
+    // Estructura de filas:
+    //  • Padre  (material): fondo azul #1E3A8A, texto blanco, negrita.
+    //            Celda J: fondo #FFD600 (amarillo vibrante), texto #1A237E, negrita.
+    //  • Hijo   (pieza)   : fondo #F0F4FF, texto azul oscuro.
+    //  • Subtotal área     : fondo amarillo #FFF9C4, negrita.
+    //  • Separador vacío   : fondo blanco entre materiales.
+
     excel_lib.Sheet sheetOC = excelFile['Orden_Compra'];
     excelFile.delete('Sheet1');
 
+    // ── Estilos ───────────────────────────────────────────────────────────────
+    const _kTotalCols = 12;
+
+    final parentStyle = excel_lib.CellStyle(
+      backgroundColorHex: excel_lib.ExcelColor.fromHexString('#1E3A8A'),
+      fontColorHex: excel_lib.ExcelColor.fromHexString('#FFFFFF'),
+      bold: true,
+      verticalAlign: excel_lib.VerticalAlign.Center,
+    );
+    final parentNumStyle = excel_lib.CellStyle(
+      backgroundColorHex: excel_lib.ExcelColor.fromHexString('#1E3A8A'),
+      fontColorHex: excel_lib.ExcelColor.fromHexString('#FFFFFF'),
+      bold: true,
+      horizontalAlign: excel_lib.HorizontalAlign.Right,
+      verticalAlign: excel_lib.VerticalAlign.Center,
+    );
+    // Celda J (Cantidad a Comprar) en fila padre: amarillo vibrante + texto azul oscuro
+    final cantidadHighlightStyle = excel_lib.CellStyle(
+      backgroundColorHex: excel_lib.ExcelColor.fromHexString('#FFD600'),
+      fontColorHex: excel_lib.ExcelColor.fromHexString('#1A237E'),
+      bold: true,
+      horizontalAlign: excel_lib.HorizontalAlign.Center,
+      verticalAlign: excel_lib.VerticalAlign.Center,
+    );
+    final childStyle = excel_lib.CellStyle(
+      backgroundColorHex: excel_lib.ExcelColor.fromHexString('#F0F4FF'),
+      fontColorHex: excel_lib.ExcelColor.fromHexString('#1A2744'),
+      verticalAlign: excel_lib.VerticalAlign.Center,
+    );
+    final childNumStyle = excel_lib.CellStyle(
+      backgroundColorHex: excel_lib.ExcelColor.fromHexString('#F0F4FF'),
+      fontColorHex: excel_lib.ExcelColor.fromHexString('#1A2744'),
+      horizontalAlign: excel_lib.HorizontalAlign.Right,
+      verticalAlign: excel_lib.VerticalAlign.Center,
+    );
+    final subtotalStyle = excel_lib.CellStyle(
+      backgroundColorHex: excel_lib.ExcelColor.fromHexString('#FFF9C4'),
+      fontColorHex: excel_lib.ExcelColor.fromHexString('#5D4037'),
+      bold: true,
+      verticalAlign: excel_lib.VerticalAlign.Center,
+    );
+    final subtotalNumStyle = excel_lib.CellStyle(
+      backgroundColorHex: excel_lib.ExcelColor.fromHexString('#FFF9C4'),
+      fontColorHex: excel_lib.ExcelColor.fromHexString('#5D4037'),
+      bold: true,
+      horizontalAlign: excel_lib.HorizontalAlign.Right,
+      verticalAlign: excel_lib.VerticalAlign.Center,
+    );
+    // Celda J en fila subtotal: mismo amarillo vibrante pero tono más suave
+    final subtotalCantStyle = excel_lib.CellStyle(
+      backgroundColorHex: excel_lib.ExcelColor.fromHexString('#FFF176'),
+      fontColorHex: excel_lib.ExcelColor.fromHexString('#5D4037'),
+      bold: true,
+      horizontalAlign: excel_lib.HorizontalAlign.Center,
+      verticalAlign: excel_lib.VerticalAlign.Center,
+    );
+    final sepStyle = excel_lib.CellStyle(
+      backgroundColorHex: excel_lib.ExcelColor.fromHexString('#FFFFFF'),
+    );
+
+    // ── Cabecera ──────────────────────────────────────────────────────────────
     final ocHeaders = [
-      'Material Oficial',
-      'Calibre/Espesor',
-      'Piezas Totales',
-      'Área / Requerimiento (Texto)',
-      'Área m² (Num)',
-      'Stock Asociado Estimado',
-      'Brecha Estimada',
-      'Orden de Compra Sugerida',
+      'Material Oficial / Código Pieza',   // A
+      'Calibre Canónico',                   // B
+      'Demanda Total / Cant. Pieza',        // C
+      'Área m²',                            // D
+      'Área in²',                           // E
+      'Largo Pieza (mm)',                   // F
+      'Ancho Pieza (mm)',                   // G
+      'Stock PT (u.) = piezas en almacén', // H
+      'Cómo se calcula el Área',            // I
+      'Cantidad a Comprar',                 // J  ← destacado
+      'Unidad de Compra',                   // K
+      'Desglose',                           // L
     ];
     Map<int, int> ocWidths = {};
     for (int i = 0; i < ocHeaders.length; i++) {
@@ -376,29 +730,151 @@ class _MRPScreenState extends State<MRPScreen> {
       );
       ExcelHelper.updateMaxWith(ocWidths, i, ocHeaders[i]);
     }
-    for (int r = 0; r < _mrpData.length; r++) {
-      final row = _mrpData[r];
-      final double areaMm2 = (row['Requerimiento_Area_mm2'] ?? 0).toDouble();
-      final double areaM2  = areaMm2 / 1_000_000.0;
-      final int piezas = ExcelHelper.cleanToInt(row['Cantidad_Total_Piezas']);
-      final cells = [
-        excel_lib.TextCellValue(_materialOficialMP(row)),
-        ExcelHelper.parseDynamicCell(row['Calibre_Espesor']),
-        excel_lib.IntCellValue(piezas),
-        excel_lib.TextCellValue(_formatArea(areaMm2)),
-        excel_lib.DoubleCellValue(areaM2),
-        excel_lib.IntCellValue(ExcelHelper.cleanToInt(row['Stock_Asociado_Estimado'])),
-        excel_lib.IntCellValue(ExcelHelper.cleanToInt(row['Brecha_Estimada'])),
-        excel_lib.TextCellValue(row['Sugerencia_Compra']?.toString() ?? 'N/A'),
-      ];
+
+    // ── Helper: escribe una fila completa ─────────────────────────────────────
+    void _writeRow(
+      excel_lib.Sheet sheet,
+      int rowIdx,
+      List<(excel_lib.CellValue, excel_lib.CellStyle)> cells,
+    ) {
       for (int c = 0; c < cells.length; c++) {
+        sheet.updateCell(
+          excel_lib.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: rowIdx),
+          cells[c].$1,
+          cellStyle: cells[c].$2,
+        );
+        ExcelHelper.updateMaxWith(ocWidths, c, cells[c].$1.toString());
+      }
+    }
+
+    excel_lib.CellValue _txt(String s) => excel_lib.TextCellValue(s);
+    excel_lib.CellValue _dbl(double v) => excel_lib.DoubleCellValue(v);
+    excel_lib.CellValue _int(int v)    => excel_lib.IntCellValue(v);
+    excel_lib.CellValue _emp()         => excel_lib.TextCellValue('');
+
+    /// Calcula el texto de desglose: "5 completas y 20% de la última" / "Completas"
+    String _desglose(double qty) {
+      if (qty <= 0) return '';
+      final int n = qty.floor();
+      final double dec = qty - n;
+      if (dec < 0.005) {
+        return n == 1 ? '1 Completa' : '$n Completas';
+      }
+      final int pct = (dec * 100).round();
+      if (n == 0) return '${pct}% de la ultima';
+      return '$n completa${n == 1 ? '' : 's'} y ${pct}% de la ultima';
+    }
+
+    int excelRow = 1;
+
+    for (final row in _mrpData) {
+      final double areaMm2    = _d(row['Requerimiento_Area_mm2']);
+      final double areaM2     = areaMm2 / 1_000_000.0;
+      final double areaIn2    = areaMm2 / 645.16;
+      final int    demanda    = ExcelHelper.cleanToInt(row['Cantidad_Total_Piezas']);
+      final int    stockTot   = ExcelHelper.cleanToInt(row['Stock_Asociado_Estimado']);
+      final String matName    = _materialOficialMP(row);
+      final String calibre    = row['Calibre_Espesor']?.toString() ?? 'N/A';
+      final String orden      = row['Sugerencia_Compra']?.toString() ?? 'N/A';
+
+      // Structured purchase fields
+      final double compraCant = _d(row['Compra_Cantidad']);
+      final String compraUnidad = row['Compra_Unidad']?.toString() ?? '';
+      final String desgloseStr  = _desglose(compraCant);
+
+      // ── Fila padre (material): etiqueta "TOTAL [material]" ───────────────
+      _writeRow(sheetOC, excelRow, [
+        (_txt('TOTAL $matName'), parentStyle),     // A ← "TOTAL [material]"
+        (_txt(calibre),          parentStyle),     // B
+        (_int(demanda),          parentNumStyle),  // C
+        (_dbl(areaM2),           parentNumStyle),  // D
+        (_dbl(areaIn2),          parentNumStyle),  // E
+        (_emp(),                 parentStyle),     // F
+        (_emp(),                 parentStyle),     // G
+        (_int(stockTot),         parentNumStyle),  // H
+        (_emp(),                 parentStyle),     // I
+        (compraCant > 0
+            ? _dbl(compraCant)
+            : _txt(orden),       cantidadHighlightStyle),   // J ← amarillo vibrante
+        (_txt(compraUnidad),     parentStyle),     // K
+        (_txt(desgloseStr),      parentStyle),     // L
+      ]);
+      excelRow++;
+
+      // ── Filas hija (piezas individuales) ──────────────────────────────────
+      final rawPiezas = row['piezas'];
+      if (rawPiezas is List && rawPiezas.isNotEmpty) {
+        for (final p in rawPiezas) {
+          final pMap      = Map<String, dynamic>.from(p as Map);
+          final String cod  = '  \u21b3 ${pMap['codigo_pieza'] ?? '-'}';
+          final int    cant = ExcelHelper.cleanToInt(pMap['cantidad']);
+          final double pAMm2  = _d(pMap['area_mm2']);
+          final double pAM2   = pAMm2 / 1_000_000.0;
+          final double pAIn2  = pAMm2 / 645.16;
+          final double pAunit = _d(pMap['area_unitaria_mm2']);
+          final double pLargo = _d(pMap['largo_mm']);
+          final double pAncho = _d(pMap['ancho_mm']);
+          final int    pStock = ExcelHelper.cleanToInt(pMap['stock_pieza']);
+
+          String formulaTxt = '';
+          if (pAMm2 > 0 && cant > 0) {
+            final uM2 = pAunit / 1_000_000.0;
+            formulaTxt = '$cant pzas x ${_decFormat.format(uM2)} m2/pza'
+                ' = ${_decFormat.format(pAM2)} m2';
+          }
+
+          _writeRow(sheetOC, excelRow, [
+            (_txt(cod),                                          childStyle),    // A
+            (_emp(),                                             childStyle),    // B
+            (_int(cant),                                         childNumStyle), // C
+            (pAMm2 > 0 ? _dbl(pAM2)   : _emp(),                childNumStyle), // D
+            (pAMm2 > 0 ? _dbl(pAIn2)  : _emp(),                childNumStyle), // E
+            (pLargo > 0 ? _dbl(pLargo) : _emp(),               childNumStyle), // F
+            (pAncho > 0 ? _dbl(pAncho) : _emp(),               childNumStyle), // G
+            (_int(pStock),                                       childNumStyle), // H
+            (_txt(formulaTxt),                                   childStyle),    // I
+            (_emp(),                                             childStyle),    // J
+            (_emp(),                                             childStyle),    // K
+            (_emp(),                                             childStyle),    // L
+          ]);
+          excelRow++;
+        }
+
+        // ── Fila subtotal de área por material ────────────────────────────
+        final String subLabel =
+            '\u2211 TOTAL AREA: $matName';
+        final String subFormula =
+            'Suma de piezas: ${_decFormat.format(areaM2)} m2'
+            ' = ${_decFormat.format(areaIn2)} in2';
+        _writeRow(sheetOC, excelRow, [
+          (_txt(subLabel),       subtotalStyle),    // A
+          (_emp(),               subtotalStyle),    // B
+          (_int(demanda),        subtotalNumStyle), // C
+          (_dbl(areaM2),         subtotalNumStyle), // D
+          (_dbl(areaIn2),        subtotalNumStyle), // E
+          (_emp(),               subtotalStyle),    // F
+          (_emp(),               subtotalStyle),    // G
+          (_int(stockTot),       subtotalNumStyle), // H
+          (_txt(subFormula),     subtotalStyle),    // I
+          (compraCant > 0
+              ? _dbl(compraCant)
+              : _txt(orden),     subtotalCantStyle), // J ← mismo highlight
+          (_txt(compraUnidad),   subtotalStyle),    // K
+          (_txt(desgloseStr),    subtotalStyle),    // L
+        ]);
+        excelRow++;
+      }
+
+      // ── Fila separadora entre materiales ──────────────────────────────────
+      for (int c = 0; c < _kTotalCols; c++) {
         sheetOC.updateCell(
           excel_lib.CellIndex.indexByColumnRow(
-              columnIndex: c, rowIndex: r + 1),
-          cells[c],
+              columnIndex: c, rowIndex: excelRow),
+          _emp(),
+          cellStyle: sepStyle,
         );
-        ExcelHelper.updateMaxWith(ocWidths, c, cells[c].toString());
       }
+      excelRow++;
     }
     ExcelHelper.applyAutoFit(sheetOC, ocWidths);
 
@@ -507,7 +983,7 @@ class _MRPScreenState extends State<MRPScreen> {
                 title: const Text('Exportación Exitosa'),
                 content: Text(
                   'Reporte generado: $fileName. '
-                  '${_mrpData.length} ítems MP · '
+                  '${_mrpData.length} materiales MP · '
                   '${_comercialesData.length} comerciales · '
                   '${_orphanData.length} huérfanos.',
                 ),
@@ -523,10 +999,12 @@ class _MRPScreenState extends State<MRPScreen> {
     }
   }
 
+  // Área: m² = mm² / 1_000_000 ; in² = mm² / 645.16 (= 25.4² mm²/in²).
+  // Equivalente al enunciado del usuario: in² = m² / 0.00064516.
   String _formatArea(double mm2) {
     if (mm2 == 0) return "0.00 m²  /  0.00 in²";
     final double m2  = mm2 / 1_000_000.0;
-    final double in2 = mm2 / 645.16129;
+    final double in2 = mm2 / 645.16;
     return '${_decFormat.format(m2)} m²  /  ${_decFormat.format(in2)} in²';
   }
 
@@ -649,6 +1127,22 @@ class _MRPScreenState extends State<MRPScreen> {
                       ],
                     ),
                   ),
+            if (widget.mode == MRPViewMode.requerimientos && hasResults)
+              Tooltip(
+                message: 'Configurar sugerencias de compra (placas / perfiles)',
+                child: IconButton(
+                  icon: const Icon(FluentIcons.shopping_cart),
+                  onPressed: _selectedRevisionId == null
+                      ? null
+                      : () => MrpCompraConfigDialog.show(
+                            context,
+                            mrpRows: _mrpData,
+                            initialConfig: _compraConfig,
+                            formatos: _formatosCompra,
+                            onSaved: _calculateMRP,
+                          ),
+                ),
+              ),
             Tooltip(
               message: "Exportar a Excel",
               child: IconButton(
@@ -719,27 +1213,27 @@ class _MRPScreenState extends State<MRPScreen> {
     }
 
     return Padding(
-      padding: const EdgeInsets.all(16.0),
+      padding: const EdgeInsets.fromLTRB(12.0, 6.0, 12.0, 4.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Revisión seleccionada ────────────────────────────────────────
+          // ── Revisión seleccionada (banner compacto) ──────────────────────
           if (_selectedRevisionName != null)
             Padding(
-              padding: const EdgeInsets.only(bottom: 12.0),
+              padding: const EdgeInsets.only(bottom: 4.0),
               child: Row(
                 children: [
-                  const Icon(FluentIcons.file_code, size: 16),
-                  const SizedBox(width: 8),
+                  const Icon(FluentIcons.file_code, size: 14),
+                  const SizedBox(width: 6),
                   Expanded(
                     child: Text(
                       _selectedRevisionName!,
                       style: FluentTheme.of(context)
                           .typography
                           .bodyStrong
-                          ?.copyWith(fontSize: 13),
+                          ?.copyWith(fontSize: 12),
                       overflow: TextOverflow.ellipsis,
-                      maxLines: 2,
+                      maxLines: 1,
                     ),
                   ),
                 ],
@@ -747,11 +1241,9 @@ class _MRPScreenState extends State<MRPScreen> {
             ),
 
           if (widget.mode == MRPViewMode.requerimientos) ...[
-            // ── Pestañas ───────────────────────────────────────────────────
-            _buildTabBar(),
-            const SizedBox(height: 12),
-            _buildFiltrosOperativos(),
-            const SizedBox(height: 8),
+            // ── Pestañas + filtros en la misma línea ─────────────────────
+            _buildTabBarWithFilters(),
+            const SizedBox(height: 4),
             Expanded(child: _buildActivePanel()),
           ] else ...[
             Expanded(child: _buildOptimizarCortePanel()),
@@ -761,35 +1253,55 @@ class _MRPScreenState extends State<MRPScreen> {
     );
   }
 
-  // ── Tab bar ───────────────────────────────────────────────────────────────
+  // ── Tab bar + filtros en una sola línea compacta ─────────────────────────
 
-  Widget _buildTabBar() {
-    return Row(
-      children: [
-        _tabButton(
-          index: 0,
-          icon: FluentIcons.manufacturing,
-          label: 'Materia Prima / Placas',
-          count: _mrpData.length,
-          activeColor: const Color(0xFF1565C0),
-        ),
-        const SizedBox(width: 8),
-        _tabButton(
-          index: 1,
-          icon: FluentIcons.shop,
-          label: 'Componentes Comerciales',
-          count: _comercialesData.length,
-          activeColor: const Color(0xFF6A1B9A),
-        ),
-        const SizedBox(width: 8),
-        _tabButton(
-          index: 2,
-          icon: FluentIcons.warning,
-          label: 'Auditoría / Huérfanos',
-          count: _orphanData.length,
-          activeColor: const Color(0xFFC62828),
-        ),
-      ],
+  Widget _buildTabBarWithFilters() {
+    // Wrap evita overflow horizontal cuando el panel es estrecho (~486 px).
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final filterWidth = constraints.maxWidth < 520
+            ? constraints.maxWidth
+            : 220.0;
+        return Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            _tabButton(
+              index: 0,
+              icon: FluentIcons.manufacturing,
+              label: 'Materia Prima',
+              count: _mrpData.length,
+              activeColor: const Color(0xFF1565C0),
+            ),
+            _tabButton(
+              index: 1,
+              icon: FluentIcons.shop,
+              label: 'Comerciales',
+              count: _comercialesData.length,
+              activeColor: const Color(0xFF6A1B9A),
+            ),
+            _tabButton(
+              index: 2,
+              icon: FluentIcons.warning,
+              label: 'Huérfanos',
+              count: _orphanData.length,
+              activeColor: const Color(0xFFC62828),
+            ),
+            if (_tabIndex == 0)
+              SizedBox(
+                width: filterWidth,
+                height: 28,
+                child: TextBox(
+                  placeholder: 'Filtrar material...',
+                  onChanged: (v) => setState(() => _filtroTexto = v),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 
@@ -812,10 +1324,10 @@ class _MRPScreenState extends State<MRPScreen> {
       onTap: () => setState(() => _tabIndex = index),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
         decoration: BoxDecoration(
           color: isActive ? activeColor : Colors.transparent,
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: BorderRadius.circular(5),
           border: Border.all(
             color: isActive
                 ? activeColor
@@ -827,8 +1339,8 @@ class _MRPScreenState extends State<MRPScreen> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 14, color: textColor),
-            const SizedBox(width: 6),
+            Icon(icon, size: 13, color: textColor),
+            const SizedBox(width: 5),
             Text(
               label,
               style: TextStyle(
@@ -836,18 +1348,20 @@ class _MRPScreenState extends State<MRPScreen> {
                   fontWeight:
                       isActive ? FontWeight.bold : FontWeight.normal,
                   color: textColor),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 5),
             Container(
               padding:
-                  const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
               decoration: BoxDecoration(
                 color: isActive
                     ? Colors.white.withValues(alpha: 0.25)
                     : (isDark
                         ? Colors.white.withValues(alpha: 0.1)
                         : Colors.black.withValues(alpha: 0.08)),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
                 '$count',
@@ -861,42 +1375,6 @@ class _MRPScreenState extends State<MRPScreen> {
   }
 
   // ── Panels ────────────────────────────────────────────────────────────────
-
-  Widget _buildFiltrosOperativos() {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        SizedBox(
-          width: 240,
-          child: TextBox(
-            placeholder: 'Filtrar material / acción...',
-            onChanged: (v) => setState(() => _filtroTexto = v),
-          ),
-        ),
-        SizedBox(
-          width: 140,
-          child: ComboBox<String>(
-            value: _filtroRiesgo,
-            isExpanded: true,
-            items: const [
-              ComboBoxItem(value: 'Todos', child: Text('Riesgo: Todos')),
-              ComboBoxItem(value: 'Crítico', child: Text('Crítico')),
-              ComboBoxItem(value: 'Alerta', child: Text('Alerta')),
-              ComboBoxItem(value: 'Estable', child: Text('Estable')),
-            ],
-            onChanged: (v) => setState(() => _filtroRiesgo = v ?? 'Todos'),
-          ),
-        ),
-        ToggleSwitch(
-          checked: _soloConBrecha,
-          content: const Text('Solo con brecha'),
-          onChanged: (v) => setState(() => _soloConBrecha = v),
-        ),
-      ],
-    );
-  }
 
   Widget _buildActivePanel() {
     switch (_tabIndex) {
@@ -925,11 +1403,11 @@ class _MRPScreenState extends State<MRPScreen> {
         children: [
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.all(8.0),
+              padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 4.0),
               children: [
                 _buildHeaderRow(),
                 const Divider(),
-                ...mp.map((row) => _buildDataRow(row)),
+                ...mp.map((row) => _buildExpandableMPRow(row)),
               ],
             ),
           ),
@@ -1290,22 +1768,19 @@ class _MRPScreenState extends State<MRPScreen> {
         : _d(block['stock_asociado_total_unidades']);
     final faltante = forComerciales
         ? _d(block['faltante_total_unidades'])
-        : _d(block['brecha_total_unidades']);
-    final lineas = forComerciales
-        ? _d(block['lineas_con_faltante']).toInt()
-        : _d(block['lineas_con_brecha']).toInt();
+        : 0.0; // Brecha retirada de la vista MP
     final syncText = (resumen['ultima_sync_stock_pt'] ?? '').toString();
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: Colors.grey.withValues(alpha: 0.25))),
         color: Colors.black.withValues(alpha: 0.03),
       ),
       child: Wrap(
-        spacing: 16,
-        runSpacing: 8,
+        spacing: 14,
+        runSpacing: 4,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           Text(
@@ -1313,17 +1788,15 @@ class _MRPScreenState extends State<MRPScreen> {
             style: const TextStyle(fontWeight: FontWeight.w700),
           ),
           Text('Demanda: ${_numFormat.format(demanda.round())}'),
-          Text('Stock: ${_numFormat.format(stock.round())}'),
-          Text(
-            forComerciales
-                ? 'Faltante: ${_numFormat.format(faltante.round())}'
-                : 'Brecha: ${_numFormat.format(faltante.round())}',
-            style: TextStyle(
-              fontWeight: FontWeight.w700,
-              color: faltante > 0 ? const Color(0xFFC62828) : const Color(0xFF2E7D32),
+          Text('Stock PT: ${_numFormat.format(stock.round())}'),
+          if (forComerciales && faltante > 0)
+            Text(
+              'Faltante: ${_numFormat.format(faltante.round())}',
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                color: Color(0xFFC62828),
+              ),
             ),
-          ),
-          Text('Líneas con brecha: $lineas'),
           if (syncText.isNotEmpty)
             Text(
               'Última sync stock: $syncText',
@@ -1346,142 +1819,407 @@ class _MRPScreenState extends State<MRPScreen> {
   // ── Materia Prima rows ────────────────────────────────────────────────────
 
   Widget _buildHeaderRow() {
-    final style = FluentTheme.of(context)
-        .typography
-        .body
-        ?.copyWith(fontWeight: FontWeight.bold);
+    final isDark = FluentTheme.of(context).brightness == Brightness.dark;
+    final textSecondary = isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
-      child: Row(
+      padding: const EdgeInsets.fromLTRB(10, 2, 10, 4),
+      child: Text(
+        'Toca una fila para ver las piezas que componen cada material.',
+        style: TextStyle(
+          fontSize: 11,
+          fontStyle: FontStyle.italic,
+          color: textSecondary,
+        ),
+      ),
+    );
+  }
+
+  /// Fila padre expandible — tarjeta de 3 líneas con colores dinámicos de tema.
+  Widget _buildExpandableMPRow(Map<String, dynamic> row) {
+    final mat       = _materialOficialMP(row);
+    final isExpanded = _expandedMaterials.contains(mat);
+    final rawPiezas  = row['piezas'];
+    final piezas     = rawPiezas is List
+        ? rawPiezas.map((e) => Map<String, dynamic>.from(e as Map)).toList()
+        : <Map<String, dynamic>>[];
+
+    final isDark  = FluentTheme.of(context).brightness == Brightness.dark;
+    final accent  = FluentTheme.of(context).accentColor;
+    // Fondo de la tarjeta expandida — sutil tinte del accent color.
+    final expandedBg = isDark
+        ? const Color(0xFF141E33)
+        : accent.withValues(alpha: 0.05);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // ── Tarjeta padre ────────────────────────────────────────────────
+        MouseRegion(
+          cursor: piezas.isNotEmpty
+              ? SystemMouseCursors.click
+              : SystemMouseCursors.basic,
+          child: GestureDetector(
+            onTap: piezas.isNotEmpty
+                ? () => setState(() {
+                      if (isExpanded) _expandedMaterials.remove(mat);
+                      else _expandedMaterials.add(mat);
+                    })
+                : null,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 120),
+              margin: const EdgeInsets.symmetric(vertical: 2),
+              padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 10.0),
+              decoration: BoxDecoration(
+                color: isExpanded ? expandedBg : null,
+                borderRadius: BorderRadius.circular(6),
+                border: isExpanded
+                    ? Border.all(
+                        color: accent.withValues(alpha: 0.35), width: 1.0)
+                    : Border.all(color: Colors.transparent),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // Ícono chevron — color del accent
+                  SizedBox(
+                    width: 22,
+                    child: piezas.isNotEmpty
+                        ? Icon(
+                            isExpanded
+                                ? FluentIcons.chevron_down_med
+                                : FluentIcons.chevron_right_med,
+                            size: 11,
+                            color: accent,
+                          )
+                        : null,
+                  ),
+                  const SizedBox(width: 4),
+                  // Contenido de la tarjeta
+                  Expanded(child: _buildMPParentCard(row, isDark, accent)),
+                ],
+              ),
+            ),
+          ),
+        ),
+        // ── Filas hija (piezas) ──────────────────────────────────────────
+        if (isExpanded) ...[
+          Container(
+            margin: const EdgeInsets.only(left: 26, bottom: 4),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.black.withValues(alpha: 0.18)
+                  : const Color(0xFFF5F7FF),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Column(
+              children: [
+                _buildPiezaChildHeader(),
+                ...piezas.map((p) => _buildPiezaChildRow(p)),
+              ],
+            ),
+          ),
+          const Divider(),
+        ],
+      ],
+    );
+  }
+
+  /// Contenido de la tarjeta padre: 3 líneas semánticas.
+  ///
+  /// Línea 1 — nombre del material (negrita) + badge de calibre canónico.
+  /// Línea 2 — métricas: Área · Demanda · Stock PT.
+  /// Línea 3 — sugerencia de compra (resaltada con accent color).
+  Widget _buildMPParentCard(
+      Map<String, dynamic> row, bool isDark, AccentColor accent) {
+    final mat      = _materialOficialMP(row);
+    final calibre  = row['Calibre_Espesor']?.toString() ?? 'N/A';
+    final areaMm2  = _d(row['Requerimiento_Area_mm2']);
+    final areaM2   = areaMm2 / 1_000_000.0;
+    final areaIn2  = areaMm2 / 645.16;
+    final demanda  = _d(row['Cantidad_Total_Piezas']);
+    final stock    = _d(row['Stock_Asociado_Estimado']);
+    final sugerencia = row['Sugerencia_Compra']?.toString() ?? '';
+
+    // Colores semánticos — se derivan del tema dinámicamente.
+    final textPrimary   = isDark ? const Color(0xFFF1F5F9) : const Color(0xFF0F172A);
+    final textSecondary = isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
+    final stockColor    = stock > 0
+        ? (isDark ? const Color(0xFF6EE7B7) : const Color(0xFF059669))
+        : textSecondary;
+    final warningColor  = isDark ? Colors.orange.lighter : Colors.orange.darkest;
+    final isPending     = sugerencia.contains('Pendiente');
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // ── Línea 1: Material + Calibre ───────────────────────────────────
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                mat,
+                style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w700,
+                  color: mat == 'FALTA ASIGNAR EN CAD'
+                      ? warningColor
+                      : textPrimary,
+                ),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 2,
+              ),
+            ),
+            if (calibre != 'N/A') ...[
+              const SizedBox(width: 8),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(4),
+                  border:
+                      Border.all(color: accent.withValues(alpha: 0.28)),
+                ),
+                child: Text(
+                  calibre,
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: accent,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+        // ── Línea 2: Área · Demanda · Stock PT ───────────────────────────
+        const SizedBox(height: 4),
+        Wrap(
+          spacing: 14,
+          runSpacing: 2,
+          children: [
+            _metricLabel(
+              'Área',
+              areaMm2 > 0
+                  ? '${_decFormat.format(areaM2)} m²  /  '
+                      '${_decFormat.format(areaIn2)} in²'
+                  : '—',
+              textSecondary,
+              textPrimary,
+            ),
+            _metricLabel(
+              'Demanda',
+              '${_numFormat.format(demanda.round())} u.',
+              textSecondary,
+              textPrimary,
+            ),
+            _metricLabel(
+              'Stock PT',
+              '${_numFormat.format(stock.round())} u.',
+              textSecondary,
+              stockColor,
+            ),
+          ],
+        ),
+        // ── Línea 3: Sugerencia de compra ────────────────────────────────
+        if (sugerencia.isNotEmpty && sugerencia != 'N/A') ...[
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              Icon(
+                isPending ? FluentIcons.warning : FluentIcons.shop,
+                size: 11,
+                color: isPending ? warningColor : accent,
+              ),
+              const SizedBox(width: 4),
+              Flexible(
+                child: Text(
+                  sugerencia,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: isPending ? warningColor : accent,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// Widget inline "Label: Valor" con colores independientes.
+  Widget _metricLabel(
+      String label, String value, Color labelColor, Color valueColor) {
+    return RichText(
+      text: TextSpan(
         children: [
-          Expanded(flex: 3, child: Text('MATERIAL OFICIAL', style: style)),
-          Expanded(flex: 2, child: Text('CALIBRE / ESPESOR', style: style)),
-          Expanded(
-              flex: 2,
-              child:
-                  Text('PIEZAS', style: style, textAlign: TextAlign.right)),
-          Expanded(
-              flex: 3,
-              child: Text('ÁREA TOTAL REQUERIDA',
-                  style: style, textAlign: TextAlign.right)),
-          Expanded(
-              flex: 2,
-              child: Text('STOCK EST.',
-                  style: style, textAlign: TextAlign.right)),
-          Expanded(
-              flex: 2,
-              child: Text('BRECHA EST.',
-                  style: style, textAlign: TextAlign.right)),
-          Expanded(
-              flex: 2,
-              child: Text('RIESGO',
-                  style: style, textAlign: TextAlign.right)),
-          Expanded(
-              flex: 4,
-              child: Text('ORDEN DE COMPRA SUGERIDA',
-                  style: style, textAlign: TextAlign.right)),
+          TextSpan(
+            text: '$label: ',
+            style: TextStyle(fontSize: 11.5, color: labelColor),
+          ),
+          TextSpan(
+            text: value,
+            style: TextStyle(
+                fontSize: 11.5,
+                color: valueColor,
+                fontWeight: FontWeight.w600),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildDataRow(Map<String, dynamic> row) {
-    final double areaMm2 = (row['Requerimiento_Area_mm2'] ?? 0).toDouble();
-    final double piezas  = (row['Cantidad_Total_Piezas'] ?? 0).toDouble();
-    final stockEst = _d(row['Stock_Asociado_Estimado']);
-    final brechaEst = _d(row['Brecha_Estimada']);
-    final riesgo = _riesgoMp(row);
+  /// Sub-cabecera de las filas hija — aparece encima del primer hijo expandido.
+  Widget _buildPiezaChildHeader() {
     final isDark = FluentTheme.of(context).brightness == Brightness.dark;
-    final dataColor = isDark
-        ? Colors.white.withValues(alpha: 0.9)
-        : Colors.black.withValues(alpha: 0.85);
-    final base =
-        TextStyle(color: dataColor, fontWeight: FontWeight.normal, fontSize: 13);
-
+    final dimColor = isDark ? const Color(0xFF64748B) : const Color(0xFF9CA3AF);
+    final s = TextStyle(
+      fontSize: 10,
+      fontWeight: FontWeight.w700,
+      letterSpacing: 0.4,
+      color: dimColor,
+    );
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 12.0),
+      padding: const EdgeInsets.only(
+          left: 44.0, right: 8.0, top: 4.0, bottom: 1.0),
       child: Row(
         children: [
-          Expanded(
-            flex: 3,
-            child: Text(
-              _materialOficialMP(row),
-              style: base.copyWith(
-                fontWeight: FontWeight.w600,
-                color: _materialOficialMP(row) == 'FALTA ASIGNAR EN CAD'
-                    ? (isDark ? Colors.orange.lighter : Colors.orange.darkest)
-                    : null,
-              ),
-            ),
-          ),
+          Expanded(flex: 5, child: Text('CÓDIGO PIEZA', style: s)),
           Expanded(
               flex: 2,
-              child: Text(
-                  row['Calibre_Espesor']?.toString() ?? 'N/A',
-                  style: base)),
+              child: Text('CANT.', style: s, textAlign: TextAlign.right)),
           Expanded(
-            flex: 2,
-            child: Text(
-              _numFormat.format(piezas),
-              textAlign: TextAlign.right,
-              style: base.copyWith(fontWeight: FontWeight.bold),
-            ),
-          ),
+              flex: 2,
+              child: Text('ÁREA m²', style: s, textAlign: TextAlign.right)),
           Expanded(
-            flex: 3,
-            child: Text(
-              _formatArea(areaMm2),
-              textAlign: TextAlign.right,
-              style: base,
-            ),
-          ),
+              flex: 2,
+              child: Text('ÁREA in²', style: s, textAlign: TextAlign.right)),
           Expanded(
-            flex: 2,
-            child: Text(
-              _numFormat.format(stockEst.round()),
-              textAlign: TextAlign.right,
-              style: base.copyWith(fontWeight: FontWeight.w600),
-            ),
-          ),
+              flex: 2,
+              child:
+                  Text('LARGO mm', style: s, textAlign: TextAlign.right)),
           Expanded(
-            flex: 2,
+              flex: 2,
+              child:
+                  Text('ANCHO mm', style: s, textAlign: TextAlign.right)),
+          Expanded(
+              flex: 2,
+              child: Text('STOCK PT', style: s, textAlign: TextAlign.right)),
+          const Expanded(flex: 3, child: SizedBox()),
+        ],
+      ),
+    );
+  }
+
+  /// Fila hija — código, cantidad, área m², área in², largo, ancho, stock PT.
+  Widget _buildPiezaChildRow(Map<String, dynamic> pieza) {
+    final isDark = FluentTheme.of(context).brightness == Brightness.dark;
+    final accent = FluentTheme.of(context).accentColor;
+
+    final codigo   = pieza['codigo_pieza']?.toString() ?? '-';
+    final cantidad = _d(pieza['cantidad']);
+    final areaMm2  = _d(pieza['area_mm2']);
+    final largoMm  = _d(pieza['largo_mm']);
+    final anchoMm  = _d(pieza['ancho_mm']);
+    final stockP   = _d(pieza['stock_pieza']);
+
+    final areaM2  = areaMm2 / 1_000_000.0;
+    final areaIn2 = areaMm2 / 645.16;
+
+    // Colores completamente derivados del tema — sin valores hex fijos.
+    final childColor = isDark ? const Color(0xFFCBD5E1) : const Color(0xFF334155);
+    final dimColor   = isDark ? const Color(0xFF64748B) : const Color(0xFF9CA3AF);
+    final codeColor  = accent;
+
+    final style = TextStyle(
+        fontSize: 12, color: childColor, fontWeight: FontWeight.normal);
+
+    String _fmt(double v) =>
+        v > 0 ? _decFormat.format(v) : '—';
+
+    return Padding(
+      padding: const EdgeInsets.only(
+          left: 44.0, right: 8.0, top: 3.0, bottom: 3.0),
+      child: Row(
+        children: [
+          // Código pieza
+          Expanded(
+            flex: 5,
             child: Text(
-              _numFormat.format(brechaEst.round()),
-              textAlign: TextAlign.right,
-              style: base.copyWith(
-                fontWeight: FontWeight.w700,
-                color: brechaEst > 0
-                    ? (isDark ? const Color(0xFFFFAB91) : const Color(0xFFC62828))
-                    : (isDark ? const Color(0xFFB2DFDB) : const Color(0xFF2E7D32)),
+              codigo,
+              style: style.copyWith(
+                fontFamily: 'monospace',
+                fontWeight: FontWeight.w500,
+                color: codeColor,
               ),
             ),
           ),
+          // Cantidad
           Expanded(
             flex: 2,
             child: Text(
-              riesgo,
+              _numFormat.format(cantidad),
               textAlign: TextAlign.right,
-              style: base.copyWith(
-                fontWeight: FontWeight.w700,
-                color: riesgo == 'Crítico'
-                    ? const Color(0xFFC62828)
-                    : riesgo == 'Alerta'
-                        ? const Color(0xFFEF6C00)
-                        : const Color(0xFF2E7D32),
-              ),
+              style: style,
             ),
           ),
+          // Área m²
           Expanded(
-            flex: 4,
+            flex: 2,
             child: Text(
-              row['Sugerencia_Compra']?.toString() ?? 'N/A',
+              areaMm2 > 0 ? _decFormat.format(areaM2) : '—',
               textAlign: TextAlign.right,
-              style: base.copyWith(
-                color: isDark ? Colors.orange.lighter : Colors.orange.darkest,
-                fontWeight: FontWeight.bold,
+              style: style,
+            ),
+          ),
+          // Área in²
+          Expanded(
+            flex: 2,
+            child: Text(
+              areaMm2 > 0 ? _decFormat.format(areaIn2) : '—',
+              textAlign: TextAlign.right,
+              style: style.copyWith(color: dimColor),
+            ),
+          ),
+          // Largo mm
+          Expanded(
+            flex: 2,
+            child: Text(
+              _fmt(largoMm),
+              textAlign: TextAlign.right,
+              style: style.copyWith(color: dimColor),
+            ),
+          ),
+          // Ancho mm
+          Expanded(
+            flex: 2,
+            child: Text(
+              _fmt(anchoMm),
+              textAlign: TextAlign.right,
+              style: style.copyWith(color: dimColor),
+            ),
+          ),
+          // Stock PT pieza
+          Expanded(
+            flex: 2,
+            child: Text(
+              _numFormat.format(stockP.round()),
+              textAlign: TextAlign.right,
+              style: style.copyWith(
+                color: stockP > 0
+                    ? (isDark
+                        ? const Color(0xFFB2DFDB)
+                        : const Color(0xFF2E7D32))
+                    : childColor,
               ),
             ),
           ),
+          // Spacer para columnas padre que no aplican a piezas individuales
+          const Expanded(flex: 3, child: SizedBox()),
         ],
       ),
     );
@@ -1530,9 +2268,7 @@ class _MRPScreenState extends State<MRPScreen> {
 
   Widget _buildComercialDataRow(Map<String, dynamic> row) {
     final isDark = FluentTheme.of(context).brightness == Brightness.dark;
-    final dataColor = isDark
-        ? Colors.white.withValues(alpha: 0.9)
-        : Colors.black.withValues(alpha: 0.85);
+    final dataColor = isDark ? const Color(0xFFCBD5E1) : const Color(0xFF1E293B);
     final base =
         TextStyle(color: dataColor, fontWeight: FontWeight.normal, fontSize: 13);
     final double cant = (row['Cantidad_Total'] ?? 0).toDouble();

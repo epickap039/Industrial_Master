@@ -999,32 +999,27 @@ End Sub''';
                                     ),
                                   ),
                                   const SizedBox(height: 6),
-                                  Row(
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       RadioButton(
                                         checked: _maestroSoloFaltantes,
-                                        onChanged:
-                                            isBusy
-                                                ? null
-                                                : (v) => setState(
-                                                  () =>
-                                                      _maestroSoloFaltantes =
-                                                          true,
+                                        onChanged: isBusy
+                                            ? null
+                                            : (v) => setState(
+                                                  () => _maestroSoloFaltantes = true,
                                                 ),
                                         content: const Text(
                                           'Solo Faltantes (sin medidas en BD)',
                                         ),
                                       ),
-                                      const SizedBox(width: 24),
+                                      const SizedBox(height: 6),
                                       RadioButton(
                                         checked: !_maestroSoloFaltantes,
-                                        onChanged:
-                                            isBusy
-                                                ? null
-                                                : (v) => setState(
-                                                  () =>
-                                                      _maestroSoloFaltantes =
-                                                          false,
+                                        onChanged: isBusy
+                                            ? null
+                                            : (v) => setState(
+                                                  () => _maestroSoloFaltantes = false,
                                                 ),
                                         content: const Text(
                                           'Analizar Todo el Catálogo',
@@ -1076,24 +1071,25 @@ End Sub''';
                                                 material.Colors.teal,
                                               ),
                                     ),
-                                    child: const Padding(
-                                      padding: EdgeInsets.symmetric(
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
                                         horizontal: 16,
                                         vertical: 10,
                                       ),
                                       child: Row(
-                                        mainAxisSize: MainAxisSize.min,
                                         children: [
-                                          Icon(
+                                          const Icon(
                                             FluentIcons.cloud_download,
                                             size: 18,
                                           ),
-                                          SizedBox(width: 8),
-                                          Text(
-                                            'Fase 1: Traer de Red y Convertir 2D (DWG a DXF)',
-                                            style: TextStyle(
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.bold,
+                                          const SizedBox(width: 8),
+                                          const Flexible(
+                                            child: Text(
+                                              'Fase 1: Traer de Red y Convertir 2D (DWG a DXF)',
+                                              style: TextStyle(
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.bold,
+                                              ),
                                             ),
                                           ),
                                         ],
@@ -1139,21 +1135,23 @@ End Sub''';
                                                 material.Colors.deepPurple,
                                               ),
                                     ),
-                                    child: const Padding(
-                                      padding: EdgeInsets.symmetric(
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
                                         horizontal: 16,
                                         vertical: 10,
                                       ),
                                       child: Row(
-                                        mainAxisSize: MainAxisSize.min,
+                                        crossAxisAlignment: CrossAxisAlignment.center,
                                         children: [
-                                          Icon(FluentIcons.table, size: 18),
-                                          SizedBox(width: 8),
-                                          Text(
-                                            "Fase 2: Auditar piezas ubicadas en la 'Carpeta Destino (Local)' seleccionada arriba",
-                                            style: TextStyle(
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.bold,
+                                          const Icon(FluentIcons.table, size: 18),
+                                          const SizedBox(width: 8),
+                                          const Flexible(
+                                            child: Text(
+                                              'Fase 2: Auditar piezas en Carpeta Destino (Local)',
+                                              style: TextStyle(
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.bold,
+                                              ),
                                             ),
                                           ),
                                         ],
