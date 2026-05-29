@@ -232,7 +232,12 @@ NavigationPane buildIndustrialNavigationPane({
         ),
       ),
   ];
-  final reviewLocksEnabled = ar != AppRole.desarrollador;
+  // Paneles que se muestran bloqueados (en revisión) para el rol actual.
+  // Ingeniería accede a MRP sin candado; desarrollador no tiene bloqueos.
+  final lockedPaneIds = <NavPaneId>{
+    for (final id in kNavPaneIdsUnderReview)
+      if (navPaneLockedForRole(id, ar)) id,
+  };
 
   PaneItem railPaneItem({
     required IconData iconData,
@@ -279,7 +284,7 @@ NavigationPane buildIndustrialNavigationPane({
             modules: operacionModules,
             requestedPaneId: requestedPaneId,
             onActiveLeafPaneChanged: onActiveLeafPaneChanged,
-            reviewLocksEnabled: reviewLocksEnabled,
+            lockedPaneIds: lockedPaneIds,
           ),
         ),
       ),
@@ -293,7 +298,7 @@ NavigationPane buildIndustrialNavigationPane({
             modules: ingenieriaModules,
             requestedPaneId: requestedPaneId,
             onActiveLeafPaneChanged: onActiveLeafPaneChanged,
-            reviewLocksEnabled: reviewLocksEnabled,
+            lockedPaneIds: lockedPaneIds,
           ),
         ),
       ),
@@ -307,7 +312,7 @@ NavigationPane buildIndustrialNavigationPane({
             modules: seguimientoModules,
             requestedPaneId: requestedPaneId,
             onActiveLeafPaneChanged: onActiveLeafPaneChanged,
-            reviewLocksEnabled: reviewLocksEnabled,
+            lockedPaneIds: lockedPaneIds,
           ),
         ),
       ),
@@ -321,7 +326,7 @@ NavigationPane buildIndustrialNavigationPane({
             modules: datosModules,
             requestedPaneId: requestedPaneId,
             onActiveLeafPaneChanged: onActiveLeafPaneChanged,
-            reviewLocksEnabled: reviewLocksEnabled,
+            lockedPaneIds: lockedPaneIds,
           ),
         ),
       ),
@@ -408,14 +413,14 @@ class _SectionHubScreen extends StatefulWidget {
     required this.modules,
     required this.requestedPaneId,
     required this.onActiveLeafPaneChanged,
-    required this.reviewLocksEnabled,
+    required this.lockedPaneIds,
   });
 
   final String sectionTitle;
   final List<_SectionModule> modules;
   final NavPaneId? requestedPaneId;
   final ValueChanged<NavPaneId?> onActiveLeafPaneChanged;
-  final bool reviewLocksEnabled;
+  final Set<NavPaneId> lockedPaneIds;
 
   @override
   State<_SectionHubScreen> createState() => _SectionHubScreenState();
@@ -566,8 +571,8 @@ class _SectionHubScreenState extends State<_SectionHubScreen> {
                                   ? theme.accentColor
                                   : theme.typography.body?.color,
                             ),
-                            if (widget.reviewLocksEnabled &&
-                                navPaneUnderReview(widget.modules[i].id))
+                            if (widget.lockedPaneIds
+                                .contains(widget.modules[i].id))
                               const Positioned(
                                 right: -4,
                                 top: -4,
@@ -644,8 +649,8 @@ class _SectionHubScreenState extends State<_SectionHubScreen> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(widget.modules[i].icon, size: 12),
-                          if (widget.reviewLocksEnabled &&
-                              navPaneUnderReview(widget.modules[i].id)) ...[
+                          if (widget.lockedPaneIds
+                              .contains(widget.modules[i].id)) ...[
                             const SizedBox(width: 4),
                             const Icon(FluentIcons.lock, size: 11),
                           ],
@@ -678,8 +683,7 @@ class _SectionHubScreenState extends State<_SectionHubScreen> {
                 if (!_loadedModuleIndexes.contains(i))
                   const SizedBox.shrink()
                 else
-                  widget.reviewLocksEnabled &&
-                          navPaneUnderReview(widget.modules[i].id)
+                  widget.lockedPaneIds.contains(widget.modules[i].id)
                       ? _LockedModulePlaceholder(title: widget.modules[i].title)
                       : widget.modules[i].body,
             ],

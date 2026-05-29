@@ -23,6 +23,8 @@ import 'services/chat_windows_notification_service.dart';
 import 'services/main_nav.dart';
 import 'services/nav_pane.dart';
 import 'services/navigation_usage_service.dart';
+import 'services/app_telemetry_sync.dart';
+import 'services/jwt_utils.dart';
 import 'services/dev_usage_feature_ids.dart';
 import 'services/shell_poll_gates.dart';
 import 'services/tareas_lista_coordinator.dart';
@@ -69,6 +71,10 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   NavPaneId? _activeLeafPane;
   final List<AutoSuggestBoxItem<dynamic>> _searchItems = [];
 
+  /// Latido de presencia: mantiene "conectado" al usuario y reporta la pantalla
+  /// activa para la telemetría de usuarios activos (dev/ingeniería).
+  Timer? _presenceTimer;
+
   /// Barra ancha por defecto; el botón permite colapsar a modo íconos.
   PaneDisplayMode _navPaneDisplayMode = PaneDisplayMode.open;
 
@@ -88,8 +94,32 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _presenceTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  /// Arranca el latido de presencia (idempotente). Reporta de inmediato y luego
+  /// cada 90 s mientras la sesión siga activa.
+  void _startPresenceHeartbeat() {
+    _presenceTimer?.cancel();
+    _sendPresenceHeartbeat();
+    _presenceTimer = Timer.periodic(const Duration(seconds: 90), (_) {
+      _sendPresenceHeartbeat();
+    });
+  }
+
+  void _stopPresenceHeartbeat() {
+    _presenceTimer?.cancel();
+    _presenceTimer = null;
+  }
+
+  void _sendPresenceHeartbeat() {
+    if (!_isLoggedIn) return;
+    AppTelemetrySync.reportHeartbeat(
+      paneId: _activeLeafPane,
+      roleRaw: _effectiveRole,
+    );
   }
 
   @override
@@ -106,10 +136,13 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   Future<void> _checkLoginStatus() async {
     final prefs = await SharedPreferences.getInstance();
     final isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
-    final hasToken = (prefs.getString('access_token') ?? '').trim().isNotEmpty;
+    final token = (prefs.getString('access_token') ?? '').trim();
     final storedRole = prefs.getString('rol') ?? 'USER';
+    // Sesión persistente salvo cierre manual; pero si el token JWT ya caducó
+    // (tokens viejos de 7 días) se limpia para forzar re-login y evitar 401.
+    final tokenVigente = token.isNotEmpty && !JwtUtils.isExpired(token);
 
-    if (isLoggedIn && hasToken) {
+    if (isLoggedIn && tokenVigente) {
       MainNav.registerRole(storedRole);
       MainNav.setSimulatedRole(null);
       TareasListaCoordinator.instance.invalidate();
@@ -119,6 +152,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         _simulatedRoleOverride = null;
         _activeLeafPane = null;
       });
+      _startPresenceHeartbeat();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         ShellPollGates.sync(
@@ -126,6 +160,9 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           activeLeafPane: _activeLeafPane,
         );
       });
+    } else if (isLoggedIn && !tokenVigente) {
+      await prefs.setBool('isLoggedIn', false);
+      await prefs.remove('access_token');
     }
     setState(() {
       _isLoadingAuth = false;
@@ -153,6 +190,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       topIndex = 0;
       _activeLeafPane = null;
     });
+    _startPresenceHeartbeat();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       ShellPollGates.sync(
@@ -211,6 +249,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   }
 
   void _logout(BuildContext context) async {
+    _stopPresenceHeartbeat();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('isLoggedIn', false);
     await prefs.remove('access_token');

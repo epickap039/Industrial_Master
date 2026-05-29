@@ -243,6 +243,11 @@ extension AppRoleAccess on AppRole {
       this == AppRole.desarrollador ||
       this == AppRole.ingenieriaMetodos;
 
+  /// Telemetría de uso y usuarios conectados: solo **Desarrollador** e
+  /// **Ingeniería / métodos** (endpoints `/api/dev/telemetry/*`).
+  bool get canViewDevTelemetry =>
+      this == AppRole.desarrollador || this == AppRole.ingenieriaMetodos;
+
   bool get catalogCanEditRows =>
       this == AppRole.administrador ||
       this == AppRole.desarrollador ||

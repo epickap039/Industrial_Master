@@ -1,0 +1,554 @@
+{
+  "global": {
+    "ACERO ASTM A36 1/8\"": {
+      "habilitado": true,
+      "formato_id": "auto",
+      "tipo_compra": "",
+      "largo_pies": 10.0,
+      "ancho_pies": 4.0,
+      "distancia_metros": null,
+      "texto": ""
+    },
+    "ACERO ASTM A36 3/16\"": {
+      "habilitado": true,
+      "formato_id": "auto",
+      "tipo_compra": "",
+      "largo_pies": 10.0,
+      "ancho_pies": 4.0,
+      "distancia_metros": null,
+      "texto": ""
+    },
+    "ACERO ASTM A36 C.10": {
+      "habilitado": true,
+      "formato_id": "auto",
+      "tipo_compra": "",
+      "largo_pies": 10.0,
+      "ancho_pies": 4.0,
+      "distancia_metros": null,
+      "texto": ""
+    },
+    "ACERO ASTM A36 C.14": {
+      "habilitado": true,
+      "formato_id": "auto",
+      "tipo_compra": "",
+      "largo_pies": 10.0,
+      "ancho_pies": 4.0,
+      "distancia_metros": null,
+      "texto": ""
+    },
+    "ACERO ASTM A572 G50 1/2\"": {
+      "habilitado": true,
+      "formato_id": "auto",
+      "tipo_compra": "",
+      "largo_pies": 10.0,
+      "ancho_pies": 4.0,
+      "distancia_metros": null,
+      "texto": ""
+    },
+    "ACERO ASTM A572 G50 1/4\"": {
+      "habilitado": true,
+      "formato_id": "8x20",
+      "tipo_compra": "",
+      "largo_pies": 20.0,
+      "ancho_pies": 8.0,
+      "distancia_metros": null,
+      "texto": ""
+    },
+    "ACERO ASTM A572 G50 3/4\"": {
+      "habilitado": true,
+      "formato_id": "8x20",
+      "tipo_compra": "",
+      "largo_pies": 20.0,
+      "ancho_pies": 8.0,
+      "distancia_metros": null,
+      "texto": ""
+    },
+    "ACERO ASTM A572 G50 3/8\"": {
+      "habilitado": true,
+      "formato_id": "8x20",
+      "tipo_compra": "",
+      "largo_pies": 20.0,
+      "ancho_pies": 8.0,
+      "distancia_metros": null,
+      "texto": ""
+    },
+    "ACERO ASTM A572 G50 5/16\"": {
+      "habilitado": true,
+      "formato_id": "8x20",
+      "tipo_compra": "",
+      "largo_pies": 20.0,
+      "ancho_pies": 8.0,
+      "distancia_metros": null,
+      "texto": ""
+    },
+    "ACERO INOXIDABLE 304 CAL.16": {
+      "habilitado": true,
+      "formato_id": "auto",
+      "tipo_compra": "",
+      "largo_pies": 10.0,
+      "ancho_pies": 4.0,
+      "distancia_metros": null,
+      "texto": ""
+    },
+    "ALUMINIO 3003 C.11": {
+      "habilitado": true,
+      "formato_id": "5x20",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": null,
+      "texto": ""
+    },
+    "ALUMINIO 5052 1/4\"": {
+      "habilitado": true,
+      "formato_id": "5x20",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": null,
+      "texto": ""
+    },
+    "ANGULO ASTM A36 1 1/2\" X 1 1/2\" X 3/16\"": {
+      "habilitado": true,
+      "formato_id": "auto",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 6.0,
+      "texto": ""
+    },
+    "ANGULO ASTM A36 1\" X 1\" X 3/16\"": {
+      "habilitado": true,
+      "formato_id": "auto",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 6.0,
+      "texto": ""
+    },
+    "ANGULO ASTM A36 2\" X 2\" X 3/16\"": {
+      "habilitado": true,
+      "formato_id": "auto",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 6.0,
+      "texto": ""
+    },
+    "BARRA HUECA AISI 1018 Ø 33MM X 14MM": {
+      "habilitado": true,
+      "formato_id": "auto",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 6.0,
+      "texto": ""
+    },
+    "BARRA HUECA AISI 1018 Ø 40MM X 25MM": {
+      "habilitado": true,
+      "formato_id": "auto",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 6.0,
+      "texto": ""
+    },
+    "BARRA HUECA AISI 1018 Ø 50MM X 35MM": {
+      "habilitado": true,
+      "formato_id": "auto",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 6.0,
+      "texto": ""
+    },
+    "BARRA HUECA AISI 1018 Ø 76MM X 38MM": {
+      "habilitado": true,
+      "formato_id": "auto",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 6.0,
+      "texto": ""
+    },
+    "CANAL C A36 4\"": {
+      "habilitado": true,
+      "formato_id": "hss_12m",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 12.0,
+      "texto": ""
+    },
+    "HSS ASTM A500 °B 2 1/2\" X 2 1/2\" X 1/4\"": {
+      "habilitado": true,
+      "formato_id": "hss_12m",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 12.0,
+      "texto": ""
+    },
+    "HSS ASTM A500 °B 2 1/2\" X 2 1/2\" X 3/16\"": {
+      "habilitado": true,
+      "formato_id": "hss_12m",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 12.0,
+      "texto": ""
+    },
+    "HSS ASTM A500 °B 2\" X 2\" X 1/4\"": {
+      "habilitado": true,
+      "formato_id": "hss_12m",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 12.0,
+      "texto": ""
+    },
+    "HSS ASTM A500 °B 2\" X 2\" X 3/16\"": {
+      "habilitado": true,
+      "formato_id": "hss_12m",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 12.0,
+      "texto": ""
+    },
+    "HSS ASTM A500 °B 3\" X 2\" X 1/4\"": {
+      "habilitado": true,
+      "formato_id": "hss_12m",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 12.0,
+      "texto": ""
+    },
+    "HSS ASTM A500 °B 3\" X 2\" X 3/16\"": {
+      "habilitado": true,
+      "formato_id": "hss_12m",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 12.0,
+      "texto": ""
+    },
+    "HSS ASTM A500 °B 3\" X 3\" X 3/16\"": {
+      "habilitado": true,
+      "formato_id": "hss_12m",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 12.0,
+      "texto": ""
+    },
+    "HSS ASTM A500 °B 4 1/2\" X 3 1/2\" X 3/16\"": {
+      "habilitado": true,
+      "formato_id": "hss_12m",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 12.0,
+      "texto": ""
+    },
+    "HSS ASTM A500 °B 4\" X 2\" X 1/4\"": {
+      "habilitado": true,
+      "formato_id": "hss_12m",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 12.0,
+      "texto": ""
+    },
+    "HSS ASTM A500 °B 4\" X 2\" X 3/16\"": {
+      "habilitado": true,
+      "formato_id": "hss_12m",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 12.0,
+      "texto": ""
+    },
+    "HSS ASTM A500 °B 4\" X 3\" X 1/4\"": {
+      "habilitado": true,
+      "formato_id": "hss_12m",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 12.0,
+      "texto": ""
+    },
+    "HSS ASTM A500 °B 4\" X 3\" X 3/16\"": {
+      "habilitado": true,
+      "formato_id": "hss_12m",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 12.0,
+      "texto": ""
+    },
+    "HSS ASTM A500 °B 4\" X 3\" X 3/8\"": {
+      "habilitado": true,
+      "formato_id": "hss_12m",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 12.0,
+      "texto": ""
+    },
+    "HSS ASTM A500 °B 4\" X 4\" X 3/8\"": {
+      "habilitado": true,
+      "formato_id": "hss_12m",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 12.0,
+      "texto": ""
+    },
+    "HSS ASTM A500 °B 6\" X 2\" X 1/4\"": {
+      "habilitado": true,
+      "formato_id": "hss_12m",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 12.0,
+      "texto": ""
+    },
+    "HSS ASTM A500 °B 6\" X 3\" X 1/4\"": {
+      "habilitado": true,
+      "formato_id": "hss_12m",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 12.0,
+      "texto": ""
+    },
+    "HSS ASTM A500 °B 6\" X 3\" X 3/16\"": {
+      "habilitado": true,
+      "formato_id": "hss_12m",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 12.0,
+      "texto": ""
+    },
+    "HSS ASTM A500 °B 6\" X 4\" X 1/4\"": {
+      "habilitado": true,
+      "formato_id": "hss_12m",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 12.0,
+      "texto": ""
+    },
+    "HSS ASTM A500 °B 6\" X 4\" X 3/8\"": {
+      "habilitado": true,
+      "formato_id": "hss_12m",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 12.0,
+      "texto": ""
+    },
+    "PERFIL ALUMINIO PELDAÑO 688 6061 T6": {
+      "habilitado": true,
+      "formato_id": "tramo_6m",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 6.0,
+      "texto": ""
+    },
+    "PLACA STRENX 110 XF 3/16\"": {
+      "habilitado": true,
+      "formato_id": "4x40",
+      "tipo_compra": "",
+      "largo_pies": 40.0,
+      "ancho_pies": 4.0,
+      "distancia_metros": null,
+      "texto": ""
+    },
+    "PTR ASTM A36 1 1/2\" X 1 1/2\" X 3/16\"": {
+      "habilitado": true,
+      "formato_id": "auto",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 6.0,
+      "texto": ""
+    },
+    "PTR ASTM A36 1\" X 1\" X 3/16\"": {
+      "habilitado": true,
+      "formato_id": "auto",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 6.0,
+      "texto": ""
+    },
+    "REDONDO AISI 1018 Ø 1 1/2\"": {
+      "habilitado": true,
+      "formato_id": "auto",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 6.0,
+      "texto": ""
+    },
+    "REDONDO AISI 1018 Ø 1\"": {
+      "habilitado": true,
+      "formato_id": "auto",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 6.0,
+      "texto": ""
+    },
+    "REDONDO AISI 1018 Ø 1/2\"": {
+      "habilitado": true,
+      "formato_id": "auto",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 6.0,
+      "texto": ""
+    },
+    "REDONDO AISI 1018 Ø 2\"": {
+      "habilitado": true,
+      "formato_id": "auto",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 6.0,
+      "texto": ""
+    },
+    "REDONDO AISI 1018 Ø 3/4\"": {
+      "habilitado": true,
+      "formato_id": "auto",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 6.0,
+      "texto": ""
+    },
+    "REDONDO AISI 1018 Ø 7/8\"": {
+      "habilitado": true,
+      "formato_id": "auto",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 6.0,
+      "texto": ""
+    },
+    "REDONDO NEGRO Ø 5/16\"": {
+      "habilitado": true,
+      "formato_id": "auto",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 6.0,
+      "texto": ""
+    },
+    "REDONDO NEGRO Ø 5/8\"": {
+      "habilitado": true,
+      "formato_id": "auto",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 6.0,
+      "texto": ""
+    },
+    "RIEL DE ACERO A36 1500": {
+      "habilitado": true,
+      "formato_id": "tramo_6m",
+      "tipo_compra": "perfil",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 6.0,
+      "texto": "6"
+    },
+    "SEGURO DE RESORTE CORTO": {
+      "habilitado": true,
+      "formato_id": "directa",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 6.0,
+      "texto": ""
+    },
+    "SEGURO DE RESORTE LARGO": {
+      "habilitado": true,
+      "formato_id": "directa",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 6.0,
+      "texto": ""
+    },
+    "SOLERA ASTM A36 1 1/4\" X 1/4\"": {
+      "habilitado": true,
+      "formato_id": "auto",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 6.0,
+      "texto": ""
+    },
+    "SOLERA ASTM A36 1\" X 1/2\"": {
+      "habilitado": true,
+      "formato_id": "auto",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 6.0,
+      "texto": ""
+    },
+    "SOLERA ASTM A36 2\" X 1\"": {
+      "habilitado": true,
+      "formato_id": "auto",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 6.0,
+      "texto": ""
+    },
+    "SOLERA ASTM A36 4\" X 1\"": {
+      "habilitado": true,
+      "formato_id": "auto",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 6.0,
+      "texto": ""
+    },
+    "TUBO DE ACERO A500 °B Ø 1 1/2\" CED. 80": {
+      "habilitado": true,
+      "formato_id": "auto",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 6.0,
+      "texto": ""
+    },
+    "TUBO DE ALUMINIO B241 Ø  2\" X  1\" X 1/8\"": {
+      "habilitado": true,
+      "formato_id": "tramo_6m",
+      "tipo_compra": "",
+      "largo_pies": null,
+      "ancho_pies": null,
+      "distancia_metros": 6.0,
+      "texto": ""
+    },
+    "SIN DESCRIPCION": {
+      "habilitado": true,
+      "formato_id": "auto",
+      "tipo_compra": "",
+      "largo_pies": 10.0,
+      "ancho_pies": 4.0,
+      "distancia_metros": null,
+      "texto": ""
+    }
+  },
+  "revisions": {}
+}

@@ -2,6 +2,8 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../services/jwt_utils.dart';
+
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -19,9 +21,14 @@ class _SplashScreenState extends State<SplashScreen> {
   Future<void> _navigateToNext() async {
     final prefs = await SharedPreferences.getInstance();
     final isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
-    final hasToken = (prefs.getString('access_token') ?? '').trim().isNotEmpty;
-    // Sesión activa hasta que el usuario pulse "Cerrar sesión" (sin caducidad por días).
-    final actuallyLoggedIn = isLoggedIn && hasToken;
+    final token = (prefs.getString('access_token') ?? '').trim();
+    final hasToken = token.isNotEmpty;
+    // Sesión activa hasta que el usuario pulse "Cerrar sesión" (sin caducidad por
+    // días). Excepción: si el token JWT ya caducó (p. ej. emitido bajo la regla
+    // antigua de 7 días), se fuerza re-login para obtener un token vigente y
+    // evitar respuestas 401 del backend.
+    final tokenVigente = hasToken && !JwtUtils.isExpired(token);
+    final actuallyLoggedIn = isLoggedIn && tokenVigente;
 
     Timer(const Duration(milliseconds: 3000), () {
       if (mounted) {

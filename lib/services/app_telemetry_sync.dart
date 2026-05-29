@@ -66,4 +66,16 @@ class AppTelemetrySync {
       ),
     );
   }
+
+  /// Latido de presencia: marca al usuario como "conectado" y registra la
+  /// pantalla que está viendo. Usa el código reservado `heartbeat`, que el
+  /// backend excluye de los conteos de "destinos más frecuentes".
+  static void reportHeartbeat({
+    NavPaneId? paneId,
+    required String roleRaw,
+  }) {
+    final etiqueta =
+        paneId != null ? etiquetaNavPane(paneId) : 'En la aplicación';
+    unawaited(_post('sesion', 'heartbeat', etiqueta, roleRaw));
+  }
 }

@@ -1,5 +1,19 @@
 [
   {
+    "build": 365,
+    "v": "365.0",
+    "tipo": "mejora",
+    "fecha": "2026-05-29",
+    "notas": "UX: Login redesignado (gradiente, avatar 90px, espacios amplios, error box rojo). Notificaciones ampliadas (520x560 → 880x720 px). Performance: health check 10s→60s, tareas 12s→30s, heartbeat 90s→120s, telemetría 30s→60s (70% menos requests)."
+  },
+  {
+    "build": 364,
+    "v": "364.0",
+    "tipo": "mejora",
+    "fecha": "2026-05-29",
+    "notas": "Telemetría: acceso para Desarrollador e Ingeniería (antes solo Desarrollador); nueva sección 'Usuarios conectados' con presencia en tiempo real (quién está conectado y qué módulo ve) vía heartbeat de 90 s. Token JWT caducado fuerza re-login automático (corrige 401 con tokens viejos de 7 días). MRP Requerimientos sin candado para Ingeniería (acceso dev+ingeniería)."
+  },
+  {
     "build": 363,
     "v": "363.0",
     "tipo": "mejora",

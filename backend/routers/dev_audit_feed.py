@@ -10,23 +10,9 @@ from jwt_tokens import decode_access_token_payload
 
 router = APIRouter()
 
-_ROLES_DEV_FEED = frozenset(
-    {
-        "DESARROLLADOR",
-        "DESARROLLO",
-        "DEVELOPER",
-        "DEV",
-        "PROGRAMADOR",
-    }
-)
-
-
-def _require_desarrollador(authorization: Optional[str]) -> str:
-    data = decode_access_token_payload(authorization)
-    if not data:
-        raise HTTPException(status_code=401, detail="No autorizado")
-    rol = (
-        str(data.get("rol") or "")
+def _rol_normalizado(data: Optional[Dict[str, Any]]) -> str:
+    return (
+        str((data or {}).get("rol") or "")
         .strip()
         .upper()
         .replace("Á", "A")
@@ -35,10 +21,30 @@ def _require_desarrollador(authorization: Optional[str]) -> str:
         .replace("Ó", "O")
         .replace("Ú", "U")
     )
-    if rol not in _ROLES_DEV_FEED:
+
+
+def _es_dev_o_ingenieria(rol_norm: str) -> bool:
+    """Acceso al feed de auditoría: rol desarrollador o ingeniería (tolerante a sufijos)."""
+    if not rol_norm:
+        return False
+    if rol_norm == "DEV":
+        return True
+    if any(
+        k in rol_norm
+        for k in ("DESARROLLAD", "DESAROLLAD", "DESARROLLO", "DEVELOPER", "PROGRAMADOR")
+    ):
+        return True
+    return "INGENIERIA" in rol_norm or "METODOS" in rol_norm
+
+
+def _require_desarrollador(authorization: Optional[str]) -> str:
+    data = decode_access_token_payload(authorization)
+    if not data:
+        raise HTTPException(status_code=401, detail="No autorizado")
+    if not _es_dev_o_ingenieria(_rol_normalizado(data)):
         raise HTTPException(
             status_code=403,
-            detail="Solo el rol desarrollador puede consultar este feed",
+            detail="Solo desarrollador e ingeniería pueden consultar este feed",
         )
     sub = str(data.get("sub") or "").strip()
     if not sub:

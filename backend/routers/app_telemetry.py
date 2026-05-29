@@ -13,25 +13,14 @@ from schema_guard import table_exists
 
 router = APIRouter()
 
-_ROLES_DEV = frozenset(
-    {
-        "DESARROLLADOR",
-        "DESARROLLO",
-        "DEVELOPER",
-        "DEV",
-        "PROGRAMADOR",
-    }
-)
-
-_ALLOWED_TIPOS = frozenset({"nav", "feature", "sesion"})
+# Código que marca el heartbeat de presencia (no es navegación real; se excluye
+# de las agregaciones de "destinos más frecuentes" y conteos de actividad).
+_HEARTBEAT_CODIGO = "heartbeat"
 
 
-def _require_desarrollador(authorization: Optional[str]) -> None:
-    data = decode_access_token_payload(authorization)
-    if not data:
-        raise HTTPException(status_code=401, detail="No autorizado")
-    rol = (
-        str(data.get("rol") or "")
+def _rol_normalizado(data: Optional[Dict[str, Any]]) -> str:
+    return (
+        str((data or {}).get("rol") or "")
         .strip()
         .upper()
         .replace("Á", "A")
@@ -40,10 +29,38 @@ def _require_desarrollador(authorization: Optional[str]) -> None:
         .replace("Ó", "O")
         .replace("Ú", "U")
     )
-    if rol not in _ROLES_DEV:
+
+
+def _es_dev_o_ingenieria(rol_norm: str) -> bool:
+    """Acceso a la telemetría/auditoría: rol desarrollador o ingeniería.
+
+    Tolerante a sufijos/prefijos (p. ej. 'INGENIERIA IMV353', 'ROL: DESARROLLADOR').
+    """
+    if not rol_norm:
+        return False
+    if rol_norm == "DEV":
+        return True
+    if any(
+        k in rol_norm
+        for k in ("DESARROLLAD", "DESAROLLAD", "DESARROLLO", "DEVELOPER", "PROGRAMADOR")
+    ):
+        return True
+    if "INGENIERIA" in rol_norm or "METODOS" in rol_norm:
+        return True
+    return False
+
+
+_ALLOWED_TIPOS = frozenset({"nav", "feature", "sesion"})
+
+
+def _require_telemetria(authorization: Optional[str]) -> None:
+    data = decode_access_token_payload(authorization)
+    if not data:
+        raise HTTPException(status_code=401, detail="No autorizado")
+    if not _es_dev_o_ingenieria(_rol_normalizado(data)):
         raise HTTPException(
             status_code=403,
-            detail="Solo el rol desarrollador puede consultar la telemetría agregada",
+            detail="Solo desarrollador e ingeniería pueden consultar la telemetría agregada",
         )
 
 
@@ -140,7 +157,7 @@ def resumen_telemetria(
     days: int = Query(14, ge=1, le=90),
     authorization: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
-    _require_desarrollador(authorization)
+    _require_telemetria(authorization)
     conn = get_db_connection()
     cur = conn.cursor()
     try:
@@ -150,8 +167,9 @@ def resumen_telemetria(
             SELECT COUNT(*), COUNT(DISTINCT Usuario_Login)
             FROM dbo.Tbl_App_Uso_Eventos
             WHERE Fecha_Hora >= DATEADD(day, ?, SYSUTCDATETIME())
+              AND Destino_Codigo <> ?
             """,
-            (-days,),
+            (-days, _HEARTBEAT_CODIGO),
         )
         row = cur.fetchone()
         total = int(row[0]) if row and row[0] is not None else 0
@@ -162,10 +180,11 @@ def resumen_telemetria(
             SELECT TOP 18 Destino_Etiqueta, COUNT(*) AS n
             FROM dbo.Tbl_App_Uso_Eventos
             WHERE Fecha_Hora >= DATEADD(day, ?, SYSUTCDATETIME())
+              AND Destino_Codigo <> ?
             GROUP BY Destino_Etiqueta
             ORDER BY n DESC
             """,
-            (-days,),
+            (-days, _HEARTBEAT_CODIGO),
         )
         top_dest: List[Dict[str, Any]] = []
         for r in cur.fetchall() or []:
@@ -176,10 +195,11 @@ def resumen_telemetria(
             SELECT CAST(Fecha_Hora AS DATE) AS d, COUNT(*) AS n
             FROM dbo.Tbl_App_Uso_Eventos
             WHERE Fecha_Hora >= DATEADD(day, ?, SYSUTCDATETIME())
+              AND Destino_Codigo <> ?
             GROUP BY CAST(Fecha_Hora AS DATE)
             ORDER BY d ASC
             """,
-            (-days,),
+            (-days, _HEARTBEAT_CODIGO),
         )
         por_dia: List[Dict[str, Any]] = []
         for r in cur.fetchall() or []:
@@ -196,10 +216,11 @@ def resumen_telemetria(
             SELECT TOP 12 Usuario_Login, COUNT(*) AS n
             FROM dbo.Tbl_App_Uso_Eventos
             WHERE Fecha_Hora >= DATEADD(day, ?, SYSUTCDATETIME())
+              AND Destino_Codigo <> ?
             GROUP BY Usuario_Login
             ORDER BY n DESC
             """,
-            (-days,),
+            (-days, _HEARTBEAT_CODIGO),
         )
         top_users: List[Dict[str, Any]] = []
         for r in cur.fetchall() or []:
@@ -211,6 +232,66 @@ def resumen_telemetria(
             "top_destinos": top_dest,
             "por_dia": por_dia,
             "top_usuarios": top_users,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.get("/api/dev/telemetry/activos")
+def usuarios_activos(
+    minutes: int = Query(10, ge=1, le=240),
+    authorization: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    """Usuarios con actividad reciente y la última pantalla que estaban viendo.
+
+    "Conectado" = registró cualquier evento (navegación, acción o heartbeat de
+    presencia) dentro de la ventana `minutes`. Para cada usuario se devuelve su
+    evento más reciente, cuya etiqueta indica qué módulo estaba viendo.
+    """
+    _require_telemetria(authorization)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        _prepare_telemetry_table(cur)
+        cur.execute(
+            """
+            SELECT t.Usuario_Login, t.Rol_Efectivo, t.Destino_Etiqueta,
+                   t.Tipo, t.Fecha_Hora,
+                   DATEDIFF(SECOND, t.Fecha_Hora, SYSUTCDATETIME()) AS seg
+            FROM dbo.Tbl_App_Uso_Eventos t
+            INNER JOIN (
+                SELECT Usuario_Login, MAX(Fecha_Hora) AS mx
+                FROM dbo.Tbl_App_Uso_Eventos
+                WHERE Fecha_Hora >= DATEADD(MINUTE, ?, SYSUTCDATETIME())
+                GROUP BY Usuario_Login
+            ) u ON u.Usuario_Login = t.Usuario_Login AND u.mx = t.Fecha_Hora
+            ORDER BY t.Fecha_Hora DESC
+            """,
+            (-minutes,),
+        )
+        vistos: set = set()
+        activos: List[Dict[str, Any]] = []
+        for r in cur.fetchall() or []:
+            usuario = str(r[0] or "")
+            if usuario in vistos:
+                continue
+            vistos.add(usuario)
+            seg = int(r[5] or 0)
+            activos.append(
+                {
+                    "usuario_login": usuario,
+                    "rol_efectivo": str(r[1] or ""),
+                    "viendo": str(r[2] or ""),
+                    "tipo": str(r[3] or ""),
+                    "hace_segundos": max(0, seg),
+                }
+            )
+        return {
+            "minutes": minutes,
+            "conectados": len(activos),
+            "usuarios": activos,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

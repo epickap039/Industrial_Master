@@ -97,6 +97,24 @@ const Set<NavPaneId> kNavPaneIdsUnderReview = <NavPaneId>{
 
 bool navPaneUnderReview(NavPaneId id) => kNavPaneIdsUnderReview.contains(id);
 
+/// ¿El panel [id] debe mostrarse bloqueado (en revisión) para [role]?
+///
+/// - **Desarrollador**: nunca bloqueado (acceso completo).
+/// - **Ingeniería / métodos**: acceso a MRP (requerimientos y optimización de
+///   corte) sin candado; el resto de módulos en revisión sí permanecen
+///   bloqueados.
+/// - Resto de roles: bloqueado si el panel está en revisión.
+bool navPaneLockedForRole(NavPaneId id, AppRole role) {
+  if (role == AppRole.desarrollador) return false;
+  if (!kNavPaneIdsUnderReview.contains(id)) return false;
+  if (role == AppRole.ingenieriaMetodos &&
+      (id == NavPaneId.requerimientosMrp ||
+          id == NavPaneId.optimizarCorteMp)) {
+    return false;
+  }
+  return true;
+}
+
 List<NavPaneId> visibleNavPanes(AppRole r) =>
     kNavPaneOrder.where((id) => _shows(id, r)).toList(growable: false);
 

@@ -349,7 +349,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ],
-          if (role == AppRole.desarrollador) ...[
+          if (role.canViewDevTelemetry) ...[
             const SizedBox(height: 10),
             Expander(
               header: Text(
